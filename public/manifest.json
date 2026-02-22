@@ -1,0 +1,18 @@
+{
+  "name": "World Garden",
+  "short_name": "World Garden",
+  "description": "Listen to Wikipedia articles — an audio-first, accessibility-focused experience.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#171717",
+  "theme_color": "#036b4a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["education", "utilities"]
+}
