@@ -14,7 +14,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Audio playback** — Listen to any Wikipedia article section by section. Play a single section, or hit Play All for the full lean-back experience with automatic progression. Adjustable speed from 0.5× to 3×, with your preference saved between sessions. Resume from where you left off when you return to an article. Download full articles as MP3 for offline listening.
 
-**Three-tier TTS** — Choose the voice engine that fits your needs. **Edge TTS** (default when set up) uses Microsoft's neural voices for free, high-quality audio with full seek, scrub, and download support. **Browser SpeechSynthesis** works out of the box with zero setup. **ElevenLabs** (bring your own API key) offers premium voices — your key stays in your browser and is never sent to our servers.
+**Two-tier TTS** — Choose the voice engine that fits your needs. **Edge TTS** (default) uses Microsoft's neural voices for free, high-quality audio with full seek, scrub, and download support. **ElevenLabs** (bring your own API key) offers premium voices — your key stays in your browser and is never sent to our servers.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article, or tap "Surprise me" for a random article (with an NSFW category filter so you get something safe). After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
@@ -30,20 +30,18 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
-- **TTS:** Edge TTS (free neural voices via Python `edge-tts`), Browser SpeechSynthesis (zero-setup fallback), or ElevenLabs (bring your own API key)
+- **TTS:** Edge TTS (free neural voices via Python `edge-tts`) or ElevenLabs (bring your own API key)
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
 - **Testing:** Vitest
 
 ## Audio Architecture
 
-World Garden has a three-tier audio system. All tiers normalize text before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
+World Garden has a two-tier audio system. Both tiers normalize text before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-1. **Edge TTS (recommended):** Free, high-quality neural voices from Microsoft via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Runs as a local Python process during development and as a Vercel Python serverless function in production. Default voice is `en-US-AriaNeural`. Produces MP3s with full seek, scrub, and download support. Requires a one-time Python setup (see [Edge TTS Setup](#edge-tts-setup-optional) below).
+1. **Edge TTS (default):** Free, high-quality neural voices from Microsoft via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Runs as a local Python process during development and as a Vercel Python serverless function in production. Default voice is `en-US-AriaNeural`. Produces MP3s with full seek, scrub, and download support. On Vercel, this works out of the box. For local development, see [Local Audio Setup](#local-audio-setup) below.
 
-2. **Browser SpeechSynthesis (zero-setup fallback):** Uses your browser's built-in speech engine — no API keys, no setup. Long text is chunked into sentences to work around Chrome's ~15-second limit. Voice quality varies by browser and OS.
-
-3. **ElevenLabs (premium, opt-in):** Open the Settings panel (gear icon in the navbar) and enter your ElevenLabs API key. Audio is generated client-side — your key never leaves your browser. Produces downloadable MP3s with full seek/scrub support. The Convex backend also contains a server-side TTS pipeline (`convex/audio.ts`, `convex/lib/elevenlabs.ts`) for hosted generation with caching.
+2. **ElevenLabs (premium, opt-in):** Open the Settings panel (gear icon in the navbar) and enter your ElevenLabs API key. Audio is generated client-side — your key never leaves your browser. Produces downloadable MP3s with full seek/scrub support. The Convex backend also contains a server-side TTS pipeline (`convex/audio.ts`, `convex/lib/elevenlabs.ts`) for hosted generation with caching.
 
 ## Quick Start (Local Mode)
 
@@ -54,9 +52,9 @@ npm install
 npm run local
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Articles are fetched live from Wikipedia and read aloud using your browser's built-in speech engine. History, bookmarks, playback speed, and theme are persisted in localStorage.
+Open [http://localhost:3000](http://localhost:3000). You can browse, search, and navigate articles immediately. History, bookmarks, playback speed, and theme are persisted in localStorage.
 
-For better audio quality, set up [Edge TTS](#edge-tts-setup-optional) (free, takes 30 seconds).
+Audio requires a one-time Python setup (takes 30 seconds) — see [Local Audio Setup](#local-audio-setup) below.
 
 ## Full Setup (with Convex)
 
@@ -94,24 +92,32 @@ This starts both the Next.js frontend and the Convex backend in parallel.
 - Frontend: [http://localhost:3000](http://localhost:3000)
 - Convex dashboard: [https://dashboard.convex.dev](https://dashboard.convex.dev)
 
-## Edge TTS Setup (Optional)
+## Local Audio Setup
 
-For higher-quality audio than Browser SpeechSynthesis (free, no API key needed):
+Edge TTS uses Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically — no setup needed. For local development, you need Python 3 and a one-time venv install:
 
 ```bash
 python3 -m venv /tmp/edge-tts-venv
 /tmp/edge-tts-venv/bin/pip install edge-tts
 ```
 
-Then start the dev server with Edge TTS enabled:
+That's it. The Next.js API route at `app/api/tts/route.ts` shells out to this venv automatically when you run any dev command (`npm run local`, `npm run dev`, etc.).
+
+If you want to run the standalone Python TTS server instead (useful for testing the Vercel function locally):
 
 ```bash
 npm run dev:python
 ```
 
-This starts Next.js, Convex, and a local Python TTS server in parallel. Audio requests are routed to the Python process, which generates MP3s using Microsoft's neural voices.
+This starts Next.js, Convex, and a dedicated Python TTS server in parallel. Audio requests are rewritten to the Python server on port 3001.
 
-On Vercel, Edge TTS runs as a Python serverless function at `/api/tts` — no extra setup needed for production deployments.
+### Customizing the Python path
+
+If your Python environment is somewhere other than `/tmp/edge-tts-venv`, set the `EDGE_TTS_PYTHON_PATH` environment variable:
+
+```bash
+EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
+```
 
 ## Environment Variables
 
@@ -120,8 +126,8 @@ On Vercel, Edge TTS runs as a Python serverless function at `/api/tts` — no ex
 | `NEXT_PUBLIC_CONVEX_URL` | Convex mode | Convex deployment URL (auto-generated by `npx convex dev`) |
 | `CONVEX_DEPLOYMENT` | Convex mode | Convex deployment identifier |
 | `NEXT_PUBLIC_LOCAL_MODE` | No | Set to `"true"` to run without Convex |
-| `USE_PYTHON_TTS` | No | Enable Python TTS route rewriting in local dev |
-| `TTS_PORT` | No | Port for the Python TTS dev server (default: `3001`) |
+| `USE_PYTHON_TTS` | No | Route `/api/tts` to the standalone Python TTS server (used by `npm run dev:python`) |
+| `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `/tmp/edge-tts-venv/bin/python3`) |
 
 **Convex dashboard variables** (for server-side ElevenLabs TTS):
@@ -137,7 +143,7 @@ On Vercel, Edge TTS runs as a Python serverless function at `/api/tts` — no ex
 |---|---|
 | `npm run dev` | Start Next.js + Convex backend |
 | `npm run dev:python` | Start Next.js + Convex + Python TTS server |
-| `npm run local` | Local mode — no Convex, browser TTS only |
+| `npm run local` | Local mode — no Convex, audio via local Python edge-tts |
 | `npm run build` | Production build (handles Vercel environments) |
 | `npm test` | Run Vitest unit tests |
 | `npm run test:watch` | Watch mode tests |
