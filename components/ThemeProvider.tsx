@@ -4,7 +4,8 @@ import {
   createContext,
   useContext,
   useCallback,
-  useState,
+  useEffect,
+  useSyncExternalStore,
   ReactNode,
 } from "react";
 
@@ -15,29 +16,42 @@ const THEME_COLORS: Record<Theme, string> = { light: "#f7f6f3", dark: "#171717" 
 
 const ThemeContext = createContext<ThemeContextType | null>(null);
 
-const readThemeFromDom = (): Theme => {
-  if (typeof document === "undefined") return "dark";
-  return document.documentElement.classList.contains("light") ? "light" : "dark";
+const themeListeners = new Set<() => void>();
+
+const subscribeTheme = (callback: () => void) => {
+  themeListeners.add(callback);
+  return () => { themeListeners.delete(callback); };
 };
 
-const syncThemeColorMeta = (theme: Theme) => {
+const getThemeSnapshot = (): Theme =>
+  document.documentElement.classList.contains("light") ? "light" : "dark";
+
+const getThemeServerSnapshot = (): Theme => "dark";
+
+const applyTheme = (theme: Theme) => {
+  document.documentElement.classList.remove("light", "dark");
+  document.documentElement.classList.add(theme);
+  document.documentElement.style.colorScheme = theme;
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", THEME_COLORS[theme]);
+  themeListeners.forEach((l) => l());
 };
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setTheme] = useState<Theme>(readThemeFromDom);
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") as Theme | null;
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const resolved: Theme = stored ?? (prefersDark ? "dark" : "light");
+    applyTheme(resolved);
+  }, []);
 
   const toggleTheme = useCallback(() => {
-    const current = readThemeFromDom();
-    const next: Theme = current === "dark" ? "light" : "dark";
+    const next: Theme = theme === "dark" ? "light" : "dark";
     localStorage.setItem("theme", next);
-    document.documentElement.classList.remove("light", "dark");
-    document.documentElement.classList.add(next);
-    document.documentElement.style.colorScheme = next;
-    syncThemeColorMeta(next);
-    setTheme(next);
-  }, []);
+    applyTheme(next);
+  }, [theme]);
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
