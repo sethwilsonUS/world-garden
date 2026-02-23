@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useData } from "@/lib/data-context";
+import { warmSummaryAudio } from "@/lib/audio-prefetch";
 
 type SearchResult = {
   wikiPageId: string;
@@ -12,7 +13,7 @@ type SearchResult = {
 };
 
 export const SearchResultsList = ({ term }: { term: string }) => {
-  const { search: searchAction } = useData();
+  const { search: searchAction, fetchArticle } = useData();
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +103,14 @@ export const SearchResultsList = ({ term }: { term: string }) => {
       }
     },
     [results.length],
+  );
+
+  const handleWarmAudio = useCallback(
+    (title: string) => {
+      const slug = title.replace(/ /g, "_");
+      warmSummaryAudio(slug, fetchArticle);
+    },
+    [fetchArticle],
   );
 
   if (loading) {
@@ -213,6 +222,8 @@ export const SearchResultsList = ({ term }: { term: string }) => {
               href={`/article/${encodeURIComponent(result.title.replace(/ /g, "_"))}`}
               className="result-link flex items-center gap-4 py-3.5 px-[18px] no-underline rounded-[14px] bg-surface-2 border border-border transition-all duration-150"
               aria-label={`${index + 1}. ${result.title}: ${result.description}`}
+              onMouseEnter={() => handleWarmAudio(result.title)}
+              onFocus={() => handleWarmAudio(result.title)}
             >
               <span
                 className="flex items-center justify-center w-7 h-7 rounded-lg bg-accent-bg text-accent text-xs font-bold shrink-0 font-mono"

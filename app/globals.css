@@ -448,64 +448,94 @@ body {
   background-color: var(--color-surface-3);
 }
 
-/* ── Inline TOC Progress Bar ── */
+/* ── Inline TOC Scrubber ── */
+.toc-scrubber {
+  --thumb-size: 0px;
+  --track-h: 5px;
+  transition: --thumb-size 0.2s ease;
+}
+
+.toc-scrubber:hover,
+.toc-scrubber:focus-within {
+  --thumb-size: 14px;
+}
+
 .toc-progress-range {
   -webkit-appearance: none !important;
   appearance: none !important;
   width: 100% !important;
-  height: 4px !important;
-  border-radius: 2px !important;
+  height: var(--track-h) !important;
+  border-radius: 999px !important;
   background: linear-gradient(
     to right,
-    var(--accent) 0%,
-    var(--accent) var(--progress, 0%),
-    rgba(255,255,255,0.1) var(--progress, 0%),
-    rgba(255,255,255,0.1) 100%
+    var(--color-accent) 0%,
+    var(--color-accent) var(--progress, 0%),
+    var(--color-surface-3) var(--progress, 0%),
+    var(--color-surface-3) 100%
   ) !important;
   cursor: pointer !important;
   outline: none !important;
   border: none !important;
   margin: 0 !important;
   padding: 0 !important;
+  transition: height 0.15s ease;
+}
+
+.toc-scrubber:hover .toc-progress-range,
+.toc-scrubber:focus-within .toc-progress-range {
+  height: 6px !important;
 }
 
 .toc-progress-range:focus-visible {
-  outline: 2px solid var(--accent) !important;
+  outline: 2px solid var(--color-accent) !important;
   outline-offset: 4px !important;
+  border-radius: 999px !important;
 }
 
 .toc-progress-range::-webkit-slider-thumb {
   -webkit-appearance: none !important;
   appearance: none !important;
-  width: 12px !important;
-  height: 12px !important;
+  width: var(--thumb-size) !important;
+  height: var(--thumb-size) !important;
   border-radius: 50% !important;
-  background: #fff !important;
-  border: none !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+  background: var(--color-accent) !important;
+  border: 2px solid var(--color-surface-2) !important;
+  box-shadow:
+    0 0 0 2px var(--color-accent-border),
+    0 0 8px var(--color-accent-glow) !important;
   cursor: pointer !important;
+  transition: width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.toc-progress-range::-webkit-slider-thumb:hover {
+  box-shadow:
+    0 0 0 3px var(--color-accent-border),
+    0 0 12px var(--color-accent-glow) !important;
 }
 
 .toc-progress-range::-moz-range-thumb {
-  width: 12px !important;
-  height: 12px !important;
+  width: var(--thumb-size) !important;
+  height: var(--thumb-size) !important;
   border-radius: 50% !important;
-  background: #fff !important;
-  border: none !important;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+  background: var(--color-accent) !important;
+  border: 2px solid var(--color-surface-2) !important;
+  box-shadow:
+    0 0 0 2px var(--color-accent-border),
+    0 0 8px var(--color-accent-glow) !important;
   cursor: pointer !important;
+  transition: width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease !important;
 }
 
 .toc-progress-range::-moz-range-track {
-  height: 4px !important;
-  border-radius: 2px !important;
-  background: rgba(255,255,255,0.1) !important;
+  height: var(--track-h) !important;
+  border-radius: 999px !important;
+  background: var(--color-surface-3) !important;
 }
 
 .toc-progress-range::-moz-range-progress {
-  height: 4px !important;
-  border-radius: 2px !important;
-  background: var(--accent) !important;
+  height: var(--track-h) !important;
+  border-radius: 999px !important;
+  background: var(--color-accent) !important;
 }
 
 /* ── Audio Pulse Animation ── */

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useData } from "@/lib/data-context";
+import { warmSummaryAudio } from "@/lib/audio-prefetch";
 
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
 
@@ -90,22 +92,46 @@ const fetchSafeRandomArticle = async (maxAttempts = 2): Promise<string> => {
 
 export const RandomArticleButton = () => {
   const router = useRouter();
+  const { fetchArticle } = useData();
   const [loading, setLoading] = useState(false);
+  const prePicked = useRef<Promise<string> | null>(null);
+
+  const prePick = useCallback(() => {
+    if (prePicked.current) return;
+    prePicked.current = fetchSafeRandomArticle().then((title) => {
+      const slug = title.replace(/ /g, "_");
+      warmSummaryAudio(slug, fetchArticle);
+      return title;
+    }).catch(() => {
+      prePicked.current = null;
+      return "";
+    });
+  }, [fetchArticle]);
 
   const handleClick = useCallback(async () => {
     setLoading(true);
     try {
-      const title = await fetchSafeRandomArticle();
+      let title = "";
+      if (prePicked.current) {
+        title = await prePicked.current;
+      }
+      if (!title) {
+        title = await fetchSafeRandomArticle();
+      }
       const slug = encodeURIComponent(title.replace(/ /g, "_"));
+      prePicked.current = null;
       router.push(`/article/${slug}`);
     } catch {
       setLoading(false);
+      prePicked.current = null;
     }
   }, [router]);
 
   return (
     <button
       onClick={handleClick}
+      onMouseEnter={prePick}
+      onFocus={prePick}
       disabled={loading}
       aria-label="Listen to a random Wikipedia article"
       className={`linked-article-link inline-flex items-center gap-1.5 py-2 px-[18px] bg-transparent text-foreground-2 border border-border rounded-full font-medium text-[0.8125rem] font-[inherit] transition-all duration-200 ${loading ? "cursor-wait opacity-60" : "cursor-pointer"}`}
