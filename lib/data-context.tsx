@@ -23,6 +23,8 @@ export type Article = {
   lastEdited?: string;
   summary?: string;
   thumbnailUrl?: string;
+  thumbnailWidth?: number;
+  thumbnailHeight?: number;
   sections?: Section[];
 };
 

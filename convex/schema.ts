@@ -11,6 +11,8 @@ export default defineSchema({
     lastFetchedAt: v.number(),
     summary: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
+    thumbnailWidth: v.optional(v.number()),
+    thumbnailHeight: v.optional(v.number()),
     sections: v.optional(
       v.array(
         v.object({
