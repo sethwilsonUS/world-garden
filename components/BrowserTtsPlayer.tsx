@@ -6,6 +6,7 @@ import {
   type PlaybackRate,
   formatRate,
 } from "@/hooks/usePlaybackRate";
+import { useBrowserTtsVoice } from "@/hooks/useBrowserTtsVoice";
 
 type BrowserTtsPlayerProps = {
   text: string;
@@ -68,6 +69,7 @@ export const BrowserTtsPlayer = ({
     () => typeof window !== "undefined" && "speechSynthesis" in window,
   );
   const [rateAnnouncement, setRateAnnouncement] = useState("");
+  const voiceRef = useBrowserTtsVoice();
 
   const playBtnRef = useRef<HTMLButtonElement>(null);
   const chunksRef = useRef<string[]>([]);
@@ -96,6 +98,7 @@ export const BrowserTtsPlayer = ({
       }
 
       const utterance = new SpeechSynthesisUtterance(chunks[index]);
+      if (voiceRef.current) utterance.voice = voiceRef.current;
       utterance.rate = rateRef.current;
       chunkIndexRef.current = index;
 
