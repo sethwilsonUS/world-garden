@@ -135,17 +135,17 @@ export const AudioPlayer = ({
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div role="group" aria-label={`Audio player for ${title}`}>
+    <div role="group" aria-label={`Audio player for ${title}`} className="w-full md:w-[480px]">
       {/* Now playing label */}
       <p
-        className="flex items-center gap-2 font-display font-semibold text-[0.8125rem] text-muted m-0 mb-2 tracking-[0.01em]"
+        className="flex items-center gap-2 font-display font-semibold text-[0.8125rem] text-muted m-0 mb-2 tracking-[0.01em] overflow-hidden"
         aria-live="polite"
       >
         <span
           className="audio-pulse shrink-0 w-2 h-2 rounded-full bg-accent"
           aria-hidden="true"
         />
-        {displayLabel}
+        <span className="truncate">{displayLabel}</span>
       </p>
 
       {/* Main player surface */}
