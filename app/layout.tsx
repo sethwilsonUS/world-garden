@@ -38,8 +38,12 @@ const themeInitScript = `
       theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     }
     document.documentElement.classList.add(theme);
+    document.documentElement.style.colorScheme = theme;
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'light' ? '#f7f6f3' : '#171717');
   } catch(e) {
     document.documentElement.classList.add('dark');
+    document.documentElement.style.colorScheme = 'dark';
   }
 })();
 `;
@@ -61,7 +65,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style dangerouslySetInnerHTML={{ __html: themeToggleCss }} />
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#036b4a" />
+        <meta name="theme-color" content="#171717" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

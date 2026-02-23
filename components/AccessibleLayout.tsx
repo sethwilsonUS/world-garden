@@ -1,9 +1,12 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState, useRef, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
 import { SettingsButton } from "./SettingsPanel";
+
+const MOBILE_MENU_ID = "mobile-nav-menu";
 
 const LeafIcon = ({ size = 24 }: { size?: number }) => {
   return (
@@ -29,7 +32,98 @@ const LeafIcon = ({ size = 24 }: { size?: number }) => {
   );
 };
 
+const HamburgerIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    width={20}
+    height={20}
+    aria-hidden="true"
+  >
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <line x1="3" y1="12" x2="21" y2="12" />
+    <line x1="3" y1="18" x2="21" y2="18" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    width={20}
+    height={20}
+    aria-hidden="true"
+  >
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
 export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+
+  const closeMobileMenu = useCallback(() => {
+    setMobileMenuOpen(false);
+    hamburgerRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeMobileMenu();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mobileMenuOpen, closeMobileMenu]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen || !menuRef.current) return;
+    const firstLink = menuRef.current.querySelector<HTMLElement>("a, button");
+    firstLink?.focus();
+  }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen || !menuRef.current) return;
+    const menu = menuRef.current;
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusable = menu.querySelectorAll<HTMLElement>(
+        'a[href], button, input, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mobileMenuOpen]);
+
   return (
     <>
       <a href="#main-content" className="skip-link">
@@ -46,10 +140,11 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
             className="flex items-center gap-2 font-semibold font-display text-foreground no-underline"
           >
             <LeafIcon size={22} />
-            <span className="text-base">World Garden</span>
+            <span className="text-sm sm:text-base whitespace-nowrap">World Garden</span>
           </Link>
 
-          <div className="flex items-center gap-3">
+          {/* Desktop nav */}
+          <div className="hidden sm:flex items-center gap-3">
             <Link
               href="/"
               className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
@@ -65,7 +160,49 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
             <SettingsButton />
             <ThemeToggle />
           </div>
+
+          {/* Mobile: settings + theme toggle + hamburger */}
+          <div className="flex sm:hidden items-center gap-1">
+            <SettingsButton />
+            <ThemeToggle />
+            <button
+              ref={hamburgerRef}
+              onClick={() => setMobileMenuOpen((v) => !v)}
+              aria-expanded={mobileMenuOpen}
+              aria-controls={MOBILE_MENU_ID}
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              className="flex items-center justify-center w-9 h-9 rounded-lg text-foreground bg-transparent border-0 cursor-pointer transition-colors duration-200"
+            >
+              {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
+            </button>
+          </div>
         </nav>
+
+        {/* Mobile menu panel */}
+        {mobileMenuOpen && (
+          <div
+            id={MOBILE_MENU_ID}
+            ref={menuRef}
+            role="navigation"
+            aria-label="Mobile navigation"
+            className="sm:hidden absolute top-full left-0 right-0 bg-surface-nav backdrop-blur-2xl border-b border-border shadow-lg"
+          >
+            <div className="container mx-auto px-4 py-4 flex flex-col gap-1">
+              <Link
+                href="/"
+                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+              >
+                Home
+              </Link>
+              <Link
+                href="/library"
+                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+              >
+                Library
+              </Link>
+            </div>
+          </div>
+        )}
       </header>
 
       <main

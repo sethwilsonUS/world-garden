@@ -12,11 +12,18 @@ import {
 type Theme = "light" | "dark";
 type ThemeContextType = { theme: Theme; toggleTheme: () => void };
 
+const THEME_COLORS: Record<Theme, string> = { light: "#f7f6f3", dark: "#171717" };
+
 const ThemeContext = createContext<ThemeContextType | null>(null);
 
 const readThemeFromDom = (): Theme => {
   if (typeof document === "undefined") return "dark";
   return document.documentElement.classList.contains("light") ? "light" : "dark";
+};
+
+const syncThemeColorMeta = (theme: Theme) => {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", THEME_COLORS[theme]);
 };
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
@@ -32,6 +39,8 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem("theme", next);
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.classList.add(next);
+    document.documentElement.style.colorScheme = next;
+    syncThemeColorMeta(next);
     setTheme(next);
   }, []);
 

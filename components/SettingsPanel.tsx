@@ -3,90 +3,37 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useElevenLabsSettings } from "@/hooks/useElevenLabsSettings";
 
-const DIALOG_ID = "settings-dialog";
-
 export const SettingsButton = () => {
-  const [open, setOpen] = useState(false);
   const { isConfigured } = useElevenLabsSettings();
-  const panelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
+  const open = useCallback(() => {
+    dialogRef.current?.showModal();
+  }, []);
+
   const close = useCallback(() => {
-    setOpen(false);
+    dialogRef.current?.close();
     btnRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        btnRef.current &&
-        !btnRef.current.contains(e.target as Node)
-      ) {
-        close();
-      }
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const handleClick = (e: MouseEvent) => {
+      if (e.target === dialog) close();
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open, close]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, close]);
-
-  useEffect(() => {
-    if (!open || !panelRef.current) return;
-    const firstInput = panelRef.current.querySelector<HTMLElement>(
-      "input, button, [tabindex]",
-    );
-    firstInput?.focus();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !panelRef.current) return;
-    const panel = panelRef.current;
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const focusable = panel.querySelectorAll<HTMLElement>(
-        'input, button, a[href], [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open]);
+    dialog.addEventListener("click", handleClick);
+    return () => dialog.removeEventListener("click", handleClick);
+  }, [close]);
 
   return (
-    <div className="relative">
+    <>
       <button
         ref={btnRef}
-        onClick={() => setOpen((v) => !v)}
+        onClick={open}
         aria-label="Settings"
-        aria-expanded={open}
         aria-haspopup="dialog"
-        aria-controls={open ? DIALOG_ID : undefined}
         className={`flex items-center justify-center w-8 h-8 bg-transparent border-0 rounded-lg cursor-pointer transition-colors duration-200 ${isConfigured ? "text-accent" : "text-muted"}`}
       >
         <svg
@@ -105,19 +52,14 @@ export const SettingsButton = () => {
         </svg>
       </button>
 
-      {open && (
-        <div
-          id={DIALOG_ID}
-          ref={panelRef}
-          role="dialog"
-          aria-label="Audio settings"
-          aria-modal="true"
-          className="absolute top-[calc(100%+8px)] right-0 w-80 bg-surface-2 border border-border rounded-2xl p-5 shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-100"
-        >
-          <SettingsContent onClose={close} />
-        </div>
-      )}
-    </div>
+      <dialog
+        ref={dialogRef}
+        aria-label="Audio settings"
+        className="settings-dialog"
+      >
+        <SettingsContent onClose={close} />
+      </dialog>
+    </>
   );
 };
 
@@ -149,9 +91,30 @@ const SettingsContent = ({ onClose }: { onClose: () => void }) => {
 
   return (
     <div>
-      <h3 className="font-display font-bold text-base text-foreground mb-1">
-        Audio settings
-      </h3>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <h3 className="font-display font-bold text-base text-foreground">
+          Audio settings
+        </h3>
+        <button
+          onClick={onClose}
+          aria-label="Close settings"
+          className="flex items-center justify-center w-7 h-7 -mt-1 -mr-1 rounded-lg text-muted bg-transparent border-0 cursor-pointer transition-colors duration-200"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            width={16}
+            height={16}
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
       <p className="text-xs text-muted leading-normal mb-4">
         Add your{" "}
         <a
