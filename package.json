@@ -7,7 +7,7 @@
     "dev:frontend": "next dev",
     "dev:backend": "convex dev",
     "local": "NEXT_PUBLIC_LOCAL_MODE=true next dev",
-    "build": "next build",
+    "build": "bash scripts/build.sh",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
