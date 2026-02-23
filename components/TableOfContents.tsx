@@ -46,7 +46,7 @@ type TableOfContentsProps = {
   isElevenLabs?: boolean;
   audioProgress?: { currentTime: number; duration: number };
   onSeek?: (time: number) => void;
-  summaryListenRef?: RefObject<HTMLButtonElement | null>;
+  playAllRef?: RefObject<HTMLButtonElement | null>;
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -225,7 +225,7 @@ export const TableOfContents = ({
   isElevenLabs = false,
   audioProgress,
   onSeek,
-  summaryListenRef,
+  playAllRef,
 }: TableOfContentsProps) => {
   const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(
     null,
@@ -361,6 +361,7 @@ export const TableOfContents = ({
 
       {!summaryOnly && <div className="flex flex-wrap gap-2 mb-4">
         <button
+          ref={playAllRef}
           onClick={
             isPlayingAll
               ? (onTogglePlayAll ?? onStopPlayAll)
@@ -540,7 +541,6 @@ export const TableOfContents = ({
                 />
               </span>
               <button
-                ref={summaryListenRef}
                 onClick={onListenSummary}
                 aria-label={`Listen to summary of ${articleTitle}`}
                 className={`${pillClass} border cursor-pointer pointer-events-auto ${

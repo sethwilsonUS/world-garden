@@ -84,7 +84,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const countsFetched = useRef(false);
   const fetchTriggered = useRef(false);
   const pendingElevenLabsPlay = useRef(false);
-  const summaryListenRef = useRef<HTMLButtonElement>(null);
+  const playAllRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (fetchTriggered.current) return;
@@ -419,7 +419,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   useEffect(() => {
     if (displayArticle && !showResumeBanner) {
-      summaryListenRef.current?.focus({ preventScroll: true });
+      playAllRef.current?.focus({ preventScroll: true });
     }
   }, [displayArticle, showResumeBanner]);
 
@@ -695,7 +695,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
               : undefined
           }
           onSeek={elevenLabs.isConfigured ? audioEl.seek : undefined}
-          summaryListenRef={summaryListenRef}
+          playAllRef={playAllRef}
         />
       </div>
 
