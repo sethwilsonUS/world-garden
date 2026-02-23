@@ -12,6 +12,7 @@ import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { useHistory } from "@/hooks/useHistory";
 import { useElevenLabsSettings, generateElevenLabsAudio } from "@/hooks/useElevenLabsSettings";
 import { normalizeTtsText } from "@/convex/lib/elevenlabs";
+import { useBrowserTtsVoice } from "@/hooks/useBrowserTtsVoice";
 
 type Section = {
   title: string;
@@ -67,6 +68,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const { recordVisit, updateProgress, getProgress } = useHistory();
   const elevenLabs = useElevenLabsSettings();
+  const ttsVoiceRef = useBrowserTtsVoice();
   const [elevenLabsUrl, setElevenLabsUrl] = useState<string | null>(null);
   const [elevenLabsLoading, setElevenLabsLoading] = useState(false);
   const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
@@ -165,12 +167,13 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       const utterance = new SpeechSynthesisUtterance(
         `${subject} ${parts.join(" and ")}.`,
       );
+      if (ttsVoiceRef.current) utterance.voice = ttsVoiceRef.current;
       utterance.rate = playbackRateRef.current;
       utterance.onend = onDone;
       utterance.onerror = onDone;
       window.speechSynthesis.speak(utterance);
     },
-    [],
+    [ttsVoiceRef],
   );
 
   const generateAudio = useCallback(
