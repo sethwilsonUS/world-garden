@@ -49,6 +49,9 @@ export const isCategoryNsfw = (categoryTitle: string): boolean => {
   return NSFW_KEYWORDS.some((kw) => lower.includes(kw));
 };
 
+export const isDisambiguation = (categoryTitle: string): boolean =>
+  categoryTitle.toLowerCase().includes("disambiguation");
+
 const fetchSafeRandomArticle = async (maxAttempts = 2): Promise<string> => {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const randomParams = new URLSearchParams({
@@ -82,8 +85,10 @@ const fetchSafeRandomArticle = async (maxAttempts = 2): Promise<string> => {
 
     for (const page of Object.values(pages)) {
       const cats = page.categories ?? [];
-      const isNsfw = cats.some((c) => isCategoryNsfw(c.title));
-      if (!isNsfw) return page.title;
+      const unsuitable = cats.some(
+        (c) => isCategoryNsfw(c.title) || isDisambiguation(c.title),
+      );
+      if (!unsuitable) return page.title;
     }
   }
 

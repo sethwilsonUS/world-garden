@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isCategoryNsfw } from "./RandomArticleButton";
+import { isCategoryNsfw, isDisambiguation } from "./RandomArticleButton";
 
 describe("isCategoryNsfw", () => {
   describe("exact category matches", () => {
@@ -83,5 +83,30 @@ describe("isCategoryNsfw", () => {
     it("allows empty string", () => {
       expect(isCategoryNsfw("")).toBe(false);
     });
+  });
+});
+
+describe("isDisambiguation", () => {
+  it("flags Category:All disambiguation pages", () => {
+    expect(isDisambiguation("Category:All disambiguation pages")).toBe(true);
+  });
+
+  it("flags Category:All article disambiguation pages", () => {
+    expect(isDisambiguation("Category:All article disambiguation pages")).toBe(true);
+  });
+
+  it("flags Category:Human name disambiguation pages", () => {
+    expect(isDisambiguation("Category:Human name disambiguation pages")).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isDisambiguation("Category:Disambiguation pages")).toBe(true);
+    expect(isDisambiguation("Category:ALL DISAMBIGUATION PAGES")).toBe(true);
+  });
+
+  it("allows regular categories", () => {
+    expect(isDisambiguation("Category:Living people")).toBe(false);
+    expect(isDisambiguation("Category:Physics")).toBe(false);
+    expect(isDisambiguation("")).toBe(false);
   });
 });
