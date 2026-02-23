@@ -23,6 +23,7 @@ export type WikiArticle = {
   summary: string;
   contentText: string;
   sections: WikiSection[];
+  thumbnailUrl?: string;
 };
 
 export const searchWikipedia = async (
@@ -66,11 +67,13 @@ export const fetchArticleByPageId = async (
     action: "query",
     format: "json",
     pageids: pageId,
-    prop: "extracts|revisions|info",
+    prop: "extracts|revisions|info|pageimages",
     explaintext: "1",
     exsectionformat: "wiki",
     rvprop: "ids|timestamp",
     inprop: "url",
+    piprop: "thumbnail",
+    pithumbsize: "800",
     origin: "*",
   });
 
@@ -93,6 +96,7 @@ export const fetchArticleByPageId = async (
   const fullText = page.extract ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
+  const thumbnail = page.thumbnail as { source: string } | undefined;
 
   return {
     wikiPageId: String(page.pageid),
@@ -103,6 +107,7 @@ export const fetchArticleByPageId = async (
     summary,
     contentText,
     sections,
+    thumbnailUrl: thumbnail?.source,
   };
 };
 
@@ -121,11 +126,13 @@ export const fetchArticleByTitle = async (
     action: "query",
     format: "json",
     titles: title,
-    prop: "extracts|revisions|info",
+    prop: "extracts|revisions|info|pageimages",
     explaintext: "1",
     exsectionformat: "wiki",
     rvprop: "ids|timestamp",
     inprop: "url",
+    piprop: "thumbnail",
+    pithumbsize: "800",
     redirects: "1",
     origin: "*",
   });
@@ -151,6 +158,7 @@ export const fetchArticleByTitle = async (
   const fullText = (page.extract as string) ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
+  const thumbnail = page.thumbnail as { source: string } | undefined;
 
   return {
     wikiPageId: String(page.pageid),
@@ -161,6 +169,7 @@ export const fetchArticleByTitle = async (
     summary,
     contentText,
     sections,
+    thumbnailUrl: thumbnail?.source,
   };
 };
 

@@ -11,7 +11,50 @@ const isElevenLabsConfigured = (): boolean => {
   }
 };
 
-type FetchArticleFn = (args: { slug: string }) => Promise<{ summary?: string }>;
+type FetchArticleFn = (args: { slug: string }) => Promise<{ summary?: string; thumbnailUrl?: string }>;
+
+/* ── Shared article fetch cache ── */
+
+const articleFetchCache = new Map<string, Promise<{ summary?: string; thumbnailUrl?: string }>>();
+
+const fetchArticleCached = (
+  slug: string,
+  fetchArticle: FetchArticleFn,
+) => {
+  if (!articleFetchCache.has(slug)) {
+    articleFetchCache.set(
+      slug,
+      fetchArticle({ slug }).catch((err) => {
+        articleFetchCache.delete(slug);
+        throw err;
+      }),
+    );
+  }
+  return articleFetchCache.get(slug)!;
+};
+
+/* ── Image prefetch ── */
+
+const imagePrefetched = new Set<string>();
+
+export const warmArticleImage = (
+  slug: string,
+  fetchArticle: FetchArticleFn,
+): void => {
+  if (imagePrefetched.has(slug)) return;
+  imagePrefetched.add(slug);
+
+  fetchArticleCached(slug, fetchArticle)
+    .then((article) => {
+      if (article.thumbnailUrl) {
+        const img = new Image();
+        img.src = article.thumbnailUrl;
+      }
+    })
+    .catch(() => {});
+};
+
+/* ── Audio prefetch ── */
 
 type CacheEntry = {
   promise: Promise<string | null>;
@@ -48,7 +91,7 @@ export const warmSummaryAudio = (
   if (cache.has(slug)) return;
 
   const promise = (async (): Promise<string | null> => {
-    const article = await fetchArticle({ slug });
+    const article = await fetchArticleCached(slug, fetchArticle);
     const summary = article.summary ?? "";
     if (summary.length < 10) return null;
     const url = await generateTts(summary);

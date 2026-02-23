@@ -10,6 +10,7 @@ export default defineSchema({
     revisionId: v.string(),
     lastFetchedAt: v.number(),
     summary: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
     sections: v.optional(
       v.array(
         v.object({

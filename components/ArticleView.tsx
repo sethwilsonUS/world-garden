@@ -27,6 +27,7 @@ type ArticleData = {
   revisionId: string;
   lastFetchedAt: number;
   summary?: string;
+  thumbnailUrl?: string;
   sections?: Section[];
   lastEdited?: string;
 };
@@ -560,6 +561,17 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         </h1>
         <BookmarkButton slug={slug} title={displayArticle.title} />
       </div>
+
+      {displayArticle.thumbnailUrl && (
+        <div className="mb-4 overflow-hidden rounded-xl" aria-hidden="true">
+          <img
+            src={displayArticle.thumbnailUrl}
+            alt=""
+            className="w-full max-h-40 sm:max-h-60 object-cover"
+            loading="eager"
+          />
+        </div>
+      )}
 
       {/* Resume banner */}
       {showResumeBanner && savedProgressState && (
