@@ -28,6 +28,8 @@ type ArticleData = {
   lastFetchedAt: number;
   summary?: string;
   thumbnailUrl?: string;
+  thumbnailWidth?: number;
+  thumbnailHeight?: number;
   sections?: Section[];
   lastEdited?: string;
 };
@@ -562,16 +564,79 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         <BookmarkButton slug={slug} title={displayArticle.title} />
       </div>
 
-      {displayArticle.thumbnailUrl && (
-        <div className="mb-4 overflow-hidden rounded-xl" aria-hidden="true">
-          <img
-            src={displayArticle.thumbnailUrl}
-            alt=""
-            className="w-full max-h-40 sm:max-h-60 object-cover"
-            loading="eager"
-          />
-        </div>
-      )}
+      {displayArticle.thumbnailUrl && (() => {
+        const w = displayArticle.thumbnailWidth ?? 0;
+        const h = displayArticle.thumbnailHeight ?? 0;
+        const isPortrait = h > w;
+
+        if (isPortrait) {
+          return (
+            <div className="relative mb-4 overflow-hidden rounded-xl" aria-hidden="true">
+              <img
+                src={displayArticle.thumbnailUrl}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ transform: 'scale(1.8)', filter: 'blur(80px) brightness(0.65)' }}
+              />
+              <div className="absolute inset-0 bg-black/45" />
+              <div className="relative flex items-center justify-center gap-16 p-6 sm:p-10">
+                <img
+                  src={displayArticle.thumbnailUrl}
+                  alt=""
+                  width={w || undefined}
+                  height={h || undefined}
+                  className="max-h-56 sm:max-h-72 w-auto object-contain rounded-lg shrink-0"
+                  loading="eager"
+                />
+                {displayArticle.summary && (
+                  <div className="max-md:hidden max-w-sm">
+                    <p
+                      className="text-sm leading-relaxed text-white overflow-hidden"
+                      style={{
+                        display: '-webkit-box',
+                        WebkitBoxOrient: 'vertical' as const,
+                        WebkitLineClamp: 7,
+                        textShadow: '0 1px 4px rgba(0, 0, 0, 0.6)',
+                      }}
+                    >
+                      {displayArticle.summary}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="relative mb-4 overflow-hidden rounded-xl" aria-hidden="true">
+            <img
+              src={displayArticle.thumbnailUrl}
+              alt=""
+              width={w || undefined}
+              height={h || undefined}
+              className="w-full max-h-48 sm:max-h-64 object-cover"
+              loading="eager"
+            />
+            {displayArticle.summary && (
+              <div className="max-md:hidden absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"
+                style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+              >
+                <p
+                  className="text-sm leading-relaxed text-white overflow-hidden"
+                  style={{
+                    display: '-webkit-box',
+                    WebkitBoxOrient: 'vertical' as const,
+                    WebkitLineClamp: 3,
+                  }}
+                >
+                  {displayArticle.summary}
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Resume banner */}
       {showResumeBanner && savedProgressState && (

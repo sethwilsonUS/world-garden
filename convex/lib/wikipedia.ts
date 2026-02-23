@@ -24,6 +24,8 @@ export type WikiArticle = {
   contentText: string;
   sections: WikiSection[];
   thumbnailUrl?: string;
+  thumbnailWidth?: number;
+  thumbnailHeight?: number;
 };
 
 export const searchWikipedia = async (
@@ -96,7 +98,7 @@ export const fetchArticleByPageId = async (
   const fullText = page.extract ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
-  const thumbnail = page.thumbnail as { source: string } | undefined;
+  const thumbnail = page.thumbnail as { source: string; width: number; height: number } | undefined;
 
   return {
     wikiPageId: String(page.pageid),
@@ -108,6 +110,8 @@ export const fetchArticleByPageId = async (
     contentText,
     sections,
     thumbnailUrl: thumbnail?.source,
+    thumbnailWidth: thumbnail?.width,
+    thumbnailHeight: thumbnail?.height,
   };
 };
 
@@ -158,7 +162,7 @@ export const fetchArticleByTitle = async (
   const fullText = (page.extract as string) ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
-  const thumbnail = page.thumbnail as { source: string } | undefined;
+  const thumbnail = page.thumbnail as { source: string; width: number; height: number } | undefined;
 
   return {
     wikiPageId: String(page.pageid),
@@ -170,6 +174,8 @@ export const fetchArticleByTitle = async (
     contentText,
     sections,
     thumbnailUrl: thumbnail?.source,
+    thumbnailWidth: thumbnail?.width,
+    thumbnailHeight: thumbnail?.height,
   };
 };
 

@@ -49,6 +49,8 @@ export const upsertArticle = internalMutation({
     lastFetchedAt: v.number(),
     summary: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
+    thumbnailWidth: v.optional(v.number()),
+    thumbnailHeight: v.optional(v.number()),
     sections: v.optional(
       v.array(
         v.object({
@@ -74,6 +76,8 @@ export const upsertArticle = internalMutation({
         lastFetchedAt: args.lastFetchedAt,
         summary: args.summary,
         thumbnailUrl: args.thumbnailUrl,
+        thumbnailWidth: args.thumbnailWidth,
+        thumbnailHeight: args.thumbnailHeight,
         sections: args.sections,
       });
       return existing._id;
@@ -88,6 +92,8 @@ export const upsertArticle = internalMutation({
       lastFetchedAt: args.lastFetchedAt,
       summary: args.summary,
       thumbnailUrl: args.thumbnailUrl,
+      thumbnailWidth: args.thumbnailWidth,
+      thumbnailHeight: args.thumbnailHeight,
       sections: args.sections,
     });
   },
@@ -114,6 +120,8 @@ export const fetchAndCache = action({
         lastFetchedAt: Date.now(),
         summary: data.summary,
         thumbnailUrl: data.thumbnailUrl,
+        thumbnailWidth: data.thumbnailWidth,
+        thumbnailHeight: data.thumbnailHeight,
         sections: data.sections,
       },
     );
@@ -142,6 +150,8 @@ export const fetchAndCacheBySlug = action({
         lastFetchedAt: Date.now(),
         summary: data.summary,
         thumbnailUrl: data.thumbnailUrl,
+        thumbnailWidth: data.thumbnailWidth,
+        thumbnailHeight: data.thumbnailHeight,
         sections: data.sections,
       },
     );
