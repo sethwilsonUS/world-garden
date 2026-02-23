@@ -58,7 +58,7 @@ export default function Home() {
         <FeaturedArticle />
       </div>
 
-      <div className="max-w-xl mx-auto animate-fade-in-up-delay-3">
+      <div className="max-w-4xl mx-auto animate-fade-in-up-delay-3">
         <CuriousAbout />
       </div>
 
