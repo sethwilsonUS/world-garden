@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatTime } from "./AudioPlayer";
+import { formatTime } from "@/lib/formatTime";
 
 describe("formatTime", () => {
   it("formats zero seconds", () => {

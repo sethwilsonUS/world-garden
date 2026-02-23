@@ -448,6 +448,66 @@ body {
   background-color: var(--color-surface-3);
 }
 
+/* ── Inline TOC Progress Bar ── */
+.toc-progress-range {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 100% !important;
+  height: 4px !important;
+  border-radius: 2px !important;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--progress, 0%),
+    rgba(255,255,255,0.1) var(--progress, 0%),
+    rgba(255,255,255,0.1) 100%
+  ) !important;
+  cursor: pointer !important;
+  outline: none !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.toc-progress-range:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 4px !important;
+}
+
+.toc-progress-range::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  background: #fff !important;
+  border: none !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+  cursor: pointer !important;
+}
+
+.toc-progress-range::-moz-range-thumb {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  background: #fff !important;
+  border: none !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
+  cursor: pointer !important;
+}
+
+.toc-progress-range::-moz-range-track {
+  height: 4px !important;
+  border-radius: 2px !important;
+  background: rgba(255,255,255,0.1) !important;
+}
+
+.toc-progress-range::-moz-range-progress {
+  height: 4px !important;
+  border-radius: 2px !important;
+  background: var(--accent) !important;
+}
+
 /* ── Audio Pulse Animation ── */
 @keyframes audioPulse {
   0%, 100% { transform: scale(1); opacity: 1; }

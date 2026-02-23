@@ -1,8 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import { useData } from "@/lib/data-context";
 import Link from "next/link";
+import {
+  PLAYBACK_RATES,
+  type PlaybackRate,
+  formatRate,
+} from "@/hooks/usePlaybackRate";
+import { formatTime } from "@/lib/formatTime";
 
 type Section = {
   title: string;
@@ -33,8 +39,14 @@ type TableOfContentsProps = {
   onListenSummary: () => void;
   onPlayAll: () => void;
   onStopPlayAll: () => void;
+  onTogglePlayAll?: () => void;
   onDownloadAll?: () => void;
   playbackRate?: number;
+  onPlaybackRateChange?: (rate: PlaybackRate) => void;
+  isElevenLabs?: boolean;
+  audioProgress?: { currentTime: number; duration: number };
+  onSeek?: (time: number) => void;
+  playAllRef?: RefObject<HTMLButtonElement | null>;
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -206,8 +218,14 @@ export const TableOfContents = ({
   onListenSummary,
   onPlayAll,
   onStopPlayAll,
+  onTogglePlayAll,
   onDownloadAll,
   playbackRate = 1,
+  onPlaybackRateChange,
+  isElevenLabs = false,
+  audioProgress,
+  onSeek,
+  playAllRef,
 }: TableOfContentsProps) => {
   const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(
     null,
@@ -240,6 +258,15 @@ export const TableOfContents = ({
       })
       .catch(() => {});
   }, [wikiPageId, getSectionLinkCounts, getCitationCounts]);
+
+  const [rateAnnouncement, setRateAnnouncement] = useState("");
+  const cycleSpeed = () => {
+    if (!onPlaybackRateChange) return;
+    const idx = PLAYBACK_RATES.indexOf(playbackRate as PlaybackRate);
+    const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
+    onPlaybackRateChange(next);
+    setRateAnnouncement(`Playback speed ${formatRate(next)}`);
+  };
 
   const isSummarySelected = activeSectionIndex === null;
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
@@ -290,7 +317,7 @@ export const TableOfContents = ({
   })();
 
   return (
-    <section aria-label="Table of contents" className="toc-section pattern-leaves">
+    <div className="toc-section pattern-leaves">
       <div className="flex items-start gap-3 mb-5">
         <svg
           viewBox="0 0 24 24"
@@ -325,54 +352,94 @@ export const TableOfContents = ({
         </div>
       </div>
 
+      {summaryOnly && onPlaybackRateChange && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
+        </div>
+      )}
+
       {!summaryOnly && <div className="flex flex-wrap gap-2 mb-4">
-        {isPlayingAll ? (
-          <button
-            onClick={onStopPlayAll}
-            className="inline-flex items-center gap-2 py-2.5 px-5 bg-surface-3 text-foreground border border-border rounded-xl font-semibold text-sm cursor-pointer transition-colors duration-200"
-            aria-label="Stop playing all sections"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              width={16}
-              height={16}
-              aria-hidden="true"
-              className="shrink-0"
-            >
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-            Stop
-          </button>
-        ) : (
-          <button
-            onClick={onPlayAll}
-            disabled={isGenerating || downloading}
-            className={`search-submit inline-flex items-center gap-2 py-2.5 px-5 bg-btn-primary text-btn-primary-text border-0 rounded-xl font-semibold text-sm transition-all duration-200 ${
-              isGenerating || downloading ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-            }`}
-            aria-label={`Play all ${playableCount} sections including summary`}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={16}
-              height={16}
-              aria-hidden="true"
-              className="shrink-0"
-            >
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-            Play all
-            <span className="text-[0.6875rem] opacity-80 font-medium">
-              ({playableCount})
-            </span>
-          </button>
-        )}
+        <button
+          ref={playAllRef}
+          onClick={
+            isPlayingAll
+              ? (onTogglePlayAll ?? onStopPlayAll)
+              : onPlayAll
+          }
+          disabled={!isPlayingAll && (isGenerating || downloading)}
+          className={`inline-flex items-center gap-2 py-2.5 px-5 rounded-xl font-semibold text-sm transition-all duration-200 ${
+            isPlayingAll
+              ? "bg-surface-3 text-foreground border border-border cursor-pointer"
+              : `search-submit bg-btn-primary text-btn-primary-text border-0 ${
+                  isGenerating || downloading ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                }`
+          }`}
+          aria-label={
+            isPlayingAll
+              ? (isPaused
+                  ? "Resume playing all sections"
+                  : "Pause playing all sections")
+              : `Play all ${playableCount} sections including summary`
+          }
+        >
+          {isPlayingAll ? (
+            isPaused ? (
+              <>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  width={16}
+                  height={16}
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                Resume
+              </>
+            ) : (
+              <>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  width={16}
+                  height={16}
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <rect x="6" y="4" width="4" height="16" rx="1" />
+                  <rect x="14" y="4" width="4" height="16" rx="1" />
+                </svg>
+                Pause
+              </>
+            )
+          ) : (
+            <>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                width={16}
+                height={16}
+                aria-hidden="true"
+                className="shrink-0"
+              >
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              Play all
+              <span className="text-[0.6875rem] opacity-80 font-medium">
+                ({playableCount})
+              </span>
+            </>
+          )}
+        </button>
 
         {onDownloadAll && (
           <button
@@ -438,6 +505,10 @@ export const TableOfContents = ({
             )}
           </button>
         )}
+
+        {onPlaybackRateChange && (
+          <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
+        )}
       </div>}
 
       <nav aria-label="Article sections">
@@ -497,6 +568,13 @@ export const TableOfContents = ({
                 </span>
               </button>
             </div>
+            {isSummaryActive && isElevenLabs && audioProgress && onSeek && (
+              <InlineProgressBar
+                currentTime={audioProgress.currentTime}
+                duration={audioProgress.duration}
+                onSeek={onSeek}
+              />
+            )}
             {openPanel === "summary" && (
               <SectionDetailsPanel
                 wikiPageId={wikiPageId}
@@ -617,6 +695,13 @@ export const TableOfContents = ({
                     </span>
                   </button>
                 </div>
+                {isActive && isElevenLabs && audioProgress && onSeek && (
+                  <InlineProgressBar
+                    currentTime={audioProgress.currentTime}
+                    duration={audioProgress.duration}
+                    onSeek={onSeek}
+                  />
+                )}
                 {openPanel === `section-${index}` && (
                   <SectionDetailsPanel
                     wikiPageId={wikiPageId}
@@ -654,7 +739,10 @@ export const TableOfContents = ({
           activeSectionIndex === null &&
           `Generating summary audio, please wait.`}
       </div>
-    </section>
+      <div aria-live="assertive" className="sr-only" role="status">
+        {rateAnnouncement}
+      </div>
+    </div>
   );
 };
 
@@ -851,6 +939,64 @@ const SectionDetailsPanel = ({
             No details available for this section.
           </p>
         )}
+    </div>
+  );
+};
+
+const SpeedButton = ({ rate, onClick }: { rate: number; onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    aria-label={`Playback speed ${formatRate(rate)}. Click to change.`}
+    className={`inline-flex items-center justify-center py-[5px] px-2 bg-transparent border border-border rounded-lg cursor-pointer font-mono text-xs font-bold leading-none min-w-[40px] shrink-0 transition-colors duration-150 pointer-events-auto ${
+      rate !== 1 ? "text-accent" : "text-muted"
+    }`}
+  >
+    {formatRate(rate)}
+  </button>
+);
+
+const InlineProgressBar = ({
+  currentTime,
+  duration,
+  onSeek,
+}: {
+  currentTime: number;
+  duration: number;
+  onSeek: (time: number) => void;
+}) => {
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div className="flex items-center gap-2.5 px-3 pb-2 pt-0.5">
+      <span
+        className="font-mono text-[0.625rem] font-medium text-muted min-w-[32px] select-none"
+        aria-hidden="true"
+      >
+        {formatTime(currentTime)}
+      </span>
+      <div className="flex-1 min-w-0">
+        <input
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.1}
+          value={currentTime}
+          onChange={(e) => onSeek(parseFloat(e.target.value))}
+          aria-label={`Playback position. ${formatTime(currentTime)} of ${formatTime(duration)}`}
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={currentTime}
+          aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
+          className="toc-progress-range block w-full"
+          style={{ "--progress": `${progress}%` } as React.CSSProperties}
+        />
+      </div>
+      <span
+        className="font-mono text-[0.625rem] font-medium text-muted min-w-[32px] text-right select-none"
+        aria-hidden="true"
+      >
+        {duration > 0 ? formatTime(duration) : "--:--"}
+      </span>
     </div>
   );
 };
