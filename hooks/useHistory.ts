@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 const STORAGE_KEY = "world-garden-history";
 const MAX_ENTRIES = 20;
@@ -35,11 +35,7 @@ const writeHistory = (entries: HistoryEntry[]) => {
 };
 
 export const useHistory = () => {
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
-
-  useEffect(() => {
-    setEntries(readHistory());
-  }, []);
+  const [entries, setEntries] = useState<HistoryEntry[]>(readHistory);
 
   const recordVisit = useCallback((slug: string, title: string) => {
     setEntries((prev) => {

@@ -64,14 +64,12 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [finishedPlaying, setFinishedPlaying] = useState(false);
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
   const playbackRateRef = useRef(playbackRate);
-  playbackRateRef.current = playbackRate;
 
   const { recordVisit, updateProgress, getProgress } = useHistory();
   const elevenLabs = useElevenLabsSettings();
   const [elevenLabsUrl, setElevenLabsUrl] = useState<string | null>(null);
   const [elevenLabsLoading, setElevenLabsLoading] = useState(false);
-  const resumeChecked = useRef(false);
-  const savedProgress = useRef<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
+  const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
 
   const wikiPageId = displayArticle?.wikiPageId ?? "";
 
@@ -81,6 +79,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const requestId = useRef(0);
   const summaryTriggered = useRef(false);
   const playAllQueue = useRef<QueueItem[]>([]);
+  const [queueLength, setQueueLength] = useState(0);
   const lastPlayedSectionIdx = useRef<number | null>(null);
   const summaryTextRef = useRef("");
   const countsFetched = useRef(false);
@@ -89,8 +88,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   useEffect(() => {
     if (fetchTriggered.current) return;
     fetchTriggered.current = true;
-    setFetching(true);
-    setFetchError(null);
     fetchArticle({ slug })
       .then((result) => {
         const article = result as unknown as ArticleData;
@@ -124,13 +121,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       .catch(() => {});
   }, [wikiPageId, getSectionLinkCounts, getCitationCounts]);
   const sectionsRef = useRef<Section[]>([]);
-  sectionsRef.current = displayArticle?.sections ?? [];
-  summaryTextRef.current = displayArticle?.summary ?? "";
-
   const linkCountsRef = useRef(linkCounts);
-  linkCountsRef.current = linkCounts;
   const citationCountsRef = useRef(citationCounts);
-  citationCountsRef.current = citationCounts;
+
+  useEffect(() => {
+    playbackRateRef.current = playbackRate;
+    sectionsRef.current = displayArticle?.sections ?? [];
+    summaryTextRef.current = displayArticle?.summary ?? "";
+    linkCountsRef.current = linkCounts;
+    citationCountsRef.current = citationCounts;
+  });
 
   const speakSectionMetadata = useCallback(
     (onDone: () => void) => {
@@ -231,12 +231,14 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       if (!isPlayingAll || playAllQueue.current.length === 0) {
         setIsPlayingAll(false);
         setActiveSectionIndex(null);
+        setQueueLength(0);
         if (isPlayingAll) {
           setFinishedPlaying(true);
         }
         return;
       }
       const next = playAllQueue.current.shift()!;
+      setQueueLength(playAllQueue.current.length);
       generateAudio(next.sectionKey, next.label, next.sectionIdx);
     };
 
@@ -267,6 +269,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       const first = queue.shift()!;
       playAllQueue.current = queue;
+      setQueueLength(queue.length);
       setIsPlayingAll(true);
       generateAudio(first.sectionKey, first.label, first.sectionIdx);
     },
@@ -275,6 +278,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const handleStopPlayAll = useCallback(() => {
     playAllQueue.current = [];
+    setQueueLength(0);
     setIsPlayingAll(false);
     setSpeakingText(null);
     if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -285,6 +289,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const handleListenSection = useCallback(
     (index: number, sections: Section[], articleTitle: string) => {
       playAllQueue.current = [];
+      setQueueLength(0);
       setIsPlayingAll(false);
       const section = sections[index];
       generateAudio(
@@ -299,40 +304,43 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const handleListenSummary = useCallback(
     (articleTitle: string) => {
       playAllQueue.current = [];
+      setQueueLength(0);
       setIsPlayingAll(false);
       generateAudio("summary", `${articleTitle} \u2014 Summary`, null);
     },
     [generateAudio],
   );
 
-  useEffect(() => {
-    if (displayArticle && !summaryTriggered.current) {
-      summaryTriggered.current = true;
-
-      if (!resumeChecked.current) {
-        resumeChecked.current = true;
-        const progress = getProgress(slug);
-        if (
-          progress?.lastSectionKey &&
-          progress.lastSectionKey !== "summary" &&
-          progress.lastSectionIndex != null
-        ) {
-          savedProgress.current = {
-            sectionKey: progress.lastSectionKey,
-            sectionIndex: progress.lastSectionIndex,
-          };
-          setShowResumeBanner(true);
-          return;
-        }
-      }
-
-      generateAudio(
-        "summary",
-        `${displayArticle.title} \u2014 Summary`,
-        null,
-      );
+  const [hasCheckedResume, setHasCheckedResume] = useState(false);
+  if (displayArticle && !hasCheckedResume) {
+    setHasCheckedResume(true);
+    const progress = getProgress(slug);
+    if (
+      progress?.lastSectionKey &&
+      progress.lastSectionKey !== "summary" &&
+      progress.lastSectionIndex != null
+    ) {
+      setSavedProgressState({
+        sectionKey: progress.lastSectionKey,
+        sectionIndex: progress.lastSectionIndex,
+      });
+      setShowResumeBanner(true);
     }
-  }, [displayArticle, generateAudio, getProgress, slug]);
+  }
+
+  useEffect(() => {
+    if (displayArticle && !summaryTriggered.current && !showResumeBanner) {
+      summaryTriggered.current = true;
+      const timer = setTimeout(() => {
+        generateAudio(
+          "summary",
+          `${displayArticle.title} \u2014 Summary`,
+          null,
+        );
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [displayArticle, generateAudio, showResumeBanner]);
 
   /* ── Loading / Error states ── */
 
@@ -420,10 +428,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   if (!displayArticle) return null;
 
   const sections = displayArticle.sections ?? [];
-  const queueRemaining = playAllQueue.current.length;
 
   const handleResume = () => {
-    const sp = savedProgress.current;
+    const sp = savedProgressState;
     if (sp?.sectionKey && displayArticle) {
       setShowResumeBanner(false);
       const idx = sp.sectionIndex ?? null;
@@ -455,7 +462,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       </div>
 
       {/* Resume banner */}
-      {showResumeBanner && savedProgress.current && (
+      {showResumeBanner && savedProgressState && (
         <div
           role="status"
           className="garden-bed py-4 px-5 mb-4 flex items-center flex-wrap gap-3"
@@ -478,8 +485,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           <span className="flex-1 text-sm text-foreground-2">
             Resume from{" "}
             <strong>
-              {savedProgress.current.sectionIndex != null
-                ? sections[savedProgress.current.sectionIndex]?.title ?? "previous section"
+              {savedProgressState.sectionIndex != null
+                ? sections[savedProgressState.sectionIndex]?.title ?? "previous section"
                 : "summary"}
             </strong>
             ?
@@ -536,7 +543,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             title={audioLabel}
             label={
               isPlayingAll
-                ? `Playing all \u00b7 ${audioLabel}${queueRemaining > 0 ? ` \u00b7 ${queueRemaining} remaining` : ""}`
+                ? `Playing all \u00b7 ${audioLabel}${queueLength > 0 ? ` \u00b7 ${queueLength} remaining` : ""}`
                 : undefined
             }
             autoFocus
@@ -553,7 +560,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             title={audioLabel}
             label={
               isPlayingAll
-                ? `Playing all \u00b7 ${audioLabel}${queueRemaining > 0 ? ` \u00b7 ${queueRemaining} remaining` : ""}`
+                ? `Playing all \u00b7 ${audioLabel}${queueLength > 0 ? ` \u00b7 ${queueLength} remaining` : ""}`
                 : `Now playing: ${audioLabel}`
             }
             autoFocus

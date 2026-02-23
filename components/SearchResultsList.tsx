@@ -19,15 +19,21 @@ export const SearchResultsList = ({ term }: { term: string }) => {
   const listRef = useRef<HTMLOListElement>(null);
   const linkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
 
-  useEffect(() => {
-    if (!term.trim()) {
+  const [prevTerm, setPrevTerm] = useState(term);
+  if (term !== prevTerm) {
+    setPrevTerm(term);
+    if (term.trim()) {
+      setLoading(true);
+      setError(null);
+    } else {
       setLoading(false);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (!term.trim()) return;
 
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     searchAction({ term })
       .then((data) => {

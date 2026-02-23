@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 const STORAGE_KEY = "world-garden-playback-rate";
 const DEFAULT_RATE = 1;
@@ -24,11 +24,7 @@ const readStoredRate = (): PlaybackRate => {
 };
 
 export const usePlaybackRate = () => {
-  const [rate, setRateState] = useState<PlaybackRate>(DEFAULT_RATE);
-
-  useEffect(() => {
-    setRateState(readStoredRate());
-  }, []);
+  const [rate, setRateState] = useState<PlaybackRate>(readStoredRate);
 
   const setRate = useCallback((newRate: PlaybackRate) => {
     setRateState(newRate);

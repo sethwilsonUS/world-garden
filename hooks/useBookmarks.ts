@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 const STORAGE_KEY = "world-garden-bookmarks";
 
@@ -32,11 +32,7 @@ const writeBookmarks = (entries: BookmarkEntry[]) => {
 };
 
 export const useBookmarks = () => {
-  const [entries, setEntries] = useState<BookmarkEntry[]>([]);
-
-  useEffect(() => {
-    setEntries(readBookmarks());
-  }, []);
+  const [entries, setEntries] = useState<BookmarkEntry[]>(readBookmarks);
 
   const isBookmarked = useCallback(
     (slug: string) => entries.some((e) => e.slug === slug),

@@ -8,7 +8,6 @@ import {
   type DataContextValue,
   type Article,
 } from "./data-context";
-import { slugToTitle, titleToSlug } from "@/convex/lib/wikipedia";
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
