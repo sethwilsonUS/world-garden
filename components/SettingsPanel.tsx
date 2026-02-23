@@ -70,10 +70,14 @@ const SettingsContent = ({ onClose }: { onClose: () => void }) => {
   const [localVoice, setLocalVoice] = useState(voiceId);
   const [announcement, setAnnouncement] = useState("");
 
-  useEffect(() => {
+  const [prevApiKey, setPrevApiKey] = useState(apiKey);
+  const [prevVoiceId, setPrevVoiceId] = useState(voiceId);
+  if (apiKey !== prevApiKey || voiceId !== prevVoiceId) {
+    setPrevApiKey(apiKey);
+    setPrevVoiceId(voiceId);
     setLocalKey(apiKey);
     setLocalVoice(voiceId);
-  }, [apiKey, voiceId]);
+  }
 
   const handleSave = () => {
     setApiKey(localKey.trim());

@@ -66,11 +66,13 @@ export const AudioPlayer = ({
     };
   }, [audioUrl]);
 
-  useEffect(() => {
+  const [prevAudioUrl, setPrevAudioUrl] = useState(audioUrl);
+  if (audioUrl !== prevAudioUrl) {
+    setPrevAudioUrl(audioUrl);
     setCurrentTime(0);
     setDuration(0);
     setPlaying(false);
-  }, [audioUrl]);
+  }
 
   useEffect(() => {
     if (!autoFocus) return;

@@ -71,14 +71,16 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    setMobileMenuOpen(false);
+  }
+
   const closeMobileMenu = useCallback(() => {
     setMobileMenuOpen(false);
     hamburgerRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;

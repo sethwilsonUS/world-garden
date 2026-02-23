@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { SearchForm } from "@/components/SearchForm";
 import { SearchResultsList } from "@/components/SearchResultsList";
 
@@ -13,7 +14,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="max-w-3xl mx-auto">
         <nav aria-label="Back navigation" className="mb-5">
-          <a
+          <Link
             href="/"
             className="inline-flex items-center gap-1 text-muted text-sm no-underline"
           >
@@ -31,7 +32,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               <path d="M15 19l-7-7 7-7" />
             </svg>
             Back to home
-          </a>
+          </Link>
         </nav>
 
         <section aria-labelledby="search-heading">

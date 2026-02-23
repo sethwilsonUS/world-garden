@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArticleView } from "@/components/ArticleView";
 
 type ArticlePageProps = {
@@ -11,7 +12,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     <div className="container mx-auto px-4 pt-7 pb-16">
       <div className="max-w-3xl mx-auto">
         <nav aria-label="Back navigation" className="mb-4">
-          <a
+          <Link
             href="/"
             className="inline-flex items-center gap-1 text-muted text-sm no-underline"
           >
@@ -29,7 +30,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
               <path d="M15 19l-7-7 7-7" />
             </svg>
             Back to home
-          </a>
+          </Link>
         </nav>
 
         <ArticleView slug={decodeURIComponent(slug)} />

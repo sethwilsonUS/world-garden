@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
 const KEY_API = "world-garden-elevenlabs-key";
 const KEY_VOICE = "world-garden-elevenlabs-voice";
@@ -22,13 +22,8 @@ const readSetting = (key: string, fallback: string): string => {
 };
 
 export const useElevenLabsSettings = () => {
-  const [apiKey, setApiKeyState] = useState("");
-  const [voiceId, setVoiceIdState] = useState(DEFAULT_VOICE_ID);
-
-  useEffect(() => {
-    setApiKeyState(readSetting(KEY_API, ""));
-    setVoiceIdState(readSetting(KEY_VOICE, DEFAULT_VOICE_ID));
-  }, []);
+  const [apiKey, setApiKeyState] = useState(() => readSetting(KEY_API, ""));
+  const [voiceId, setVoiceIdState] = useState(() => readSetting(KEY_VOICE, DEFAULT_VOICE_ID));
 
   const setApiKey = useCallback((key: string) => {
     setApiKeyState(key);

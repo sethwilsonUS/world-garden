@@ -55,9 +55,7 @@ export const BrowserTtsPlayer = ({
   const [speaking, setSpeakingRaw] = useState(false);
   const [paused, setPausedRaw] = useState(false);
   const onPausedChangeRef = useRef(onPausedChange);
-  onPausedChangeRef.current = onPausedChange;
   const onSpeakingChangeRef = useRef(onSpeakingChange);
-  onSpeakingChangeRef.current = onSpeakingChange;
   const setPaused = useCallback((v: boolean) => {
     setPausedRaw(v);
     onPausedChangeRef.current?.(v);
@@ -66,48 +64,52 @@ export const BrowserTtsPlayer = ({
     setSpeakingRaw(v);
     onSpeakingChangeRef.current?.(v);
   }, []);
-  const [supported, setSupported] = useState(true);
+  const [supported] = useState(
+    () => typeof window !== "undefined" && "speechSynthesis" in window,
+  );
   const [rateAnnouncement, setRateAnnouncement] = useState("");
 
   const playBtnRef = useRef<HTMLButtonElement>(null);
   const chunksRef = useRef<string[]>([]);
   const chunkIndexRef = useRef(0);
   const onEndedRef = useRef(onEnded);
-  onEndedRef.current = onEnded;
   const rateRef = useRef(playbackRate);
-  rateRef.current = playbackRate;
   const speakingRef = useRef(false);
+  const speakChunkRef = useRef<(index: number) => void>(() => {});
 
   useEffect(() => {
-    setSupported(
-      typeof window !== "undefined" && "speechSynthesis" in window,
-    );
-  }, []);
+    onPausedChangeRef.current = onPausedChange;
+    onSpeakingChangeRef.current = onSpeakingChange;
+    onEndedRef.current = onEnded;
+    rateRef.current = playbackRate;
+  });
 
-  const speakChunk = useCallback((index: number) => {
-    const chunks = chunksRef.current;
-    if (index >= chunks.length) {
-      speakingRef.current = false;
-      setSpeaking(false);
-      setPaused(false);
-      onEndedRef.current?.();
-      return;
-    }
+  useEffect(() => {
+    speakChunkRef.current = (index: number) => {
+      const chunks = chunksRef.current;
+      if (index >= chunks.length) {
+        speakingRef.current = false;
+        setSpeaking(false);
+        setPaused(false);
+        onEndedRef.current?.();
+        return;
+      }
 
-    const utterance = new SpeechSynthesisUtterance(chunks[index]);
-    utterance.rate = rateRef.current;
-    chunkIndexRef.current = index;
+      const utterance = new SpeechSynthesisUtterance(chunks[index]);
+      utterance.rate = rateRef.current;
+      chunkIndexRef.current = index;
 
-    utterance.onend = () => speakChunk(index + 1);
-    utterance.onerror = (e) => {
-      if (e.error === "canceled" || e.error === "interrupted") return;
-      speakingRef.current = false;
-      setSpeaking(false);
-      setPaused(false);
+      utterance.onend = () => speakChunkRef.current(index + 1);
+      utterance.onerror = (e) => {
+        if (e.error === "canceled" || e.error === "interrupted") return;
+        speakingRef.current = false;
+        setSpeaking(false);
+        setPaused(false);
+      };
+
+      window.speechSynthesis.speak(utterance);
     };
-
-    window.speechSynthesis.speak(utterance);
-  }, []);
+  });
 
   const startSpeaking = useCallback(() => {
     if (!supported) return;
@@ -118,8 +120,8 @@ export const BrowserTtsPlayer = ({
     speakingRef.current = true;
     setSpeaking(true);
     setPaused(false);
-    speakChunk(0);
-  }, [text, speakChunk, supported]);
+    speakChunkRef.current(0);
+  }, [text, supported, setSpeaking, setPaused]);
 
   useEffect(() => {
     return () => {
@@ -128,11 +130,16 @@ export const BrowserTtsPlayer = ({
     };
   }, []);
 
+  const [prevText, setPrevText] = useState(text);
+  if (text !== prevText) {
+    setPrevText(text);
+    setSpeakingRaw(false);
+    setPausedRaw(false);
+  }
+
   useEffect(() => {
     window.speechSynthesis?.cancel();
     speakingRef.current = false;
-    setSpeaking(false);
-    setPaused(false);
 
     if (autoFocus && supported) {
       playBtnRef.current?.focus({ preventScroll: true });
@@ -154,7 +161,7 @@ export const BrowserTtsPlayer = ({
     } else {
       startSpeaking();
     }
-  }, [paused, startSpeaking, supported]);
+  }, [paused, startSpeaking, supported, setPaused]);
 
   const cycleSpeed = useCallback(() => {
     if (!onPlaybackRateChange) return;
@@ -166,9 +173,9 @@ export const BrowserTtsPlayer = ({
     if (speakingRef.current && supported) {
       window.speechSynthesis.cancel();
       rateRef.current = next;
-      speakChunk(chunkIndexRef.current);
+      speakChunkRef.current(chunkIndexRef.current);
     }
-  }, [playbackRate, onPlaybackRateChange, speakChunk, supported]);
+  }, [playbackRate, onPlaybackRateChange, supported]);
 
   if (!supported) {
     return (

@@ -10,7 +10,6 @@ import {
   searchWikipedia,
   fetchArticleByTitle,
   slugToTitle,
-  titleToSlug,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
   type ParsedPageData,
@@ -63,7 +62,6 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
       },
 
       getSectionLinks: async ({ wikiPageId, sectionTitle }) => {
-        const cacheKey = sectionTitle ?? "__summary__";
         let sectionIndex = "0";
 
         if (sectionTitle !== null) {

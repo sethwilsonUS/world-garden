@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useData } from "@/lib/data-context";
 import Link from "next/link";
 
@@ -728,13 +728,12 @@ const SectionDetailsPanel = ({
 }) => {
   const [links, setLinks] = useState<LinkedArticle[] | null>(null);
   const [citations, setCitations] = useState<Citation[] | null>(null);
-  const [linksLoading, setLinksLoading] = useState(false);
-  const [citesLoading, setCitesLoading] = useState(false);
+  const [linksLoading, setLinksLoading] = useState(hasLinks);
+  const [citesLoading, setCitesLoading] = useState(hasCitations);
   const { getSectionLinks, getSectionCitations } = useData();
 
   useEffect(() => {
     if (!hasLinks || links !== null) return;
-    setLinksLoading(true);
     getSectionLinks({ wikiPageId, sectionTitle })
       .then(setLinks)
       .catch(() => setLinks([]))
@@ -743,7 +742,6 @@ const SectionDetailsPanel = ({
 
   useEffect(() => {
     if (!hasCitations || citations !== null) return;
-    setCitesLoading(true);
     getSectionCitations({ wikiPageId, sectionTitle })
       .then(setCitations)
       .catch(() => setCitations([]))

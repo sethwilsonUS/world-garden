@@ -21,9 +21,15 @@ export const RelatedArticles = ({
   const [articles, setArticles] = useState<LinkedArticle[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [prevWikiPageId, setPrevWikiPageId] = useState(wikiPageId);
+  if (wikiPageId !== prevWikiPageId) {
+    setPrevWikiPageId(wikiPageId);
+    setLoading(true);
+    setArticles([]);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
 
     getSectionLinks({ wikiPageId, sectionTitle: null })
       .then((links) => {

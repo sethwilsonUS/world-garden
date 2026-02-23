@@ -211,7 +211,7 @@ export const upsertParseCache = internalMutation({
 });
 
 const getOrFetchParsedData = async (
-  ctx: { runQuery: Function; runMutation: Function },
+  ctx: Pick<import("./_generated/server").ActionCtx, "runQuery" | "runMutation">,
   wikiPageId: string,
 ): Promise<ParsedPageData> => {
   const cached = await ctx.runQuery(internal.articles.getParseCache, {

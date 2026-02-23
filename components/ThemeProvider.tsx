@@ -5,7 +5,6 @@ import {
   useContext,
   useCallback,
   useState,
-  useEffect,
   ReactNode,
 } from "react";
 
@@ -27,11 +26,7 @@ const syncThemeColorMeta = (theme: Theme) => {
 };
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setTheme] = useState<Theme>("dark");
-
-  useEffect(() => {
-    setTheme(readThemeFromDom());
-  }, []);
+  const [theme, setTheme] = useState<Theme>(readThemeFromDom);
 
   const toggleTheme = useCallback(() => {
     const current = readThemeFromDom();

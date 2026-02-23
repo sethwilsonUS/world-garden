@@ -140,23 +140,24 @@ export const fetchArticleByTitle = async (
 
   const data = await response.json();
   const pages = data.query?.pages ?? {};
-  const page = Object.values(pages)[0] as any;
+  const page = Object.values(pages)[0] as Record<string, unknown> | undefined;
 
   if (!page || page.missing !== undefined) {
     throw new Error(`Wikipedia article not found: "${title}"`);
   }
 
-  const revision = page.revisions?.[0];
-  const fullText = page.extract ?? "";
+  const revisions = page.revisions as Array<Record<string, unknown>> | undefined;
+  const revision = revisions?.[0];
+  const fullText = (page.extract as string) ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
 
   return {
     wikiPageId: String(page.pageid),
-    title: page.title,
+    title: page.title as string,
     language: "en",
     revisionId: revision ? String(revision.revid) : "unknown",
-    lastEdited: revision?.timestamp ?? new Date().toISOString(),
+    lastEdited: (revision?.timestamp as string) ?? new Date().toISOString(),
     summary,
     contentText,
     sections,
@@ -516,12 +517,12 @@ export const fetchSectionLinksByIndex = async (
 
     const qData = await qResponse.json();
     const pages = qData.query?.pages ?? {};
-    for (const p of Object.values(pages) as any[]) {
+    for (const p of Object.values(pages) as Record<string, unknown>[]) {
       if (p.pageid && p.missing === undefined) {
         resolved.push({
           wikiPageId: String(p.pageid),
-          title: p.title,
-          description: p.description,
+          title: p.title as string,
+          description: p.description as string | undefined,
         });
       }
     }
