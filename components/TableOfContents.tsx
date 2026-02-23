@@ -525,7 +525,7 @@ export const TableOfContents = ({
                   Summary
                 </span>
                 {summaryText && (
-                  <span className="text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
+                  <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
                     <span aria-hidden="true">{durationLabel("summary", summaryText, sectionDurations, playbackRate)}</span>
                     <span className="sr-only">{durationLabelAccessible("summary", summaryText, sectionDurations, playbackRate)}</span>
                   </span>
@@ -641,7 +641,7 @@ export const TableOfContents = ({
                     >
                       {section.title}
                     </span>
-                    <span className="text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
+                    <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
                       <span aria-hidden="true">{durationLabel(`section-${index}`, section.content, sectionDurations, playbackRate)}</span>
                       <span className="sr-only">{durationLabelAccessible(`section-${index}`, section.content, sectionDurations, playbackRate)}</span>
                     </span>
@@ -774,7 +774,7 @@ const SectionDetailsBadge = ({
       }}
       aria-expanded={isOpen}
       aria-label={label}
-      className="linked-article-link inline-flex items-center gap-[3px] px-[7px] py-px bg-transparent border border-border rounded-full text-[0.625rem] text-muted cursor-pointer font-medium leading-[1.4] pointer-events-auto transition-colors duration-150"
+      className="linked-article-link inline-flex items-center gap-[3px] px-[7px] py-px bg-transparent border border-border rounded-full text-[0.6875rem] sm:text-[0.625rem] text-muted cursor-pointer font-medium leading-[1.4] pointer-events-auto transition-colors duration-150"
     >
       <svg
         viewBox="0 0 24 24"
@@ -783,10 +783,8 @@ const SectionDetailsBadge = ({
         strokeWidth={2.5}
         strokeLinecap="round"
         strokeLinejoin="round"
-        width={8}
-        height={8}
         aria-hidden="true"
-        className="shrink-0 transition-transform duration-200"
+        className="shrink-0 transition-transform duration-200 size-[10px] sm:size-2"
         style={{ transform: isOpen ? "rotate(90deg)" : "none" }}
       >
         <path d="M9 18l6-6-6-6" />
@@ -851,7 +849,7 @@ const SectionDetailsPanel = ({
       {!linksLoading && links !== null && links.length > 0 && (
         <nav aria-label={`Links in ${sectionLabel}`}>
           {showBoth && (
-            <p className="text-[0.5625rem] font-semibold text-muted uppercase tracking-[0.05em] ml-1.5 mb-0.5">
+            <p className="text-[0.65625rem] sm:text-[0.5625rem] font-semibold text-muted uppercase tracking-[0.05em] ml-1.5 mb-0.5">
               Links
             </p>
           )}
@@ -861,7 +859,7 @@ const SectionDetailsPanel = ({
                 <Link
                   href={`/article/${encodeURIComponent(article.title.replace(/ /g, "_"))}`}
                   title={article.description ?? article.title}
-                  className="linked-article-link block px-1.5 py-0.5 rounded text-xs text-foreground-2 no-underline transition-colors duration-100"
+                  className="linked-article-link block px-1.5 py-0.5 rounded text-[0.8125rem] sm:text-xs text-foreground-2 no-underline transition-colors duration-100"
                 >
                   {article.title}
                 </Link>
@@ -877,7 +875,7 @@ const SectionDetailsPanel = ({
           className={showBoth && links && links.length > 0 ? "mt-2" : ""}
         >
           {showBoth && (
-            <p className="text-[0.5625rem] font-semibold text-muted uppercase tracking-[0.05em] ml-1.5 mb-0.5">
+            <p className="text-[0.65625rem] sm:text-[0.5625rem] font-semibold text-muted uppercase tracking-[0.05em] ml-1.5 mb-0.5">
               Citations
             </p>
           )}
@@ -889,11 +887,11 @@ const SectionDetailsPanel = ({
               >
                 <span
                   aria-hidden="true"
-                  className="shrink-0 w-6 font-mono text-[0.625rem] font-semibold text-muted text-right leading-[1.65]"
+                  className="shrink-0 w-6 font-mono text-[0.6875rem] sm:text-[0.625rem] font-semibold text-muted text-right leading-[1.65]"
                 >
                   {citation.index}
                 </span>
-                <span className="flex-1 min-w-0 text-[0.6875rem] leading-[1.65] text-foreground-2 break-words">
+                <span className="flex-1 min-w-0 text-[0.8125rem] sm:text-[0.6875rem] leading-[1.65] text-foreground-2 break-words">
                   {citation.text}
                   {citation.url && (
                     <>
@@ -903,7 +901,7 @@ const SectionDetailsPanel = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={`Source for citation ${citation.index} (opens in new tab)`}
-                        className="linked-article-link inline-flex items-center gap-0.5 text-[0.625rem] text-muted no-underline px-[3px] rounded align-baseline transition-colors duration-150"
+                        className="linked-article-link inline-flex items-center gap-0.5 text-[0.6875rem] sm:text-[0.625rem] text-muted no-underline px-[3px] rounded align-baseline transition-colors duration-150"
                       >
                         <svg
                           viewBox="0 0 24 24"
@@ -912,10 +910,8 @@ const SectionDetailsPanel = ({
                           strokeWidth={2.5}
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          width={8}
-                          height={8}
                           aria-hidden="true"
-                          className="shrink-0"
+                          className="shrink-0 size-[10px] sm:size-2"
                         >
                           <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
                           <polyline points="15 3 21 3 21 9" />
