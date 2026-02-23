@@ -4,8 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useData } from "@/lib/data-context";
 import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
-import { BrowserTtsPlayer } from "./BrowserTtsPlayer";
-import { AudioPlayer } from "./AudioPlayer";
 import { BookmarkButton } from "./BookmarkButton";
 import { RelatedArticles } from "./RelatedArticles";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
@@ -13,6 +11,8 @@ import { useHistory } from "@/hooks/useHistory";
 import { useElevenLabsSettings, generateElevenLabsAudio } from "@/hooks/useElevenLabsSettings";
 import { normalizeTtsText } from "@/convex/lib/elevenlabs";
 import { useBrowserTtsVoice } from "@/hooks/useBrowserTtsVoice";
+import { useBrowserTts } from "@/hooks/useBrowserTts";
+import { useAudioElement } from "@/hooks/useAudioElement";
 
 type Section = {
   title: string;
@@ -51,8 +51,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [fetching, setFetching] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [speakingText, setSpeakingText] = useState<string | null>(null);
-  const [speechKey, setSpeechKey] = useState(0);
   const [audioLabel, setAudioLabel] = useState("");
   const [audioError, setAudioError] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState<number | null>(
@@ -79,13 +77,14 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [citationCounts, setCitationCounts] = useState<Record<string, number> | null>(null);
 
   const requestId = useRef(0);
-  const summaryTriggered = useRef(false);
   const playAllQueue = useRef<QueueItem[]>([]);
   const [queueLength, setQueueLength] = useState(0);
   const lastPlayedSectionIdx = useRef<number | null>(null);
   const summaryTextRef = useRef("");
   const countsFetched = useRef(false);
   const fetchTriggered = useRef(false);
+  const pendingElevenLabsPlay = useRef(false);
+  const summaryListenRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (fetchTriggered.current) return;
@@ -125,6 +124,39 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const sectionsRef = useRef<Section[]>([]);
   const linkCountsRef = useRef(linkCounts);
   const citationCountsRef = useRef(citationCounts);
+
+  const audioEndedRef = useRef<() => void>(() => {});
+
+  const browserTts = useBrowserTts({
+    onEnded: () => audioEndedRef.current(),
+    onPausedChange: setIsPaused,
+    onSpeakingChange: setIsSpeaking,
+    playbackRate,
+  });
+
+  const audioEl = useAudioElement({
+    url: elevenLabsUrl,
+    onEnded: () => audioEndedRef.current(),
+    playbackRate,
+  });
+
+  // Sync isSpeaking/isPaused from ElevenLabs audio element state
+  useEffect(() => {
+    if (!elevenLabs.isConfigured) return;
+    if (audioEl.playing) {
+      setIsSpeaking(true);
+      setIsPaused(false);
+    }
+  }, [audioEl.playing, elevenLabs.isConfigured]);
+
+  // Auto-play ElevenLabs audio when URL arrives from a user action
+  useEffect(() => {
+    if (elevenLabsUrl && !elevenLabsLoading && pendingElevenLabsPlay.current) {
+      pendingElevenLabsPlay.current = false;
+      const timer = setTimeout(() => audioEl.play(), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [elevenLabsUrl, elevenLabsLoading, audioEl.play]);
 
   useEffect(() => {
     playbackRateRef.current = playbackRate;
@@ -206,7 +238,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       if (elevenLabs.isConfigured) {
         setElevenLabsLoading(true);
-        setSpeakingText(null);
+        browserTts.cancel();
+        pendingElevenLabsPlay.current = true;
         generateElevenLabsAudio(textContent, elevenLabs.apiKey, elevenLabs.voiceId)
           .then((url) => {
             if (requestId.current !== currentRequest) return;
@@ -218,15 +251,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             if (requestId.current !== currentRequest) return;
             setAudioError(err instanceof Error ? err.message : "ElevenLabs TTS failed");
             setElevenLabsLoading(false);
+            pendingElevenLabsPlay.current = false;
           });
       } else {
         setElevenLabsUrl(null);
-        setSpeakingText(normalizeTtsText(textContent));
-        setSpeechKey((k) => k + 1);
+        audioEl.pause();
         setAudioLabel(label);
+        browserTts.speak(normalizeTtsText(textContent));
       }
     },
-    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId],
+    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, browserTts, audioEl],
   );
 
   const handleAudioEnded = useCallback(() => {
@@ -235,6 +269,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         setIsPlayingAll(false);
         setActiveSectionIndex(null);
         setQueueLength(0);
+        setIsSpeaking(false);
+        setIsPaused(false);
         if (isPlayingAll) {
           setFinishedPlaying(true);
         }
@@ -251,6 +287,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       speakSectionMetadata(advance);
     }
   }, [isPlayingAll, generateAudio, speakSectionMetadata]);
+
+  useEffect(() => {
+    audioEndedRef.current = handleAudioEnded;
+  });
 
   const handlePlayAll = useCallback(
     (sections: Section[], articleTitle: string) => {
@@ -283,14 +323,46 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     playAllQueue.current = [];
     setQueueLength(0);
     setIsPlayingAll(false);
-    setSpeakingText(null);
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    setIsPaused(false);
+    browserTts.cancel();
+    audioEl.pause();
+  }, [browserTts, audioEl]);
+
+  const handleTogglePlayAll = useCallback(() => {
+    if (isPaused) {
+      if (elevenLabs.isConfigured) {
+        audioEl.play();
+      } else {
+        browserTts.toggle();
+      }
+      setIsPaused(false);
+    } else {
+      if (elevenLabs.isConfigured) {
+        audioEl.pause();
+      } else {
+        browserTts.toggle();
+      }
+      setIsPaused(true);
     }
-  }, []);
+  }, [isPaused, elevenLabs.isConfigured, audioEl, browserTts]);
 
   const handleListenSection = useCallback(
     (index: number, sections: Section[], articleTitle: string) => {
+      if (activeSectionIndex === index && isSpeaking) {
+        if (elevenLabs.isConfigured) {
+          if (audioEl.playing) {
+            audioEl.pause();
+            setIsPaused(true);
+          } else {
+            audioEl.play();
+            setIsPaused(false);
+          }
+        } else {
+          browserTts.toggle();
+        }
+        return;
+      }
       playAllQueue.current = [];
       setQueueLength(0);
       setIsPlayingAll(false);
@@ -301,17 +373,31 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         index,
       );
     },
-    [generateAudio],
+    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioEl, browserTts],
   );
 
   const handleListenSummary = useCallback(
     (articleTitle: string) => {
+      if (activeSectionIndex === null && isSpeaking) {
+        if (elevenLabs.isConfigured) {
+          if (audioEl.playing) {
+            audioEl.pause();
+            setIsPaused(true);
+          } else {
+            audioEl.play();
+            setIsPaused(false);
+          }
+        } else {
+          browserTts.toggle();
+        }
+        return;
+      }
       playAllQueue.current = [];
       setQueueLength(0);
       setIsPlayingAll(false);
       generateAudio("summary", `${articleTitle} \u2014 Summary`, null);
     },
-    [generateAudio],
+    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioEl, browserTts],
   );
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
@@ -332,18 +418,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   }
 
   useEffect(() => {
-    if (displayArticle && !summaryTriggered.current && !showResumeBanner) {
-      summaryTriggered.current = true;
-      const timer = setTimeout(() => {
-        generateAudio(
-          "summary",
-          `${displayArticle.title} \u2014 Summary`,
-          null,
-        );
-      }, 0);
-      return () => clearTimeout(timer);
+    if (displayArticle && !showResumeBanner) {
+      summaryListenRef.current?.focus({ preventScroll: true });
     }
-  }, [displayArticle, generateAudio, showResumeBanner]);
+  }, [displayArticle, showResumeBanner]);
 
   /* ── Loading / Error states ── */
 
@@ -377,7 +455,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             Planting seeds...
           </p>
           <p className="text-muted text-sm mt-2">
-            Fetching article &mdash; audio will play automatically
+            Fetching article from Wikipedia
           </p>
         </div>
       </div>
@@ -511,107 +589,77 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         </div>
       )}
 
-      {/* 2. Unified audio player area */}
-      <section
-        aria-label="Audio player"
-        className="animate-fade-in-up-delay-1 mb-6"
-      >
-        <h2 className="sr-only">Audio player</h2>
+      {/* Hidden audio element for ElevenLabs playback */}
+      {elevenLabsUrl && (
+        <audio
+          ref={audioEl.audioRef}
+          src={elevenLabsUrl}
+          preload="metadata"
+          aria-hidden="true"
+          className="hidden"
+        />
+      )}
 
-        {elevenLabsLoading && (
-          <div
-            className="garden-bed flex items-center gap-3 py-3 px-4"
-            role="status"
+      {/* ElevenLabs loading indicator */}
+      {elevenLabsLoading && (
+        <div
+          className="garden-bed flex items-center gap-3 py-3 px-4 mb-6 animate-fade-in-up-delay-1"
+          role="status"
+        >
+          <svg
+            className="animate-spin text-accent shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            width={18}
+            height={18}
+            aria-hidden="true"
           >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <span className="text-[0.8125rem] text-muted">
+            Generating audio with ElevenLabs...
+          </span>
+        </div>
+      )}
+
+      {/* Audio error */}
+      {audioError && (
+        <div className="garden-bed p-5 mb-6 animate-fade-in-up-delay-1">
+          <div className="alert-banner alert-error" role="alert">
             <svg
-              className="animate-spin text-accent shrink-0"
-              fill="none"
               viewBox="0 0 24 24"
-              width={18}
-              height={18}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={20}
+              height={20}
               aria-hidden="true"
+              className="shrink-0 mt-0.5"
             >
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <span className="text-[0.8125rem] text-muted">
-              Generating audio with ElevenLabs...
-            </span>
-          </div>
-        )}
-
-        {elevenLabsUrl && !elevenLabsLoading && (
-          <AudioPlayer
-            audioUrl={elevenLabsUrl}
-            title={audioLabel}
-            label={
-              isPlayingAll
-                ? `Playing all \u00b7 ${audioLabel}${queueLength > 0 ? ` \u00b7 ${queueLength} remaining` : ""}`
-                : undefined
-            }
-            autoFocus
-            onEnded={handleAudioEnded}
-            playbackRate={playbackRate}
-            onPlaybackRateChange={setPlaybackRate}
-          />
-        )}
-
-        {speakingText && !elevenLabs.isConfigured && (
-          <BrowserTtsPlayer
-            key={speechKey}
-            text={speakingText}
-            title={audioLabel}
-            label={
-              isPlayingAll
-                ? `Playing all \u00b7 ${audioLabel}${queueLength > 0 ? ` \u00b7 ${queueLength} remaining` : ""}`
-                : `Now playing: ${audioLabel}`
-            }
-            autoFocus
-            onEnded={handleAudioEnded}
-            onPausedChange={setIsPaused}
-            onSpeakingChange={setIsSpeaking}
-            playbackRate={playbackRate}
-            onPlaybackRateChange={setPlaybackRate}
-          />
-        )}
-
-        {audioError && (
-          <div className="garden-bed p-5">
-            <div className="alert-banner alert-error" role="alert">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                width={20}
-                height={20}
-                aria-hidden="true"
-                className="shrink-0 mt-0.5"
+            <div>
+              <p className="text-sm">{audioError}</p>
+              <button
+                onClick={() =>
+                  generateAudio(
+                    "summary",
+                    `${displayArticle.title} \u2014 Summary`,
+                    null,
+                  )
+                }
+                className="btn-secondary mt-3 px-4 py-2 text-sm"
+                aria-label="Try generating audio again"
               >
-                <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div>
-                <p className="text-sm">{audioError}</p>
-                <button
-                  onClick={() =>
-                    generateAudio(
-                      "summary",
-                      `${displayArticle.title} \u2014 Summary`,
-                      null,
-                    )
-                  }
-                  className="btn-secondary mt-3 px-4 py-2 text-sm"
-                  aria-label="Try generating audio again"
-                >
-                  Try again
-                </button>
-              </div>
+                Try again
+              </button>
             </div>
           </div>
-        )}
-      </section>
+        </div>
+      )}
 
       {/* 3. Table of contents with per-section audio */}
       <div
@@ -623,6 +671,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           summaryText={displayArticle.summary}
           sections={sections}
           activeSectionIndex={activeSectionIndex}
+          isGenerating={elevenLabsLoading}
           isPlayingAll={isPlayingAll}
           isPaused={isPaused}
           isSpeaking={isSpeaking}
@@ -636,7 +685,17 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             handlePlayAll(sections, displayArticle.title)
           }
           onStopPlayAll={handleStopPlayAll}
+          onTogglePlayAll={handleTogglePlayAll}
           playbackRate={playbackRate}
+          onPlaybackRateChange={setPlaybackRate}
+          isElevenLabs={elevenLabs.isConfigured}
+          audioProgress={
+            elevenLabs.isConfigured && elevenLabsUrl
+              ? { currentTime: audioEl.currentTime, duration: audioEl.duration }
+              : undefined
+          }
+          onSeek={elevenLabs.isConfigured ? audioEl.seek : undefined}
+          summaryListenRef={summaryListenRef}
         />
       </div>
 
