@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useData } from "@/lib/data-context";
-import { warmSummaryAudio } from "@/lib/audio-prefetch";
+import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 
 type SearchResult = {
   wikiPageId: string;
@@ -109,6 +109,7 @@ export const SearchResultsList = ({ term }: { term: string }) => {
     (title: string) => {
       const slug = title.replace(/ /g, "_");
       warmSummaryAudio(slug, fetchArticle);
+      warmArticleImage(slug, fetchArticle);
     },
     [fetchArticle],
   );

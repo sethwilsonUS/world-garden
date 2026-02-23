@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useData } from "@/lib/data-context";
-import { warmSummaryAudio } from "@/lib/audio-prefetch";
+import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
 
@@ -101,6 +101,7 @@ export const RandomArticleButton = () => {
     prePicked.current = fetchSafeRandomArticle().then((title) => {
       const slug = title.replace(/ /g, "_");
       warmSummaryAudio(slug, fetchArticle);
+      warmArticleImage(slug, fetchArticle);
       return title;
     }).catch(() => {
       prePicked.current = null;

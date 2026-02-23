@@ -48,6 +48,7 @@ export const upsertArticle = internalMutation({
     revisionId: v.string(),
     lastFetchedAt: v.number(),
     summary: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
     sections: v.optional(
       v.array(
         v.object({
@@ -72,6 +73,7 @@ export const upsertArticle = internalMutation({
         revisionId: args.revisionId,
         lastFetchedAt: args.lastFetchedAt,
         summary: args.summary,
+        thumbnailUrl: args.thumbnailUrl,
         sections: args.sections,
       });
       return existing._id;
@@ -85,6 +87,7 @@ export const upsertArticle = internalMutation({
       revisionId: args.revisionId,
       lastFetchedAt: args.lastFetchedAt,
       summary: args.summary,
+      thumbnailUrl: args.thumbnailUrl,
       sections: args.sections,
     });
   },
@@ -110,6 +113,7 @@ export const fetchAndCache = action({
         revisionId: data.revisionId,
         lastFetchedAt: Date.now(),
         summary: data.summary,
+        thumbnailUrl: data.thumbnailUrl,
         sections: data.sections,
       },
     );
@@ -137,6 +141,7 @@ export const fetchAndCacheBySlug = action({
         revisionId: data.revisionId,
         lastFetchedAt: Date.now(),
         summary: data.summary,
+        thumbnailUrl: data.thumbnailUrl,
         sections: data.sections,
       },
     );

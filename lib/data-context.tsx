@@ -22,6 +22,7 @@ export type Article = {
   revisionId: string;
   lastEdited?: string;
   summary?: string;
+  thumbnailUrl?: string;
   sections?: Section[];
 };
 

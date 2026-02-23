@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/lib/data-context";
-import { warmSummaryAudio } from "@/lib/audio-prefetch";
+import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 
@@ -35,6 +35,7 @@ export const FeaturedArticle = () => {
         setFeatured({ title, extract: tfa.extract ?? "" });
         const slug = title.replace(/ /g, "_");
         warmSummaryAudio(slug, fetchArticle);
+        warmArticleImage(slug, fetchArticle);
       } catch {
         // Featured article is a nice-to-have; fail silently
       } finally {
