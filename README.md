@@ -130,13 +130,6 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `/tmp/edge-tts-venv/bin/python3`) |
 
-**Convex dashboard variables** (for server-side ElevenLabs TTS):
-
-| Variable | Description |
-|---|---|
-| `ELEVENLABS_API_KEY` | ElevenLabs API key |
-| `ELEVENLABS_VOICE_ID` | Default ElevenLabs voice ID |
-
 ## Development Scripts
 
 | Command | Description |
