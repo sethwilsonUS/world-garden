@@ -195,15 +195,13 @@ export const BrowserTtsPlayer = ({
 
   const isActive = speaking && !paused;
   const isIdle = !speaking && !paused;
-  const displayLabel = isIdle
-    ? title
-    : (label ?? `Now playing: ${title}`);
+  const displayLabel = label ?? `Now playing: ${title}`;
 
   return (
-    <div role="group" aria-label={`Audio player for ${title}`}>
-      <div className="inline-flex items-center gap-3 bg-surface-3 border border-border rounded-full py-1.5 pr-1.5 pl-4">
+    <div role="group" aria-label={`Audio player for ${title}`} className="w-full md:w-[480px]">
+      <div className="flex items-center gap-3 bg-surface-3 border border-border rounded-full py-1.5 pr-1.5 pl-4">
         <p
-          className="flex items-center gap-2 font-display font-semibold text-[0.8125rem] text-muted m-0 tracking-[0.01em] whitespace-nowrap overflow-hidden text-ellipsis min-w-0"
+          className="flex-1 flex items-center gap-2 font-display font-semibold text-[0.8125rem] text-muted m-0 tracking-[0.01em] min-w-0"
           aria-live="polite"
         >
           <span
@@ -211,7 +209,7 @@ export const BrowserTtsPlayer = ({
             style={{ opacity: isIdle ? 0.3 : 1 }}
             aria-hidden="true"
           />
-          <span className="overflow-hidden text-ellipsis">
+          <span className="truncate min-w-0">
             {paused ? `Paused: ${title}` : displayLabel}
           </span>
         </p>
