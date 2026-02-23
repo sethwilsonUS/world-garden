@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isCategoryNsfw, isDisambiguation } from "./RandomArticleButton";
+import { isCategoryNsfw, isDisambiguation } from "@/lib/nsfw-filter";
 
 describe("isCategoryNsfw", () => {
   describe("exact category matches", () => {

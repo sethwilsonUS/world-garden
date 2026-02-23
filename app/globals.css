@@ -361,6 +361,11 @@ body {
   opacity: 0;
 }
 
+.animate-fade-in-up-delay-4 {
+  animation: fadeInUp 0.5s ease 0.4s forwards;
+  opacity: 0;
+}
+
 /* ── Banner / Alert ── */
 .alert-banner {
   display: flex;

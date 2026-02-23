@@ -4,53 +4,9 @@ import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useData } from "@/lib/data-context";
 import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
+import { isCategoryNsfw, isDisambiguation } from "@/lib/nsfw-filter";
 
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
-
-const NSFW_CATEGORIES = new Set([
-  "Category:Sexual acts",
-  "Category:Sex positions",
-  "Category:Shock sites",
-  "Category:Pornography terminology",
-  "Category:Sexual fetishism",
-  "Category:Paraphilias",
-  "Category:BDSM",
-  "Category:Ejaculation",
-  "Category:Anal eroticism",
-  "Category:Oral sex",
-  "Category:Sex toys",
-  "Category:Human penis",
-  "Category:Human vulva",
-  "Category:Gratis pornography",
-]);
-
-const NSFW_KEYWORDS = [
-  "pornograph",
-  "erotic",
-  "sex toy",
-  "sex position",
-  "sexual act",
-  "shock site",
-  "fetish",
-  "paraphilia",
-  "hentai",
-  "bdsm",
-  "bukkake",
-  "gore ",
-  "obscenity",
-  "strip club",
-  "sex work",
-  "prostitut",
-];
-
-export const isCategoryNsfw = (categoryTitle: string): boolean => {
-  if (NSFW_CATEGORIES.has(categoryTitle)) return true;
-  const lower = categoryTitle.toLowerCase();
-  return NSFW_KEYWORDS.some((kw) => lower.includes(kw));
-};
-
-export const isDisambiguation = (categoryTitle: string): boolean =>
-  categoryTitle.toLowerCase().includes("disambiguation");
 
 const fetchSafeRandomArticle = async (maxAttempts = 2): Promise<string> => {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {

@@ -16,7 +16,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Two-tier TTS** — Choose the voice engine that fits your needs. **Edge TTS** (default) uses Microsoft's neural voices for free, high-quality audio with full seek, scrub, and download support. **ElevenLabs** (bring your own API key) offers premium voices — your key stays in your browser and is never sent to our servers.
 
-**Discovery** — Search Wikipedia, browse today's Featured Article, or tap "Surprise me" for a random article (with an NSFW category filter so you get something safe). After finishing an article, related articles are surfaced as "Listen next" suggestions.
+**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
 **Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display.
 
@@ -149,7 +149,7 @@ app/
   layout.tsx              Root layout with providers, PWA meta, and accessibility shell
   AppProviders.tsx        Switches between Convex and local data providers
   ConvexClientProvider.tsx  Convex client wrapper
-  page.tsx                Landing page with search, recently listened, featured article
+  page.tsx                Landing page with search, featured article, trending, recently listened
   search/page.tsx         Search results page
   article/[slug]/page.tsx Article view with audio playback
   library/page.tsx        Saved reading list
@@ -165,6 +165,7 @@ lib/
   convex-data-provider.tsx  Convex implementation (wraps useAction hooks)
   local-data-provider.tsx   Local implementation (direct Wikipedia API calls)
   audio-prefetch.ts       Prefetches summary audio and article thumbnails
+  nsfw-filter.ts          Shared NSFW category/keyword filter and batch title check
   formatTime.ts           Duration formatting helpers
 
 components/
@@ -180,7 +181,8 @@ components/
   BookmarkButton.tsx      Save/unsave article to reading list
   BackButton.tsx          Navigation back button
   RecentlyListened.tsx    Recently listened articles grid (home page)
-  FeaturedArticle.tsx     Today's Featured Article card (home page)
+  FeaturedArticle.tsx     Today's Featured Article card with thumbnail (home page)
+  CuriousAbout.tsx        Trending Wikipedia articles grid with thumbnails (home page)
   RandomArticleButton.tsx "Surprise me" button with NSFW category filter
   RelatedArticles.tsx     "Listen next" suggestions after playback
   SettingsPanel.tsx       ElevenLabs API key and voice settings

@@ -10,6 +10,7 @@ const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 type FeaturedData = {
   title: string;
   extract: string;
+  thumbnail?: { source: string; width: number; height: number };
 };
 
 const todayString = (): string => {
@@ -32,7 +33,11 @@ export const FeaturedArticle = () => {
         const tfa = data.tfa;
         if (!tfa || cancelled) return;
         const title = tfa.titles?.normalized ?? tfa.title ?? "";
-        setFeatured({ title, extract: tfa.extract ?? "" });
+        setFeatured({
+          title,
+          extract: tfa.extract ?? "",
+          thumbnail: tfa.thumbnail as FeaturedData["thumbnail"],
+        });
         const slug = title.replace(/ /g, "_");
         warmSummaryAudio(slug, fetchArticle);
         warmArticleImage(slug, fetchArticle);
@@ -80,30 +85,44 @@ export const FeaturedArticle = () => {
       </h2>
       <Link
         href={`/article/${slug}`}
-        className="result-link block px-5 py-4 bg-surface-2 border border-border rounded-2xl no-underline transition-all duration-200"
+        className="result-link block bg-surface-2 border border-border rounded-2xl no-underline overflow-hidden transition-all duration-200"
       >
-        <span className="flex items-center gap-2 mb-2">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            width={16}
-            height={16}
-            aria-hidden="true"
-            className="text-accent shrink-0"
-          >
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-          <span className="font-display font-bold text-[1.0625rem] text-foreground">
-            {featured!.title}
-          </span>
-        </span>
-        <span className="block text-[0.8125rem] leading-[1.6] text-muted">
-          {truncatedExtract}
-        </span>
+        <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
+          {featured!.thumbnail && (
+            <div className="relative sm:w-40 sm:min-h-[120px] aspect-[16/9] sm:aspect-auto shrink-0 bg-surface-3 overflow-hidden">
+              <img
+                src={featured!.thumbnail.source}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover"
+                loading="eager"
+              />
+            </div>
+          )}
+          <div className="px-5 py-4 min-w-0">
+            <span className="flex items-center gap-2 mb-2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                width={16}
+                height={16}
+                aria-hidden="true"
+                className="text-accent shrink-0"
+              >
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+              <span className="font-display font-bold text-[1.0625rem] text-foreground">
+                {featured!.title}
+              </span>
+            </span>
+            <span className="block text-[0.8125rem] leading-[1.6] text-muted">
+              {truncatedExtract}
+            </span>
+          </div>
+        </div>
       </Link>
     </section>
   );

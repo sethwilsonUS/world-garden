@@ -3,6 +3,7 @@
 import { SearchForm } from "@/components/SearchForm";
 import { RecentlyListened } from "@/components/RecentlyListened";
 import { FeaturedArticle } from "@/components/FeaturedArticle";
+import { CuriousAbout } from "@/components/CuriousAbout";
 import { RandomArticleButton } from "@/components/RandomArticleButton";
 
 export default function Home() {
@@ -58,6 +59,10 @@ export default function Home() {
       </div>
 
       <div className="max-w-xl mx-auto animate-fade-in-up-delay-3">
+        <CuriousAbout />
+      </div>
+
+      <div className="max-w-xl mx-auto animate-fade-in-up-delay-4">
         <RecentlyListened />
       </div>
     </div>
