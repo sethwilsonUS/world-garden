@@ -27,6 +27,14 @@ npx convex dev   # first-time setup — creates a project and writes .env.local
 npm run dev       # starts Next.js + Convex in parallel
 ```
 
+4. (Optional) Set up Edge TTS for high-quality audio during development:
+
+```bash
+python3 -m venv /tmp/edge-tts-venv
+/tmp/edge-tts-venv/bin/pip install edge-tts
+npm run dev:python   # starts Next.js + Convex + Python TTS server
+```
+
 ## Development Workflow
 
 1. Create a branch from `main`:
@@ -99,6 +107,8 @@ When adding new functionality, include tests that cover:
 - Accessibility-relevant behavior (e.g., ARIA attribute values, keyboard interactions)
 
 Test files live alongside the code they test (e.g., `components/TableOfContents.test.ts`).
+
+CI also runs a Python job that validates the Edge TTS serverless function (`api/tts.py`) and lints it with Ruff.
 
 ## Wikipedia Content
 
