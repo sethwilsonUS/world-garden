@@ -8,7 +8,7 @@ import { filterSafeTitles } from "@/lib/nsfw-filter";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 
-const MAX_ARTICLES = 4;
+const MAX_ARTICLES = 8;
 
 type MostReadArticle = {
   title: string;
@@ -155,7 +155,7 @@ export const CuriousAbout = () => {
     return (
       <section aria-label="Loading trending articles" className="mt-12">
         <div className="skeleton mx-auto mb-4" style={{ width: "55%", height: "22px" }} />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {Array.from({ length: MAX_ARTICLES }).map((_, i) => (
             <div key={i} className="bg-surface-2 border border-border rounded-2xl overflow-hidden">
               <div className="skeleton w-full aspect-[16/9]" style={{ borderRadius: 0 }} />
@@ -179,7 +179,7 @@ export const CuriousAbout = () => {
         What people are curious about
       </h2>
       <ul
-        className="list-none p-0 m-0 grid grid-cols-2 gap-3"
+        className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3"
         role="list"
       >
         {articles.map((article) => (
