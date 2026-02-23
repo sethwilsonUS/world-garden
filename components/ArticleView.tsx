@@ -51,7 +51,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [fetching, setFetching] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [audioLabel, setAudioLabel] = useState("");
   const [audioError, setAudioError] = useState<string | null>(null);
   const [activeSectionIndex, setActiveSectionIndex] = useState<number | null>(
     null,
@@ -78,7 +77,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const requestId = useRef(0);
   const playAllQueue = useRef<QueueItem[]>([]);
-  const [queueLength, setQueueLength] = useState(0);
   const lastPlayedSectionIdx = useRef<number | null>(null);
   const summaryTextRef = useRef("");
   const countsFetched = useRef(false);
@@ -134,29 +132,35 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     playbackRate,
   });
 
-  const audioEl = useAudioElement({
+  const {
+    audioRef: elevenLabsAudioRef,
+    playing: audioElPlaying,
+    currentTime: audioElCurrentTime,
+    duration: audioElDuration,
+    play: audioElPlay,
+    pause: audioElPause,
+    seek: audioElSeek,
+  } = useAudioElement({
     url: elevenLabsUrl,
     onEnded: () => audioEndedRef.current(),
+    onPlayingChange: (playing) => {
+      if (!elevenLabs.isConfigured) return;
+      if (playing) {
+        setIsSpeaking(true);
+        setIsPaused(false);
+      }
+    },
     playbackRate,
   });
-
-  // Sync isSpeaking/isPaused from ElevenLabs audio element state
-  useEffect(() => {
-    if (!elevenLabs.isConfigured) return;
-    if (audioEl.playing) {
-      setIsSpeaking(true);
-      setIsPaused(false);
-    }
-  }, [audioEl.playing, elevenLabs.isConfigured]);
 
   // Auto-play ElevenLabs audio when URL arrives from a user action
   useEffect(() => {
     if (elevenLabsUrl && !elevenLabsLoading && pendingElevenLabsPlay.current) {
       pendingElevenLabsPlay.current = false;
-      const timer = setTimeout(() => audioEl.play(), 100);
+      const timer = setTimeout(() => audioElPlay(), 100);
       return () => clearTimeout(timer);
     }
-  }, [elevenLabsUrl, elevenLabsLoading, audioEl.play]);
+  }, [elevenLabsUrl, elevenLabsLoading, audioElPlay]);
 
   useEffect(() => {
     playbackRateRef.current = playbackRate;
@@ -244,7 +248,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           .then((url) => {
             if (requestId.current !== currentRequest) return;
             setElevenLabsUrl(url);
-            setAudioLabel(label);
             setElevenLabsLoading(false);
           })
           .catch((err) => {
@@ -255,12 +258,11 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           });
       } else {
         setElevenLabsUrl(null);
-        audioEl.pause();
-        setAudioLabel(label);
+        audioElPause();
         browserTts.speak(normalizeTtsText(textContent));
       }
     },
-    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, browserTts, audioEl],
+    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, browserTts, audioElPause],
   );
 
   const handleAudioEnded = useCallback(() => {
@@ -268,7 +270,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       if (!isPlayingAll || playAllQueue.current.length === 0) {
         setIsPlayingAll(false);
         setActiveSectionIndex(null);
-        setQueueLength(0);
         setIsSpeaking(false);
         setIsPaused(false);
         if (isPlayingAll) {
@@ -277,7 +278,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         return;
       }
       const next = playAllQueue.current.shift()!;
-      setQueueLength(playAllQueue.current.length);
       generateAudio(next.sectionKey, next.label, next.sectionIdx);
     };
 
@@ -312,7 +312,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       const first = queue.shift()!;
       playAllQueue.current = queue;
-      setQueueLength(queue.length);
       setIsPlayingAll(true);
       generateAudio(first.sectionKey, first.label, first.sectionIdx);
     },
@@ -321,41 +320,40 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const handleStopPlayAll = useCallback(() => {
     playAllQueue.current = [];
-    setQueueLength(0);
     setIsPlayingAll(false);
     setIsSpeaking(false);
     setIsPaused(false);
     browserTts.cancel();
-    audioEl.pause();
-  }, [browserTts, audioEl]);
+    audioElPause();
+  }, [browserTts, audioElPause]);
 
   const handleTogglePlayAll = useCallback(() => {
     if (isPaused) {
       if (elevenLabs.isConfigured) {
-        audioEl.play();
+        audioElPlay();
       } else {
         browserTts.toggle();
       }
       setIsPaused(false);
     } else {
       if (elevenLabs.isConfigured) {
-        audioEl.pause();
+        audioElPause();
       } else {
         browserTts.toggle();
       }
       setIsPaused(true);
     }
-  }, [isPaused, elevenLabs.isConfigured, audioEl, browserTts]);
+  }, [isPaused, elevenLabs.isConfigured, audioElPlay, audioElPause, browserTts]);
 
   const handleListenSection = useCallback(
     (index: number, sections: Section[], articleTitle: string) => {
       if (activeSectionIndex === index && isSpeaking) {
         if (elevenLabs.isConfigured) {
-          if (audioEl.playing) {
-            audioEl.pause();
+          if (audioElPlaying) {
+            audioElPause();
             setIsPaused(true);
           } else {
-            audioEl.play();
+            audioElPlay();
             setIsPaused(false);
           }
         } else {
@@ -364,7 +362,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         return;
       }
       playAllQueue.current = [];
-      setQueueLength(0);
       setIsPlayingAll(false);
       const section = sections[index];
       generateAudio(
@@ -373,18 +370,18 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         index,
       );
     },
-    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioEl, browserTts],
+    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioElPlaying, audioElPlay, audioElPause, browserTts],
   );
 
   const handleListenSummary = useCallback(
     (articleTitle: string) => {
       if (activeSectionIndex === null && isSpeaking) {
         if (elevenLabs.isConfigured) {
-          if (audioEl.playing) {
-            audioEl.pause();
+          if (audioElPlaying) {
+            audioElPause();
             setIsPaused(true);
           } else {
-            audioEl.play();
+            audioElPlay();
             setIsPaused(false);
           }
         } else {
@@ -393,11 +390,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         return;
       }
       playAllQueue.current = [];
-      setQueueLength(0);
       setIsPlayingAll(false);
       generateAudio("summary", `${articleTitle} \u2014 Summary`, null);
     },
-    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioEl, browserTts],
+    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioElPlaying, audioElPlay, audioElPause, browserTts],
   );
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
@@ -592,7 +588,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       {/* Hidden audio element for ElevenLabs playback */}
       {elevenLabsUrl && (
         <audio
-          ref={audioEl.audioRef}
+          ref={elevenLabsAudioRef}
           src={elevenLabsUrl}
           preload="metadata"
           aria-hidden="true"
@@ -691,10 +687,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           isElevenLabs={elevenLabs.isConfigured}
           audioProgress={
             elevenLabs.isConfigured && elevenLabsUrl
-              ? { currentTime: audioEl.currentTime, duration: audioEl.duration }
+              ? { currentTime: audioElCurrentTime, duration: audioElDuration }
               : undefined
           }
-          onSeek={elevenLabs.isConfigured ? audioEl.seek : undefined}
+          onSeek={elevenLabs.isConfigured ? audioElSeek : undefined}
           playAllRef={playAllRef}
         />
       </div>

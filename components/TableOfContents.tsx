@@ -268,7 +268,6 @@ export const TableOfContents = ({
     setRateAnnouncement(`Playback speed ${formatRate(next)}`);
   };
 
-  const isAnySectionActive = isSpeaking || isGenerating;
   const isSummarySelected = activeSectionIndex === null;
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;

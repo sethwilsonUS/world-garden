@@ -6,30 +6,39 @@ import type { PlaybackRate } from "@/hooks/usePlaybackRate";
 type UseAudioElementOptions = {
   url: string | null;
   onEnded?: () => void;
+  onPlayingChange?: (playing: boolean) => void;
   playbackRate?: PlaybackRate;
 };
 
 export const useAudioElement = ({
   url,
   onEnded,
+  onPlayingChange,
   playbackRate = 1,
 }: UseAudioElementOptions) => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
+  const [playing, setPlayingRaw] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
   const onEndedRef = useRef(onEnded);
+  const onPlayingChangeRef = useRef(onPlayingChange);
   useEffect(() => {
     onEndedRef.current = onEnded;
+    onPlayingChangeRef.current = onPlayingChange;
   });
+
+  const setPlaying = useCallback((v: boolean) => {
+    setPlayingRaw(v);
+    onPlayingChangeRef.current?.(v);
+  }, []);
 
   const [prevUrl, setPrevUrl] = useState(url);
   if (url !== prevUrl) {
     setPrevUrl(url);
     setCurrentTime(0);
     setDuration(0);
-    setPlaying(false);
+    setPlayingRaw(false);
   }
 
   useEffect(() => {
@@ -61,7 +70,7 @@ export const useAudioElement = ({
       audio.removeEventListener("durationchange", onMeta);
       audio.removeEventListener("loadedmetadata", onMeta);
     };
-  }, [url]);
+  }, [url, setPlaying]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -75,7 +84,7 @@ export const useAudioElement = ({
     if (p && typeof p.catch === "function") {
       p.then(() => setPlaying(true)).catch(() => {});
     }
-  }, []);
+  }, [setPlaying]);
 
   const pause = useCallback(() => {
     audioRef.current?.pause();
@@ -92,7 +101,7 @@ export const useAudioElement = ({
     } else {
       audio.pause();
     }
-  }, []);
+  }, [setPlaying]);
 
   const seek = useCallback((time: number) => {
     const audio = audioRef.current;
