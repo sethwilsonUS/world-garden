@@ -4,8 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "npm-run-all --parallel dev:frontend dev:backend",
+    "dev:python": "npm-run-all --parallel dev:frontend-python dev:backend dev:tts-python",
     "dev:frontend": "next dev",
+    "dev:frontend-python": "USE_PYTHON_TTS=true next dev",
     "dev:backend": "convex dev",
+    "dev:tts-python": "${EDGE_TTS_PYTHON_PATH:-/tmp/edge-tts-venv/bin/python3} scripts/dev-tts.py",
     "local": "NEXT_PUBLIC_LOCAL_MODE=true next dev",
     "build": "bash scripts/build.sh",
     "start": "next start",

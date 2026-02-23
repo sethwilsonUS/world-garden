@@ -57,3 +57,22 @@ jobs:
 
       - name: Run unit tests
         run: npm run test
+
+  python:
+    name: Python (TTS function)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r api/requirements.txt
+
+      - name: Validate function imports
+        run: python -c "from api.tts import handler, _generate, _VOICE_RE; print('api/tts.py OK')"
+
+      - name: Lint with ruff
+        run: pip install ruff && ruff check api/

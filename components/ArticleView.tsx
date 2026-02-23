@@ -9,10 +9,9 @@ import { RelatedArticles } from "./RelatedArticles";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { useHistory } from "@/hooks/useHistory";
 import { useElevenLabsSettings, generateElevenLabsAudio } from "@/hooks/useElevenLabsSettings";
-import { normalizeTtsText } from "@/convex/lib/elevenlabs";
-import { useBrowserTtsVoice } from "@/hooks/useBrowserTtsVoice";
-import { useBrowserTts } from "@/hooks/useBrowserTts";
 import { useAudioElement } from "@/hooks/useAudioElement";
+import { awaitSummaryAudio } from "@/lib/audio-prefetch";
+import { normalizeTtsText } from "@/convex/lib/elevenlabs";
 
 type Section = {
   title: string;
@@ -39,11 +38,7 @@ type QueueItem = {
 };
 
 export const ArticleView = ({ slug }: { slug: string }) => {
-  const {
-    fetchArticle,
-    getSectionLinkCounts,
-    getCitationCounts,
-  } = useData();
+  const { fetchArticle } = useData();
 
   const [displayArticle, setDisplayArticle] = useState<ArticleData | null>(
     null,
@@ -61,27 +56,24 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [showResumeBanner, setShowResumeBanner] = useState(false);
   const [finishedPlaying, setFinishedPlaying] = useState(false);
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
-  const playbackRateRef = useRef(playbackRate);
 
   const { recordVisit, updateProgress, getProgress } = useHistory();
   const elevenLabs = useElevenLabsSettings();
-  const ttsVoiceRef = useBrowserTtsVoice();
-  const [elevenLabsUrl, setElevenLabsUrl] = useState<string | null>(null);
-  const [elevenLabsLoading, setElevenLabsLoading] = useState(false);
+
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
 
   const wikiPageId = displayArticle?.wikiPageId ?? "";
-
-  const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(null);
-  const [citationCounts, setCitationCounts] = useState<Record<string, number> | null>(null);
 
   const requestId = useRef(0);
   const playAllQueue = useRef<QueueItem[]>([]);
   const lastPlayedSectionIdx = useRef<number | null>(null);
   const summaryTextRef = useRef("");
-  const countsFetched = useRef(false);
   const fetchTriggered = useRef(false);
-  const pendingElevenLabsPlay = useRef(false);
+  const pendingAutoPlay = useRef(false);
   const playAllRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -101,39 +93,76 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       .finally(() => setFetching(false));
   }, [slug, fetchArticle, recordVisit]);
 
+  const edgeTtsCache = useRef<Map<string, string>>(new Map());
+
+  const generateEdgeTtsFromApi = useCallback(
+    async (text: string, cacheKey?: string): Promise<string> => {
+      if (cacheKey && edgeTtsCache.current.has(cacheKey)) {
+        return edgeTtsCache.current.get(cacheKey)!;
+      }
+      const resp = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: normalizeTtsText(text) }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "Audio generation failed",
+        );
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      if (cacheKey) edgeTtsCache.current.set(cacheKey, url);
+      return url;
+    },
+    [],
+  );
+
+  const prefetchTriggered = useRef(false);
   useEffect(() => {
-    if (!wikiPageId || countsFetched.current) return;
-    countsFetched.current = true;
-    getSectionLinkCounts({ wikiPageId })
-      .then((arr) => {
-        const map: Record<string, number> = {};
-        for (const { title, count } of arr) map[title] = count;
-        setLinkCounts(map);
-      })
-      .catch(() => {});
-    getCitationCounts({ wikiPageId })
-      .then((arr) => {
-        const map: Record<string, number> = {};
-        for (const { title, count } of arr) map[title] = count;
-        setCitationCounts(map);
-      })
-      .catch(() => {});
-  }, [wikiPageId, getSectionLinkCounts, getCitationCounts]);
+    if (!displayArticle || elevenLabs.isConfigured || prefetchTriggered.current) return;
+    prefetchTriggered.current = true;
+
+    const inflight = awaitSummaryAudio(slug);
+    if (inflight) {
+      inflight.then((url) => {
+        if (url) edgeTtsCache.current.set("summary", url);
+      }).catch(() => {});
+      return;
+    }
+
+    const summaryText = displayArticle.summary ?? "";
+    if (summaryText.length < 10) return;
+    generateEdgeTtsFromApi(summaryText, "summary").catch(() => {});
+  }, [displayArticle, elevenLabs.isConfigured, generateEdgeTtsFromApi, slug]);
+
   const sectionsRef = useRef<Section[]>([]);
-  const linkCountsRef = useRef(linkCounts);
-  const citationCountsRef = useRef(citationCounts);
+
+  const getTextForSection = useCallback((sectionKey: string): string => {
+    if (sectionKey === "summary") return summaryTextRef.current;
+    const idx = parseInt(sectionKey.replace("section-", ""), 10);
+    const section = sectionsRef.current[idx];
+    return section ? `${section.title}. ${section.content}` : "";
+  }, []);
+
+  const prefetchAudio = useCallback(
+    (sectionKey: string) => {
+      const text = getTextForSection(sectionKey);
+      if (!text || text.length < 10) return;
+      if (elevenLabs.isConfigured) {
+        generateElevenLabsAudio(text, elevenLabs.apiKey, elevenLabs.voiceId).catch(() => {});
+      } else {
+        generateEdgeTtsFromApi(text, sectionKey).catch(() => {});
+      }
+    },
+    [elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, generateEdgeTtsFromApi, getTextForSection],
+  );
 
   const audioEndedRef = useRef<() => void>(() => {});
 
-  const browserTts = useBrowserTts({
-    onEnded: () => audioEndedRef.current(),
-    onPausedChange: setIsPaused,
-    onSpeakingChange: setIsSpeaking,
-    playbackRate,
-  });
-
   const {
-    audioRef: elevenLabsAudioRef,
+    audioRef,
     playing: audioElPlaying,
     currentTime: audioElCurrentTime,
     duration: audioElDuration,
@@ -141,10 +170,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     pause: audioElPause,
     seek: audioElSeek,
   } = useAudioElement({
-    url: elevenLabsUrl,
+    url: audioUrl,
     onEnded: () => audioEndedRef.current(),
     onPlayingChange: (playing) => {
-      if (!elevenLabs.isConfigured) return;
       if (playing) {
         setIsSpeaking(true);
         setIsPaused(false);
@@ -153,64 +181,23 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     playbackRate,
   });
 
-  // Auto-play ElevenLabs audio when URL arrives from a user action
   useEffect(() => {
-    if (elevenLabsUrl && !elevenLabsLoading && pendingElevenLabsPlay.current) {
-      pendingElevenLabsPlay.current = false;
+    if (audioUrl && !audioLoading && pendingAutoPlay.current) {
+      pendingAutoPlay.current = false;
       const timer = setTimeout(() => audioElPlay(), 100);
-      return () => clearTimeout(timer);
-    }
-  }, [elevenLabsUrl, elevenLabsLoading, audioElPlay]);
 
-  useEffect(() => {
-    playbackRateRef.current = playbackRate;
-    sectionsRef.current = displayArticle?.sections ?? [];
-    summaryTextRef.current = displayArticle?.summary ?? "";
-    linkCountsRef.current = linkCounts;
-    citationCountsRef.current = citationCounts;
-  });
-
-  const speakSectionMetadata = useCallback(
-    (onDone: () => void) => {
-      const idx = lastPlayedSectionIdx.current;
-      const sectionTitle =
-        idx !== null ? (sectionsRef.current[idx]?.title ?? null) : null;
-      const linkKey = sectionTitle ?? "__summary__";
-      const citationKey = sectionTitle ?? "__summary__";
-      const links = linkCountsRef.current?.[linkKey] ?? 0;
-      const citations = citationCountsRef.current?.[citationKey] ?? 0;
-
-      if (
-        (links === 0 && citations === 0) ||
-        typeof window === "undefined" ||
-        !window.speechSynthesis
-      ) {
-        onDone();
-        return;
+      if (isPlayingAll && playAllQueue.current.length > 0) {
+        prefetchAudio(playAllQueue.current[0].sectionKey);
       }
 
-      const subject = sectionTitle === null ? "This summary" : "This section";
-      const parts: string[] = [];
-      if (citations > 0)
-        parts.push(
-          `references ${citations} source${citations === 1 ? "" : "s"}`,
-        );
-      if (links > 0)
-        parts.push(
-          `links to ${links} related article${links === 1 ? "" : "s"}`,
-        );
+      return () => clearTimeout(timer);
+    }
+  }, [audioUrl, audioLoading, audioElPlay, isPlayingAll, prefetchAudio]);
 
-      const utterance = new SpeechSynthesisUtterance(
-        `${subject} ${parts.join(" and ")}.`,
-      );
-      if (ttsVoiceRef.current) utterance.voice = ttsVoiceRef.current;
-      utterance.rate = playbackRateRef.current;
-      utterance.onend = onDone;
-      utterance.onerror = onDone;
-      window.speechSynthesis.speak(utterance);
-    },
-    [ttsVoiceRef],
-  );
+  useEffect(() => {
+    sectionsRef.current = displayArticle?.sections ?? [];
+    summaryTextRef.current = displayArticle?.summary ?? "";
+  });
 
   const generateAudio = useCallback(
     (
@@ -224,69 +211,53 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       setFinishedPlaying(false);
       lastPlayedSectionIdx.current = sectionIdx;
 
-      let textContent: string;
-      if (sectionKey === "summary") {
-        textContent = summaryTextRef.current;
-      } else {
-        const idx = parseInt(sectionKey.replace("section-", ""), 10);
-        const section = sectionsRef.current[idx];
-        textContent = section ? `${section.title}. ${section.content}` : "";
-      }
+      updateProgress(slug, sectionKey, sectionIdx);
+
+      const textContent = getTextForSection(sectionKey);
 
       if (!textContent || textContent.length < 10) {
         setAudioError("Section text is too short to read aloud.");
         return;
       }
 
-      updateProgress(slug, sectionKey, sectionIdx);
+      setAudioLoading(true);
+      pendingAutoPlay.current = true;
 
-      if (elevenLabs.isConfigured) {
-        setElevenLabsLoading(true);
-        browserTts.cancel();
-        pendingElevenLabsPlay.current = true;
-        generateElevenLabsAudio(textContent, elevenLabs.apiKey, elevenLabs.voiceId)
-          .then((url) => {
-            if (requestId.current !== currentRequest) return;
-            setElevenLabsUrl(url);
-            setElevenLabsLoading(false);
-          })
-          .catch((err) => {
-            if (requestId.current !== currentRequest) return;
-            setAudioError(err instanceof Error ? err.message : "ElevenLabs TTS failed");
-            setElevenLabsLoading(false);
-            pendingElevenLabsPlay.current = false;
-          });
-      } else {
-        setElevenLabsUrl(null);
-        audioElPause();
-        browserTts.speak(normalizeTtsText(textContent));
-      }
+      const audioPromise = elevenLabs.isConfigured
+        ? generateElevenLabsAudio(textContent, elevenLabs.apiKey, elevenLabs.voiceId)
+        : generateEdgeTtsFromApi(textContent, sectionKey);
+
+      audioPromise
+        .then((url) => {
+          if (requestId.current !== currentRequest) return;
+          setAudioUrl(url);
+          setAudioLoading(false);
+        })
+        .catch((err) => {
+          if (requestId.current !== currentRequest) return;
+          setAudioError(err instanceof Error ? err.message : "Audio generation failed");
+          setAudioLoading(false);
+          pendingAutoPlay.current = false;
+        });
     },
-    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, browserTts, audioElPause],
+    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, generateEdgeTtsFromApi, getTextForSection],
   );
 
   const handleAudioEnded = useCallback(() => {
-    const advance = () => {
-      if (!isPlayingAll || playAllQueue.current.length === 0) {
-        setIsPlayingAll(false);
-        setActiveSectionIndex(null);
-        setIsSpeaking(false);
-        setIsPaused(false);
-        if (isPlayingAll) {
-          setFinishedPlaying(true);
-        }
-        return;
-      }
+    if (isPlayingAll && playAllQueue.current.length > 0) {
       const next = playAllQueue.current.shift()!;
       generateAudio(next.sectionKey, next.label, next.sectionIdx);
-    };
-
-    if (isPlayingAll) {
-      advance();
-    } else {
-      speakSectionMetadata(advance);
+      return;
     }
-  }, [isPlayingAll, generateAudio, speakSectionMetadata]);
+
+    setIsPlayingAll(false);
+    setActiveSectionIndex(null);
+    setIsSpeaking(false);
+    setIsPaused(false);
+    if (isPlayingAll) {
+      setFinishedPlaying(true);
+    }
+  }, [isPlayingAll, generateAudio]);
 
   useEffect(() => {
     audioEndedRef.current = handleAudioEnded;
@@ -323,41 +294,28 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     setIsPlayingAll(false);
     setIsSpeaking(false);
     setIsPaused(false);
-    browserTts.cancel();
     audioElPause();
-  }, [browserTts, audioElPause]);
+  }, [audioElPause]);
 
   const handleTogglePlayAll = useCallback(() => {
     if (isPaused) {
-      if (elevenLabs.isConfigured) {
-        audioElPlay();
-      } else {
-        browserTts.toggle();
-      }
+      audioElPlay();
       setIsPaused(false);
     } else {
-      if (elevenLabs.isConfigured) {
-        audioElPause();
-      } else {
-        browserTts.toggle();
-      }
+      audioElPause();
       setIsPaused(true);
     }
-  }, [isPaused, elevenLabs.isConfigured, audioElPlay, audioElPause, browserTts]);
+  }, [isPaused, audioElPlay, audioElPause]);
 
   const handleListenSection = useCallback(
     (index: number, sections: Section[], articleTitle: string) => {
       if (activeSectionIndex === index && isSpeaking) {
-        if (elevenLabs.isConfigured) {
-          if (audioElPlaying) {
-            audioElPause();
-            setIsPaused(true);
-          } else {
-            audioElPlay();
-            setIsPaused(false);
-          }
+        if (audioElPlaying) {
+          audioElPause();
+          setIsPaused(true);
         } else {
-          browserTts.toggle();
+          audioElPlay();
+          setIsPaused(false);
         }
         return;
       }
@@ -370,22 +328,18 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         index,
       );
     },
-    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioElPlaying, audioElPlay, audioElPause, browserTts],
+    [generateAudio, activeSectionIndex, isSpeaking, audioElPlaying, audioElPlay, audioElPause],
   );
 
   const handleListenSummary = useCallback(
     (articleTitle: string) => {
       if (activeSectionIndex === null && isSpeaking) {
-        if (elevenLabs.isConfigured) {
-          if (audioElPlaying) {
-            audioElPause();
-            setIsPaused(true);
-          } else {
-            audioElPlay();
-            setIsPaused(false);
-          }
+        if (audioElPlaying) {
+          audioElPause();
+          setIsPaused(true);
         } else {
-          browserTts.toggle();
+          audioElPlay();
+          setIsPaused(false);
         }
         return;
       }
@@ -393,8 +347,77 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       setIsPlayingAll(false);
       generateAudio("summary", `${articleTitle} \u2014 Summary`, null);
     },
-    [generateAudio, activeSectionIndex, isSpeaking, elevenLabs.isConfigured, audioElPlaying, audioElPlay, audioElPause, browserTts],
+    [generateAudio, activeSectionIndex, isSpeaking, audioElPlaying, audioElPlay, audioElPause],
   );
+
+  const handleDownloadAll = useCallback(async () => {
+    if (!displayArticle || downloading) return;
+    const allSections = displayArticle.sections ?? [];
+    const sectionKeys = [
+      "summary",
+      ...allSections
+        .map((s, i) => ({ section: s, index: i }))
+        .filter(({ section }) => section.content.length >= 20)
+        .map(({ index }) => `section-${index}`),
+    ];
+
+    setDownloading(true);
+    setDownloadProgress({ current: 0, total: sectionKeys.length });
+
+    try {
+      const audioChunks: Blob[] = [];
+
+      for (let i = 0; i < sectionKeys.length; i++) {
+        setDownloadProgress({ current: i, total: sectionKeys.length });
+
+        let url: string | null = null;
+        if (elevenLabs.isConfigured) {
+          let textContent: string;
+          if (sectionKeys[i] === "summary") {
+            textContent = displayArticle.summary ?? "";
+          } else {
+            const idx = parseInt(sectionKeys[i].replace("section-", ""), 10);
+            const section = allSections[idx];
+            textContent = section ? `${section.title}. ${section.content}` : "";
+          }
+          if (textContent.length >= 10) {
+            url = await generateElevenLabsAudio(textContent, elevenLabs.apiKey, elevenLabs.voiceId);
+          }
+        } else {
+          let textContent: string;
+          if (sectionKeys[i] === "summary") {
+            textContent = displayArticle.summary ?? "";
+          } else {
+            const idx = parseInt(sectionKeys[i].replace("section-", ""), 10);
+            const section = allSections[idx];
+            textContent = section ? `${section.title}. ${section.content}` : "";
+          }
+          if (textContent.length >= 10) {
+            url = await generateEdgeTtsFromApi(textContent, sectionKeys[i]);
+          }
+        }
+
+        if (url) {
+          const resp = await fetch(url);
+          audioChunks.push(await resp.blob());
+        }
+      }
+
+      const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
+      const downloadUrl = URL.createObjectURL(combinedBlob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `${displayArticle.title.replace(/[^a-zA-Z0-9 ]/g, "").trim()}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      setAudioError(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }, [displayArticle, downloading, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, generateEdgeTtsFromApi]);
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
   if (displayArticle && !hasCheckedResume) {
@@ -585,38 +608,15 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         </div>
       )}
 
-      {/* Hidden audio element for ElevenLabs playback */}
-      {elevenLabsUrl && (
+      {/* Hidden audio element for playback */}
+      {audioUrl && (
         <audio
-          ref={elevenLabsAudioRef}
-          src={elevenLabsUrl}
+          ref={audioRef}
+          src={audioUrl}
           preload="metadata"
           aria-hidden="true"
           className="hidden"
         />
-      )}
-
-      {/* ElevenLabs loading indicator */}
-      {elevenLabsLoading && (
-        <div
-          className="garden-bed flex items-center gap-3 py-3 px-4 mb-6 animate-fade-in-up-delay-1"
-          role="status"
-        >
-          <svg
-            className="animate-spin text-accent shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            width={18}
-            height={18}
-            aria-hidden="true"
-          >
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <span className="text-[0.8125rem] text-muted">
-            Generating audio with ElevenLabs...
-          </span>
-        </div>
       )}
 
       {/* Audio error */}
@@ -667,7 +667,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           summaryText={displayArticle.summary}
           sections={sections}
           activeSectionIndex={activeSectionIndex}
-          isGenerating={elevenLabsLoading}
+          isGenerating={audioLoading}
           isPlayingAll={isPlayingAll}
           isPaused={isPaused}
           isSpeaking={isSpeaking}
@@ -682,15 +682,17 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           }
           onStopPlayAll={handleStopPlayAll}
           onTogglePlayAll={handleTogglePlayAll}
+          onDownloadAll={handleDownloadAll}
+          downloading={downloading}
+          downloadProgress={downloadProgress}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
-          isElevenLabs={elevenLabs.isConfigured}
           audioProgress={
-            elevenLabs.isConfigured && elevenLabsUrl
+            audioUrl
               ? { currentTime: audioElCurrentTime, duration: audioElDuration }
               : undefined
           }
-          onSeek={elevenLabs.isConfigured ? audioElSeek : undefined}
+          onSeek={audioElSeek}
           playAllRef={playAllRef}
         />
       </div>

@@ -43,7 +43,6 @@ type TableOfContentsProps = {
   onDownloadAll?: () => void;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: PlaybackRate) => void;
-  isElevenLabs?: boolean;
   audioProgress?: { currentTime: number; duration: number };
   onSeek?: (time: number) => void;
   playAllRef?: RefObject<HTMLButtonElement | null>;
@@ -222,7 +221,6 @@ export const TableOfContents = ({
   onDownloadAll,
   playbackRate = 1,
   onPlaybackRateChange,
-  isElevenLabs = false,
   audioProgress,
   onSeek,
   playAllRef,
@@ -361,12 +359,16 @@ export const TableOfContents = ({
       {!summaryOnly && <div className="flex flex-wrap gap-2 mb-4">
         <button
           ref={playAllRef}
-          onClick={
-            isPlayingAll
-              ? (onTogglePlayAll ?? onStopPlayAll)
-              : onPlayAll
-          }
-          disabled={!isPlayingAll && (isGenerating || downloading)}
+          onClick={(e) => {
+            if (!isPlayingAll && (isGenerating || downloading)) return;
+            if (isPlayingAll) {
+              (onTogglePlayAll ?? onStopPlayAll)();
+            } else {
+              onPlayAll();
+            }
+            e.currentTarget.focus();
+          }}
+          aria-disabled={!isPlayingAll && (isGenerating || downloading) || undefined}
           className={`inline-flex items-center gap-2 py-2.5 px-5 rounded-xl font-semibold text-sm transition-all duration-200 ${
             isPlayingAll
               ? "bg-surface-3 text-foreground border border-border cursor-pointer"
@@ -376,14 +378,23 @@ export const TableOfContents = ({
           }`}
           aria-label={
             isPlayingAll
-              ? (isPaused
-                  ? "Resume playing all sections"
-                  : "Pause playing all sections")
-              : `Play all ${playableCount} sections including summary`
+              ? (isGenerating && !isSpeaking
+                  ? "Generating audio, please wait"
+                  : isPaused
+                    ? "Resume playing all sections"
+                    : "Pause playing all sections")
+              : isGenerating
+                ? "Generating audio, please wait"
+                : `Play all ${playableCount} sections including summary`
           }
         >
           {isPlayingAll ? (
-            isPaused ? (
+            isGenerating && !isSpeaking ? (
+              <>
+                <SpinnerIcon />
+                <span aria-live="polite">Loading</span>
+              </>
+            ) : isPaused ? (
               <>
                 <svg
                   viewBox="0 0 24 24"
@@ -399,7 +410,7 @@ export const TableOfContents = ({
                 >
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
-                Resume
+                <span aria-live="polite">Resume</span>
               </>
             ) : (
               <>
@@ -414,9 +425,14 @@ export const TableOfContents = ({
                   <rect x="6" y="4" width="4" height="16" rx="1" />
                   <rect x="14" y="4" width="4" height="16" rx="1" />
                 </svg>
-                Pause
+                <span aria-live="polite">Pause</span>
               </>
             )
+          ) : isGenerating ? (
+            <>
+              <SpinnerIcon />
+              <span aria-live="polite">Loading</span>
+            </>
           ) : (
             <>
               <svg
@@ -540,7 +556,7 @@ export const TableOfContents = ({
                 />
               </span>
               <button
-                onClick={onListenSummary}
+                onClick={(e) => { onListenSummary(); e.currentTarget.focus(); }}
                 aria-label={`Listen to summary of ${articleTitle}`}
                 className={`${pillClass} border cursor-pointer pointer-events-auto ${
                   isSummaryActive && !isSummaryLoading
@@ -557,7 +573,7 @@ export const TableOfContents = ({
                 ) : (
                   <PlayIcon />
                 )}
-                <span>
+                <span aria-live="polite">
                   {isSummaryLoading
                     ? "Loading"
                     : isSummaryPlaying
@@ -568,7 +584,7 @@ export const TableOfContents = ({
                 </span>
               </button>
             </div>
-            {isSummaryActive && isElevenLabs && audioProgress && onSeek && (
+            {isSummaryActive && audioProgress && onSeek && (
               <InlineProgressBar
                 currentTime={audioProgress.currentTime}
                 duration={audioProgress.duration}
@@ -660,8 +676,8 @@ export const TableOfContents = ({
                   </span>
 
                   <button
-                    onClick={() => onListenSection(index)}
-                    disabled={isLoading}
+                    onClick={(e) => { if (!isLoading) { onListenSection(index); e.currentTarget.focus(); } }}
+                    aria-disabled={isLoading || undefined}
                     aria-label={
                       isLoading
                         ? `Generating audio for ${section.title}`
@@ -684,7 +700,7 @@ export const TableOfContents = ({
                     ) : (
                       <PlayIcon />
                     )}
-                    <span>
+                    <span aria-live="polite">
                       {isLoading
                         ? "Loading"
                         : isPlaying
@@ -695,7 +711,7 @@ export const TableOfContents = ({
                     </span>
                   </button>
                 </div>
-                {isActive && isElevenLabs && audioProgress && onSeek && (
+                {isActive && audioProgress && onSeek && (
                   <InlineProgressBar
                     currentTime={audioProgress.currentTime}
                     duration={audioProgress.duration}
@@ -963,14 +979,8 @@ const InlineProgressBar = ({
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-2.5 px-3 pb-2 pt-0.5">
-      <span
-        className="font-mono text-[0.625rem] font-medium text-muted min-w-[32px] select-none"
-        aria-hidden="true"
-      >
-        {formatTime(currentTime)}
-      </span>
-      <div className="flex-1 min-w-0">
+    <div className="toc-scrubber group px-3 pb-3 pt-1">
+      <div className="relative flex-1 min-w-0">
         <input
           type="range"
           min={0}
@@ -987,12 +997,20 @@ const InlineProgressBar = ({
           style={{ "--progress": `${progress}%` } as React.CSSProperties}
         />
       </div>
-      <span
-        className="font-mono text-[0.625rem] font-medium text-muted min-w-[32px] text-right select-none"
-        aria-hidden="true"
-      >
-        {duration > 0 ? formatTime(duration) : "--:--"}
-      </span>
+      <div className="flex items-center justify-between mt-1.5 px-0.5">
+        <span
+          className="font-mono text-[0.625rem] tracking-wide font-medium text-accent select-none tabular-nums"
+          aria-hidden="true"
+        >
+          {formatTime(currentTime)}
+        </span>
+        <span
+          className="font-mono text-[0.625rem] tracking-wide font-medium text-muted select-none tabular-nums"
+          aria-hidden="true"
+        >
+          {duration > 0 ? formatTime(duration) : "--:--"}
+        </span>
+      </div>
     </div>
   );
 };

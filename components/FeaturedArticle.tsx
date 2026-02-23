@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useData } from "@/lib/data-context";
+import { warmSummaryAudio } from "@/lib/audio-prefetch";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 
@@ -16,6 +18,7 @@ const todayString = (): string => {
 };
 
 export const FeaturedArticle = () => {
+  const { fetchArticle } = useData();
   const [featured, setFeatured] = useState<FeaturedData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -28,10 +31,10 @@ export const FeaturedArticle = () => {
         const data = await response.json();
         const tfa = data.tfa;
         if (!tfa || cancelled) return;
-        setFeatured({
-          title: tfa.titles?.normalized ?? tfa.title ?? "",
-          extract: tfa.extract ?? "",
-        });
+        const title = tfa.titles?.normalized ?? tfa.title ?? "";
+        setFeatured({ title, extract: tfa.extract ?? "" });
+        const slug = title.replace(/ /g, "_");
+        warmSummaryAudio(slug, fetchArticle);
       } catch {
         // Featured article is a nice-to-have; fail silently
       } finally {
@@ -41,7 +44,7 @@ export const FeaturedArticle = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchArticle]);
 
   if (!loading && !featured) return null;
 
