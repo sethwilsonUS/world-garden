@@ -91,10 +91,6 @@ const Lightbox = ({
   const [current, setCurrent] = useState(state?.index ?? 0);
 
   useEffect(() => {
-    if (state) setCurrent(state.index);
-  }, [state]);
-
-  useEffect(() => {
     if (!state) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -261,7 +257,7 @@ export const ArticleGallery = ({ wikiPageId }: { wikiPageId: string }) => {
         ))}
       </ul>
 
-      <Lightbox images={images} state={lightbox} onClose={closeLightbox} />
+      <Lightbox key={lightbox?.index} images={images} state={lightbox} onClose={closeLightbox} />
     </section>
   );
 };

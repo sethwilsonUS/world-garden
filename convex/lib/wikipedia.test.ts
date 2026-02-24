@@ -361,12 +361,6 @@ describe("extractImages", () => {
   });
 
   it("filters out SVG images", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Icon.svg/220px-Icon.svg.png",
-      "An SVG icon",
-    );
-    // src ends with .svg check — but this URL ends with .svg.png so it won't be filtered
-    // Let's test an actual .svg src
     const svgHtml = makeFigure(
       "//upload.wikimedia.org/wikipedia/commons/a/ab/Diagram.svg",
       "SVG diagram",
