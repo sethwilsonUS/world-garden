@@ -153,6 +153,12 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
               Home
             </Link>
             <Link
+              href="/trending"
+              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+            >
+              Trending
+            </Link>
+            <Link
               href="/library"
               className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
             >
@@ -192,6 +198,12 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
               >
                 Home
+              </Link>
+              <Link
+                href="/trending"
+                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+              >
+                Trending
               </Link>
               <Link
                 href="/library"
@@ -237,6 +249,12 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 className="text-foreground-2 no-underline text-sm"
               >
                 Home
+              </Link>
+              <Link
+                href="/trending"
+                className="text-foreground-2 no-underline text-sm"
+              >
+                Trending
               </Link>
               <Link
                 href="/library"
