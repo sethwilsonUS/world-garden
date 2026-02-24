@@ -30,8 +30,13 @@ export default defineSchema({
     articleId: v.id("articles"),
     sectionKey: v.string(),
     storageId: v.id("_storage"),
-    ttsNormVersion: v.string(),
+    ttsNormVersion: v.optional(v.string()),
     createdAt: v.number(),
+    // Legacy fields from the old ElevenLabs-based schema; kept optional so
+    // existing documents pass validation. New records omit these.
+    voiceId: v.optional(v.string()),
+    ttsModel: v.optional(v.string()),
+    durationSeconds: v.optional(v.number()),
   }).index("by_article_section", ["articleId", "sectionKey"]),
 
   articleParseCache: defineTable({
