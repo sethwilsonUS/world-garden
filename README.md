@@ -14,7 +14,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Audio playback** — Listen to any Wikipedia article section by section. Play a single section, or hit Play All for the full lean-back experience with automatic progression. Adjustable speed from 0.5× to 3×, with your preference saved between sessions. Resume from where you left off when you return to an article. Download full articles as MP3 for offline listening.
 
-**Two-tier TTS** — Choose the voice engine that fits your needs. **Edge TTS** (default) uses Microsoft's neural voices for free, high-quality audio with full seek, scrub, and download support. **ElevenLabs** (bring your own API key) offers premium voices — your key stays in your browser and is never sent to our servers.
+**Audio** — Powered by Edge TTS with Microsoft's neural voices — free, high-quality audio with full seek, scrub, and download support. Generated audio is cached in Convex so each section only needs to be synthesized once.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
@@ -30,18 +30,20 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
-- **TTS:** Edge TTS (free neural voices via Python `edge-tts`) or ElevenLabs (bring your own API key)
+- **TTS:** Edge TTS (free neural voices via Python `edge-tts`) with Convex-backed caching
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
 - **Testing:** Vitest
 
 ## Audio Architecture
 
-World Garden has a two-tier audio system. Both tiers normalize text before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
+Text is normalized before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-1. **Edge TTS (default):** Free, high-quality neural voices from Microsoft via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Runs as a local Python process during development and as a Vercel Python serverless function in production. Default voice is `en-US-AriaNeural`. Produces MP3s with full seek, scrub, and download support. On Vercel, this works out of the box. For local development, see [Local Audio Setup](#local-audio-setup) below.
+**Edge TTS** provides free, high-quality neural voices from Microsoft via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Runs as a local Python process during development and as a Vercel Python serverless function in production. Default voice is `en-US-AriaNeural`. Produces MP3s with full seek, scrub, and download support. On Vercel, this works out of the box. For local development, see [Local Audio Setup](#local-audio-setup) below.
 
-2. **ElevenLabs (premium, opt-in):** Open the Settings panel (gear icon in the navbar) and enter your ElevenLabs API key. Audio is generated client-side — your key never leaves your browser. Produces downloadable MP3s with full seek/scrub support. The Convex backend also contains a server-side TTS pipeline (`convex/audio.ts`, `convex/lib/elevenlabs.ts`) for hosted generation with caching.
+Generated audio is cached per-section in Convex file storage so each section is only synthesized once. Subsequent plays (by any user) are served directly from the cache.
+
+> **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
 ## Quick Start (Local Mode)
 
@@ -58,7 +60,7 @@ Audio requires a one-time Python setup (takes 30 seconds) — see [Local Audio S
 
 ## Full Setup (with Convex)
 
-For article caching, persistence, and server-side TTS with caching:
+For article caching, persistence, and audio caching:
 
 ### Prerequisites
 
@@ -165,6 +167,7 @@ lib/
   convex-data-provider.tsx  Convex implementation (wraps useAction hooks)
   local-data-provider.tsx   Local implementation (direct Wikipedia API calls)
   audio-prefetch.ts       Prefetches summary audio and article thumbnails
+  tts-normalize.ts        Text normalization for TTS (abbreviation expansion)
   nsfw-filter.ts          Shared NSFW category/keyword filter and batch title check
   formatTime.ts           Duration formatting helpers
 
@@ -175,8 +178,6 @@ components/
   ArticleView.tsx         Article loader with audio playback, thumbnails, and resume
   ArticleHeader.tsx       Article metadata, links, license info
   AudioPlayer.tsx         File-based audio player with seek/scrub/download
-  SummaryPlayer.tsx       Inline player for article summary audio
-  GenerateAudioButton.tsx One-tap audio generation trigger
   TableOfContents.tsx     Section list with per-section playback and Play All
   BookmarkButton.tsx      Save/unsave article to reading list
   BackButton.tsx          Navigation back button
@@ -185,7 +186,6 @@ components/
   CuriousAbout.tsx        Trending Wikipedia articles grid with thumbnails (home page)
   RandomArticleButton.tsx "Surprise me" button with NSFW category filter
   RelatedArticles.tsx     "Listen next" suggestions after playback
-  SettingsPanel.tsx       ElevenLabs API key and voice settings
   LocalModeBanner.tsx     Dismissable banner shown in local mode
   ThemeProvider.tsx       Dark/light theme with useSyncExternalStore
   ThemeToggle.tsx         Theme toggle button (sun/moon icons)
@@ -195,18 +195,15 @@ hooks/
   usePlaybackRate.ts      Persisted playback speed (0.5x–3x)
   useHistory.ts           Reading history with resume progress tracking
   useBookmarks.ts         Reading list / saved articles
-  useElevenLabsSettings.ts  ElevenLabs API key and voice ID (localStorage)
   useAudioElement.ts      Shared HTML audio element management
 
 convex/
-  schema.ts              Database schema (articles, sectionAudio, rateLimits)
+  schema.ts              Database schema (articles, sectionAudio, caches)
   search.ts              Wikipedia search action
   articles.ts            Article query, upsert mutation, fetch-and-cache action
-  audio.ts               Audio caching layer (server-side TTS path)
+  audio.ts               Section audio caching (query, upload, save)
   lib/
     wikipedia.ts         Wikipedia REST/Action API client (also used by local mode)
-    elevenlabs.ts        ElevenLabs TTS client and text normalization
-    rateLimiter.ts       Sliding-window rate limiting
 
 scripts/
   build.sh               Vercel build script (production/preview/local)

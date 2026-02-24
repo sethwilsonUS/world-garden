@@ -63,15 +63,6 @@ describe("warmSummaryAudio", () => {
     expect(mockFetchArticle).toHaveBeenCalledTimes(1);
   });
 
-  it("no-ops when ElevenLabs is configured", async () => {
-    localStorage.setItem("world-garden-elevenlabs-key", "sk-test-key");
-
-    warmSummaryAudio("EL_Article", mockFetchArticle);
-
-    expect(awaitSummaryAudio("EL_Article")).toBeNull();
-    expect(mockFetchArticle).not.toHaveBeenCalled();
-  });
-
   it("returns null for summaries that are too short", async () => {
     mockFetchArticle.mockResolvedValue({ summary: "Short" });
 

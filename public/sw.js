@@ -31,8 +31,7 @@ self.addEventListener("fetch", (event) => {
     request.mode === "navigate" ||
     request.url.includes("/api/") ||
     request.url.includes("wikipedia.org") ||
-    request.url.includes("convex.cloud") ||
-    request.url.includes("elevenlabs.io")
+    request.url.includes("convex.cloud")
   ) {
     event.respondWith(
       fetch(request).catch(() => caches.match(request))

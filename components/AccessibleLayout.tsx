@@ -4,7 +4,6 @@ import { ReactNode, useState, useRef, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
-import { SettingsButton } from "./SettingsPanel";
 
 const MOBILE_MENU_ID = "mobile-nav-menu";
 
@@ -159,13 +158,11 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
             >
               Library
             </Link>
-            <SettingsButton />
             <ThemeToggle />
           </div>
 
-          {/* Mobile: settings + theme toggle + hamburger */}
+          {/* Mobile: theme toggle + hamburger */}
           <div className="flex sm:hidden items-center gap-1">
-            <SettingsButton />
             <ThemeToggle />
             <button
               ref={hamburgerRef}
@@ -277,18 +274,8 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
               .
             </p>
             <p className="mt-1">
-              Audio powered by your browser&rsquo;s speech engine or{" "}
-              <a
-                href="https://elevenlabs.io"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-accent underline"
-              >
-                ElevenLabs
-                <span className="sr-only"> (opens in new tab)</span>
-              </a>{" "}
-              (bring your own key). Wikipedia&reg; is a registered trademark of
-              the Wikimedia Foundation.
+              Audio powered by Edge TTS. Wikipedia&reg; is a registered
+              trademark of the Wikimedia Foundation.
             </p>
             <p className="mt-3 font-display italic">
               Tended with care.

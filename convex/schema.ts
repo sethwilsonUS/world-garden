@@ -26,32 +26,18 @@ export default defineSchema({
     .index("by_wikiPageId", ["wikiPageId"])
     .index("by_slug", ["slug"]),
 
-  articleAudio: defineTable({
-    articleId: v.id("articles"),
-    voiceId: v.string(),
-    ttsModel: v.string(),
-    storageId: v.id("_storage"),
-    durationSeconds: v.optional(v.number()),
-    ttsNormVersion: v.optional(v.string()),
-    createdAt: v.number(),
-  }).index("by_article_voice", ["articleId", "voiceId"]),
-
   sectionAudio: defineTable({
     articleId: v.id("articles"),
     sectionKey: v.string(),
-    voiceId: v.string(),
-    ttsModel: v.string(),
     storageId: v.id("_storage"),
-    durationSeconds: v.optional(v.number()),
     ttsNormVersion: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_article_section_voice", ["articleId", "sectionKey", "voiceId"]),
-
-  rateLimits: defineTable({
-    key: v.string(),
-    windowStart: v.number(),
-    count: v.number(),
-  }).index("by_key", ["key"]),
+    // Legacy fields from the old ElevenLabs-based schema; kept optional so
+    // existing documents pass validation. New records omit these.
+    voiceId: v.optional(v.string()),
+    ttsModel: v.optional(v.string()),
+    durationSeconds: v.optional(v.number()),
+  }).index("by_article_section", ["articleId", "sectionKey"]),
 
   articleParseCache: defineTable({
     wikiPageId: v.string(),
