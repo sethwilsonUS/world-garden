@@ -53,7 +53,11 @@ const ArticleCard = ({
             />
           </div>
         ) : (
-          <div className="w-full aspect-[16/9] bg-surface-3 flex items-center justify-center">
+          <div
+            role="img"
+            aria-label="No image available"
+            className="w-full aspect-[16/9] bg-surface-3 flex items-center justify-center"
+          >
             <svg
               viewBox="0 0 24 24"
               fill="none"
