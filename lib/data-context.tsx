@@ -43,6 +43,16 @@ export type Citation = {
 
 export type LinkCount = { title: string; count: number };
 
+export type ArticleImage = {
+  src: string;
+  originalSrc?: string;
+  alt: string;
+  caption: string;
+  width?: number;
+  height?: number;
+  videoSrc?: string;
+};
+
 export type DataContextValue = {
   search: (args: { term: string }) => Promise<SearchResult[]>;
   fetchArticle: (args: { slug: string }) => Promise<Article>;
@@ -60,6 +70,9 @@ export type DataContextValue = {
     wikiPageId: string;
     sectionTitle: string | null;
   }) => Promise<Citation[]>;
+  getArticleImages: (args: {
+    wikiPageId: string;
+  }) => Promise<ArticleImage[]>;
 };
 
 export const DataContext = createContext<DataContextValue | null>(null);

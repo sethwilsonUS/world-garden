@@ -18,7 +18,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
-**Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display.
+**Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display. A Gallery section below the table of contents shows all images from the article with their captions in a card grid, with a keyboard-navigable lightbox for full-size viewing.
 
 **Your library** — Recently listened articles appear on the home page. Save articles to your reading list with one tap and find them on the Library page. All persisted in your browser — no account needed.
 
@@ -176,6 +176,7 @@ components/
   SearchForm.tsx          Accessible search form (GET /search?q=...)
   SearchResultsList.tsx   Wikipedia search results with loading/error states
   ArticleView.tsx         Article loader with audio playback, thumbnails, and resume
+  ArticleGallery.tsx      Image gallery with captions extracted from article HTML
   ArticleHeader.tsx       Article metadata, links, license info
   AudioPlayer.tsx         File-based audio player with seek/scrub/download
   TableOfContents.tsx     Section list with per-section playback and Play All

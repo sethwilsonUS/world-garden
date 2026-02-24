@@ -12,6 +12,7 @@ import {
   WikiArticle,
   WikiSection,
   WikiLinkedArticle,
+  WikiArticleImage,
   WikiSectionLinkCount,
   WikiCitation,
   ParsedPageData,
@@ -201,6 +202,19 @@ export const upsertParseCache = internalMutation({
     sectionIndexMap: v.array(
       v.object({ title: v.string(), index: v.string() }),
     ),
+    images: v.optional(
+      v.array(
+        v.object({
+          src: v.string(),
+          originalSrc: v.optional(v.string()),
+          alt: v.string(),
+          caption: v.string(),
+          width: v.optional(v.number()),
+          height: v.optional(v.number()),
+          videoSrc: v.optional(v.string()),
+        }),
+      ),
+    ),
   },
   async handler(ctx, args) {
     const existing = await ctx.db
@@ -214,6 +228,7 @@ export const upsertParseCache = internalMutation({
       citations: args.citations,
       sectionCitations: args.sectionCitations,
       sectionIndexMap: args.sectionIndexMap,
+      images: args.images,
       cachedAt: Date.now(),
     };
 
@@ -235,16 +250,21 @@ const getOrFetchParsedData = async (
   const hasCitationCounts =
     cached?.sectionCitations?.some((s: { count: number }) => s.count > 0) ?? false;
   const citationsPopulated = (cached?.citations?.length ?? 0) > 0;
+  const imagesPopulated =
+    cached?.images !== undefined &&
+    !cached.images.some((img: { src: string }) => img.src.includes("/800px-"));
   const cacheValid =
     cached &&
     Date.now() - cached.cachedAt < CACHE_TTL_MS &&
-    (!hasCitationCounts || citationsPopulated);
+    (!hasCitationCounts || citationsPopulated) &&
+    imagesPopulated;
   if (cacheValid) {
     return {
       linkCounts: cached.linkCounts,
       citations: cached.citations,
       sectionCitations: cached.sectionCitations,
       sectionIndexMap: cached.sectionIndexMap,
+      images: cached.images ?? [],
     };
   }
 
@@ -256,6 +276,7 @@ const getOrFetchParsedData = async (
     citations: data.citations,
     sectionCitations: data.sectionCitations,
     sectionIndexMap: data.sectionIndexMap,
+    images: data.images,
   });
 
   return data;
@@ -299,6 +320,14 @@ export const getSectionCitations = action({
 
     const idSet = new Set(sectionInfo.citationIds);
     return data.citations.filter((c) => idSet.has(c.id));
+  },
+});
+
+export const getArticleImages = action({
+  args: { wikiPageId: v.string() },
+  async handler(ctx, args): Promise<WikiArticleImage[]> {
+    const data = await getOrFetchParsedData(ctx, args.wikiPageId);
+    return data.images;
   },
 });
 

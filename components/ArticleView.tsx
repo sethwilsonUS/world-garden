@@ -6,6 +6,7 @@ import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
 import { BookmarkButton } from "./BookmarkButton";
 import { RelatedArticles } from "./RelatedArticles";
+import { ArticleGallery } from "./ArticleGallery";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -810,14 +811,19 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         />
       </div>
 
-      {/* 4. Related articles (shown after playback finishes) */}
+      {/* 4. Gallery */}
+      <div className="animate-fade-in-up-delay-2 mb-6">
+        <ArticleGallery wikiPageId={wikiPageId} />
+      </div>
+
+      {/* 5. Related articles (shown after playback finishes) */}
       {finishedPlaying && (
         <div className="animate-fade-in-up mb-6">
           <RelatedArticles wikiPageId={wikiPageId} currentTitle={displayArticle.title} />
         </div>
       )}
 
-      {/* 5. Article metadata */}
+      {/* 6. Article metadata */}
       <ArticleHeader
         title={displayArticle.title}
         language={displayArticle.language}

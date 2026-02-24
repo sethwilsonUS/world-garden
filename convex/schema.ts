@@ -62,6 +62,19 @@ export default defineSchema({
     sectionIndexMap: v.array(
       v.object({ title: v.string(), index: v.string() }),
     ),
+    images: v.optional(
+      v.array(
+        v.object({
+          src: v.string(),
+          originalSrc: v.optional(v.string()),
+          alt: v.string(),
+          caption: v.string(),
+          width: v.optional(v.number()),
+          height: v.optional(v.number()),
+          videoSrc: v.optional(v.string()),
+        }),
+      ),
+    ),
     cachedAt: v.number(),
   }).index("by_wikiPageId", ["wikiPageId"]),
 

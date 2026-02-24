@@ -273,20 +273,34 @@ export type WikiLinkedArticle = {
   description?: string;
 };
 
+export type WikiArticleImage = {
+  src: string;
+  originalSrc?: string;
+  alt: string;
+  caption: string;
+  width?: number;
+  height?: number;
+  videoSrc?: string;
+};
+
 export type ParsedPageData = {
   linkCounts: WikiSectionLinkCount[];
   citations: WikiCitation[];
   sectionCitations: SectionCitationInfo[];
   sectionIndexMap: { title: string; index: string }[];
+  images: WikiArticleImage[];
 };
 
 const decodeEntities = (s: string) =>
   s
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      String.fromCodePoint(parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
     .replace(/&ndash;/g, "\u2013")
     .replace(/&mdash;/g, "\u2014");
 
@@ -437,6 +451,130 @@ const extractSectionCitations = (
   return result;
 };
 
+const MIN_IMAGE_DIMENSION = 100;
+
+/**
+ * Upscale a Wikipedia thumbnail URL to a larger size. Thumbnail URLs follow
+ * the pattern .../thumb/<path>/<size>px-<filename>. We replace the size
+ * prefix and keep the rest intact. Non-thumb URLs are returned as-is.
+ */
+export const upscaleThumbUrl = (url: string): string => {
+  const thumbRe = /(\/thumb\/.*\/)(\d+)(px-[^/]+)$/;
+  const match = url.match(thumbRe);
+  if (!match) return url;
+  return url.replace(thumbRe, `$1800$3`);
+};
+
+/**
+ * Convert a Wikipedia thumbnail URL to the full-size original by stripping
+ * the /thumb/ segment and the trailing size prefix. Non-thumb URLs (already
+ * pointing at the original) are returned as-is.
+ *
+ *   .../thumb/5/53/File.jpg/250px-File.jpg  →  .../5/53/File.jpg
+ */
+export const toOriginalUrl = (url: string): string => {
+  const thumbRe = /\/thumb\/(.*\/)(\d+px-[^/]+)$/;
+  const match = url.match(thumbRe);
+  if (!match) return url;
+  const pathWithoutFile = match[1];
+  return url.replace(/\/thumb\/.*$/, "/" + pathWithoutFile.replace(/\/$/, ""));
+};
+
+const MAX_ASPECT_RATIO = 3;
+
+export const extractImages = (html: string): WikiArticleImage[] => {
+  const figureRe = /<figure\b([^>]*)>([\s\S]*?)<\/figure>/gi;
+  const imgRe = /<img\b([^>]*)>/i;
+  const captionRe = /<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i;
+  const attrRe = (name: string) => new RegExp(`${name}="([^"]*)"`, "i");
+
+  const images: WikiArticleImage[] = [];
+  const seenSrcs = new Set<string>();
+
+  for (const figMatch of html.matchAll(figureRe)) {
+    const figAttrs = figMatch[1];
+    const figHtml = figMatch[2];
+
+    const typeofVal = figAttrs.match(attrRe("typeof"))?.[1] ?? "";
+    if (typeofVal.includes("mw:Error")) continue;
+
+    const imgMatch = figHtml.match(imgRe);
+
+    if (imgMatch) {
+      const attrs = imgMatch[1];
+      let src = attrs.match(attrRe("src"))?.[1] ?? "";
+      if (!src) continue;
+
+      if (src.endsWith(".svg") || src.includes("/math/")) continue;
+
+      if (src.startsWith("//")) src = "https:" + src;
+
+      const width = parseInt(attrs.match(attrRe("width"))?.[1] ?? "0", 10);
+      const height = parseInt(attrs.match(attrRe("height"))?.[1] ?? "0", 10);
+      if ((width > 0 && width < MIN_IMAGE_DIMENSION) || (height > 0 && height < MIN_IMAGE_DIMENSION)) continue;
+
+      if (width > 0 && height > 0) {
+        const ratio = width / height;
+        if (ratio > MAX_ASPECT_RATIO || ratio < 1 / MAX_ASPECT_RATIO) continue;
+      }
+
+      const originalSrc = toOriginalUrl(src);
+
+      const alt = decodeEntities(attrs.match(attrRe("alt"))?.[1] ?? "");
+      const captionMatch = figHtml.match(captionRe);
+      const caption = captionMatch
+        ? decodeEntities(stripTags(captionMatch[1])).replace(/\s+/g, " ").trim()
+        : "";
+
+      const normalizedSrc = src.replace(/\/\d+px-/, "/SIZE-");
+      if (seenSrcs.has(normalizedSrc)) continue;
+      seenSrcs.add(normalizedSrc);
+
+      images.push({
+        src,
+        originalSrc: originalSrc !== src ? originalSrc : undefined,
+        alt,
+        caption,
+        ...(width > 0 ? { width } : {}),
+        ...(height > 0 ? { height } : {}),
+      });
+
+      continue;
+    }
+
+    const videoRe = /<video\b([^>]*)>/i;
+    const sourceRe = /<source\b[^>]*src="([^"]*)"[^>]*>/i;
+    const videoMatch = figHtml.match(videoRe);
+    if (!videoMatch) continue;
+
+    const videoAttrs = videoMatch[1];
+    let poster = videoAttrs.match(attrRe("poster"))?.[1] ?? "";
+    if (!poster) continue;
+    if (poster.startsWith("//")) poster = "https:" + poster;
+
+    const sourceMatch = figHtml.match(sourceRe);
+    let videoSrc = sourceMatch?.[1] ?? "";
+    if (videoSrc.startsWith("//")) videoSrc = "https:" + videoSrc;
+
+    const captionMatch = figHtml.match(captionRe);
+    const caption = captionMatch
+      ? decodeEntities(stripTags(captionMatch[1])).replace(/\s+/g, " ").trim()
+      : "";
+
+    if (seenSrcs.has(poster)) continue;
+    seenSrcs.add(poster);
+
+    images.push({
+      src: poster,
+      alt: caption,
+      caption,
+      ...(videoSrc ? { videoSrc } : {}),
+    });
+  }
+
+  return images;
+};
+
 /**
  * Single parse API call that extracts link counts, citations, per-section
  * citation mappings, and section index mappings. Callers should cache the
@@ -462,6 +600,7 @@ export const fetchParsedPageData = async (
       citations: [],
       sectionCitations: [],
       sectionIndexMap: [],
+      images: [],
     };
   }
 
@@ -478,6 +617,7 @@ export const fetchParsedPageData = async (
       title: stripTags(s.line),
       index: s.index,
     })),
+    images: extractImages(html),
   };
 };
 
