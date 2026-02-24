@@ -28,7 +28,7 @@ const ImageCard = ({
           <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden">
             <img
               src={image.src}
-              alt={image.alt || image.caption || ""}
+              alt={image.alt && image.alt !== image.caption ? image.alt : ""}
               className="absolute inset-0 w-full h-full object-cover"
               loading="lazy"
               onError={() => setError(true)}
@@ -182,7 +182,7 @@ const Lightbox = ({
           ) : (
             <img
               src={image.originalSrc ?? image.src}
-              alt={image.alt || image.caption || ""}
+              alt={image.alt && image.alt !== image.caption ? image.alt : ""}
               className="max-w-full max-h-[80vh] object-contain rounded-lg"
             />
           )}
