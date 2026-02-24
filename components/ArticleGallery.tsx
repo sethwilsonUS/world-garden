@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useData } from "@/lib/data-context";
 import type { ArticleImage } from "@/lib/data-context";
 
@@ -89,17 +89,26 @@ const Lightbox = ({
   onClose: () => void;
 }) => {
   const [current, setCurrent] = useState(state?.index ?? 0);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, []);
 
   useEffect(() => {
     if (!state) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft") setCurrent((c) => (c > 0 ? c - 1 : images.length - 1));
       if (e.key === "ArrowRight") setCurrent((c) => (c < images.length - 1 ? c + 1 : 0));
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [state, images.length, onClose]);
+  }, [state, images.length]);
 
   if (!state) return null;
 
@@ -107,81 +116,91 @@ const Lightbox = ({
   if (!image) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-      style={{ backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={image.caption || "Image lightbox"}
+    <dialog
+      ref={dialogRef}
+      className="fixed inset-0 m-0 p-0 w-screen h-screen max-w-none max-h-none bg-transparent border-none outline-none overflow-hidden"
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      aria-label="Image gallery"
     >
       <div
-        className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center"
-        onClick={(e) => e.stopPropagation()}
+        className="w-full h-full flex items-center justify-center bg-black/80"
+        style={{ backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+        onClick={onClose}
       >
-        <button
-          onClick={onClose}
-          className="absolute -top-10 right-0 text-white/70 hover:text-white transition-colors cursor-pointer"
-          aria-label="Close lightbox"
+        <div
+          className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center"
+          onClick={(e) => e.stopPropagation()}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={24} height={24}>
-            <path d="M18 6L6 18" />
-            <path d="M6 6l12 12" />
-          </svg>
-        </button>
-
-        {images.length > 1 && (
-          <>
-            <button
-              onClick={() => setCurrent((c) => (c > 0 ? c - 1 : images.length - 1))}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 text-white/70 hover:text-white transition-colors cursor-pointer"
-              aria-label="Previous image"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28}>
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setCurrent((c) => (c < images.length - 1 ? c + 1 : 0))}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 text-white/70 hover:text-white transition-colors cursor-pointer"
-              aria-label="Next image"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28}>
-                <path d="M9 18l6-6-6-6" />
-              </svg>
-            </button>
-          </>
-        )}
-
-        {image.videoSrc ? (
-          <video
-            src={image.videoSrc}
-            poster={image.src}
-            controls
-            autoPlay
-            className="max-w-full max-h-[80vh] object-contain rounded-lg"
-          />
-        ) : (
-          <img
-            src={image.originalSrc ?? image.src}
-            alt={image.alt || image.caption || ""}
-            className="max-w-full max-h-[80vh] object-contain rounded-lg"
-          />
-        )}
-
-        {image.caption && (
-          <p className="mt-3 text-sm text-white/80 text-center max-w-lg leading-relaxed">
-            {image.caption}
-          </p>
-        )}
-
-        {images.length > 1 && (
-          <span className="mt-2 text-xs text-white/50 font-mono">
-            {current + 1} / {images.length}
+          <span className="sr-only" aria-live="assertive">
+            {`${image.caption || image.alt || "Image"}, ${current + 1} of ${images.length}`}
           </span>
-        )}
+          <button
+            onClick={onClose}
+            className="absolute -top-10 right-0 text-white/70 hover:text-white transition-colors cursor-pointer"
+            aria-label="Close lightbox"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={24} height={24} aria-hidden="true">
+              <path d="M18 6L6 18" />
+              <path d="M6 6l12 12" />
+            </svg>
+          </button>
+
+          {images.length > 1 && (
+            <>
+              <button
+                onClick={() => setCurrent((c) => (c > 0 ? c - 1 : images.length - 1))}
+                className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 text-white/70 hover:text-white transition-colors cursor-pointer"
+                aria-label="Previous image"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28} aria-hidden="true">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setCurrent((c) => (c < images.length - 1 ? c + 1 : 0))}
+                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 text-white/70 hover:text-white transition-colors cursor-pointer"
+                aria-label="Next image"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28} aria-hidden="true">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            </>
+          )}
+
+          {image.videoSrc ? (
+            <video
+              src={image.videoSrc}
+              poster={image.src}
+              controls
+              autoPlay
+              className="max-w-full max-h-[80vh] object-contain rounded-lg"
+            />
+          ) : (
+            <img
+              src={image.originalSrc ?? image.src}
+              alt={image.alt || image.caption || ""}
+              className="max-w-full max-h-[80vh] object-contain rounded-lg"
+            />
+          )}
+
+          {image.caption && (
+            <p className="mt-3 text-sm text-white/80 text-center max-w-lg leading-relaxed">
+              {image.caption}
+            </p>
+          )}
+
+          {images.length > 1 && (
+            <span className="mt-2 text-xs text-white/50 font-mono" aria-hidden="true">
+              {current + 1} / {images.length}
+            </span>
+          )}
+        </div>
       </div>
-    </div>
+    </dialog>
   );
 };
 
