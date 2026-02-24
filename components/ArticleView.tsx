@@ -251,6 +251,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         setAudioUrl(memCached);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
+        if (!cachedAudio?.[sectionKey]) {
+          cacheAudioInConvex(sectionKey, memCached);
+        }
         return;
       }
 
