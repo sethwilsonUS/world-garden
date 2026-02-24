@@ -166,7 +166,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         const uploadUrl = await getUploadUrl();
         const result = await fetch(uploadUrl, {
           method: "POST",
-          headers: { "Content-Type": blob.type },
+          headers: { "Content-Type": blob.type || "audio/mpeg" },
           body: blob,
         });
         const { storageId } = await result.json();
@@ -176,8 +176,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           storageId,
           ttsNormVersion: TTS_NORM_VERSION,
         });
-      } catch {
-        // Best-effort caching; don't block playback on upload failures
+      } catch (err) {
+        console.warn("[audio-cache] Failed to cache section audio:", err);
       }
     },
     [articleId, getUploadUrl, saveAudioRecord],
