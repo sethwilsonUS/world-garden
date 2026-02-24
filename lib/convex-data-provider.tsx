@@ -18,6 +18,7 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
   const citationCountsAction = useAction(api.articles.getCitationCounts);
   const sectionLinksAction = useAction(api.articles.getSectionLinks);
   const sectionCitationsAction = useAction(api.articles.getSectionCitations);
+  const articleImagesAction = useAction(api.articles.getArticleImages);
 
   const value = useMemo<DataContextValue>(
     () => ({
@@ -32,6 +33,7 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
       getCitationCounts: citationCountsAction,
       getSectionLinks: sectionLinksAction,
       getSectionCitations: sectionCitationsAction,
+      getArticleImages: articleImagesAction,
     }),
     [
       searchAction,
@@ -40,6 +42,7 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
       citationCountsAction,
       sectionLinksAction,
       sectionCitationsAction,
+      articleImagesAction,
     ],
   );
 

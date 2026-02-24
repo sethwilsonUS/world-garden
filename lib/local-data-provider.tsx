@@ -94,6 +94,11 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
         const idSet = new Set(sectionInfo.citationIds);
         return data.citations.filter((c) => idSet.has(c.id));
       },
+
+      getArticleImages: async ({ wikiPageId }) => {
+        const data = await getOrFetchParsed(wikiPageId);
+        return data.images;
+      },
     }),
     [],
   );
