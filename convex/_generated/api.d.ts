@@ -10,8 +10,6 @@
 
 import type * as articles from "../articles.js";
 import type * as audio from "../audio.js";
-import type * as lib_elevenlabs from "../lib/elevenlabs.js";
-import type * as lib_rateLimiter from "../lib/rateLimiter.js";
 import type * as lib_wikipedia from "../lib/wikipedia.js";
 import type * as search from "../search.js";
 
@@ -24,8 +22,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   articles: typeof articles;
   audio: typeof audio;
-  "lib/elevenlabs": typeof lib_elevenlabs;
-  "lib/rateLimiter": typeof lib_rateLimiter;
   "lib/wikipedia": typeof lib_wikipedia;
   search: typeof search;
 }>;

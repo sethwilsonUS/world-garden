@@ -26,32 +26,13 @@ export default defineSchema({
     .index("by_wikiPageId", ["wikiPageId"])
     .index("by_slug", ["slug"]),
 
-  articleAudio: defineTable({
-    articleId: v.id("articles"),
-    voiceId: v.string(),
-    ttsModel: v.string(),
-    storageId: v.id("_storage"),
-    durationSeconds: v.optional(v.number()),
-    ttsNormVersion: v.optional(v.string()),
-    createdAt: v.number(),
-  }).index("by_article_voice", ["articleId", "voiceId"]),
-
   sectionAudio: defineTable({
     articleId: v.id("articles"),
     sectionKey: v.string(),
-    voiceId: v.string(),
-    ttsModel: v.string(),
     storageId: v.id("_storage"),
-    durationSeconds: v.optional(v.number()),
-    ttsNormVersion: v.optional(v.string()),
+    ttsNormVersion: v.string(),
     createdAt: v.number(),
-  }).index("by_article_section_voice", ["articleId", "sectionKey", "voiceId"]),
-
-  rateLimits: defineTable({
-    key: v.string(),
-    windowStart: v.number(),
-    count: v.number(),
-  }).index("by_key", ["key"]),
+  }).index("by_article_section", ["articleId", "sectionKey"]),
 
   articleParseCache: defineTable({
     wikiPageId: v.string(),

@@ -6,12 +6,14 @@ import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
 import { BookmarkButton } from "./BookmarkButton";
 import { RelatedArticles } from "./RelatedArticles";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { useHistory } from "@/hooks/useHistory";
-import { useElevenLabsSettings, generateElevenLabsAudio } from "@/hooks/useElevenLabsSettings";
 import { useAudioElement } from "@/hooks/useAudioElement";
 import { awaitSummaryAudio } from "@/lib/audio-prefetch";
-import { normalizeTtsText } from "@/convex/lib/elevenlabs";
+import { normalizeTtsText, TTS_NORM_VERSION } from "@/lib/tts-normalize";
 
 type Section = {
   title: string;
@@ -61,7 +63,14 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
 
   const { recordVisit, updateProgress, getProgress } = useHistory();
-  const elevenLabs = useElevenLabsSettings();
+
+  const articleId = displayArticle?._id as Id<"articles"> | undefined;
+  const cachedAudio = useQuery(
+    api.audio.getAllSectionAudio,
+    articleId ? { articleId, ttsNormVersion: TTS_NORM_VERSION } : "skip",
+  );
+  const getUploadUrl = useMutation(api.audio.generateUploadUrl);
+  const saveAudioRecord = useMutation(api.audio.saveSectionAudioRecord);
 
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -124,7 +133,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const prefetchTriggered = useRef(false);
   useEffect(() => {
-    if (!displayArticle || elevenLabs.isConfigured || prefetchTriggered.current) return;
+    if (!displayArticle || prefetchTriggered.current) return;
     prefetchTriggered.current = true;
 
     const inflight = awaitSummaryAudio(slug);
@@ -138,7 +147,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     const summaryText = displayArticle.summary ?? "";
     if (summaryText.length < 10) return;
     generateEdgeTtsFromApi(summaryText, "summary").catch(() => {});
-  }, [displayArticle, elevenLabs.isConfigured, generateEdgeTtsFromApi, slug]);
+  }, [displayArticle, generateEdgeTtsFromApi, slug]);
 
   const sectionsRef = useRef<Section[]>([]);
 
@@ -149,17 +158,38 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     return section ? `${section.title}. ${section.content}` : "";
   }, []);
 
+  const cacheAudioInConvex = useCallback(
+    async (sectionKey: string, blobUrl: string) => {
+      if (!articleId) return;
+      try {
+        const blob = await fetch(blobUrl).then((r) => r.blob());
+        const uploadUrl = await getUploadUrl();
+        const result = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": blob.type },
+          body: blob,
+        });
+        const { storageId } = await result.json();
+        await saveAudioRecord({
+          articleId,
+          sectionKey,
+          storageId,
+          ttsNormVersion: TTS_NORM_VERSION,
+        });
+      } catch {
+        // Best-effort caching; don't block playback on upload failures
+      }
+    },
+    [articleId, getUploadUrl, saveAudioRecord],
+  );
+
   const prefetchAudio = useCallback(
     (sectionKey: string) => {
       const text = getTextForSection(sectionKey);
       if (!text || text.length < 10) return;
-      if (elevenLabs.isConfigured) {
-        generateElevenLabsAudio(text, elevenLabs.apiKey, elevenLabs.voiceId).catch(() => {});
-      } else {
-        generateEdgeTtsFromApi(text, sectionKey).catch(() => {});
-      }
+      generateEdgeTtsFromApi(text, sectionKey).catch(() => {});
     },
-    [elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, generateEdgeTtsFromApi, getTextForSection],
+    [generateEdgeTtsFromApi, getTextForSection],
   );
 
   const audioEndedRef = useRef<() => void>(() => {});
@@ -216,6 +246,22 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       updateProgress(slug, sectionKey, sectionIdx);
 
+      const memCached = edgeTtsCache.current.get(sectionKey);
+      if (memCached) {
+        setAudioUrl(memCached);
+        pendingAutoPlay.current = true;
+        setAudioLoading(false);
+        return;
+      }
+
+      const convexCached = cachedAudio?.[sectionKey];
+      if (convexCached) {
+        setAudioUrl(convexCached);
+        pendingAutoPlay.current = true;
+        setAudioLoading(false);
+        return;
+      }
+
       const textContent = getTextForSection(sectionKey);
 
       if (!textContent || textContent.length < 10) {
@@ -226,15 +272,12 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       setAudioLoading(true);
       pendingAutoPlay.current = true;
 
-      const audioPromise = elevenLabs.isConfigured
-        ? generateElevenLabsAudio(textContent, elevenLabs.apiKey, elevenLabs.voiceId)
-        : generateEdgeTtsFromApi(textContent, sectionKey);
-
-      audioPromise
+      generateEdgeTtsFromApi(textContent, sectionKey)
         .then((url) => {
           if (requestId.current !== currentRequest) return;
           setAudioUrl(url);
           setAudioLoading(false);
+          cacheAudioInConvex(sectionKey, url);
         })
         .catch((err) => {
           if (requestId.current !== currentRequest) return;
@@ -243,7 +286,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           pendingAutoPlay.current = false;
         });
     },
-    [slug, updateProgress, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, generateEdgeTtsFromApi, getTextForSection],
+    [slug, updateProgress, generateEdgeTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
   );
 
   const handleAudioEnded = useCallback(() => {
@@ -373,20 +416,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       for (let i = 0; i < sectionKeys.length; i++) {
         setDownloadProgress({ current: i, total: sectionKeys.length });
 
-        let url: string | null = null;
-        if (elevenLabs.isConfigured) {
-          let textContent: string;
-          if (sectionKeys[i] === "summary") {
-            textContent = displayArticle.summary ?? "";
-          } else {
-            const idx = parseInt(sectionKeys[i].replace("section-", ""), 10);
-            const section = allSections[idx];
-            textContent = section ? `${section.title}. ${section.content}` : "";
-          }
-          if (textContent.length >= 10) {
-            url = await generateElevenLabsAudio(textContent, elevenLabs.apiKey, elevenLabs.voiceId);
-          }
-        } else {
+        let url: string | null = cachedAudio?.[sectionKeys[i]] ?? null;
+
+        if (!url) {
           let textContent: string;
           if (sectionKeys[i] === "summary") {
             textContent = displayArticle.summary ?? "";
@@ -397,6 +429,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           }
           if (textContent.length >= 10) {
             url = await generateEdgeTtsFromApi(textContent, sectionKeys[i]);
+            if (url) cacheAudioInConvex(sectionKeys[i], url);
           }
         }
 
@@ -420,7 +453,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     } finally {
       setDownloading(false);
     }
-  }, [displayArticle, downloading, elevenLabs.isConfigured, elevenLabs.apiKey, elevenLabs.voiceId, generateEdgeTtsFromApi]);
+  }, [displayArticle, downloading, generateEdgeTtsFromApi, cachedAudio, cacheAudioInConvex]);
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
   if (displayArticle && !hasCheckedResume) {

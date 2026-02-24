@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeTtsText } from "./elevenlabs";
+import { normalizeTtsText } from "./tts-normalize";
 
 describe("normalizeTtsText", () => {
   describe("context-dependent abbreviations", () => {

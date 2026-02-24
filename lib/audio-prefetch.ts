@@ -1,15 +1,4 @@
-import { normalizeTtsText } from "@/convex/lib/elevenlabs";
-
-const ELEVENLABS_KEY = "world-garden-elevenlabs-key";
-
-const isElevenLabsConfigured = (): boolean => {
-  if (typeof window === "undefined") return false;
-  try {
-    return !!localStorage.getItem(ELEVENLABS_KEY);
-  } catch {
-    return false;
-  }
-};
+import { normalizeTtsText } from "@/lib/tts-normalize";
 
 type FetchArticleFn = (args: { slug: string }) => Promise<{ summary?: string; thumbnailUrl?: string }>;
 
@@ -87,7 +76,6 @@ export const warmSummaryAudio = (
   slug: string,
   fetchArticle: FetchArticleFn,
 ): void => {
-  if (isElevenLabsConfigured()) return;
   if (cache.has(slug)) return;
 
   const promise = (async (): Promise<string | null> => {
