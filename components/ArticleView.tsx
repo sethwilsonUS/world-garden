@@ -631,7 +631,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         <BookmarkButton slug={slug} title={displayArticle.title} />
       </div>
 
-      {displayArticle.thumbnailUrl && (() => {
+      {displayArticle.thumbnailUrl ? (() => {
         const w = displayArticle.thumbnailWidth ?? 0;
         const h = displayArticle.thumbnailHeight ?? 0;
         const isPortrait = h > w;
@@ -720,7 +720,20 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             )}
           </div>
         );
-      })()}
+      })() : displayArticle.summary && (
+        <div className="mb-4">
+          <p
+            className="text-sm leading-relaxed text-muted overflow-hidden"
+            style={{
+              display: '-webkit-box',
+              WebkitBoxOrient: 'vertical' as const,
+              WebkitLineClamp: 3,
+            }}
+          >
+            {displayArticle.summary}
+          </p>
+        </div>
+      )}
 
       {displayArticle.thumbnailUrl && heroLightbox && (
         <Lightbox

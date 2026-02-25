@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isCategoryNsfw, isDisambiguation } from "@/lib/nsfw-filter";
+import {
+  isCategoryNsfw,
+  isDisambiguation,
+  isUnsuitableForRandom,
+} from "@/lib/nsfw-filter";
 
 describe("isCategoryNsfw", () => {
   describe("exact category matches", () => {
@@ -108,5 +112,69 @@ describe("isDisambiguation", () => {
     expect(isDisambiguation("Category:Living people")).toBe(false);
     expect(isDisambiguation("Category:Physics")).toBe(false);
     expect(isDisambiguation("")).toBe(false);
+  });
+});
+
+describe("isUnsuitableForRandom", () => {
+  const safe = [{ title: "Category:Living people" }];
+
+  describe("list-of title filtering", () => {
+    it("flags titles starting with 'List of'", () => {
+      expect(isUnsuitableForRandom("List of U.S. presidents", safe)).toBe(true);
+    });
+
+    it("is case-insensitive for 'list of' prefix", () => {
+      expect(isUnsuitableForRandom("list of rivers in France", safe)).toBe(true);
+      expect(isUnsuitableForRandom("LIST OF Olympic medalists", safe)).toBe(true);
+      expect(isUnsuitableForRandom("List Of sovereign states", safe)).toBe(true);
+    });
+
+    it("does not flag titles that merely contain 'list of' mid-string", () => {
+      expect(isUnsuitableForRandom("Schindler's List", safe)).toBe(false);
+      expect(isUnsuitableForRandom("The Blacklist of Hollywood", safe)).toBe(false);
+    });
+  });
+
+  describe("disambiguation category filtering", () => {
+    it("flags articles with disambiguation categories", () => {
+      expect(
+        isUnsuitableForRandom("Mercury", [
+          { title: "Category:All disambiguation pages" },
+        ]),
+      ).toBe(true);
+    });
+  });
+
+  describe("NSFW category filtering", () => {
+    it("flags articles with NSFW categories", () => {
+      expect(
+        isUnsuitableForRandom("Some Article", [
+          { title: "Category:Sexual acts" },
+        ]),
+      ).toBe(true);
+    });
+
+    it("flags articles with NSFW keyword categories", () => {
+      expect(
+        isUnsuitableForRandom("Some Article", [
+          { title: "Category:Hentai anime and manga" },
+        ]),
+      ).toBe(true);
+    });
+  });
+
+  describe("clean articles pass through", () => {
+    it("allows a normal title with safe categories", () => {
+      expect(
+        isUnsuitableForRandom("Albert Einstein", [
+          { title: "Category:Living people" },
+          { title: "Category:Physics" },
+        ]),
+      ).toBe(false);
+    });
+
+    it("allows a normal title with no categories", () => {
+      expect(isUnsuitableForRandom("Quantum mechanics", [])).toBe(false);
+    });
   });
 });

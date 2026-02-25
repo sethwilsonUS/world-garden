@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { fetchSafeRandomArticle } from "@/lib/random-article";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
-export const RandomArticleButton = () => {
+export const RandomRerollButton = () => {
   const router = useRouter();
   const prefetch = usePrefetch();
   const [loading, setLoading] = useState(false);
@@ -13,13 +13,15 @@ export const RandomArticleButton = () => {
 
   const prePick = useCallback(() => {
     if (prePicked.current) return;
-    prePicked.current = fetchSafeRandomArticle().then((title) => {
-      prefetch(title);
-      return title;
-    }).catch(() => {
-      prePicked.current = null;
-      return "";
-    });
+    prePicked.current = fetchSafeRandomArticle()
+      .then((title) => {
+        prefetch(title);
+        return title;
+      })
+      .catch(() => {
+        prePicked.current = null;
+        return "";
+      });
   }, [prefetch]);
 
   const handleClick = useCallback(async () => {
@@ -43,12 +45,14 @@ export const RandomArticleButton = () => {
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       onMouseEnter={prePick}
       onFocus={prePick}
       disabled={loading}
-      aria-label="Listen to a random Wikipedia article"
-      className={`linked-article-link inline-flex items-center gap-1.5 py-2 px-[18px] bg-transparent text-foreground-2 border border-border rounded-full font-medium text-[0.8125rem] font-[inherit] transition-all duration-200 ${loading ? "cursor-wait opacity-60" : "cursor-pointer"}`}
+      aria-label="Load another random article"
+      aria-busy={loading}
+      className={`inline-flex items-center gap-1.5 text-muted text-sm bg-transparent border-none p-0 transition-opacity duration-200 ${loading ? "cursor-wait opacity-60" : "cursor-pointer"}`}
     >
       {loading ? (
         <svg
@@ -91,7 +95,10 @@ export const RandomArticleButton = () => {
           <path d="M3 17h12a5 5 0 000-10H3" />
         </svg>
       )}
-      Surprise me
+      Give me another
+      <span className="sr-only" aria-live="polite">
+        {loading ? "Loading another random article…" : ""}
+      </span>
     </button>
   );
 };
