@@ -311,6 +311,7 @@ export const TableOfContents = ({
     return {
       totalPlaytime: formatDuration(adjusted, estimated),
       totalPlaytimeAccessible: formatDurationAccessible(adjusted, estimated),
+      allActual,
     };
   })();
 
@@ -341,7 +342,7 @@ export const TableOfContents = ({
             Explore this article
           </h2>
           <p className="text-[0.8125rem] text-muted m-0 leading-normal">
-            Estimated playtime{playbackRate !== 1 ? ` at ${playbackRate}x` : ""}:{" "}
+            {allActual ? "Playtime" : "Estimated playtime"}{playbackRate !== 1 ? ` at ${playbackRate}x` : ""}:{" "}
             <span className="font-mono font-medium text-foreground-2">
               <span aria-hidden="true">{totalPlaytime}</span>
               <span className="sr-only">{totalPlaytimeAccessible}</span>
