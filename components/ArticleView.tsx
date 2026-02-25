@@ -248,15 +248,19 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   useEffect(() => {
     if (audioUrl && !audioLoading && pendingAutoPlay.current) {
       pendingAutoPlay.current = false;
-      const timer = setTimeout(() => audioElPlay(), 100);
+      const audio = audioRef.current;
+      if (audio) {
+        const p = audio.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(() => setIsPaused(true));
+        }
+      }
 
       if (isPlayingAll && playAllQueue.current.length > 0) {
         prefetchAudio(playAllQueue.current[0].sectionKey);
       }
-
-      return () => clearTimeout(timer);
     }
-  }, [audioUrl, audioLoading, audioElPlay, isPlayingAll, prefetchAudio]);
+  }, [audioUrl, audioLoading, audioRef, isPlayingAll, prefetchAudio]);
 
   useEffect(() => {
     sectionsRef.current = displayArticle?.sections ?? [];
@@ -780,15 +784,13 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       )}
 
       {/* Hidden audio element for playback */}
-      {audioUrl && (
-        <audio
-          ref={audioRef}
-          src={audioUrl}
-          preload="metadata"
-          aria-hidden="true"
-          className="hidden"
-        />
-      )}
+      <audio
+        ref={audioRef}
+        src={audioUrl ?? undefined}
+        preload="metadata"
+        aria-hidden="true"
+        className="hidden"
+      />
 
       {/* Audio error */}
       {audioError && (
