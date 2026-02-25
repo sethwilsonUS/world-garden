@@ -22,15 +22,13 @@ export const BackButton = () => {
   const router = useRouter();
 
   return (
-    <nav aria-label="Back navigation" className="mb-4">
-      <button
-        type="button"
-        onClick={() => router.back()}
-        className="inline-flex items-center gap-1 text-muted text-sm bg-transparent border-none cursor-pointer p-0"
-      >
-        {chevronLeft}
-        Back
-      </button>
-    </nav>
+    <button
+      type="button"
+      onClick={() => router.back()}
+      className="inline-flex items-center gap-1 text-muted text-sm bg-transparent border-none cursor-pointer p-0"
+    >
+      {chevronLeft}
+      Back
+    </button>
   );
 };

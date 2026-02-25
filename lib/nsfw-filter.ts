@@ -46,6 +46,20 @@ export const isDisambiguation = (categoryTitle: string): boolean =>
   categoryTitle.toLowerCase().includes("disambiguation");
 
 /**
+ * Single entry point for all "should we skip this article in random?" rules.
+ * Pure function — easy to extend and unit-test.
+ */
+export const isUnsuitableForRandom = (
+  title: string,
+  categories: { title: string }[],
+): boolean => {
+  if (title.toLowerCase().startsWith("list of")) return true;
+  return categories.some(
+    (c) => isCategoryNsfw(c.title) || isDisambiguation(c.title),
+  );
+};
+
+/**
  * Batch-fetch categories for a list of titles and return only titles
  * that are not NSFW and not disambiguation pages.
  */
@@ -71,10 +85,7 @@ export const filterSafeTitles = async (titles: string[]): Promise<Set<string>> =
   const safe = new Set<string>();
   for (const page of Object.values(pages)) {
     const cats = page.categories ?? [];
-    const unsuitable = cats.some(
-      (c) => isCategoryNsfw(c.title) || isDisambiguation(c.title),
-    );
-    if (!unsuitable) safe.add(page.title);
+    if (!isUnsuitableForRandom(page.title, cats)) safe.add(page.title);
   }
   return safe;
 };
