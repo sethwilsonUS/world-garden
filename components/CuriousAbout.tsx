@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useData } from "@/lib/data-context";
-import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
+import { usePrefetch } from "@/hooks/usePrefetch";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 
@@ -17,7 +16,7 @@ const todayString = (): string => {
 };
 
 export const CuriousAbout = () => {
-  const { fetchArticle } = useData();
+  const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -58,9 +57,7 @@ export const CuriousAbout = () => {
         setArticles(safe);
 
         for (const article of safe) {
-          const slug = article.title.replace(/ /g, "_");
-          warmSummaryAudio(slug, fetchArticle);
-          warmArticleImage(slug, fetchArticle);
+          prefetch(article.title);
         }
       } catch {
         // Nice-to-have section; fail silently
@@ -71,16 +68,7 @@ export const CuriousAbout = () => {
     return () => {
       cancelled = true;
     };
-  }, [fetchArticle]);
-
-  const prefetch = useCallback(
-    (title: string) => {
-      const slug = title.replace(/ /g, "_");
-      warmSummaryAudio(slug, fetchArticle);
-      warmArticleImage(slug, fetchArticle);
-    },
-    [fetchArticle],
-  );
+  }, [prefetch]);
 
   if (!loading && articles.length === 0) return null;
 

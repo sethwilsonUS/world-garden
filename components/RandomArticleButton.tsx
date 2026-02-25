@@ -2,9 +2,8 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useData } from "@/lib/data-context";
-import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 import { isCategoryNsfw, isDisambiguation } from "@/lib/nsfw-filter";
+import { usePrefetch } from "@/hooks/usePrefetch";
 
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
 
@@ -53,22 +52,20 @@ const fetchSafeRandomArticle = async (maxAttempts = 2): Promise<string> => {
 
 export const RandomArticleButton = () => {
   const router = useRouter();
-  const { fetchArticle } = useData();
+  const prefetch = usePrefetch();
   const [loading, setLoading] = useState(false);
   const prePicked = useRef<Promise<string> | null>(null);
 
   const prePick = useCallback(() => {
     if (prePicked.current) return;
     prePicked.current = fetchSafeRandomArticle().then((title) => {
-      const slug = title.replace(/ /g, "_");
-      warmSummaryAudio(slug, fetchArticle);
-      warmArticleImage(slug, fetchArticle);
+      prefetch(title);
       return title;
     }).catch(() => {
       prePicked.current = null;
       return "";
     });
-  }, [fetchArticle]);
+  }, [prefetch]);
 
   const handleClick = useCallback(async () => {
     setLoading(true);

@@ -12,13 +12,19 @@ export const getAllSectionAudio = query({
       .withIndex("by_article_section", (q) => q.eq("articleId", args.articleId))
       .collect();
 
-    const result: Record<string, string> = {};
+    const urls: Record<string, string> = {};
+    const durations: Record<string, number> = {};
     for (const r of records) {
       if (r.ttsNormVersion !== args.ttsNormVersion) continue;
       const url = await ctx.storage.getUrl(r.storageId);
-      if (url) result[r.sectionKey] = url;
+      if (url) {
+        urls[r.sectionKey] = url;
+        if (r.durationSeconds != null) {
+          durations[r.sectionKey] = r.durationSeconds;
+        }
+      }
     }
-    return result;
+    return { urls, durations };
   },
 });
 
@@ -34,6 +40,7 @@ export const saveSectionAudioRecord = mutation({
     sectionKey: v.string(),
     storageId: v.id("_storage"),
     ttsNormVersion: v.string(),
+    durationSeconds: v.optional(v.number()),
   },
   async handler(ctx, args) {
     await ctx.db.insert("sectionAudio", {
@@ -41,6 +48,7 @@ export const saveSectionAudioRecord = mutation({
       sectionKey: args.sectionKey,
       storageId: args.storageId,
       ttsNormVersion: args.ttsNormVersion,
+      durationSeconds: args.durationSeconds,
       createdAt: Date.now(),
     });
   },

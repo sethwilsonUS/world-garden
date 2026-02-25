@@ -133,24 +133,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     [],
   );
 
-  const prefetchTriggered = useRef(false);
-  useEffect(() => {
-    if (!displayArticle || prefetchTriggered.current) return;
-    prefetchTriggered.current = true;
-
-    const inflight = awaitSummaryAudio(slug);
-    if (inflight) {
-      inflight.then((url) => {
-        if (url) edgeTtsCache.current.set("summary", url);
-      }).catch(() => {});
-      return;
-    }
-
-    const summaryText = displayArticle.summary ?? "";
-    if (summaryText.length < 10) return;
-    generateEdgeTtsFromApi(summaryText, "summary").catch(() => {});
-  }, [displayArticle, generateEdgeTtsFromApi, slug]);
-
   const sectionsRef = useRef<Section[]>([]);
 
   const getTextForSection = useCallback((sectionKey: string): string => {
@@ -164,7 +146,20 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     async (sectionKey: string, blobUrl: string) => {
       if (!articleId) return;
       try {
-        const blob = await fetch(blobUrl).then((r) => r.blob());
+        const [blob, durationSeconds] = await Promise.all([
+          fetch(blobUrl).then((r) => r.blob()),
+          new Promise<number | undefined>((resolve) => {
+            const a = new Audio();
+            a.preload = "metadata";
+            a.onloadedmetadata = () => {
+              const d = a.duration;
+              a.src = "";
+              resolve(d && isFinite(d) ? d : undefined);
+            };
+            a.onerror = () => resolve(undefined);
+            a.src = blobUrl;
+          }),
+        ]);
         const uploadUrl = await getUploadUrl();
         const result = await fetch(uploadUrl, {
           method: "POST",
@@ -177,6 +172,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           sectionKey,
           storageId,
           ttsNormVersion: TTS_NORM_VERSION,
+          durationSeconds,
         });
       } catch (err) {
         console.warn("[audio-cache] Failed to cache section audio:", err);
@@ -185,13 +181,46 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     [articleId, getUploadUrl, saveAudioRecord],
   );
 
+  const prefetchTriggered = useRef(false);
+  useEffect(() => {
+    if (!displayArticle || prefetchTriggered.current) return;
+    prefetchTriggered.current = true;
+
+    const cacheSummary = (url: string) => {
+      edgeTtsCache.current.set("summary", url);
+      if (!cachedAudio?.urls["summary"]) {
+        cacheAudioInConvex("summary", url);
+      }
+    };
+
+    const inflight = awaitSummaryAudio(slug);
+    if (inflight) {
+      inflight.then((url) => {
+        if (url) cacheSummary(url);
+      }).catch(() => {});
+      return;
+    }
+
+    const summaryText = displayArticle.summary ?? "";
+    if (summaryText.length < 10) return;
+    generateEdgeTtsFromApi(summaryText, "summary")
+      .then(cacheSummary)
+      .catch(() => {});
+  }, [displayArticle, generateEdgeTtsFromApi, slug, cachedAudio, cacheAudioInConvex]);
+
   const prefetchAudio = useCallback(
     (sectionKey: string) => {
       const text = getTextForSection(sectionKey);
       if (!text || text.length < 10) return;
-      generateEdgeTtsFromApi(text, sectionKey).catch(() => {});
+      generateEdgeTtsFromApi(text, sectionKey)
+        .then((url) => {
+          if (!cachedAudio?.urls[sectionKey]) {
+            cacheAudioInConvex(sectionKey, url);
+          }
+        })
+        .catch(() => {});
     },
-    [generateEdgeTtsFromApi, getTextForSection],
+    [generateEdgeTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
   );
 
   const audioEndedRef = useRef<() => void>(() => {});
@@ -253,13 +282,13 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         setAudioUrl(memCached);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
-        if (!cachedAudio?.[sectionKey]) {
+        if (!cachedAudio?.urls[sectionKey]) {
           cacheAudioInConvex(sectionKey, memCached);
         }
         return;
       }
 
-      const convexCached = cachedAudio?.[sectionKey];
+      const convexCached = cachedAudio?.urls[sectionKey];
       if (convexCached) {
         setAudioUrl(convexCached);
         pendingAutoPlay.current = true;
@@ -421,7 +450,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       for (let i = 0; i < sectionKeys.length; i++) {
         setDownloadProgress({ current: i, total: sectionKeys.length });
 
-        let url: string | null = cachedAudio?.[sectionKeys[i]] ?? null;
+        let url: string | null = cachedAudio?.urls[sectionKeys[i]] ?? null;
 
         if (!url) {
           let textContent: string;
@@ -806,6 +835,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           wikiPageId={wikiPageId}
           summaryText={displayArticle.summary}
           sections={sections}
+          sectionDurations={cachedAudio?.durations}
           activeSectionIndex={activeSectionIndex}
           isGenerating={audioLoading}
           isPlayingAll={isPlayingAll}

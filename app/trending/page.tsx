@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
+import { usePrefetch } from "@/hooks/usePrefetch";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 const FILTER_BATCH_SIZE = 50;
@@ -26,6 +27,7 @@ const batchFilterSafeTitles = async (
 };
 
 export default function TrendingPage() {
+  const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -163,6 +165,7 @@ export default function TrendingPage() {
                     key={article.title}
                     article={article}
                     imageLoading={i < 8 ? "eager" : "lazy"}
+                    onHover={() => prefetch(article.title)}
                   />
                 ))}
               </ul>
