@@ -278,7 +278,7 @@ export const TableOfContents = ({
   const playableCount = audioSections.length + 1;
   const summaryOnly = sections.length === 0;
 
-  const { totalPlaytime, totalPlaytimeAccessible } = (() => {
+  const { totalPlaytime, totalPlaytimeAccessible, allActual } = (() => {
     let total = 0;
     let allActual = true;
 
