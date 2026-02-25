@@ -709,7 +709,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           </div>
         );
       })() : displayArticle.summary && (
-        <div className="hidden xs:block mb-4">
+        <div className="hidden min-[360px]:block mb-4">
           <p className="text-sm leading-relaxed text-muted line-clamp-3">
             {displayArticle.summary}
           </p>
@@ -717,7 +717,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       )}
 
       {displayArticle.thumbnailUrl && displayArticle.summary && (
-        <div className="hidden xs:block md:hidden mb-4">
+        <div className="hidden min-[360px]:block md:hidden mb-4">
           <p className="text-sm leading-relaxed text-muted line-clamp-3">
             {displayArticle.summary}
           </p>
