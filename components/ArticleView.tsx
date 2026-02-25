@@ -665,15 +665,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
                   loading="eager"
                 />
                 {displayArticle.summary && (
-                  <div className="max-md:hidden max-w-sm" onClick={(e) => e.stopPropagation()}>
+                  <div className="hidden md:block max-w-sm" onClick={(e) => e.stopPropagation()}>
                     <p
-                      className="text-sm leading-relaxed text-white overflow-hidden"
-                      style={{
-                        display: '-webkit-box',
-                        WebkitBoxOrient: 'vertical' as const,
-                        WebkitLineClamp: 7,
-                        textShadow: '0 1px 4px rgba(0, 0, 0, 0.6)',
-                      }}
+                      className="text-sm leading-relaxed text-white line-clamp-[7]"
+                      style={{ textShadow: '0 1px 4px rgba(0, 0, 0, 0.6)' }}
                     >
                       {displayArticle.summary}
                     </p>
@@ -702,18 +697,11 @@ export const ArticleView = ({ slug }: { slug: string }) => {
               loading="eager"
             />
             {displayArticle.summary && (
-              <div className="max-md:hidden absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"
+              <div className="hidden md:block absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"
                 style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <p
-                  className="text-sm leading-relaxed text-white overflow-hidden"
-                  style={{
-                    display: '-webkit-box',
-                    WebkitBoxOrient: 'vertical' as const,
-                    WebkitLineClamp: 3,
-                  }}
-                >
+                <p className="text-sm leading-relaxed text-white line-clamp-3">
                   {displayArticle.summary}
                 </p>
               </div>
@@ -721,15 +709,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           </div>
         );
       })() : displayArticle.summary && (
-        <div className="mb-4">
-          <p
-            className="text-sm leading-relaxed text-muted overflow-hidden"
-            style={{
-              display: '-webkit-box',
-              WebkitBoxOrient: 'vertical' as const,
-              WebkitLineClamp: 3,
-            }}
-          >
+        <div className="hidden xs:block mb-4">
+          <p className="text-sm leading-relaxed text-muted line-clamp-3">
+            {displayArticle.summary}
+          </p>
+        </div>
+      )}
+
+      {displayArticle.thumbnailUrl && displayArticle.summary && (
+        <div className="hidden xs:block md:hidden mb-4">
+          <p className="text-sm leading-relaxed text-muted line-clamp-3">
             {displayArticle.summary}
           </p>
         </div>
