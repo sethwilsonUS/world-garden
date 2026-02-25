@@ -276,7 +276,7 @@ export const TableOfContents = ({
   );
   const hasNonAudioSections = audioSections.length < sections.length;
   const playableCount = audioSections.length + 1;
-  const summaryOnly = sections.length === 0;
+  const summaryOnly = sections.length === 0 || audioSections.length === 0;
 
   const { totalPlaytime, totalPlaytimeAccessible, allActual } = (() => {
     let total = 0;
@@ -351,13 +351,7 @@ export const TableOfContents = ({
         </div>
       </div>
 
-      {summaryOnly && onPlaybackRateChange && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
-        </div>
-      )}
-
-      {!summaryOnly && <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4">
         <button
           ref={playAllRef}
           onClick={(e) => {
@@ -382,11 +376,13 @@ export const TableOfContents = ({
               ? (isGenerating && !isSpeaking
                   ? "Generating audio, please wait"
                   : isPaused
-                    ? "Resume playing all sections"
-                    : "Pause playing all sections")
+                    ? summaryOnly ? "Resume playing summary" : "Resume playing all sections"
+                    : summaryOnly ? "Pause summary" : "Pause playing all sections")
               : isGenerating
                 ? "Generating audio, please wait"
-                : `Play all ${playableCount} sections including summary`
+                : summaryOnly
+                  ? "Play summary"
+                  : `Play all ${playableCount} sections including summary`
           }
         >
           {isPlayingAll ? (
@@ -450,10 +446,12 @@ export const TableOfContents = ({
               >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              Play all
-              <span className="text-[0.6875rem] opacity-80 font-medium">
-                ({playableCount})
-              </span>
+              {summaryOnly ? "Play" : "Play all"}
+              {!summaryOnly && (
+                <span className="text-[0.6875rem] opacity-80 font-medium">
+                  ({playableCount})
+                </span>
+              )}
             </>
           )}
         </button>
@@ -468,7 +466,9 @@ export const TableOfContents = ({
             aria-label={
               downloading
                 ? `Downloading: generating section ${downloadProgress?.current ?? 0} of ${downloadProgress?.total ?? 0}`
-                : "Download full article as one audio file"
+                : summaryOnly
+                  ? "Download summary as audio file"
+                  : "Download full article as one audio file"
             }
           >
             {downloading ? (
@@ -517,7 +517,7 @@ export const TableOfContents = ({
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                Download all
+                {summaryOnly ? "Download" : "Download all"}
               </>
             )}
           </button>
@@ -526,7 +526,7 @@ export const TableOfContents = ({
         {onPlaybackRateChange && (
           <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
         )}
-      </div>}
+      </div>
 
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">
