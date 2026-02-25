@@ -30,6 +30,7 @@
   --color-gradient-4: #e6f0e8;
   --font-display: "Fraunces", serif;
   --font-mono: "JetBrains Mono", monospace;
+  --breakpoint-xs: 360px;
 }
 
 :root {
