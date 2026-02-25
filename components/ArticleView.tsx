@@ -6,7 +6,7 @@ import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
 import { BookmarkButton } from "./BookmarkButton";
 import { RelatedArticles } from "./RelatedArticles";
-import { ArticleGallery } from "./ArticleGallery";
+import { ArticleGallery, Lightbox, type LightboxState } from "./ArticleGallery";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -78,6 +78,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
+  const [heroLightbox, setHeroLightbox] = useState<LightboxState>(null);
 
   const wikiPageId = displayArticle?.wikiPageId ?? "";
 
@@ -605,13 +606,22 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         const w = displayArticle.thumbnailWidth ?? 0;
         const h = displayArticle.thumbnailHeight ?? 0;
         const isPortrait = h > w;
+        const openHeroLightbox = () => setHeroLightbox({ index: 0 });
 
         if (isPortrait) {
           return (
-            <div className="relative mb-4 overflow-hidden rounded-xl" aria-hidden="true">
+            <div
+              className="relative mb-4 overflow-hidden rounded-xl cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-label={`View full image for ${displayArticle.title}`}
+              onClick={openHeroLightbox}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHeroLightbox(); } }}
+            >
               <img
                 src={displayArticle.thumbnailUrl}
                 alt=""
+                aria-hidden="true"
                 className="absolute inset-0 w-full h-full object-cover"
                 style={{ transform: 'scale(1.8)', filter: 'blur(80px) brightness(0.65)' }}
               />
@@ -619,14 +629,14 @@ export const ArticleView = ({ slug }: { slug: string }) => {
               <div className="relative flex items-center justify-center gap-16 p-6 sm:p-10">
                 <img
                   src={displayArticle.thumbnailUrl}
-                  alt=""
+                  alt={displayArticle.title}
                   width={w || undefined}
                   height={h || undefined}
                   className="max-h-56 sm:max-h-72 w-auto object-contain rounded-lg shrink-0"
                   loading="eager"
                 />
                 {displayArticle.summary && (
-                  <div className="max-md:hidden max-w-sm">
+                  <div className="max-md:hidden max-w-sm" onClick={(e) => e.stopPropagation()}>
                     <p
                       className="text-sm leading-relaxed text-white overflow-hidden"
                       style={{
@@ -646,10 +656,17 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         }
 
         return (
-          <div className="relative mb-4 overflow-hidden rounded-xl" aria-hidden="true">
+          <div
+            className="relative mb-4 overflow-hidden rounded-xl cursor-pointer"
+            role="button"
+            tabIndex={0}
+            aria-label={`View full image for ${displayArticle.title}`}
+            onClick={openHeroLightbox}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHeroLightbox(); } }}
+          >
             <img
               src={displayArticle.thumbnailUrl}
-              alt=""
+              alt={displayArticle.title}
               width={w || undefined}
               height={h || undefined}
               className="w-full max-h-48 sm:max-h-64 object-cover"
@@ -658,6 +675,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
             {displayArticle.summary && (
               <div className="max-md:hidden absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"
                 style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+                onClick={(e) => e.stopPropagation()}
               >
                 <p
                   className="text-sm leading-relaxed text-white overflow-hidden"
@@ -674,6 +692,14 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           </div>
         );
       })()}
+
+      {displayArticle.thumbnailUrl && heroLightbox && (
+        <Lightbox
+          images={[{ src: displayArticle.thumbnailUrl, originalSrc: displayArticle.thumbnailUrl, alt: displayArticle.title, caption: "" }]}
+          state={heroLightbox}
+          onClose={() => setHeroLightbox(null)}
+        />
+      )}
 
       {/* Resume banner */}
       {showResumeBanner && savedProgressState && (

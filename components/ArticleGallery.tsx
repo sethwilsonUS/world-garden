@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useData } from "@/lib/data-context";
 import type { ArticleImage } from "@/lib/data-context";
 
-type LightboxState = { index: number } | null;
+export type LightboxState = { index: number } | null;
 
 const ImageCard = ({
   image,
@@ -79,7 +79,7 @@ const ImageCard = ({
   );
 };
 
-const Lightbox = ({
+export const Lightbox = ({
   images,
   state,
   onClose,
@@ -90,12 +90,15 @@ const Lightbox = ({
 }) => {
   const [current, setCurrent] = useState(state?.index ?? 0);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     dialog.showModal();
+    document.body.style.overflow = "hidden";
     return () => {
+      document.body.style.overflow = "";
       if (dialog.open) dialog.close();
     };
   }, []);
@@ -109,6 +112,25 @@ const Lightbox = ({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [state, images.length]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || images.length <= 1) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+    if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx)) return;
+    if (dx < 0) {
+      setCurrent((c) => (c < images.length - 1 ? c + 1 : 0));
+    } else {
+      setCurrent((c) => (c > 0 ? c - 1 : images.length - 1));
+    }
+  }, [images.length]);
 
   if (!state) return null;
 
@@ -129,6 +151,8 @@ const Lightbox = ({
         className="w-full h-full flex items-center justify-center bg-black/80"
         style={{ backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
         onClick={onClose}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
       >
         <div
           className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center"
@@ -152,7 +176,7 @@ const Lightbox = ({
             <>
               <button
                 onClick={() => setCurrent((c) => (c > 0 ? c - 1 : images.length - 1))}
-                className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 text-white/70 hover:text-white transition-colors cursor-pointer"
+                className="absolute left-2 md:left-0 top-1/2 -translate-y-1/2 md:-translate-x-12 bg-black/40 md:bg-transparent rounded-full p-1.5 md:p-0 text-white/70 hover:text-white transition-colors cursor-pointer"
                 aria-label="Previous image"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28} aria-hidden="true">
@@ -161,7 +185,7 @@ const Lightbox = ({
               </button>
               <button
                 onClick={() => setCurrent((c) => (c < images.length - 1 ? c + 1 : 0))}
-                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 text-white/70 hover:text-white transition-colors cursor-pointer"
+                className="absolute right-2 md:right-0 top-1/2 -translate-y-1/2 md:translate-x-12 bg-black/40 md:bg-transparent rounded-full p-1.5 md:p-0 text-white/70 hover:text-white transition-colors cursor-pointer"
                 aria-label="Next image"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28} aria-hidden="true">
