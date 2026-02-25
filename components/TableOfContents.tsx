@@ -373,10 +373,10 @@ export const TableOfContents = ({
           }`}
           aria-label={
             isPlayingAll
-              ? (isGenerating && !isSpeaking
-                  ? "Generating audio, please wait"
-                  : isPaused
-                    ? summaryOnly ? "Resume playing summary" : "Resume playing all sections"
+              ? (isPaused
+                  ? summaryOnly ? "Resume playing summary" : "Resume playing all sections"
+                  : !isSpeaking
+                    ? "Generating audio, please wait"
                     : summaryOnly ? "Pause summary" : "Pause playing all sections")
               : isGenerating
                 ? "Generating audio, please wait"
@@ -386,12 +386,7 @@ export const TableOfContents = ({
           }
         >
           {isPlayingAll ? (
-            isGenerating && !isSpeaking ? (
-              <>
-                <SpinnerIcon />
-                <span aria-live="polite">Loading</span>
-              </>
-            ) : isPaused ? (
+            isPaused ? (
               <>
                 <svg
                   viewBox="0 0 24 24"
@@ -408,6 +403,11 @@ export const TableOfContents = ({
                   <polygon points="5 3 19 12 5 21 5 3" />
                 </svg>
                 <span aria-live="polite">Resume</span>
+              </>
+            ) : !isSpeaking ? (
+              <>
+                <SpinnerIcon />
+                <span aria-live="polite">Loading</span>
               </>
             ) : (
               <>

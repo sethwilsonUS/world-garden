@@ -89,6 +89,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const fetchTriggered = useRef(false);
   const pendingAutoPlay = useRef(false);
   const playAllRef = useRef<HTMLButtonElement>(null);
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
 
   useEffect(() => {
     if (fetchTriggered.current) return;
@@ -248,15 +250,19 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   useEffect(() => {
     if (audioUrl && !audioLoading && pendingAutoPlay.current) {
       pendingAutoPlay.current = false;
-      const timer = setTimeout(() => audioElPlay(), 100);
+      const audio = audioRef.current;
+      if (audio) {
+        const p = audio.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(() => setIsPaused(true));
+        }
+      }
 
       if (isPlayingAll && playAllQueue.current.length > 0) {
         prefetchAudio(playAllQueue.current[0].sectionKey);
       }
-
-      return () => clearTimeout(timer);
     }
-  }, [audioUrl, audioLoading, audioElPlay, isPlayingAll, prefetchAudio]);
+  }, [audioUrl, audioLoading, audioRef, isPlayingAll, prefetchAudio]);
 
   useEffect(() => {
     sectionsRef.current = displayArticle?.sections ?? [];
@@ -280,8 +286,15 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       const memCached = edgeTtsCache.current.get(sectionKey);
       if (memCached) {
         setAudioUrl(memCached);
-        pendingAutoPlay.current = true;
         setAudioLoading(false);
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = memCached;
+          audio.playbackRate = playbackRateRef.current;
+          audio.play().catch(() => setIsPaused(true));
+        } else {
+          pendingAutoPlay.current = true;
+        }
         if (!cachedAudio?.urls[sectionKey]) {
           cacheAudioInConvex(sectionKey, memCached);
         }
@@ -291,8 +304,15 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       const convexCached = cachedAudio?.urls[sectionKey];
       if (convexCached) {
         setAudioUrl(convexCached);
-        pendingAutoPlay.current = true;
         setAudioLoading(false);
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = convexCached;
+          audio.playbackRate = playbackRateRef.current;
+          audio.play().catch(() => setIsPaused(true));
+        } else {
+          pendingAutoPlay.current = true;
+        }
         return;
       }
 
@@ -779,16 +799,15 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         </div>
       )}
 
-      {/* Hidden audio element for playback */}
-      {audioUrl && (
-        <audio
-          ref={audioRef}
-          src={audioUrl}
-          preload="metadata"
-          aria-hidden="true"
-          className="hidden"
-        />
-      )}
+      {/* Hidden audio element for playback — always rendered so audioRef is
+         available for direct play() calls within user-gesture context */}
+      <audio
+        ref={audioRef}
+        src={audioUrl ?? undefined}
+        preload="metadata"
+        aria-hidden="true"
+        className="hidden"
+      />
 
       {/* Audio error */}
       {audioError && (
