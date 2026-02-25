@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useData } from "@/lib/data-context";
-import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
+import { usePrefetch } from "@/hooks/usePrefetch";
 
 type SearchResult = {
   wikiPageId: string;
@@ -13,7 +13,7 @@ type SearchResult = {
 };
 
 export const SearchResultsList = ({ term }: { term: string }) => {
-  const { search: searchAction, fetchArticle } = useData();
+  const { search: searchAction } = useData();
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,14 +105,7 @@ export const SearchResultsList = ({ term }: { term: string }) => {
     [results.length],
   );
 
-  const handleWarmAudio = useCallback(
-    (title: string) => {
-      const slug = title.replace(/ /g, "_");
-      warmSummaryAudio(slug, fetchArticle);
-      warmArticleImage(slug, fetchArticle);
-    },
-    [fetchArticle],
-  );
+  const handleWarmAudio = usePrefetch();
 
   if (loading) {
     return (
