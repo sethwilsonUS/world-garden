@@ -13,6 +13,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { useHistory } from "@/hooks/useHistory";
 import { useAudioElement } from "@/hooks/useAudioElement";
+import { useMediaSession } from "@/hooks/useMediaSession";
 import { awaitSummaryAudio } from "@/lib/audio-prefetch";
 import { normalizeTtsText, TTS_NORM_VERSION } from "@/lib/tts-normalize";
 
@@ -233,6 +234,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     play: audioElPlay,
     pause: audioElPause,
     seek: audioElSeek,
+    skip: audioElSkip,
   } = useAudioElement({
     url: audioUrl,
     onEnded: () => audioEndedRef.current(),
@@ -380,6 +382,29 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     setIsPaused(false);
     audioElPause();
   }, [audioElPause]);
+
+  const mediaSessionTitle = isSpeaking || audioElPlaying
+    ? activeSectionIndex != null && displayArticle?.sections?.[activeSectionIndex]
+      ? `${displayArticle.sections[activeSectionIndex].title} \u2014 ${displayArticle.title}`
+      : displayArticle
+        ? `Summary \u2014 ${displayArticle.title}`
+        : null
+    : null;
+
+  useMediaSession({
+    title: mediaSessionTitle,
+    artworkUrl: displayArticle?.thumbnailUrl,
+    playing: audioElPlaying,
+    currentTime: audioElCurrentTime,
+    duration: audioElDuration,
+    playbackRate,
+    onPlay: audioElPlay,
+    onPause: audioElPause,
+    onSeekForward: () => audioElSkip(10),
+    onSeekBackward: () => audioElSkip(-10),
+    onSeekTo: audioElSeek,
+    onStop: handleStopPlayAll,
+  });
 
   const handleTogglePlayAll = useCallback(() => {
     if (isPaused) {
