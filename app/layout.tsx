@@ -4,6 +4,8 @@ import { AppProviders } from "./AppProviders";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AccessibleLayout } from "@/components/AccessibleLayout";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -90,6 +92,8 @@ export default function RootLayout({
           </ThemeProvider>
         </AppProviders>
         <ServiceWorkerRegistration />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
