@@ -28,6 +28,7 @@ export async function generateMetadata({
       description,
       type: "article",
       siteName: "Curio Garden",
+      url: `/article/${slug}`,
     },
     twitter: {
       card: "summary_large_image",
