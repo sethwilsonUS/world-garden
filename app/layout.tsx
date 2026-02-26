@@ -25,9 +25,19 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+  ),
   title: "World Garden — Listen to Wikipedia",
   description:
     "An accessibility-first web app that turns Wikipedia articles into audio you can listen to right in your browser.",
+  openGraph: {
+    type: "website",
+    siteName: "World Garden",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 const themeInitScript = `
