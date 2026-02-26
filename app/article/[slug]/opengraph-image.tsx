@@ -111,12 +111,22 @@ export default async function OgImage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const fonts = await loadOgFonts();
-  const article = await fetchWikiSummary(slug);
 
-  const title = article?.title ?? decodeURIComponent(slug).replace(/_/g, " ");
-  const summary = article?.extract ?? "";
-  const thumbnailUrl = article?.thumbnailUrl;
+  let fonts = await loadOgFonts();
+  let title = decodeURIComponent(slug).replace(/_/g, " ");
+  let summary = "";
+  let thumbnailUrl: string | undefined;
+
+  try {
+    const article = await fetchWikiSummary(slug);
+    if (article) {
+      title = article.title;
+      summary = article.extract;
+      thumbnailUrl = article.thumbnailUrl;
+    }
+  } catch {
+    // Render with slug-derived title if Wikipedia is unreachable
+  }
 
   if (!thumbnailUrl) {
     return new ImageResponse(<FallbackCard title={title} summary={summary} />, {
