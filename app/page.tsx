@@ -36,7 +36,7 @@ export default function Home() {
             id="hero-heading"
             className="font-display text-[clamp(2.75rem,7vw,5rem)] font-semibold leading-[1.05] mb-6 text-foreground tracking-[-0.02em]"
           >
-            World Garden
+            Curio Garden
           </h1>
 
           <p className="text-lg leading-[1.7] text-foreground-2 max-w-[440px] mx-auto">

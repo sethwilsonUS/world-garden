@@ -60,7 +60,7 @@ function FallbackCard({
             fontFamily: "Fraunces, sans-serif",
           }}
         >
-          World Garden
+          Curio Garden
         </span>
       </div>
 
@@ -147,7 +147,7 @@ export async function GET(
               fontFamily: "Fraunces, sans-serif",
             }}
           >
-            World Garden
+            Curio Garden
           </span>
         </div>
 

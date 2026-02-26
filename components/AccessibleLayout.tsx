@@ -141,7 +141,7 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
             className="flex items-center gap-2 font-semibold font-display text-foreground no-underline"
           >
             <LeafIcon size={22} />
-            <span className="text-sm sm:text-base whitespace-nowrap">World Garden</span>
+            <span className="text-sm sm:text-base whitespace-nowrap">Curio Garden</span>
           </Link>
 
           {/* Desktop nav */}
@@ -237,7 +237,7 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
             <div className="flex items-center gap-2">
               <LeafIcon size={20} />
               <span className="font-display font-semibold text-foreground">
-                World Garden
+                Curio Garden
               </span>
             </div>
             <nav
@@ -269,7 +269,7 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
 
           <div className="text-center text-muted text-xs leading-[1.6]">
             <p>
-              World Garden uses content from{" "}
+              Curio Garden uses content from{" "}
               <a
                 href="https://en.wikipedia.org"
                 target="_blank"

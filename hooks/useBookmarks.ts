@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 
-const STORAGE_KEY = "world-garden-bookmarks";
+const STORAGE_KEY = "curio-garden-bookmarks";
+const LEGACY_KEY = "world-garden-bookmarks";
 
 export type BookmarkEntry = {
   slug: string;
@@ -10,8 +11,21 @@ export type BookmarkEntry = {
   savedAt: number;
 };
 
+const migrateLegacyKey = () => {
+  if (typeof window === "undefined") return;
+  try {
+    if (!localStorage.getItem(STORAGE_KEY) && localStorage.getItem(LEGACY_KEY)) {
+      localStorage.setItem(STORAGE_KEY, localStorage.getItem(LEGACY_KEY)!);
+      localStorage.removeItem(LEGACY_KEY);
+    }
+  } catch {
+    // localStorage unavailable
+  }
+};
+
 const readBookmarks = (): BookmarkEntry[] => {
   if (typeof window === "undefined") return [];
+  migrateLegacyKey();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];

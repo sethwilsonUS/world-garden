@@ -1,6 +1,6 @@
-# Contributing to World Garden
+# Contributing to Curio Garden
 
-Thanks for your interest in contributing! World Garden is an accessibility-first Wikipedia audio reader, and we take that "accessibility-first" part seriously. Every contribution should maintain or improve the experience for all users, including those using screen readers, keyboard navigation, or other assistive technologies.
+Thanks for your interest in contributing! Curio Garden is an accessibility-first Wikipedia audio reader, and we take that "accessibility-first" part seriously. Every contribution should maintain or improve the experience for all users, including those using screen readers, keyboard navigation, or other assistive technologies.
 
 Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 
@@ -113,7 +113,7 @@ CI also runs a Python job that validates the Edge TTS serverless function (`api/
 
 ## Wikipedia Content
 
-Article content displayed by World Garden is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). If your change touches how article content is displayed, make sure:
+Article content displayed by Curio Garden is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). If your change touches how article content is displayed, make sure:
 
 - Attribution to Wikipedia remains visible.
 - Links to the original article and license are preserved.

@@ -1,4 +1,4 @@
-const CACHE_NAME = "world-garden-v2";
+const CACHE_NAME = "curio-garden-v1";
 const STATIC_ASSETS = ["/", "/library"];
 
 self.addEventListener("install", (event) => {

@@ -18,17 +18,17 @@ export async function generateMetadata({
   const article = await fetchWikiSummary(slug);
   const title = article?.title ?? slugToTitle(slug);
   const description =
-    article?.extract ?? `Listen to "${title}" on World Garden`;
+    article?.extract ?? `Listen to "${title}" on Curio Garden`;
   const ogImageUrl = `/api/og/${encodeURIComponent(slug)}`;
 
   return {
-    title: `${title} — World Garden`,
+    title: `${title} — Curio Garden`,
     description,
     openGraph: {
       title,
       description,
       type: "article",
-      siteName: "World Garden",
+      siteName: "Curio Garden",
       images: [{ url: ogImageUrl, width: 1200, height: 630, alt: title }],
     },
     twitter: {

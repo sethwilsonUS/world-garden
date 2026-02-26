@@ -1,6 +1,6 @@
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
 const USER_AGENT =
-  "WorldGarden/1.0 (accessibility-first Wikipedia audio reader)";
+  "CurioGarden/1.0 (accessibility-first Wikipedia audio reader)";
 
 export type WikiSummary = {
   title: string;
