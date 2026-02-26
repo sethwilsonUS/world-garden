@@ -161,9 +161,10 @@ app/
   globals.css             Design system tokens, utilities, and component styles
   api/tts/route.ts        Edge TTS API route (local dev — shells out to Python)
 
-api/
+_python/
   tts.py                 Edge TTS serverless function (Vercel production)
-  requirements.txt       Python dependencies (edge-tts)
+
+requirements.txt         Python dependencies (edge-tts)
 
 lib/
   data-context.tsx        DataContext type and useData() hook

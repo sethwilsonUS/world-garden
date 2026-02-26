@@ -109,7 +109,7 @@ When adding new functionality, include tests that cover:
 
 Test files live alongside the code they test (e.g., `components/TableOfContents.test.ts`).
 
-CI also runs a Python job that validates the Edge TTS serverless function (`api/tts.py`) and lints it with Ruff.
+CI also runs a Python job that validates the Edge TTS serverless function (`_python/tts.py`) and lints it with Ruff.
 
 ## Wikipedia Content
 

@@ -69,10 +69,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        run: pip install -r api/requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Validate function imports
-        run: python -c "from api.tts import handler, _generate, _VOICE_RE; print('api/tts.py OK')"
+        run: python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
 
       - name: Lint with ruff
-        run: pip install ruff && ruff check api/
+        run: pip install ruff && ruff check _python/
