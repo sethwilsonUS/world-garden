@@ -19,7 +19,6 @@ export async function generateMetadata({
   const title = article?.title ?? slugToTitle(slug);
   const description =
     article?.extract ?? `Listen to "${title}" on Curio Garden`;
-  const ogImageUrl = `/api/og/${encodeURIComponent(slug)}`;
 
   return {
     title: `${title} — Curio Garden`,
@@ -29,13 +28,11 @@ export async function generateMetadata({
       description,
       type: "article",
       siteName: "Curio Garden",
-      images: [{ url: ogImageUrl, width: 1200, height: 630, alt: title }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [ogImageUrl],
     },
   };
 }

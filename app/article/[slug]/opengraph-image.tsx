@@ -2,7 +2,9 @@ import { ImageResponse } from "next/og";
 import { loadOgFonts } from "@/app/og-fonts";
 import { fetchWikiSummary, truncateText } from "@/lib/wiki-summary";
 
-const SIZE = { width: 1200, height: 630 };
+export const alt = "Article preview";
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
 
 function LeafIcon({ size: s }: { size: number }) {
   return (
@@ -103,10 +105,11 @@ function FallbackCard({
   );
 }
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ slug: string }> },
-) {
+export default async function OgImage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = await params;
   const fonts = await loadOgFonts();
   const article = await fetchWikiSummary(slug);
@@ -117,7 +120,7 @@ export async function GET(
 
   if (!thumbnailUrl) {
     return new ImageResponse(<FallbackCard title={title} summary={summary} />, {
-      ...SIZE,
+      ...size,
       fonts,
     });
   }
@@ -136,7 +139,6 @@ export async function GET(
           fontFamily: "DM Sans, sans-serif",
         }}
       >
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <LeafIcon size={36} />
           <span
@@ -151,7 +153,6 @@ export async function GET(
           </span>
         </div>
 
-        {/* Body */}
         <div
           style={{
             display: "flex",
@@ -161,7 +162,6 @@ export async function GET(
             marginTop: "20px",
           }}
         >
-          {/* Text content */}
           <div
             style={{
               display: "flex",
@@ -194,7 +194,6 @@ export async function GET(
             )}
           </div>
 
-          {/* eslint-disable-next-line @next/next/no-img-element -- Satori requires <img>, not next/image */}
           <img
             src={thumbnailUrl}
             alt={title}
@@ -208,7 +207,6 @@ export async function GET(
           />
         </div>
 
-        {/* Footer */}
         <div
           style={{
             display: "flex",
@@ -222,7 +220,7 @@ export async function GET(
       </div>
     ),
     {
-      ...SIZE,
+      ...size,
       fonts,
     },
   );
