@@ -112,7 +112,7 @@ export default async function OgImage({
 }) {
   const { slug } = await params;
 
-  let fonts = await loadOgFonts();
+  const fonts = await loadOgFonts();
   let title = decodeURIComponent(slug).replace(/_/g, " ");
   let summary = "";
   let thumbnailUrl: string | undefined;
