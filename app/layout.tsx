@@ -28,12 +28,12 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   ),
-  title: "World Garden — Listen to Wikipedia",
+  title: "Curio Garden — Listen to Wikipedia",
   description:
     "An accessibility-first web app that turns Wikipedia articles into audio you can listen to right in your browser.",
   openGraph: {
     type: "website",
-    siteName: "World Garden",
+    siteName: "Curio Garden",
   },
   twitter: {
     card: "summary_large_image",
@@ -78,7 +78,7 @@ export default function RootLayout({
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="World Garden" />
+        <meta name="apple-mobile-web-app-title" content="Curio Garden" />
       </head>
       <body
         className={`${fraunces.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased animated-bg`}

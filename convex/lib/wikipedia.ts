@@ -1,5 +1,5 @@
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
-const USER_AGENT = "WorldGarden/1.0 (accessibility-first Wikipedia audio reader)";
+const USER_AGENT = "CurioGarden/1.0 (accessibility-first Wikipedia audio reader)";
 
 export type WikiSearchResult = {
   wikiPageId: string;

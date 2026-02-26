@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 
-const STORAGE_KEY = "world-garden-history";
+const STORAGE_KEY = "curio-garden-history";
+const LEGACY_KEY = "world-garden-history";
 const MAX_ENTRIES = 20;
 
 export type HistoryEntry = {
@@ -13,8 +14,20 @@ export type HistoryEntry = {
   lastSectionIndex?: number | null;
 };
 
+const migrateLegacyKey = () => {
+  try {
+    if (!localStorage.getItem(STORAGE_KEY) && localStorage.getItem(LEGACY_KEY)) {
+      localStorage.setItem(STORAGE_KEY, localStorage.getItem(LEGACY_KEY)!);
+      localStorage.removeItem(LEGACY_KEY);
+    }
+  } catch {
+    // localStorage unavailable
+  }
+};
+
 const readHistory = (): HistoryEntry[] => {
   try {
+    migrateLegacyKey();
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);

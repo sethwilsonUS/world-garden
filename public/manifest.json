@@ -1,6 +1,6 @@
 {
-  "name": "World Garden",
-  "short_name": "World Garden",
+  "name": "Curio Garden",
+  "short_name": "Curio Garden",
   "description": "Listen to Wikipedia articles — an audio-first, accessibility-focused experience.",
   "start_url": "/",
   "display": "standalone",

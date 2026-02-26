@@ -22,7 +22,7 @@ type UseMediaSessionOptions = {
 export const useMediaSession = ({
   title,
   artist = "Wikipedia",
-  album = "World Garden",
+  album = "Curio Garden",
   artworkUrl,
   playing,
   currentTime,
