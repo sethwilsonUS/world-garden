@@ -1,7 +1,7 @@
 /**
  * Local-dev-only Edge TTS route.
  *
- * On Vercel, /api/tts is handled by the Python function at api/tts.py.
+ * On Vercel, /api/tts is handled by the Python function at _python/tts.py.
  * This Node.js route exists so `next dev` works without the Vercel CLI.
  * It shells out to the Python edge-tts package installed in a local venv.
  */

@@ -204,17 +204,32 @@ export default async function OgImage({
             )}
           </div>
 
-          <img
-            src={thumbnailUrl}
-            alt={title}
-            width={320}
-            height={320}
+          <div
             style={{
-              objectFit: "cover",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "320px",
+              height: "320px",
               borderRadius: "16px",
-              border: "2px solid #2a2a2a",
+              border: "3px solid #34d399",
+              backgroundColor: "#1a1a1a",
+              overflow: "hidden",
+              flexShrink: 0,
+              padding: "12px",
             }}
-          />
+          >
+            <img
+              src={thumbnailUrl}
+              alt={title}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                borderRadius: "8px",
+                objectFit: "contain",
+              }}
+            />
+          </div>
         </div>
 
         <div
