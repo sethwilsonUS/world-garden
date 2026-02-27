@@ -229,6 +229,20 @@ describe("parseSections", () => {
     expect(result.sections[0].level).toBe(2);
     expect(result.sections[1].level).toBe(3);
   });
+
+  it("applies cleanSectionContent to summary (strips citation markers, etc.)", () => {
+    const text = [
+      "Einstein[1] developed[2] relativity.[citation needed] Some claim[edit].",
+      "",
+      "== History ==",
+      "Section content.",
+    ].join("\n");
+
+    const result = parseSections(text);
+    expect(result.summary).toBe(
+      "Einstein developed relativity. Some claim.",
+    );
+  });
 });
 
 describe("cleanContentForTts", () => {
