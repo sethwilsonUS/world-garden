@@ -1,5 +1,5 @@
 /** Bump this whenever normalizeTtsText rules change to invalidate cached audio. */
-export const TTS_NORM_VERSION = "ttsNorm:1";
+export const TTS_NORM_VERSION = "ttsNorm:2";
 
 /**
  * Expand abbreviations that TTS engines commonly mispronounce.
@@ -11,8 +11,9 @@ export const normalizeTtsText = (text: string): string => {
   let r = text;
 
   // ── Context-dependent ──────────────────────────────────────────────
-  // "St." before a capitalized word → Saint  (St. Louis, St. Patrick)
+  // "St." or "St" (no period) before a capitalized word → Saint
   r = r.replace(/\bSt\.\s+(?=[A-Z])/g, "Saint ");
+  r = r.replace(/\bSt\s+(?=[A-Z])/g, "Saint ");
   // remaining "St." after a word → Street  (Main St., Baker St.)
   r = r.replace(/(\w)\s+St\.(?=[\s,;.!?]|$)/gm, "$1 Street");
 

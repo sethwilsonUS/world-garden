@@ -203,10 +203,12 @@ export const parseSections = (fullText: string): {
   const matches = [...fullText.matchAll(sectionHeadingRe)];
 
   if (matches.length === 0) {
-    return { summary: fullText.trim(), sections: [] };
+    return { summary: cleanSectionContent(fullText.trim()), sections: [] };
   }
 
-  const summary = fullText.substring(0, matches[0].index!).trim();
+  const summary = cleanSectionContent(
+    fullText.substring(0, matches[0].index!).trim(),
+  );
 
   const sections: WikiSection[] = [];
   for (let i = 0; i < matches.length; i++) {

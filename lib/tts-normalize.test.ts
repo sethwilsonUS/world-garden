@@ -3,9 +3,14 @@ import { normalizeTtsText } from "./tts-normalize";
 
 describe("normalizeTtsText", () => {
   describe("context-dependent abbreviations", () => {
-    it("expands 'St.' before a capitalized word to 'Saint'", () => {
+    it("expands 'St.' or 'St' before a capitalized word to 'Saint'", () => {
       expect(normalizeTtsText("St. Louis")).toBe("Saint Louis");
       expect(normalizeTtsText("St. Patrick")).toBe("Saint Patrick");
+      expect(normalizeTtsText("St. Francis")).toBe("Saint Francis");
+      // Wikipedia sometimes omits the period
+      expect(normalizeTtsText("St Francis of Assisi")).toBe(
+        "Saint Francis of Assisi",
+      );
     });
 
     it("expands 'St.' after a word to 'Street'", () => {
