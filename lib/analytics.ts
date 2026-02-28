@@ -7,4 +7,5 @@ export const analytics = {
     track("Download All", { articleSlug, scope }),
   search: (term: string) => track("Search", { term: term.slice(0, 255) }),
   playbackSpeed: (rate: string) => track("Playback Speed", { rate }),
+  listenSection: () => track("Listen Section"),
 };

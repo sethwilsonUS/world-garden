@@ -448,6 +448,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       }
       playAllQueue.current = [];
       setIsPlayingAll(false);
+      analytics.listenSection();
       const section = sections[index];
       generateAudio(
         `section-${index}`,
@@ -472,6 +473,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       }
       playAllQueue.current = [];
       setIsPlayingAll(false);
+      analytics.listenSection();
       generateAudio("summary", `${articleTitle} \u2014 Summary`, null);
     },
     [generateAudio, activeSectionIndex, isSpeaking, audioElPlaying, audioElPlay, audioElPause],
