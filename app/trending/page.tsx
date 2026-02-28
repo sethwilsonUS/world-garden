@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { analytics } from "@/lib/analytics";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { usePrefetch } from "@/hooks/usePrefetch";
@@ -30,6 +31,10 @@ export default function TrendingPage() {
   const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    analytics.trendingPageAccessed();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,6 +169,7 @@ export default function TrendingPage() {
                   <ArticleCard
                     key={article.title}
                     article={article}
+                    source="trending_page"
                     imageLoading={i < 8 ? "eager" : "lazy"}
                     onHover={() => prefetch(article.title)}
                   />

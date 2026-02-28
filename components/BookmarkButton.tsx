@@ -1,5 +1,6 @@
 "use client";
 
+import { analytics } from "@/lib/analytics";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
 export const BookmarkButton = ({ slug, title }: { slug: string; title: string }) => {
@@ -8,7 +9,10 @@ export const BookmarkButton = ({ slug, title }: { slug: string; title: string })
 
   return (
     <button
-      onClick={() => toggle(slug, title)}
+      onClick={() => {
+        if (!saved) analytics.articleBookmarked();
+        toggle(slug, title);
+      }}
       aria-label={saved ? `Remove ${title} from reading list` : `Save ${title} to reading list`}
       aria-pressed={saved}
       title={saved ? "Remove from reading list" : "Save for later"}

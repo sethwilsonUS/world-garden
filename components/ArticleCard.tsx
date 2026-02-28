@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { analytics } from "@/lib/analytics";
 
 export type TrendingArticle = {
   title: string;
@@ -28,10 +31,12 @@ export const ArticleCard = ({
   article,
   imageLoading = "lazy",
   onHover,
+  source,
 }: {
   article: TrendingArticle;
   imageLoading?: "eager" | "lazy";
   onHover?: () => void;
+  source?: "curious" | "trending_page";
 }) => {
   const slug = encodeURIComponent(article.title.replace(/ /g, "_"));
 
@@ -39,6 +44,7 @@ export const ArticleCard = ({
     <li>
       <Link
         href={`/article/${slug}`}
+        onClick={() => source && analytics.trendingArticleViewed(source)}
         onMouseEnter={onHover}
         onFocus={onHover}
         className="result-link group block bg-surface-2 border border-border rounded-2xl no-underline overflow-hidden transition-all duration-200 h-full"
