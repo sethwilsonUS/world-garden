@@ -359,7 +359,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     (sections: Section[], articleTitle: string) => {
       const summaryOnly =
         sections.filter((s) => s.content.length >= 20).length === 0;
-      analytics.playAll(slug, summaryOnly ? "summary" : "full");
+      analytics.playAll(summaryOnly ? "summary" : "full");
       const queue: QueueItem[] = [
         {
           sectionKey: "summary",
@@ -381,7 +381,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       setIsPlayingAll(true);
       generateAudio(first.sectionKey, first.label, first.sectionIdx);
     },
-    [generateAudio, slug],
+    [generateAudio],
   );
 
   const handleStopPlayAll = useCallback(() => {
@@ -484,7 +484,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     const allSections = displayArticle.sections ?? [];
     const summaryOnly =
       allSections.filter((s) => s.content.length >= 20).length === 0;
-    analytics.downloadAll(slug, summaryOnly ? "summary" : "full");
+    analytics.downloadAll(summaryOnly ? "summary" : "full");
     const sectionKeys = [
       "summary",
       ...allSections
@@ -539,7 +539,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     } finally {
       setDownloading(false);
     }
-  }, [displayArticle, downloading, generateEdgeTtsFromApi, cachedAudio, cacheAudioInConvex, slug]);
+  }, [displayArticle, downloading, generateEdgeTtsFromApi, cachedAudio, cacheAudioInConvex]);
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
   if (displayArticle && !hasCheckedResume) {

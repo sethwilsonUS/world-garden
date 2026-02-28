@@ -1,12 +1,11 @@
 import { track } from "@vercel/analytics";
 
 export const analytics = {
-  playAll: (articleSlug: string, scope: "summary" | "full") =>
-    track("Play All", { articleSlug, scope }),
-  downloadAll: (articleSlug: string, scope: "summary" | "full") =>
-    track("Download All", { articleSlug, scope }),
+  playAll: (scope: "summary" | "full") => track("Play All", { scope }),
+  downloadAll: (scope: "summary" | "full") =>
+    track("Download All", { scope }),
   playbackSpeed: (rate: string) => track("Playback Speed", { rate }),
-  listenSection: () => track("Listen Section"),
+  listenSection: () => track("Section Listened"),
   searchResultsLoaded: () => track("Search Results Loaded"),
   searchResultClicked: () => track("Search Result Clicked"),
   articleBookmarked: () => track("Article Bookmarked"),
