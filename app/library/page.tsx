@@ -1,10 +1,16 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
+import { analytics } from "@/lib/analytics";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
 export default function LibraryPage() {
   const { entries, remove } = useBookmarks();
+
+  useEffect(() => {
+    analytics.libraryPageAccessed();
+  }, []);
 
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">

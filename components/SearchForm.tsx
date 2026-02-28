@@ -1,8 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { analytics } from "@/lib/analytics";
-
 export const SearchForm = ({
   defaultValue = "",
   autoFocus = false,
@@ -10,18 +7,6 @@ export const SearchForm = ({
   defaultValue?: string;
   autoFocus?: boolean;
 }) => {
-  const router = useRouter();
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const term = String(new FormData(form).get("q") ?? "").trim();
-    if (term) {
-      analytics.search(term);
-      router.push(`/search?q=${encodeURIComponent(term)}`);
-    }
-  };
-
   return (
     <form
       method="GET"
@@ -29,7 +14,6 @@ export const SearchForm = ({
       role="search"
       aria-label="Search Wikipedia articles"
       className="w-full"
-      onSubmit={handleSubmit}
     >
       <label htmlFor="search-input" className="sr-only">
         Search topic

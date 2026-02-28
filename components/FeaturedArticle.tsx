@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { analytics } from "@/lib/analytics";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
@@ -83,6 +84,7 @@ export const FeaturedArticle = () => {
       <Link
         href={`/article/${slug}`}
         className="result-link block bg-surface-2 border border-border rounded-2xl no-underline overflow-hidden transition-all duration-200"
+        onClick={() => analytics.featuredArticleAccessed()}
       >
         <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
           {featured!.thumbnail && (

@@ -107,6 +107,7 @@ export const CuriousAbout = () => {
           <ArticleCard
             key={article.title}
             article={article}
+            source="curious"
             onHover={() => prefetch(article.title)}
           />
         ))}

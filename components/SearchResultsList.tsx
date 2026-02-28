@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
+import { analytics } from "@/lib/analytics";
 import { useData } from "@/lib/data-context";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
@@ -44,7 +45,10 @@ export const SearchResultsList = ({ term }: { term: string }) => {
         if (!cancelled) setError(err.message ?? "Search failed");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          analytics.searchResultsLoaded();
+        }
       });
 
     return () => {
@@ -216,6 +220,7 @@ export const SearchResultsList = ({ term }: { term: string }) => {
               href={`/article/${encodeURIComponent(result.title.replace(/ /g, "_"))}`}
               className="result-link flex items-center gap-4 py-3.5 px-[18px] no-underline rounded-[14px] bg-surface-2 border border-border transition-all duration-150"
               aria-label={`${index + 1}. ${result.title}: ${result.description}`}
+              onClick={() => analytics.searchResultClicked()}
               onMouseEnter={() => handleWarmAudio(result.title)}
               onFocus={() => handleWarmAudio(result.title)}
             >
