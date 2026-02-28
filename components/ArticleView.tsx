@@ -10,7 +10,12 @@ import { ArticleGallery, Lightbox, type LightboxState } from "./ArticleGallery";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { usePlaybackRate } from "@/hooks/usePlaybackRate";
+import {
+  usePlaybackRate,
+  formatRate,
+  type PlaybackRate,
+} from "@/hooks/usePlaybackRate";
+import { analytics } from "@/lib/analytics";
 import { useHistory } from "@/hooks/useHistory";
 import { useAudioElement } from "@/hooks/useAudioElement";
 import { useMediaSession } from "@/hooks/useMediaSession";
@@ -85,6 +90,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const requestId = useRef(0);
   const playAllQueue = useRef<QueueItem[]>([]);
+  const playbackRateTrackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPlayedSectionIdx = useRef<number | null>(null);
   const summaryTextRef = useRef("");
   const fetchTriggered = useRef(false);
@@ -351,6 +357,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const handlePlayAll = useCallback(
     (sections: Section[], articleTitle: string) => {
+      const summaryOnly =
+        sections.filter((s) => s.content.length >= 20).length === 0;
+      analytics.playAll(slug, summaryOnly ? "summary" : "full");
       const queue: QueueItem[] = [
         {
           sectionKey: "summary",
@@ -372,7 +381,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       setIsPlayingAll(true);
       generateAudio(first.sectionKey, first.label, first.sectionIdx);
     },
-    [generateAudio],
+    [generateAudio, slug],
   );
 
   const handleStopPlayAll = useCallback(() => {
@@ -405,6 +414,15 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     onSeekTo: audioElSeek,
     onStop: handleStopPlayAll,
   });
+
+  const handlePlaybackRateChange = useCallback((rate: PlaybackRate) => {
+    setPlaybackRate(rate);
+    if (playbackRateTrackRef.current) clearTimeout(playbackRateTrackRef.current);
+    playbackRateTrackRef.current = setTimeout(() => {
+      analytics.playbackSpeed(formatRate(rate));
+      playbackRateTrackRef.current = null;
+    }, 2000);
+  }, [setPlaybackRate]);
 
   const handleTogglePlayAll = useCallback(() => {
     if (isPaused) {
@@ -462,6 +480,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const handleDownloadAll = useCallback(async () => {
     if (!displayArticle || downloading) return;
     const allSections = displayArticle.sections ?? [];
+    const summaryOnly =
+      allSections.filter((s) => s.content.length >= 20).length === 0;
+    analytics.downloadAll(slug, summaryOnly ? "summary" : "full");
     const sectionKeys = [
       "summary",
       ...allSections
@@ -516,7 +537,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     } finally {
       setDownloading(false);
     }
-  }, [displayArticle, downloading, generateEdgeTtsFromApi, cachedAudio, cacheAudioInConvex]);
+  }, [displayArticle, downloading, generateEdgeTtsFromApi, cachedAudio, cacheAudioInConvex, slug]);
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
   if (displayArticle && !hasCheckedResume) {
@@ -885,7 +906,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           downloading={downloading}
           downloadProgress={downloadProgress}
           playbackRate={playbackRate}
-          onPlaybackRateChange={setPlaybackRate}
+          onPlaybackRateChange={handlePlaybackRateChange}
           audioProgress={
             audioUrl
               ? { currentTime: audioElCurrentTime, duration: audioElDuration }
