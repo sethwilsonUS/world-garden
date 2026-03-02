@@ -212,21 +212,19 @@ export default async function OgImage({
               width: "320px",
               height: "320px",
               borderRadius: "16px",
-              border: "3px solid #34d399",
               backgroundColor: "#1a1a1a",
               overflow: "hidden",
               flexShrink: 0,
-              padding: "12px",
             }}
           >
             <img
               src={thumbnailUrl}
               alt={title}
               style={{
-                maxWidth: "100%",
-                maxHeight: "100%",
-                borderRadius: "8px",
-                objectFit: "contain",
+                width: "100%",
+                height: "100%",
+                borderRadius: "16px",
+                objectFit: "cover",
               }}
             />
           </div>
