@@ -3,29 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { analytics } from "@/lib/analytics";
-import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { usePrefetch } from "@/hooks/usePrefetch";
-
-const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
-const FILTER_BATCH_SIZE = 50;
-
-const todayString = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-};
-
-const batchFilterSafeTitles = async (
-  titles: string[],
-): Promise<Set<string>> => {
-  const safe = new Set<string>();
-  for (let i = 0; i < titles.length; i += FILTER_BATCH_SIZE) {
-    const batch = titles.slice(i, i + FILTER_BATCH_SIZE);
-    const result = await filterSafeTitles(batch);
-    for (const t of result) safe.add(t);
-  }
-  return safe;
-};
 
 export default function TrendingPage() {
   const prefetch = usePrefetch();
@@ -40,34 +19,13 @@ export default function TrendingPage() {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(
-          `${WIKI_FEATURED_API}/${todayString()}`,
-        );
+        const response = await fetch("/api/featured");
         if (!response.ok) return;
         const data = await response.json();
-        const mostRead: Array<{
-          titles?: { normalized?: string };
-          title?: string;
-          extract?: string;
-          views?: number;
-          thumbnail?: { source: string; width: number; height: number };
-        }> = data.mostread?.articles ?? [];
+        const trending: TrendingArticle[] = data.trending ?? [];
 
-        if (mostRead.length === 0 || cancelled) return;
-
-        const candidates = mostRead.map((a) => ({
-          title: a.titles?.normalized ?? a.title ?? "",
-          extract: a.extract ?? "",
-          views: a.views ?? 0,
-          thumbnail: a.thumbnail,
-        }));
-
-        const safeTitles = await batchFilterSafeTitles(
-          candidates.map((c) => c.title),
-        );
-
-        if (cancelled) return;
-        setArticles(candidates.filter((c) => safeTitles.has(c.title)));
+        if (trending.length === 0 || cancelled) return;
+        setArticles(trending);
       } catch {
         // Fail silently — trending is non-critical
       } finally {

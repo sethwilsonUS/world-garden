@@ -2,18 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
-const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
-
 const MAX_ARTICLES = 8;
-
-const todayString = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-};
 
 export const CuriousAbout = () => {
   const prefetch = usePrefetch();
@@ -24,36 +16,14 @@ export const CuriousAbout = () => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${WIKI_FEATURED_API}/${todayString()}`);
+        const response = await fetch("/api/featured");
         if (!response.ok) return;
         const data = await response.json();
-        const mostRead: Array<{
-          titles?: { normalized?: string };
-          title?: string;
-          extract?: string;
-          views?: number;
-          thumbnail?: { source: string; width: number; height: number };
-        }> = data.mostread?.articles ?? [];
+        const trending: TrendingArticle[] = data.trending ?? [];
 
-        if (mostRead.length === 0 || cancelled) return;
+        if (trending.length === 0 || cancelled) return;
 
-        const candidates = mostRead.slice(0, 20).map((a) => ({
-          title: a.titles?.normalized ?? a.title ?? "",
-          extract: a.extract ?? "",
-          views: a.views ?? 0,
-          thumbnail: a.thumbnail,
-        }));
-
-        const safeTitles = await filterSafeTitles(
-          candidates.map((c) => c.title),
-        );
-
-        if (cancelled) return;
-
-        const safe = candidates
-          .filter((c) => safeTitles.has(c.title))
-          .slice(0, MAX_ARTICLES);
-
+        const safe = trending.slice(0, MAX_ARTICLES);
         setArticles(safe);
 
         for (const article of safe) {

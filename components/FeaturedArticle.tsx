@@ -5,17 +5,10 @@ import Link from "next/link";
 import { analytics } from "@/lib/analytics";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
-const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
-
 type FeaturedData = {
   title: string;
   extract: string;
   thumbnail?: { source: string; width: number; height: number };
-};
-
-const todayString = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 };
 
 export const FeaturedArticle = () => {
@@ -27,18 +20,13 @@ export const FeaturedArticle = () => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`${WIKI_FEATURED_API}/${todayString()}`);
+        const response = await fetch("/api/featured");
         if (!response.ok) return;
         const data = await response.json();
         const tfa = data.tfa;
         if (!tfa || cancelled) return;
-        const title = tfa.titles?.normalized ?? tfa.title ?? "";
-        setFeatured({
-          title,
-          extract: tfa.extract ?? "",
-          thumbnail: tfa.thumbnail as FeaturedData["thumbnail"],
-        });
-        prefetch(title);
+        setFeatured(tfa);
+        prefetch(tfa.title);
       } catch {
         // Featured article is a nice-to-have; fail silently
       } finally {
