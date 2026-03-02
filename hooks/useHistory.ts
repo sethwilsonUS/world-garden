@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useSyncExternalStore, useCallback } from "react";
 
 const STORAGE_KEY = "curio-garden-history";
 const LEGACY_KEY = "world-garden-history";
@@ -25,53 +25,84 @@ const migrateLegacyKey = () => {
   }
 };
 
-const readHistory = (): HistoryEntry[] => {
-  try {
-    migrateLegacyKey();
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
-};
+// Cached snapshot so useSyncExternalStore gets a stable reference
+const EMPTY: HistoryEntry[] = [];
+let cachedRaw: string | null | undefined;
+let cachedEntries: HistoryEntry[] = EMPTY;
 
-const writeHistory = (entries: HistoryEntry[]) => {
+function getSnapshot(): HistoryEntry[] {
+  migrateLegacyKey();
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw !== cachedRaw) {
+      cachedRaw = raw;
+      if (!raw) {
+        cachedEntries = EMPTY;
+      } else {
+        const parsed = JSON.parse(raw);
+        cachedEntries = Array.isArray(parsed) ? parsed : EMPTY;
+      }
+    }
+    return cachedEntries;
+  } catch {
+    return EMPTY;
+  }
+}
+
+function getServerSnapshot(): HistoryEntry[] {
+  return EMPTY;
+}
+
+let listeners: Array<() => void> = [];
+
+function subscribe(listener: () => void) {
+  listeners = [...listeners, listener];
+  return () => {
+    listeners = listeners.filter((l) => l !== listener);
+  };
+}
+
+function emitChange() {
+  for (const listener of listeners) {
+    listener();
+  }
+}
+
+function writeHistory(entries: HistoryEntry[]) {
+  try {
+    const sliced = entries.slice(0, MAX_ENTRIES);
+    const raw = JSON.stringify(sliced);
+    localStorage.setItem(STORAGE_KEY, raw);
+    cachedRaw = raw;
+    cachedEntries = sliced;
+    emitChange();
   } catch {
     // localStorage unavailable
   }
-};
+}
 
 export const useHistory = () => {
-  const [entries, setEntries] = useState<HistoryEntry[]>(readHistory);
+  const entries = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const recordVisit = useCallback((slug: string, title: string) => {
-    setEntries((prev) => {
-      const filtered = prev.filter((e) => e.slug !== slug);
-      const next: HistoryEntry[] = [
-        { slug, title, lastVisitedAt: Date.now() },
-        ...filtered,
-      ].slice(0, MAX_ENTRIES);
-      writeHistory(next);
-      return next;
-    });
+    const prev = getSnapshot();
+    const filtered = prev.filter((e) => e.slug !== slug);
+    const next: HistoryEntry[] = [
+      { slug, title, lastVisitedAt: Date.now() },
+      ...filtered,
+    ].slice(0, MAX_ENTRIES);
+    writeHistory(next);
   }, []);
 
   const updateProgress = useCallback(
     (slug: string, sectionKey: string, sectionIndex: number | null) => {
-      setEntries((prev) => {
-        const next = prev.map((e) =>
-          e.slug === slug
-            ? { ...e, lastSectionKey: sectionKey, lastSectionIndex: sectionIndex }
-            : e,
-        );
-        writeHistory(next);
-        return next;
-      });
+      const prev = getSnapshot();
+      const next = prev.map((e) =>
+        e.slug === slug
+          ? { ...e, lastSectionKey: sectionKey, lastSectionIndex: sectionIndex }
+          : e,
+      );
+      writeHistory(next);
     },
     [],
   );
@@ -84,9 +115,11 @@ export const useHistory = () => {
   );
 
   const clearHistory = useCallback(() => {
-    setEntries([]);
     try {
       localStorage.removeItem(STORAGE_KEY);
+      cachedRaw = null;
+      cachedEntries = EMPTY;
+      emitChange();
     } catch {
       // localStorage unavailable
     }
