@@ -6,9 +6,30 @@ import { analytics } from "@/lib/analytics";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
+function formatTrendingDate(isoDate: string | null): string {
+  if (!isoDate) return "";
+  try {
+    // Wikipedia returns "YYYY-MM-DDZ"; Safari needs "YYYY-MM-DDTHH:MM:SSZ"
+    const normalized =
+      /^\d{4}-\d{2}-\d{2}Z$/.test(isoDate) && !isoDate.includes("T")
+        ? `${isoDate.slice(0, 10)}T00:00:00Z`
+        : isoDate;
+    const d = new Date(normalized);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
 export default function TrendingPage() {
   const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
+  const [trendingDate, setTrendingDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,9 +44,11 @@ export default function TrendingPage() {
         if (!response.ok) return;
         const data = await response.json();
         const trending: TrendingArticle[] = data.trending ?? [];
+        const date = data.trendingDate ?? null;
 
         if (trending.length === 0 || cancelled) return;
         setArticles(trending);
+        setTrendingDate(date);
       } catch {
         // Fail silently — trending is non-critical
       } finally {
@@ -76,6 +99,11 @@ export default function TrendingPage() {
               The most-read Wikipedia articles right now, filtered for safe
               content.
             </p>
+            {trendingDate && (
+              <p className="text-muted text-xs mt-1" aria-live="polite">
+                Last updated: {formatTrendingDate(trendingDate)}
+              </p>
+            )}
           </div>
 
           {loading ? (

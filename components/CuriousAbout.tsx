@@ -7,9 +7,30 @@ import { usePrefetch } from "@/hooks/usePrefetch";
 
 const MAX_ARTICLES = 8;
 
+function formatTrendingDate(isoDate: string | null): string {
+  if (!isoDate) return "";
+  try {
+    // Wikipedia returns "YYYY-MM-DDZ"; Safari needs "YYYY-MM-DDTHH:MM:SSZ"
+    const normalized =
+      /^\d{4}-\d{2}-\d{2}Z$/.test(isoDate) && !isoDate.includes("T")
+        ? `${isoDate.slice(0, 10)}T00:00:00Z`
+        : isoDate;
+    const d = new Date(normalized);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
 export const CuriousAbout = () => {
   const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
+  const [trendingDate, setTrendingDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,11 +41,13 @@ export const CuriousAbout = () => {
         if (!response.ok) return;
         const data = await response.json();
         const trending: TrendingArticle[] = data.trending ?? [];
+        const date = data.trendingDate ?? null;
 
         if (trending.length === 0 || cancelled) return;
 
         const safe = trending.slice(0, MAX_ARTICLES);
         setArticles(safe);
+        setTrendingDate(date);
 
         for (const article of safe) {
           prefetch(article.title);
@@ -69,6 +92,11 @@ export const CuriousAbout = () => {
       >
         What people are curious about
       </h2>
+      {trendingDate && (
+        <p className="text-muted text-xs text-center mb-4" aria-live="polite">
+          Last updated: {formatTrendingDate(trendingDate)}
+        </p>
+      )}
       <ul
         className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3"
         role="list"

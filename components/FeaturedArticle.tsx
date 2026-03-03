@@ -9,7 +9,41 @@ type FeaturedData = {
   title: string;
   extract: string;
   thumbnail?: { source: string; width: number; height: number };
+  featuredDate?: string | null;
+  feedDate?: string | null;
 };
+
+function formatFeaturedDate(isoDate: string | null | undefined): string {
+  if (!isoDate) return "";
+  try {
+    const d = new Date(isoDate);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function formatFeedDate(isoDate: string | null | undefined): string {
+  if (!isoDate) return "";
+  try {
+    const d = new Date(isoDate + "T12:00:00Z");
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
 
 export const FeaturedArticle = () => {
   const prefetch = usePrefetch();
@@ -24,8 +58,9 @@ export const FeaturedArticle = () => {
         if (!response.ok) return;
         const data = await response.json();
         const tfa = data.tfa;
+        const feedDate = data.feedDate ?? null;
         if (!tfa || cancelled) return;
-        setFeatured(tfa);
+        setFeatured({ ...tfa, feedDate });
         prefetch(tfa.title);
       } catch {
         // Featured article is a nice-to-have; fail silently
@@ -69,6 +104,13 @@ export const FeaturedArticle = () => {
       >
         Today&rsquo;s featured article
       </h2>
+      {(featured!.featuredDate || featured!.feedDate) && (
+        <p className="text-muted text-xs text-center mb-3" aria-live="polite">
+          Last updated:{" "}
+          {formatFeaturedDate(featured!.featuredDate) ||
+            formatFeedDate(featured!.feedDate)}
+        </p>
+      )}
       <Link
         href={`/article/${slug}`}
         className="result-link block bg-surface-2 border border-border rounded-2xl no-underline overflow-hidden transition-all duration-200"
