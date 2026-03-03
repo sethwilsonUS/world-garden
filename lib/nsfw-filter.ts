@@ -61,44 +61,82 @@ export const isUnsuitableForRandom = (
   );
 };
 
+function normalizeTitle(title: string): string {
+  return title.replace(/_/g, " ").trim();
+}
+
+// MediaWiki allows max 50 titles per query for non-bots.
+// Keep batches small so cllimit=max covers all categories per batch.
+const BATCH_SIZE = 10;
+
 /**
  * Batch-fetch categories for a list of titles and return only titles
  * that are not NSFW and not disambiguation pages.
+ * Normalizes titles to handle underscore/space mismatches between APIs.
  */
 export const filterSafeTitles = async (titles: string[]): Promise<Set<string>> => {
   if (titles.length === 0) return new Set();
 
-  const catParams = new URLSearchParams({
-    action: "query",
-    format: "json",
-    prop: "categories",
-    titles: titles.join("|"),
-    cllimit: "50",
-    origin: "*",
-  });
-
-  const res = await fetch(`${WIKI_API}?${catParams}`, {
-    headers: { "User-Agent": USER_AGENT },
-  });
-  if (!res.ok) return new Set(titles);
-
-  const data = await res.json();
-  const pages: Record<string, { title: string; categories?: { title: string }[] }> =
-    data.query?.pages ?? {};
-
-  // MediaWiki returns titles with underscores; featured feed uses spaces.
-  // Add both forms so candidates from the feed match.
-  const addIfSafe = (safe: Set<string>, title: string, cats: { title: string }[]) => {
-    if (!isUnsuitableForRandom(title, cats)) {
-      safe.add(title);
-      safe.add(title.replace(/_/g, " "));
-    }
-  };
-
   const safe = new Set<string>();
-  for (const page of Object.values(pages)) {
-    const cats = page.categories ?? [];
-    addIfSafe(safe, page.title, cats);
+
+  for (let i = 0; i < titles.length; i += BATCH_SIZE) {
+    const batch = titles.slice(i, i + BATCH_SIZE);
+    try {
+      const catParams = new URLSearchParams({
+        action: "query",
+        format: "json",
+        prop: "categories",
+        titles: batch.join("|"),
+        cllimit: "max",
+        origin: "*",
+      });
+
+      const res = await fetch(`${WIKI_API}?${catParams}`, {
+        headers: { "User-Agent": USER_AGENT },
+      });
+
+      if (!res.ok) {
+        // On API failure, let these titles through rather than blocking all
+        for (const t of batch) safe.add(t);
+        continue;
+      }
+
+      const data = await res.json();
+      const pages: Record<string, { title: string; categories?: { title: string }[] }> =
+        data.query?.pages ?? {};
+
+      // Build a lookup from normalized title → original input title
+      const inputByNormalized = new Map<string, string>();
+      for (const t of batch) {
+        inputByNormalized.set(normalizeTitle(t), t);
+      }
+
+      const pagesFound = new Set<string>();
+      for (const page of Object.values(pages)) {
+        const cats = page.categories ?? [];
+        const norm = normalizeTitle(page.title);
+        pagesFound.add(norm);
+
+        if (!isUnsuitableForRandom(page.title, cats)) {
+          // Add back the original input title so .has() works in the caller
+          const original = inputByNormalized.get(norm);
+          if (original) safe.add(original);
+          safe.add(page.title);
+          safe.add(norm);
+        }
+      }
+
+      // Any title not found in the API response (missing/deleted pages) — let through
+      for (const t of batch) {
+        if (!pagesFound.has(normalizeTitle(t))) {
+          safe.add(t);
+        }
+      }
+    } catch {
+      // On network error, let batch through
+      for (const t of batch) safe.add(t);
+    }
   }
+
   return safe;
 };

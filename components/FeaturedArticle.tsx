@@ -17,6 +17,7 @@ function formatFeaturedDate(isoDate: string | null | undefined): string {
   if (!isoDate) return "";
   try {
     const d = new Date(isoDate);
+    if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
@@ -32,7 +33,8 @@ function formatFeaturedDate(isoDate: string | null | undefined): string {
 function formatFeedDate(isoDate: string | null | undefined): string {
   if (!isoDate) return "";
   try {
-    const d = new Date(isoDate + "T12:00:00Z"); // noon UTC to avoid TZ edge cases
+    const d = new Date(isoDate + "T12:00:00Z");
+    if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleDateString(undefined, {
       month: "short",
       day: "numeric",
