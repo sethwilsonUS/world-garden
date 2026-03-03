@@ -30,8 +30,9 @@ async function batchFilterSafeTitles(
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function GET() {
+  const feedDate = dateString(0); // which date's feed we requested (for debugging/fallback)
   try {
-    const todayRes = await fetch(`${WIKI_FEATURED_API}/${dateString(0)}`, {
+    const todayRes = await fetch(`${WIKI_FEATURED_API}/${feedDate}`, {
       headers: WIKI_HEADERS,
     });
     if (!todayRes.ok) {
@@ -48,12 +49,14 @@ export async function GET() {
           title: (tfa.titles?.normalized ?? tfa.title ?? "") as string,
           extract: (tfa.extract ?? "") as string,
           thumbnail: tfa.thumbnail as Thumbnail | undefined,
+          featuredDate: (tfa.timestamp ?? null) as string | null,
         }
       : null;
 
     // mostread is "previous day's" pageview data — may not be ready for today yet.
     // Try today, then yesterday, then 2–3 days back.
     let mostRead: any[] = todayData.mostread?.articles ?? [];
+    let trendingDate: string | null = todayData.mostread?.date ?? null;
     for (let daysAgo = 1; mostRead.length === 0 && daysAgo <= 4; daysAgo++) {
       try {
         const res = await fetch(
@@ -63,6 +66,7 @@ export async function GET() {
         if (res.ok) {
           const data = await res.json();
           mostRead = data.mostread?.articles ?? [];
+          trendingDate = data.mostread?.date ?? trendingDate;
         }
       } catch {
         // Fall through to next day
@@ -84,8 +88,9 @@ export async function GET() {
       trending = candidates.filter((c) => safeTitles.has(c.title));
     }
 
+    const feedDateIso = feedDate.replace(/\//g, "-"); // YYYY-MM-DD for client parsing
     return NextResponse.json(
-      { tfa: tfaResult, trending },
+      { tfa: tfaResult, trending, trendingDate, feedDate: feedDateIso },
       {
         headers: {
           "Cache-Control":
