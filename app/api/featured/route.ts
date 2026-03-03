@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
 
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
+const USER_AGENT =
+  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
+
+const WIKI_HEADERS = { "User-Agent": USER_AGENT } as const;
 const FILTER_BATCH_SIZE = 50;
 
 type Thumbnail = { source: string; width: number; height: number };
@@ -27,7 +31,9 @@ async function batchFilterSafeTitles(
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export async function GET() {
   try {
-    const todayRes = await fetch(`${WIKI_FEATURED_API}/${dateString(0)}`);
+    const todayRes = await fetch(`${WIKI_FEATURED_API}/${dateString(0)}`, {
+      headers: WIKI_HEADERS,
+    });
     if (!todayRes.ok) {
       return NextResponse.json(
         { tfa: null, trending: [] },
@@ -45,19 +51,21 @@ export async function GET() {
         }
       : null;
 
-    // mostread may not be compiled yet for today — fall back to yesterday
+    // mostread is "previous day's" pageview data — may not be ready for today yet.
+    // Try today, then yesterday, then 2–3 days back.
     let mostRead: any[] = todayData.mostread?.articles ?? [];
-    if (mostRead.length === 0) {
+    for (let daysAgo = 1; mostRead.length === 0 && daysAgo <= 4; daysAgo++) {
       try {
-        const yesterdayRes = await fetch(
-          `${WIKI_FEATURED_API}/${dateString(1)}`,
+        const res = await fetch(
+          `${WIKI_FEATURED_API}/${dateString(daysAgo)}`,
+          { headers: WIKI_HEADERS },
         );
-        if (yesterdayRes.ok) {
-          const yesterdayData = await yesterdayRes.json();
-          mostRead = yesterdayData.mostread?.articles ?? [];
+        if (res.ok) {
+          const data = await res.json();
+          mostRead = data.mostread?.articles ?? [];
         }
       } catch {
-        // Fall through with empty mostRead
+        // Fall through to next day
       }
     }
 
