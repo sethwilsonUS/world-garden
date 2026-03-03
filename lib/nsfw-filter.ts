@@ -1,4 +1,6 @@
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
+const USER_AGENT =
+  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 
 const NSFW_CATEGORIES = new Set([
   "Category:Sexual acts",
@@ -75,17 +77,28 @@ export const filterSafeTitles = async (titles: string[]): Promise<Set<string>> =
     origin: "*",
   });
 
-  const res = await fetch(`${WIKI_API}?${catParams}`);
+  const res = await fetch(`${WIKI_API}?${catParams}`, {
+    headers: { "User-Agent": USER_AGENT },
+  });
   if (!res.ok) return new Set(titles);
 
   const data = await res.json();
   const pages: Record<string, { title: string; categories?: { title: string }[] }> =
     data.query?.pages ?? {};
 
+  // MediaWiki returns titles with underscores; featured feed uses spaces.
+  // Add both forms so candidates from the feed match.
+  const addIfSafe = (safe: Set<string>, title: string, cats: { title: string }[]) => {
+    if (!isUnsuitableForRandom(title, cats)) {
+      safe.add(title);
+      safe.add(title.replace(/_/g, " "));
+    }
+  };
+
   const safe = new Set<string>();
   for (const page of Object.values(pages)) {
     const cats = page.categories ?? [];
-    if (!isUnsuitableForRandom(page.title, cats)) safe.add(page.title);
+    addIfSafe(safe, page.title, cats);
   }
   return safe;
 };
