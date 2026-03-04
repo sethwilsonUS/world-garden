@@ -8,13 +8,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
+import path from "path";
 
 const DEFAULT_VOICE = "en-US-AriaNeural";
 
 const VOICE_RE = /^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)*Neural$/;
 
 const PYTHON_PATH =
-  process.env.EDGE_TTS_PYTHON_PATH ?? "/tmp/edge-tts-venv/bin/python3";
+  process.env.EDGE_TTS_PYTHON_PATH ??
+  path.join(process.cwd(), ".edge-tts-venv", "bin", "python3");
 
 const PYTHON_SCRIPT = `
 import asyncio, json, sys, edge_tts

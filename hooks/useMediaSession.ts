@@ -17,6 +17,7 @@ type UseMediaSessionOptions = {
   onSeekBackward: () => void;
   onSeekTo: (time: number) => void;
   onStop: () => void;
+  onNextTrack?: () => void;
 };
 
 export const useMediaSession = ({
@@ -34,6 +35,7 @@ export const useMediaSession = ({
   onSeekBackward,
   onSeekTo,
   onStop,
+  onNextTrack,
 }: UseMediaSessionOptions) => {
   const onPlayRef = useRef(onPlay);
   const onPauseRef = useRef(onPause);
@@ -41,6 +43,7 @@ export const useMediaSession = ({
   const onSeekBackwardRef = useRef(onSeekBackward);
   const onSeekToRef = useRef(onSeekTo);
   const onStopRef = useRef(onStop);
+  const onNextTrackRef = useRef(onNextTrack);
 
   useEffect(() => {
     onPlayRef.current = onPlay;
@@ -49,6 +52,7 @@ export const useMediaSession = ({
     onSeekBackwardRef.current = onSeekBackward;
     onSeekToRef.current = onSeekTo;
     onStopRef.current = onStop;
+    onNextTrackRef.current = onNextTrack;
   });
 
   const stablePlay = useCallback(() => onPlayRef.current(), []);
@@ -65,6 +69,7 @@ export const useMediaSession = ({
     [],
   );
   const stableStop = useCallback(() => onStopRef.current(), []);
+  const stableNextTrack = useCallback(() => onNextTrackRef.current?.(), []);
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
@@ -92,6 +97,20 @@ export const useMediaSession = ({
     stableSeekTo,
     stableStop,
   ]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    if (onNextTrack) {
+      navigator.mediaSession.setActionHandler("nexttrack", stableNextTrack);
+    } else {
+      navigator.mediaSession.setActionHandler("nexttrack", null);
+    }
+
+    return () => {
+      navigator.mediaSession.setActionHandler("nexttrack", null);
+    };
+  }, [onNextTrack, stableNextTrack]);
 
   useEffect(() => {
     if (!("mediaSession" in navigator) || !title) return;

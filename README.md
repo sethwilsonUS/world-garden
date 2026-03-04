@@ -96,16 +96,11 @@ This starts both the Next.js frontend and the Convex backend in parallel.
 
 ## Local Audio Setup
 
-Edge TTS uses Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically — no setup needed. For local development, you need Python 3 and a one-time venv install:
+Edge TTS uses Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically — no setup needed.
 
-```bash
-python3 -m venv /tmp/edge-tts-venv
-/tmp/edge-tts-venv/bin/pip install edge-tts
-```
+For local development, you just need Python 3 installed. The venv is created automatically the first time you run `npm run dev:python` — no manual setup required. The venv lives at `.edge-tts-venv/` in the project root (gitignored) so it survives reboots.
 
-That's it. The Next.js API route at `app/api/tts/route.ts` shells out to this venv automatically when you run any dev command (`npm run local`, `npm run dev`, etc.).
-
-If you want to run the standalone Python TTS server instead (useful for testing the Vercel function locally):
+If you want to run the standalone Python TTS server (useful for testing the Vercel function locally):
 
 ```bash
 npm run dev:python
@@ -115,7 +110,7 @@ This starts Next.js, Convex, and a dedicated Python TTS server in parallel. Audi
 
 ### Customizing the Python path
 
-If your Python environment is somewhere other than `/tmp/edge-tts-venv`, set the `EDGE_TTS_PYTHON_PATH` environment variable:
+If your Python environment is somewhere other than `.edge-tts-venv/`, set the `EDGE_TTS_PYTHON_PATH` environment variable:
 
 ```bash
 EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
@@ -131,7 +126,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `NEXT_PUBLIC_LOCAL_MODE` | No | Set to `"true"` to run without Convex |
 | `USE_PYTHON_TTS` | No | Route `/api/tts` to the standalone Python TTS server (used by `npm run dev:python`) |
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
-| `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `/tmp/edge-tts-venv/bin/python3`) |
+| `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 

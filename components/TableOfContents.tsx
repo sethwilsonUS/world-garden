@@ -40,6 +40,7 @@ type TableOfContentsProps = {
   onPlayAll: () => void;
   onStopPlayAll: () => void;
   onTogglePlayAll?: () => void;
+  onSkipSection?: () => void;
   onDownloadAll?: () => void;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: PlaybackRate) => void;
@@ -218,6 +219,7 @@ export const TableOfContents = ({
   onPlayAll,
   onStopPlayAll,
   onTogglePlayAll,
+  onSkipSection,
   onDownloadAll,
   playbackRate = 1,
   onPlaybackRateChange,
@@ -455,6 +457,30 @@ export const TableOfContents = ({
             </>
           )}
         </button>
+
+        {isPlayingAll && !summaryOnly && onSkipSection && (
+          <button
+            onClick={onSkipSection}
+            disabled={!isSpeaking}
+            className={`inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 ${
+              !isSpeaking ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+            }`}
+            aria-label="Skip to next section"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              width={16}
+              height={16}
+              aria-hidden="true"
+              className="shrink-0"
+            >
+              <polygon points="4,4 16,12 4,20" />
+              <rect x="17" y="4" width="3" height="16" rx="0.5" />
+            </svg>
+            <span className="hidden sm:inline">Skip section</span>
+          </button>
+        )}
 
         {onDownloadAll && (
           <button
