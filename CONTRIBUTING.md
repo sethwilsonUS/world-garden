@@ -27,14 +27,7 @@ npx convex dev   # first-time setup — creates a project and writes .env.local
 npm run dev       # starts Next.js + Convex in parallel
 ```
 
-4. Set up Edge TTS for audio during development (one-time, takes 30 seconds):
-
-```bash
-python3 -m venv /tmp/edge-tts-venv
-/tmp/edge-tts-venv/bin/pip install edge-tts
-```
-
-Audio will work automatically with any dev command after this. See the [Local Audio Setup](README.md#local-audio-setup) section in the README for details.
+4. Audio setup happens automatically. The first time you run `npm run dev:python`, the edge-tts Python venv is created at `.edge-tts-venv/` in the project root. See the [Local Audio Setup](README.md#local-audio-setup) section in the README for details.
 
 ## Development Workflow
 

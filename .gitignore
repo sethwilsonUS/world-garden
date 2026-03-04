@@ -39,6 +39,7 @@ yarn-error.log*
 
 # python
 __pycache__/
+.edge-tts-venv/
 
 # typescript
 *.tsbuildinfo

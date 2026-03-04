@@ -337,6 +337,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const handleAudioEnded = useCallback(() => {
     if (isPlayingAll && playAllQueue.current.length > 0) {
+      setIsSpeaking(false);
       const next = playAllQueue.current.shift()!;
       generateAudio(next.sectionKey, next.label, next.sectionIdx);
       return;
@@ -392,6 +393,22 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     audioElPause();
   }, [audioElPause]);
 
+  const handleSkipSection = useCallback(() => {
+    if (!isPlayingAll) return;
+    audioElPause();
+    setIsSpeaking(false);
+    if (playAllQueue.current.length > 0) {
+      const next = playAllQueue.current.shift()!;
+      generateAudio(next.sectionKey, next.label, next.sectionIdx);
+    } else {
+      setIsPlayingAll(false);
+      setActiveSectionIndex(null);
+      setIsSpeaking(false);
+      setIsPaused(false);
+      setFinishedPlaying(true);
+    }
+  }, [isPlayingAll, generateAudio, audioElPause]);
+
   const mediaSessionTitle = isSpeaking || audioElPlaying
     ? activeSectionIndex != null && displayArticle?.sections?.[activeSectionIndex]
       ? `${displayArticle.sections[activeSectionIndex].title} \u2014 ${displayArticle.title}`
@@ -413,6 +430,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     onSeekBackward: () => audioElSkip(-10),
     onSeekTo: audioElSeek,
     onStop: handleStopPlayAll,
+    onNextTrack: isPlayingAll ? handleSkipSection : undefined,
   });
 
   const handlePlaybackRateChange = useCallback((rate: PlaybackRate) => {
@@ -904,6 +922,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           }
           onStopPlayAll={handleStopPlayAll}
           onTogglePlayAll={handleTogglePlayAll}
+          onSkipSection={handleSkipSection}
           onDownloadAll={handleDownloadAll}
           downloading={downloading}
           downloadProgress={downloadProgress}
