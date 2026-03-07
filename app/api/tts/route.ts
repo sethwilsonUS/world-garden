@@ -9,6 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import path from "path";
+import {
+  TTS_MAX_WORDS_PER_REQUEST,
+  TTS_MIN_TEXT_LENGTH,
+} from "@/lib/tts-contract";
 
 const DEFAULT_VOICE = "en-US-AriaNeural";
 
@@ -30,6 +34,9 @@ async def main():
 
 asyncio.run(main())
 `;
+
+const countWords = (text: string): number =>
+  text.split(/\s+/).filter(Boolean).length;
 
 const generateWithEdgeTts = (
   text: string,
@@ -69,9 +76,18 @@ export const POST = async (req: NextRequest) => {
       voiceId?: string;
     };
 
-    if (!text || text.length < 10) {
+    if (!text || text.length < TTS_MIN_TEXT_LENGTH) {
       return NextResponse.json(
         { error: "Text is too short to generate audio" },
+        { status: 400 },
+      );
+    }
+
+    if (countWords(text) > TTS_MAX_WORDS_PER_REQUEST) {
+      return NextResponse.json(
+        {
+          error: `Text exceeds ${TTS_MAX_WORDS_PER_REQUEST} words; split it into smaller chunks before requesting TTS`,
+        },
         { status: 400 },
       );
     }

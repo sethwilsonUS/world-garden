@@ -15,11 +15,17 @@ from http.server import BaseHTTPRequestHandler
 import edge_tts
 
 DEFAULT_VOICE = "en-US-AriaNeural"
+MIN_TEXT_LENGTH = 10
+MAX_WORDS_PER_REQUEST = 1200
 
 # Voice IDs follow a strict locale-name pattern, e.g. "en-US-AriaNeural".
 # Validating format prevents misuse without needing an exhaustive allowlist
 # (Microsoft adds new voices regularly).
 _VOICE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)*Neural$")
+
+
+def _count_words(text: str) -> int:
+    return len([word for word in re.split(r"\s+", text) if word])
 
 
 async def _generate(text: str, voice: str) -> bytes:
@@ -43,8 +49,20 @@ class handler(BaseHTTPRequestHandler):
         text = body.get("text", "")
         voice_id = body.get("voiceId", DEFAULT_VOICE)
 
-        if not text or len(text) < 10:
+        if not text or len(text) < MIN_TEXT_LENGTH:
             self._json(400, {"error": "Text is too short to generate audio"})
+            return
+
+        if _count_words(text) > MAX_WORDS_PER_REQUEST:
+            self._json(
+                400,
+                {
+                    "error": (
+                        f"Text exceeds {MAX_WORDS_PER_REQUEST} words; split it into "
+                        "smaller chunks before requesting TTS"
+                    )
+                },
+            )
             return
 
         if not _VOICE_RE.match(voice_id):

@@ -1,4 +1,4 @@
-import { normalizeTtsText } from "@/lib/tts-normalize";
+import { generateTtsAudioUrl } from "@/lib/tts-client";
 
 type FetchArticleFn = (args: { slug: string }) => Promise<{ summary?: string; thumbnailUrl?: string }>;
 
@@ -53,19 +53,7 @@ type CacheEntry = {
 const cache = new Map<string, CacheEntry>();
 
 const generateTts = async (text: string): Promise<string> => {
-  const resp = await fetch("/api/tts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: normalizeTtsText(text) }),
-  });
-  if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string }).error ?? "Audio generation failed",
-    );
-  }
-  const blob = await resp.blob();
-  return URL.createObjectURL(blob);
+  return generateTtsAudioUrl({ text });
 };
 
 /**
