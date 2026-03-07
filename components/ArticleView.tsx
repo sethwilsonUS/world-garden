@@ -20,7 +20,8 @@ import { useHistory } from "@/hooks/useHistory";
 import { useAudioElement } from "@/hooks/useAudioElement";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { awaitSummaryAudio } from "@/lib/audio-prefetch";
-import { normalizeTtsText, TTS_NORM_VERSION } from "@/lib/tts-normalize";
+import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
+import { generateTtsAudioUrl } from "@/lib/tts-client";
 
 type Section = {
   title: string;
@@ -121,19 +122,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       if (cacheKey && edgeTtsCache.current.has(cacheKey)) {
         return edgeTtsCache.current.get(cacheKey)!;
       }
-      const resp = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: normalizeTtsText(text) }),
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(
-          (body as { error?: string }).error ?? "Audio generation failed",
-        );
-      }
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
+      const url = await generateTtsAudioUrl({ text });
       if (cacheKey) edgeTtsCache.current.set(cacheKey, url);
       return url;
     },
