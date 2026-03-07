@@ -9,6 +9,7 @@ the same endpoint via child_process.spawn.
 
 import asyncio
 import json
+import os
 import re
 from http.server import BaseHTTPRequestHandler
 
@@ -16,12 +17,27 @@ import edge_tts
 
 DEFAULT_VOICE = "en-US-AriaNeural"
 MIN_TEXT_LENGTH = 10
-MAX_WORDS_PER_REQUEST = 1200
+DEFAULT_MAX_WORDS_PER_REQUEST = 800
 
 # Voice IDs follow a strict locale-name pattern, e.g. "en-US-AriaNeural".
 # Validating format prevents misuse without needing an exhaustive allowlist
 # (Microsoft adds new voices regularly).
 _VOICE_RE = re.compile(r"^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)*Neural$")
+
+
+def _get_max_words_per_request() -> int:
+    raw = os.environ.get(
+        "TTS_MAX_WORDS_PER_REQUEST",
+        os.environ.get("NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST", "1200"),
+    )
+    try:
+        parsed = int(raw)
+        return parsed if parsed > 0 else DEFAULT_MAX_WORDS_PER_REQUEST
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_WORDS_PER_REQUEST
+
+
+MAX_WORDS_PER_REQUEST = _get_max_words_per_request()
 
 
 def _count_words(text: str) -> int:

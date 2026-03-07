@@ -5,7 +5,10 @@ import {
   generateTtsAudioUrl,
   splitTtsTextIntoChunks,
 } from "./tts-client";
-import { TTS_API_ROUTE, TTS_MAX_WORDS_PER_REQUEST } from "./tts-contract";
+import {
+  DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
+  TTS_API_ROUTE,
+} from "./tts-contract";
 
 const makeWords = (prefix: string, count: number): string =>
   Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(" ");
@@ -16,6 +19,7 @@ const countWords = (text: string): number =>
 describe("tts-client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    delete process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST;
 
     vi.stubGlobal(
       "fetch",
@@ -55,7 +59,7 @@ describe("tts-client", () => {
     const blob = await generateTtsAudio({ text });
     const calls = vi.mocked(fetch).mock.calls;
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
 
     const requestBodies = calls.map(([, init]) =>
       JSON.parse(String(init?.body)) as { text: string },
@@ -63,7 +67,7 @@ describe("tts-client", () => {
 
     for (const body of requestBodies) {
       expect(countWords(body.text)).toBeLessThanOrEqual(
-        TTS_MAX_WORDS_PER_REQUEST,
+        DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
       );
     }
 
@@ -73,12 +77,21 @@ describe("tts-client", () => {
   it("splits sentence-free text by words when no softer boundary exists", () => {
     const chunks = splitTtsTextIntoChunks(makeWords("word", 2505));
 
-    expect(chunks).toHaveLength(3);
+    expect(chunks).toHaveLength(4);
     expect(chunks.map(countWords)).toEqual([
-      TTS_MAX_WORDS_PER_REQUEST,
-      TTS_MAX_WORDS_PER_REQUEST,
+      DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
+      DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
+      DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
       105,
     ]);
+  });
+
+  it("honors a lower env-configured chunk limit", () => {
+    process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "400";
+
+    const chunks = splitTtsTextIntoChunks(makeWords("word", 1001));
+
+    expect(chunks.map(countWords)).toEqual([400, 400, 201]);
   });
 
   it("creates an object URL from the generated audio blob", async () => {

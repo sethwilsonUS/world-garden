@@ -1,8 +1,8 @@
 import { normalizeTtsText } from "@/lib/tts-normalize";
 import {
   TTS_API_ROUTE,
-  TTS_MAX_WORDS_PER_REQUEST,
   TTS_MIN_TEXT_LENGTH,
+  getClientTtsMaxWordsPerRequest,
   type TtsRequest,
 } from "@/lib/tts-contract";
 
@@ -27,7 +27,7 @@ const splitIntoSentences = (text: string): string[] => {
 
 const splitIntoWordChunks = (
   text: string,
-  maxWords = TTS_MAX_WORDS_PER_REQUEST,
+  maxWords = getClientTtsMaxWordsPerRequest(),
 ): string[] => {
   const words = text.split(/\s+/).filter(Boolean);
   const chunks: string[] = [];
@@ -41,7 +41,7 @@ const splitIntoWordChunks = (
 
 const packSegments = (
   segments: string[],
-  maxWords = TTS_MAX_WORDS_PER_REQUEST,
+  maxWords = getClientTtsMaxWordsPerRequest(),
 ): string[] => {
   const chunks: string[] = [];
   let current = "";
@@ -74,7 +74,7 @@ const packSegments = (
 
 const splitLongParagraph = (
   paragraph: string,
-  maxWords = TTS_MAX_WORDS_PER_REQUEST,
+  maxWords = getClientTtsMaxWordsPerRequest(),
 ): string[] => {
   if (countWords(paragraph) <= maxWords) return [paragraph];
 
@@ -95,7 +95,7 @@ const splitLongParagraph = (
 
 export const splitTtsTextIntoChunks = (
   text: string,
-  maxWords = TTS_MAX_WORDS_PER_REQUEST,
+  maxWords = getClientTtsMaxWordsPerRequest(),
 ): string[] => {
   const normalized = normalizeTtsText(text).trim();
   if (!normalized) return [];

@@ -10,8 +10,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import path from "path";
 import {
-  TTS_MAX_WORDS_PER_REQUEST,
   TTS_MIN_TEXT_LENGTH,
+  getServerTtsMaxWordsPerRequest,
 } from "@/lib/tts-contract";
 
 const DEFAULT_VOICE = "en-US-AriaNeural";
@@ -83,10 +83,12 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
-    if (countWords(text) > TTS_MAX_WORDS_PER_REQUEST) {
+    const maxWordsPerRequest = getServerTtsMaxWordsPerRequest();
+
+    if (countWords(text) > maxWordsPerRequest) {
       return NextResponse.json(
         {
-          error: `Text exceeds ${TTS_MAX_WORDS_PER_REQUEST} words; split it into smaller chunks before requesting TTS`,
+          error: `Text exceeds ${maxWordsPerRequest} words; split it into smaller chunks before requesting TTS`,
         },
         { status: 400 },
       );
