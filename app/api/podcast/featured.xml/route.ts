@@ -11,6 +11,9 @@ import {
   getPodcastSiteUrl,
 } from "@/lib/podcast-feed";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type FeaturedPodcastEpisode = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
 };
@@ -112,8 +115,7 @@ ${itemsXml}
       status: 200,
       headers: {
         "Content-Type": "application/rss+xml; charset=utf-8",
-        "Cache-Control":
-          "public, max-age=300, s-maxage=300, stale-while-revalidate=900",
+        "Cache-Control": "no-store, max-age=0",
       },
     });
   } catch (error) {
