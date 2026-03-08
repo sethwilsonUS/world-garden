@@ -18,6 +18,7 @@ const featuredPodcastJobStatus = v.union(
 const withStorageUrl = async <
   T extends {
     storageId?: Id<"_storage">;
+    artworkStorageId?: Id<"_storage">;
   },
 >(
   ctx: {
@@ -30,7 +31,10 @@ const withStorageUrl = async <
   const audioUrl = record.storageId
     ? await ctx.storage.getUrl(record.storageId)
     : null;
-  return { ...record, audioUrl };
+  const artworkUrl = record.artworkStorageId
+    ? await ctx.storage.getUrl(record.artworkStorageId)
+    : null;
+  return { ...record, audioUrl, artworkUrl };
 };
 
 export const getRecentFeaturedEpisodes = query({
@@ -103,6 +107,7 @@ export const saveFeaturedEpisode = mutation({
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    artworkStorageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     ttsNormVersion: v.string(),
@@ -125,6 +130,7 @@ export const saveFeaturedEpisode = mutation({
         description: args.description,
         imageUrl: args.imageUrl,
         storageId: args.storageId,
+        artworkStorageId: args.artworkStorageId,
         durationSeconds: args.durationSeconds,
         byteLength: args.byteLength,
         ttsNormVersion: args.ttsNormVersion,
@@ -144,6 +150,7 @@ export const saveFeaturedEpisode = mutation({
       description: args.description,
       imageUrl: args.imageUrl,
       storageId: args.storageId,
+      artworkStorageId: args.artworkStorageId,
       durationSeconds: args.durationSeconds,
       byteLength: args.byteLength,
       ttsNormVersion: args.ttsNormVersion,

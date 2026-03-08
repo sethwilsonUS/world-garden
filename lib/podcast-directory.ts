@@ -14,10 +14,12 @@ import {
 
 export type FeaturedPodcastEpisode = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
+  artworkUrl?: string | null;
 };
 
 export type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
   audioUrl: string | null;
+  artworkUrl?: string | null;
 };
 
 export type PodcastDirectorySlug = "featured" | "trending";
@@ -90,7 +92,7 @@ export const getFeaturedEpisodeSummary = (episode: FeaturedPodcastEpisode): stri
 
 export const getFeaturedEpisodeArtworkUrl = (
   episode: FeaturedPodcastEpisode,
-): string | null => episode.imageUrl ?? null;
+): string | null => episode.artworkUrl ?? episode.imageUrl ?? null;
 
 export const getTrendingEpisodeTitle = (episode: TrendingPodcastEpisode): string =>
   episode.headline?.trim() ||
@@ -104,7 +106,7 @@ export const getTrendingEpisodeSummary = (episode: TrendingPodcastEpisode): stri
 export const getTrendingEpisodeArtworkUrl = (
   episode: TrendingPodcastEpisode,
   origin?: string,
-): string => getTrendingPodcastArtworkUrl(origin, episode._id);
+): string => episode.artworkUrl ?? getTrendingPodcastArtworkUrl(origin, episode._id);
 
 export const getFeaturedEpisodes = async (
   limit: number,

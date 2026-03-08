@@ -81,6 +81,15 @@ describe("episode artwork urls", () => {
     ).toBe("https://upload.wikimedia.org/example.jpg");
   });
 
+  it("prefers the stored featured artwork url when present", () => {
+    expect(
+      getFeaturedEpisodeArtworkUrl({
+        imageUrl: "https://upload.wikimedia.org/example.jpg",
+        artworkUrl: "https://cdn.example.com/featured.png",
+      } as Parameters<typeof getFeaturedEpisodeArtworkUrl>[0]),
+    ).toBe("https://cdn.example.com/featured.png");
+  });
+
   it("builds the trending episode artwork route", () => {
     expect(
       getTrendingEpisodeArtworkUrl(
@@ -88,5 +97,14 @@ describe("episode artwork urls", () => {
         "https://curiogarden.org",
       ),
     ).toBe("https://curiogarden.org/api/podcast/trending/artwork/brief123");
+  });
+
+  it("prefers the stored trending artwork url when present", () => {
+    expect(
+      getTrendingEpisodeArtworkUrl({
+        _id: "brief123",
+        artworkUrl: "https://cdn.example.com/trending.png",
+      } as Parameters<typeof getTrendingEpisodeArtworkUrl>[0]),
+    ).toBe("https://cdn.example.com/trending.png");
   });
 });

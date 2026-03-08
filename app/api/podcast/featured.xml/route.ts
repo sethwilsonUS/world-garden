@@ -23,6 +23,7 @@ export const revalidate = 0;
 
 type FeaturedPodcastEpisode = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
+  artworkUrl?: string | null;
 };
 
 export const GET = async (req: NextRequest) => {
@@ -49,6 +50,7 @@ export const GET = async (req: NextRequest) => {
         const duration = formatPodcastDuration(episode.durationSeconds);
         const guid = `${siteUrl}/podcast/featured/${episode._id}`;
         const summary = getPodcastDescription(episode.description);
+        const itemImageUrl = episode.artworkUrl || episode.imageUrl;
         const enclosureLength =
           episode.byteLength != null ? ` length="${episode.byteLength}"` : "";
 
@@ -65,7 +67,7 @@ export const GET = async (req: NextRequest) => {
     ${xmlTag("itunes:summary", summary)}
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
-    ${episode.imageUrl ? `<itunes:image href="${escapeXml(episode.imageUrl)}" />` : ""}
+    ${itemImageUrl ? `<itunes:image href="${escapeXml(itemImageUrl)}" />` : ""}
   </item>`.trim();
       })
       .join("\n");

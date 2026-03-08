@@ -241,22 +241,24 @@ export const renderTrendingPodcastArtworkResponse = async ({
                     "linear-gradient(180deg, rgba(0,0,0,0.02) 12%, rgba(0,0,0,0.52) 100%)",
                 },
               }),
-              h(
-                "div",
-                {
-                  style: {
-                    position: "relative",
-                    display: "flex",
-                    padding: "28px 30px",
-                    color: "#ffffff",
-                    fontFamily: "DM Sans, sans-serif",
-                    fontSize: "52px",
-                    lineHeight: 1.18,
-                    fontWeight: 700,
-                  },
-                },
-                truncate(tile?.title ?? `Trending topic ${index + 1}`, 32),
-              ),
+              tile?.imageDataUrl
+                ? h(
+                    "div",
+                    {
+                      style: {
+                        position: "relative",
+                        display: "flex",
+                        padding: "28px 30px",
+                        color: "#ffffff",
+                        fontFamily: "DM Sans, sans-serif",
+                        fontSize: "52px",
+                        lineHeight: 1.18,
+                        fontWeight: 700,
+                      },
+                    },
+                    truncate(tile?.title ?? `Trending topic ${index + 1}`, 32),
+                  )
+                : null,
             );
           }),
         ),
