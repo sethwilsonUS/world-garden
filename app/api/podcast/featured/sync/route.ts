@@ -3,6 +3,7 @@ import { getPodcastAdminAuthError } from "@/lib/podcast-admin-auth";
 import { syncFeaturedPodcastEpisode } from "@/lib/podcast-episode";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
+export const maxDuration = 300;
 
 export const POST = async (req: NextRequest) => {
   const authError = getPodcastAdminAuthError(

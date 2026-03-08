@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
+import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
 const MAX_ARTICLES = 8;
@@ -31,6 +32,12 @@ export const CuriousAbout = () => {
   const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [trendingDate, setTrendingDate] = useState<string | null>(null);
+  const [brief, setBrief] = useState<{
+    audioUrl: string;
+    headline?: string;
+    durationSeconds?: number;
+  } | null>(null);
+  const [briefLoading, setBriefLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -62,6 +69,40 @@ export const CuriousAbout = () => {
       cancelled = true;
     };
   }, [prefetch]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/trending/brief");
+        if (!response.ok) return;
+
+        const data = (await response.json()) as {
+          brief?: {
+            audioUrl: string | null;
+            headline?: string;
+            durationSeconds?: number;
+          };
+        };
+
+        if (cancelled || !data.brief?.audioUrl) return;
+        setBrief({
+          audioUrl: data.brief.audioUrl,
+          headline: data.brief.headline,
+          durationSeconds: data.brief.durationSeconds,
+        });
+      } catch {
+        // Nice-to-have enhancement; fail quietly.
+      } finally {
+        if (!cancelled) setBriefLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!loading && articles.length === 0) return null;
 
@@ -97,6 +138,19 @@ export const CuriousAbout = () => {
           Last updated: {formatTrendingDate(trendingDate)}
         </p>
       )}
+      {brief ? (
+        <DailyTrendingBriefPlayer
+          audioUrl={brief.audioUrl}
+          title={brief.headline || "Why these topics are trending today"}
+          durationSeconds={brief.durationSeconds}
+        />
+      ) : briefLoading ? (
+        <div className="mb-5 rounded-2xl border border-border bg-surface-2 px-4 py-3">
+          <div className="skeleton mb-2" style={{ width: "32%", height: "11px" }} />
+          <div className="skeleton mb-3" style={{ width: "78%", height: "16px" }} />
+          <div className="skeleton" style={{ width: "100%", height: "10px" }} />
+        </div>
+      ) : null}
       <ul
         className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3"
         role="list"

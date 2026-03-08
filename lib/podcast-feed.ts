@@ -13,6 +13,9 @@ export const getPodcastDescription = (text: string | null | undefined): string =
 export const getPodcastSiteUrl = (fallbackOrigin?: string): string =>
   (process.env.NEXT_PUBLIC_SITE_URL || fallbackOrigin || "http://localhost:3000").replace(/\/$/, "");
 
+export const getPodcastArtworkUrl = (fallbackOrigin?: string): string =>
+  `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork`;
+
 export const FEATURED_PODCAST_TITLE =
   "Wikipedia Featured Articles Presented by Curio Garden";
 

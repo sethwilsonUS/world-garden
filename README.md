@@ -20,6 +20,8 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
+**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief is generated once per trending date through Vercel AI Gateway, converted to speech, and cached in Convex.
+
 **Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display. A Gallery section below the table of contents shows all images from the article with their captions in a card grid, with a keyboard-navigable lightbox for full-size viewing.
 
 **Your library** — Recently listened articles appear on the home page. Save articles to your reading list with one tap and find them on the Library page. All persisted in your browser — no account needed.
@@ -33,6 +35,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
 - **TTS:** Edge TTS (free neural voices via Python `edge-tts`) with Convex-backed caching
+- **AI:** Vercel AI Gateway via the AI SDK for daily trend brief generation and web search
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
 - **Testing:** Vitest
@@ -133,6 +136,9 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
 | `CRON_SECRET` | No | Bearer token expected by the scheduled featured-podcast cron route |
+| `AI_GATEWAY_API_KEY` | No | Vercel AI Gateway API key used for the daily AI-generated trending brief |
+| `TRENDING_BRIEF_MODEL` | No | Optional primary AI Gateway model override for the daily trending brief |
+| `TRENDING_BRIEF_FALLBACK_MODEL` | No | Optional fallback AI Gateway model override for the daily trending brief |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
@@ -181,6 +187,7 @@ app/
   globals.css             Design system tokens, utilities, and component styles
   api/tts/route.ts        Edge TTS API route (local dev — shells out to Python)
   api/featured/route.ts   Featured article API route
+  api/trending/brief/route.ts  Daily AI-generated trending briefing API route
   api/podcast/featured.xml/route.ts  RSS feed for featured podcast episodes
   api/podcast/featured/sync/route.ts Manual featured-episode generation trigger
   api/podcast/featured/cron/route.ts Scheduled featured-episode generation trigger
@@ -197,6 +204,7 @@ lib/
   local-data-provider.tsx   Local implementation (direct Wikipedia API calls)
   audio-prefetch.ts       Prefetches summary audio and article thumbnails
   featured-article.ts     Shared featured-article lookup helpers
+  trending-brief.ts       AI Gateway + TTS pipeline for the daily trending briefing
   podcast-episode.ts      Server-side featured podcast generation pipeline
   podcast-feed.ts         Shared RSS metadata and podcast description helpers
   tts-normalize.ts        Text normalization for TTS (abbreviation expansion)
@@ -235,6 +243,7 @@ convex/
   search.ts              Wikipedia search action
   articles.ts            Article query, upsert mutation, fetch-and-cache action
   audio.ts               Section audio caching (query, upload, save)
+  trending.ts            Daily trending-brief queries and mutations
   podcast.ts             Featured podcast queries, mutations, and upload helpers
   lib/
     wikipedia.ts         Wikipedia REST/Action API client (also used by local mode)
@@ -257,6 +266,7 @@ Primary Convex tables:
 - `sectionAudio` stores per-section audio blobs keyed by article, section key, and TTS normalization version.
 - `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
 - `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
+- `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date.
 
 ## Accessibility
 

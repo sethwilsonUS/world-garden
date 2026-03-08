@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { analytics } from "@/lib/analytics";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
+import { AudioPlayer } from "@/components/AudioPlayer";
+import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
 function formatTrendingDate(isoDate: string | null): string {
@@ -28,8 +30,17 @@ function formatTrendingDate(isoDate: string | null): string {
 
 export default function TrendingPage() {
   const prefetch = usePrefetch();
+  const { rate, setRate } = usePlaybackRate();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [trendingDate, setTrendingDate] = useState<string | null>(null);
+  const [brief, setBrief] = useState<{
+    headline?: string;
+    summary?: string;
+    keyPoints?: string[];
+    sources?: { title: string; url: string }[];
+    audioUrl: string | null;
+  } | null>(null);
+  const [briefLoading, setBriefLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -55,6 +66,39 @@ export default function TrendingPage() {
         if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch("/api/trending/brief");
+        if (!response.ok) return;
+
+        const data = (await response.json()) as {
+          enabled?: boolean;
+          brief?: {
+            headline?: string;
+            summary?: string;
+            keyPoints?: string[];
+            sources?: { title: string; url: string }[];
+            audioUrl: string | null;
+          };
+        };
+
+        if (cancelled || !data.brief) return;
+        setBrief(data.brief);
+      } catch {
+        // Non-critical enhancement; fail quietly.
+      } finally {
+        if (!cancelled) setBriefLoading(false);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -105,6 +149,108 @@ export default function TrendingPage() {
               </p>
             )}
           </div>
+
+          {briefLoading ? (
+            <div className="garden-bed p-6 mb-8" aria-busy="true">
+              <div
+                className="skeleton mb-3"
+                style={{ width: "34%", height: "18px" }}
+              />
+              <div
+                className="skeleton mb-2"
+                style={{ width: "100%", height: "14px" }}
+              />
+              <div
+                className="skeleton mb-4"
+                style={{ width: "86%", height: "14px" }}
+              />
+              <div
+                className="skeleton"
+                style={{ width: "220px", height: "56px" }}
+              />
+            </div>
+          ) : brief ? (
+            <section
+              aria-labelledby="daily-brief-heading"
+              className="garden-bed p-6 mb-8"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
+                    Daily audio briefing
+                  </p>
+                  <h2
+                    id="daily-brief-heading"
+                    className="font-display text-[1.35rem] font-semibold text-foreground leading-[1.2]"
+                  >
+                    {brief.headline || "Why these topics are trending"}
+                  </h2>
+                  <p className="text-sm text-muted mt-2 leading-[1.7]">
+                    AI-generated summary of the likely reasons behind today&apos;s
+                    Wikipedia trends, informed by recent news search.
+                  </p>
+                </div>
+
+                {brief.audioUrl && (
+                  <AudioPlayer
+                    audioUrl={brief.audioUrl}
+                    title={brief.headline || "Daily trending briefing"}
+                    label="Listen: daily trending briefing"
+                    playbackRate={rate}
+                    onPlaybackRateChange={setRate}
+                  />
+                )}
+              </div>
+
+              {brief.summary && (
+                <div className="mt-5 space-y-3 text-sm text-foreground-2 leading-[1.8]">
+                  {brief.summary
+                    .split(/\n+/)
+                    .map((paragraph) => paragraph.trim())
+                    .filter(Boolean)
+                    .map((paragraph, index) => (
+                      <p key={index}>{paragraph}</p>
+                    ))}
+                </div>
+              )}
+
+              {brief.keyPoints && brief.keyPoints.length > 0 && (
+                <div className="mt-5">
+                  <h3 className="text-sm font-semibold text-foreground mb-2">
+                    Likely drivers
+                  </h3>
+                  <ul className="list-disc pl-5 space-y-2 text-sm text-foreground-2 leading-[1.7]">
+                    {brief.keyPoints.map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {brief.sources && brief.sources.length > 0 && (
+                <div className="mt-5">
+                  <h3 className="text-sm font-semibold text-foreground mb-2">
+                    Sources consulted
+                  </h3>
+                  <ul className="list-none p-0 m-0 space-y-2">
+                    {brief.sources.map((source) => (
+                      <li key={source.url}>
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-accent underline"
+                        >
+                          {source.title}
+                          <span className="sr-only"> (opens in new tab)</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          ) : null}
 
           {loading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
