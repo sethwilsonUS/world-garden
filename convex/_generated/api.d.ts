@@ -11,6 +11,7 @@
 import type * as articles from "../articles.js";
 import type * as audio from "../audio.js";
 import type * as lib_wikipedia from "../lib/wikipedia.js";
+import type * as podcast from "../podcast.js";
 import type * as search from "../search.js";
 
 import type {
@@ -23,6 +24,7 @@ declare const fullApi: ApiFromModules<{
   articles: typeof articles;
   audio: typeof audio;
   "lib/wikipedia": typeof lib_wikipedia;
+  podcast: typeof podcast;
   search: typeof search;
 }>;
 
