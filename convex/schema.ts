@@ -161,6 +161,7 @@ export default defineSchema({
       ),
     ),
     storageId: v.optional(v.id("_storage")),
+    artworkStorageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     model: v.optional(v.string()),

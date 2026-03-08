@@ -10,6 +10,7 @@ export const revalidate = 0;
 
 type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
   imageUrls?: string[];
+  artworkUrl?: string | null;
 };
 
 export const GET = async (
@@ -28,6 +29,13 @@ export const GET = async (
         { error: "Trending podcast artwork not found" },
         { status: 404, headers: { "Cache-Control": "no-store" } },
       );
+    }
+
+    if (brief.artworkUrl) {
+      return NextResponse.redirect(brief.artworkUrl, {
+        status: 307,
+        headers: { "Cache-Control": "public, max-age=300, s-maxage=300" },
+      });
     }
 
     const response = await renderTrendingPodcastArtworkResponse({

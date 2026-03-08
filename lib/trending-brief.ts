@@ -52,6 +52,7 @@ export type TrendingBriefRecord = {
   imageUrls?: string[];
   sources?: TrendingBriefSource[];
   audioUrl: string | null;
+  artworkUrl?: string | null;
   durationSeconds?: number;
   byteLength?: number;
   model?: string;
@@ -390,14 +391,23 @@ const generateTrendingBriefRecord = async ({
       articleTitles: articles.map((article) => article.title),
       imageUrls,
     });
+    const artworkBlob = new Blob([Buffer.from(artwork.data)], {
+      type: artwork.mimeType,
+    });
     const taggedAudioBlob = await addMp3MetadataToBlob(audioBlob, {
       title: brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
       artist: "Curio Garden",
       album: TRENDING_PODCAST_TITLE,
       artwork,
     });
-    const uploadUrl = await fetchMutation(anyApi.trending.generateUploadUrl, {});
-    const storageId = await uploadBlobToConvexStorage(uploadUrl, taggedAudioBlob);
+    const [audioUploadUrl, artworkUploadUrl] = await Promise.all([
+      fetchMutation(anyApi.trending.generateUploadUrl, {}),
+      fetchMutation(anyApi.trending.generateUploadUrl, {}),
+    ]);
+    const [storageId, artworkStorageId] = await Promise.all([
+      uploadBlobToConvexStorage(audioUploadUrl, taggedAudioBlob),
+      uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
+    ]);
 
     await fetchMutation(anyApi.trending.saveTrendingBrief, {
       trendingDate: trendingDateIso,
@@ -411,6 +421,7 @@ const generateTrendingBriefRecord = async ({
       imageUrls,
       sources: brief.sources,
       storageId,
+      artworkStorageId,
       durationSeconds: estimateDurationSeconds(brief.spokenSummary),
       byteLength: taggedAudioBlob.size,
       model,
