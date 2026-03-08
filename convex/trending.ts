@@ -11,6 +11,7 @@ const trendingBriefStatus = v.union(
 const withStorageUrl = async <
   T extends {
     storageId?: Id<"_storage">;
+    artworkStorageId?: Id<"_storage">;
   },
 >(
   ctx: {
@@ -23,7 +24,10 @@ const withStorageUrl = async <
   const audioUrl = record.storageId
     ? await ctx.storage.getUrl(record.storageId)
     : null;
-  return { ...record, audioUrl };
+  const artworkUrl = record.artworkStorageId
+    ? await ctx.storage.getUrl(record.artworkStorageId)
+    : null;
+  return { ...record, audioUrl, artworkUrl };
 };
 
 export const getTrendingBriefByDate = query({
@@ -61,12 +65,7 @@ export const getRecentTrendingBriefs = query({
 
     const filtered = records
       .filter((record) => (args.status ? record.status === args.status : true))
-      .sort((a, b) => {
-        if (a.trendingDate === b.trendingDate) {
-          return b.updatedAt - a.updatedAt;
-        }
-        return b.trendingDate.localeCompare(a.trendingDate);
-      })
+      .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
 
     return await Promise.all(filtered.map((record) => withStorageUrl(ctx, record)));
@@ -99,6 +98,7 @@ export const saveTrendingBrief = mutation({
       ),
     ),
     storageId: v.optional(v.id("_storage")),
+    artworkStorageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     model: v.optional(v.string()),
@@ -124,6 +124,7 @@ export const saveTrendingBrief = mutation({
         imageUrls: args.imageUrls,
         sources: args.sources,
         storageId: args.storageId,
+        artworkStorageId: args.artworkStorageId,
         durationSeconds: args.durationSeconds,
         byteLength: args.byteLength,
         model: args.model,
@@ -145,6 +146,7 @@ export const saveTrendingBrief = mutation({
       imageUrls: args.imageUrls,
       sources: args.sources,
       storageId: args.storageId,
+      artworkStorageId: args.artworkStorageId,
       durationSeconds: args.durationSeconds,
       byteLength: args.byteLength,
       model: args.model,

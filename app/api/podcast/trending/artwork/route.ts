@@ -11,6 +11,7 @@ export const revalidate = 0;
 
 type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
   imageUrls?: string[];
+  artworkUrl?: string | null;
 };
 
 export const GET = async (req: Request) => {
@@ -24,6 +25,13 @@ export const GET = async (req: Request) => {
       return NextResponse.redirect(getPodcastArtworkUrl(new URL(req.url).origin), {
         status: 307,
         headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    if (latest.artworkUrl) {
+      return NextResponse.redirect(latest.artworkUrl, {
+        status: 307,
+        headers: { "Cache-Control": "public, max-age=300, s-maxage=300" },
       });
     }
 

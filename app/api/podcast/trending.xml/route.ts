@@ -14,7 +14,6 @@ import {
   ATOM_NS,
   PODCAST_NS,
   escapeXml,
-  formatPodcastDateIso,
   formatPodcastDuration,
   xmlTag,
 } from "@/lib/podcast-rss";
@@ -47,15 +46,14 @@ export const GET = async (req: NextRequest) => {
       limit: 50,
     })) as TrendingPodcastEpisode[];
 
-    const lastBuildDate =
-      formatPodcastDateIso(episodes[0]?.trendingDate) || new Date().toUTCString();
+    const lastBuildDate = new Date(
+      episodes[0]?.updatedAt ?? Date.now(),
+    ).toUTCString();
 
     const itemsXml = episodes
       .map((episode) => {
         const mediaUrl = `${siteUrl}/api/podcast/media/trending/${episode._id}`;
-        const pubDate =
-          formatPodcastDateIso(episode.trendingDate) ||
-          new Date(episode.updatedAt).toUTCString();
+        const pubDate = new Date(episode.updatedAt).toUTCString();
         const duration = formatPodcastDuration(episode.durationSeconds);
         const guid = `${siteUrl}/podcast/trending/${episode._id}`;
         const title =

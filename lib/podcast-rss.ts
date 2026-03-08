@@ -18,10 +18,5 @@ export const formatPodcastDuration = (seconds?: number): string | null => {
   return [h, m, s].map((part) => String(part).padStart(2, "0")).join(":");
 };
 
-export const formatPodcastDateIso = (dateIso?: string | null): string | null => {
-  if (!dateIso) return null;
-  return new Date(`${dateIso}T00:00:00.000Z`).toUTCString();
-};
-
 export const xmlTag = (name: string, value?: string | null): string =>
   value ? `<${name}>${escapeXml(value)}</${name}>` : "";
