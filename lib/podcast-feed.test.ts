@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getPodcastDescription, getPodcastSiteUrl } from "./podcast-feed";
+import {
+  getPodcastArtworkUrl,
+  getPodcastDescription,
+  getPodcastSiteUrl,
+} from "./podcast-feed";
 
 describe("getPodcastDescription", () => {
   it("returns only the first paragraph", () => {
@@ -34,6 +38,14 @@ describe("getPodcastSiteUrl", () => {
   it("falls back to the provided origin and trims trailing slashes", () => {
     expect(getPodcastSiteUrl("http://localhost:3000/")).toBe(
       "http://localhost:3000",
+    );
+  });
+});
+
+describe("getPodcastArtworkUrl", () => {
+  it("builds a stable absolute artwork URL", () => {
+    expect(getPodcastArtworkUrl("https://curiogarden.org/")).toBe(
+      "https://curiogarden.org/api/podcast/artwork",
     );
   });
 });

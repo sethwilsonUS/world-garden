@@ -6,6 +6,7 @@ import {
   FEATURED_PODCAST_DESCRIPTION,
   FEATURED_PODCAST_SUBTITLE,
   FEATURED_PODCAST_TITLE,
+  getPodcastArtworkUrl,
   getPodcastDescription,
   getPodcastSiteUrl,
 } from "@/lib/podcast-feed";
@@ -42,17 +43,15 @@ export const GET = async (req: NextRequest) => {
     const siteUrl = getPodcastSiteUrl(req.nextUrl.origin);
     const feedUrl = `${siteUrl}/api/podcast/featured.xml`;
     const articleBaseUrl = `${siteUrl}/article`;
-    const fallbackImageUrl = `${siteUrl}/icon.svg`;
+    const feedImageUrl = getPodcastArtworkUrl(siteUrl);
 
     const episodes = (await fetchQuery(anyApi.podcast.getRecentFeaturedEpisodes, {
       status: "ready",
       limit: 50,
     })) as FeaturedPodcastEpisode[];
 
-    const latestEpisode = episodes[0] ?? null;
-    const feedImageUrl = latestEpisode?.imageUrl || fallbackImageUrl;
     const lastBuildDate = new Date(
-      latestEpisode?.updatedAt ?? Date.now(),
+      episodes[0]?.updatedAt ?? Date.now(),
     ).toUTCString();
 
     const itemsXml = episodes
@@ -92,6 +91,11 @@ export const GET = async (req: NextRequest) => {
   <description>${escapeXml(FEATURED_PODCAST_DESCRIPTION)}</description>
   <language>en-us</language>
   <lastBuildDate>${escapeXml(lastBuildDate)}</lastBuildDate>
+  <image>
+    <url>${escapeXml(feedImageUrl)}</url>
+    <title>${escapeXml(FEATURED_PODCAST_TITLE)}</title>
+    <link>${escapeXml(siteUrl)}</link>
+  </image>
   <atom:link href="${escapeXml(feedUrl)}" rel="self" type="application/rss+xml" />
   <itunes:author>Curio Garden</itunes:author>
   <itunes:subtitle>${escapeXml(FEATURED_PODCAST_SUBTITLE)}</itunes:subtitle>

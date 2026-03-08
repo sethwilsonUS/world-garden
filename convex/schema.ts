@@ -14,6 +14,12 @@ const featuredPodcastJobStatus = v.union(
   v.literal("failed"),
 );
 
+const trendingBriefStatus = v.union(
+  v.literal("pending"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
 export default defineSchema({
   articles: defineTable({
     wikiPageId: v.string(),
@@ -135,4 +141,31 @@ export default defineSchema({
   })
     .index("by_featuredDate", ["featuredDate"])
     .index("by_status", ["status"]),
+
+  trendingBriefs: defineTable({
+    trendingDate: v.string(),
+    status: trendingBriefStatus,
+    headline: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    spokenSummary: v.optional(v.string()),
+    keyPoints: v.optional(v.array(v.string())),
+    articleTitles: v.optional(v.array(v.string())),
+    sources: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          url: v.string(),
+        }),
+      ),
+    ),
+    storageId: v.optional(v.id("_storage")),
+    durationSeconds: v.optional(v.number()),
+    byteLength: v.optional(v.number()),
+    model: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_trendingDate", ["trendingDate"])
+    .index("by_updatedAt", ["updatedAt"]),
 });

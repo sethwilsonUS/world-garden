@@ -4,6 +4,7 @@ import { AppProviders } from "./AppProviders";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AccessibleLayout } from "@/components/AccessibleLayout";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
+import { TrendingBriefWarmup } from "@/components/TrendingBriefWarmup";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
@@ -91,6 +92,7 @@ export default function RootLayout({
             <AccessibleLayout>{children}</AccessibleLayout>
           </ThemeProvider>
         </AppProviders>
+        <TrendingBriefWarmup />
         <ServiceWorkerRegistration />
         <Analytics />
         <SpeedInsights />

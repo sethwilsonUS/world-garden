@@ -159,16 +159,16 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
               Trending
             </Link>
             <Link
-              href="/library"
-              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-            >
-              Library
-            </Link>
-            <Link
               href="/podcast"
               className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
             >
               Podcast
+            </Link>
+            <Link
+              href="/library"
+              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+            >
+              Library
             </Link>
             <ThemeToggle />
           </div>
@@ -212,16 +212,16 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 Trending
               </Link>
               <Link
-                href="/library"
-                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-              >
-                Library
-              </Link>
-              <Link
                 href="/podcast"
                 className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
               >
                 Podcast
+              </Link>
+              <Link
+                href="/library"
+                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+              >
+                Library
               </Link>
             </div>
           </div>
@@ -269,16 +269,16 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 Trending
               </Link>
               <Link
-                href="/library"
-                className="text-foreground-2 no-underline text-sm"
-              >
-                Library
-              </Link>
-              <Link
                 href="/podcast"
                 className="text-foreground-2 no-underline text-sm"
               >
                 Podcast
+              </Link>
+              <Link
+                href="/library"
+                className="text-foreground-2 no-underline text-sm"
+              >
+                Library
               </Link>
             </nav>
           </div>
