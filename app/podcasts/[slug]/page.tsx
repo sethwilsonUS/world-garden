@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PodcastFeedActions } from "@/components/PodcastFeedActions";
 import { PodcastEpisodeArtwork } from "@/components/PodcastEpisodeArtwork";
+import { PodcastEpisodePlayer } from "@/components/PodcastEpisodePlayer";
 import {
   getAbsoluteFeedUrl,
   getFeaturedEpisodeArtworkUrl,
@@ -134,6 +135,13 @@ export default async function PodcastDetailPage({
                           src={getFeaturedEpisodeArtworkUrl(featuredEpisode)}
                           alt={`Artwork for ${featuredEpisode.title}`}
                         />
+                        {featuredEpisode.audioUrl && (
+                          <PodcastEpisodePlayer
+                            audioUrl={featuredEpisode.audioUrl}
+                            title={featuredEpisode.title}
+                            durationSeconds={featuredEpisode.durationSeconds}
+                          />
+                        )}
                         <div className="flex flex-wrap gap-2 mb-4">
                           <Link
                             href={`/article/${encodeURIComponent(featuredEpisode.slug)}`}
@@ -192,6 +200,13 @@ export default async function PodcastDetailPage({
                           src={getTrendingEpisodeArtworkUrl(trendingEpisode)}
                           alt={`Artwork for ${title}`}
                         />
+                        {trendingEpisode.audioUrl && (
+                          <PodcastEpisodePlayer
+                            audioUrl={trendingEpisode.audioUrl}
+                            title={title}
+                            durationSeconds={trendingEpisode.durationSeconds}
+                          />
+                        )}
                         <div className="flex flex-wrap gap-2 mb-4">
                           <Link
                             href="/trending"

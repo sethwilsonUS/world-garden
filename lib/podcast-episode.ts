@@ -148,38 +148,42 @@ const fetchEmbeddedArtwork = async (
   return { data: bytes, mimeType };
 };
 
-const tagPodcastEpisodeAudio = async ({
-  audioBlob,
+const resolveEpisodeArtwork = async ({
   baseUrl,
-  title,
   artworkUrl,
 }: {
-  audioBlob: Blob;
   baseUrl: string;
-  title: string;
   artworkUrl?: string | null;
-}): Promise<Blob> => {
+}): Promise<{ data: Uint8Array; mimeType: string } | null> => {
   const artworkCandidates = [
     artworkUrl ?? null,
     getPodcastArtworkUrl(baseUrl),
   ].filter((value): value is string => Boolean(value));
 
-  let artwork:
-    | {
-        data: Uint8Array;
-        mimeType: string;
-      }
-    | null = null;
-
   for (const candidate of artworkCandidates) {
     try {
-      artwork = await fetchEmbeddedArtwork(candidate);
-      if (artwork) break;
+      const artwork = await fetchEmbeddedArtwork(candidate);
+      if (artwork) return artwork;
     } catch {
-      artwork = null;
+      continue;
     }
   }
 
+  return null;
+};
+
+const tagPodcastEpisodeAudio = async ({
+  audioBlob,
+  title,
+  artwork,
+}: {
+  audioBlob: Blob;
+  title: string;
+  artwork?: {
+    data: Uint8Array;
+    mimeType: string;
+  } | null;
+}): Promise<Blob> => {
   return await addMp3MetadataToBlob(audioBlob, {
     title,
     artist: "Curio Garden",
@@ -339,14 +343,30 @@ export const syncFeaturedPodcastEpisode = async ({
     }
 
     const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
-    const taggedBlob = await tagPodcastEpisodeAudio({
-      audioBlob: combinedBlob,
+    const artwork = await resolveEpisodeArtwork({
       baseUrl,
-      title: article.title,
       artworkUrl: article.thumbnailUrl,
     });
-    const uploadUrl = await fetchMutation(anyApi.podcast.generateUploadUrl, {});
-    const storageId = await uploadBlobToConvexStorage(uploadUrl, taggedBlob);
+    const taggedBlob = await tagPodcastEpisodeAudio({
+      audioBlob: combinedBlob,
+      title: article.title,
+      artwork,
+    });
+    const artworkBlob = artwork
+      ? new Blob([Buffer.from(artwork.data)], { type: artwork.mimeType })
+      : null;
+    const [uploadUrl, artworkUploadUrl] = await Promise.all([
+      fetchMutation(anyApi.podcast.generateUploadUrl, {}),
+      artworkBlob
+        ? fetchMutation(anyApi.podcast.generateUploadUrl, {})
+        : Promise.resolve(null),
+    ]);
+    const [storageId, artworkStorageId] = await Promise.all([
+      uploadBlobToConvexStorage(uploadUrl, taggedBlob),
+      artworkBlob && artworkUploadUrl
+        ? uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob)
+        : Promise.resolve(undefined),
+    ]);
 
     const episodeId = (await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
       featuredDate: feedDateIso,
@@ -357,6 +377,7 @@ export const syncFeaturedPodcastEpisode = async ({
       description,
       imageUrl: article.thumbnailUrl,
       storageId,
+      artworkStorageId,
       durationSeconds: estimateDurationSeconds(sections.map((s) => s.text)),
       byteLength: taggedBlob.size,
       ttsNormVersion: TTS_NORM_VERSION,

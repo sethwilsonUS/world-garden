@@ -119,6 +119,7 @@ export default defineSchema({
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    artworkStorageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     ttsNormVersion: v.string(),

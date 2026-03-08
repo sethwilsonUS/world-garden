@@ -1,9 +1,11 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { PodcastFeedActions } from "@/components/PodcastFeedActions";
 import { PodcastEpisodeArtwork } from "@/components/PodcastEpisodeArtwork";
+import { PodcastEpisodePlayer } from "@/components/PodcastEpisodePlayer";
 import {
-  PODCAST_DIRECTORY,
   getAbsoluteFeedUrl,
+  getPodcastDirectoryEntry,
   getFeaturedEpisodeArtworkUrl,
   getFeaturedEpisodeSummary,
   getFeaturedEpisodes,
@@ -15,71 +17,122 @@ import {
   formatTrendingDate,
 } from "@/lib/podcast-directory";
 
-const PodcastOverviewCard = ({
+const PodcastAccordionSection = ({
+  accordionId,
   badge,
   title,
   description,
   feedUrl,
   syncRoute,
   slug,
+  children,
 }: {
+  accordionId: string;
   badge: string;
   title: string;
   description: string;
   feedUrl: string;
   syncRoute: string;
   slug: string;
+  children: ReactNode;
 }) => (
-  <section className="garden-bed p-5 sm:p-6">
-    <div className="inline-flex items-center gap-2 py-[6px] px-3.5 rounded-full bg-accent-bg border border-accent-border mb-5 text-[0.8125rem] text-accent font-semibold tracking-[0.01em]">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.75}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        width={15}
-        height={15}
-        aria-hidden="true"
-      >
-        <path d="M12 3a6 6 0 0 0-6 6v3a6 6 0 1 0 12 0V9a6 6 0 0 0-6-6Z" />
-        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-        <path d="M12 19v3" />
-      </svg>
-      {badge}
-    </div>
+  <section aria-labelledby={`${accordionId}-heading`}>
+    <details open className="garden-bed p-5 sm:p-6 group">
+      <summary className="list-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 py-[6px] px-3.5 rounded-full bg-accent-bg border border-accent-border mb-5 text-[0.8125rem] text-accent font-semibold tracking-[0.01em]">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                width={15}
+                height={15}
+                aria-hidden="true"
+              >
+                <path d="M12 3a6 6 0 0 0-6 6v3a6 6 0 1 0 12 0V9a6 6 0 0 0-6-6Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <path d="M12 19v3" />
+              </svg>
+              {badge}
+            </div>
 
-    <h2 className="font-display text-[1.5rem] sm:text-[1.8rem] font-semibold text-foreground leading-[1.12]">
-      {title}
-    </h2>
+            <h2
+              id={`${accordionId}-heading`}
+              className="font-display text-[1.5rem] sm:text-[1.8rem] font-semibold text-foreground leading-[1.12]"
+            >
+              {title}
+            </h2>
 
-    <p className="text-[1rem] leading-[1.75] text-foreground-2 mt-3">
-      {description}
-    </p>
+            <p className="text-[1rem] leading-[1.75] text-foreground-2 mt-3">
+              {description}
+            </p>
+          </div>
 
-    <div className="mt-5">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-3">
-        Feed URL
-      </p>
-      <code
-        aria-label={`${title} feed URL`}
-        className="block overflow-x-auto rounded-xl bg-surface-2 border border-border px-4 py-3 text-sm text-foreground"
-      >
-        {feedUrl}
-      </code>
-      <PodcastFeedActions feedUrl={feedUrl} feedTitle={title} />
-      <p className="text-sm text-muted mt-3 leading-[1.6]">
-        For local testing, generate the latest episode first with an authorized{" "}
-        <code>{syncRoute}</code>, then subscribe using this RSS URL.
-      </p>
-    </div>
+          <span
+            aria-hidden="true"
+            className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-foreground transition-transform duration-200 group-open:rotate-180"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={18}
+              height={18}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+        </div>
+      </summary>
 
-    <div className="mt-5">
-      <Link href={`/podcasts/${slug}`} className="btn-secondary text-sm no-underline">
-        View full archive
-      </Link>
-    </div>
+      <div className="mt-8 space-y-8">
+        <section aria-labelledby={`${accordionId}-episodes-heading`}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h3
+              id={`${accordionId}-episodes-heading`}
+              className="font-display text-[1.2rem] font-semibold text-foreground"
+            >
+              Recent episodes
+            </h3>
+            <Link
+              href={`/podcasts/${slug}`}
+              className="text-sm text-accent no-underline"
+              aria-label={`View all episodes for ${title}`}
+            >
+              View full archive
+            </Link>
+          </div>
+          {children}
+        </section>
+
+        <section aria-labelledby={`${accordionId}-feed-heading`}>
+          <h3
+            id={`${accordionId}-feed-heading`}
+            className="font-display text-[1.2rem] font-semibold text-foreground mb-4"
+          >
+            Feed
+          </h3>
+          <code
+            aria-label={`${title} feed URL`}
+            className="block overflow-x-auto rounded-xl bg-surface-2 border border-border px-4 py-3 text-sm text-foreground"
+          >
+            {feedUrl}
+          </code>
+          <PodcastFeedActions feedUrl={feedUrl} feedTitle={title} />
+          <p className="text-sm text-muted mt-3 leading-[1.6]">
+            For local testing, generate the latest episode first with an authorized{" "}
+            <code>{syncRoute}</code>, then subscribe using this RSS URL.
+          </p>
+        </section>
+      </div>
+    </details>
   </section>
 );
 
@@ -88,6 +141,12 @@ export default async function PodcastsPage() {
     getFeaturedEpisodes(5),
     getTrendingEpisodes(5),
   ]);
+  const featuredEntry = getPodcastDirectoryEntry("featured");
+  const trendingEntry = getPodcastDirectoryEntry("trending");
+
+  if (!featuredEntry || !trendingEntry) {
+    throw new Error("Podcast directory entries are not configured");
+  }
 
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
@@ -130,33 +189,11 @@ export default async function PodcastsPage() {
           </p>
 
           <div className="mt-8 space-y-6">
-            {PODCAST_DIRECTORY.map((entry) => (
-              <PodcastOverviewCard
-                key={entry.slug}
-                {...entry}
-                feedUrl={getAbsoluteFeedUrl(entry.feedPath)}
-              />
-            ))}
-          </div>
-
-          <div className="mt-10 space-y-8">
-            <section aria-labelledby="featured-preview-heading">
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <h2
-                  id="featured-preview-heading"
-                  className="font-display text-[1.35rem] font-semibold text-foreground"
-                >
-                  Recent featured article episodes
-                </h2>
-                <Link
-                  href="/podcasts/featured"
-                  className="text-sm text-accent no-underline"
-                  aria-label="View all featured article podcast episodes"
-                >
-                  View all
-                </Link>
-              </div>
-
+            <PodcastAccordionSection
+              accordionId="featured-podcast"
+              {...featuredEntry}
+              feedUrl={getAbsoluteFeedUrl(featuredEntry.feedPath)}
+            >
               <ul className="list-none p-0 m-0 space-y-3" role="list">
                 {featuredEpisodes.map((episode) => {
                   const description = getFeaturedEpisodeSummary(episode);
@@ -167,6 +204,13 @@ export default async function PodcastsPage() {
                           src={getFeaturedEpisodeArtworkUrl(episode)}
                           alt={`Artwork for ${episode.title}`}
                         />
+                        {episode.audioUrl && (
+                          <PodcastEpisodePlayer
+                            audioUrl={episode.audioUrl}
+                            title={episode.title}
+                            durationSeconds={episode.durationSeconds}
+                          />
+                        )}
                         <div className="flex flex-wrap gap-2 mb-4">
                           <Link
                             href={`/article/${encodeURIComponent(episode.slug)}`}
@@ -202,25 +246,13 @@ export default async function PodcastsPage() {
                   );
                 })}
               </ul>
-            </section>
+            </PodcastAccordionSection>
 
-            <section aria-labelledby="trending-preview-heading">
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <h2
-                  id="trending-preview-heading"
-                  className="font-display text-[1.35rem] font-semibold text-foreground"
-                >
-                  Recent trending brief episodes
-                </h2>
-                <Link
-                  href="/podcasts/trending"
-                  className="text-sm text-accent no-underline"
-                  aria-label="View all trending brief podcast episodes"
-                >
-                  View all
-                </Link>
-              </div>
-
+            <PodcastAccordionSection
+              accordionId="trending-podcast"
+              {...trendingEntry}
+              feedUrl={getAbsoluteFeedUrl(trendingEntry.feedPath)}
+            >
               <ul className="list-none p-0 m-0 space-y-3" role="list">
                 {trendingEpisodes.map((episode) => {
                   const title = getTrendingEpisodeTitle(episode);
@@ -232,6 +264,13 @@ export default async function PodcastsPage() {
                           src={getTrendingEpisodeArtworkUrl(episode)}
                           alt={`Artwork for ${title}`}
                         />
+                        {episode.audioUrl && (
+                          <PodcastEpisodePlayer
+                            audioUrl={episode.audioUrl}
+                            title={title}
+                            durationSeconds={episode.durationSeconds}
+                          />
+                        )}
                         <div className="flex flex-wrap gap-2 mb-4">
                           <Link
                             href="/trending"
@@ -267,7 +306,7 @@ export default async function PodcastsPage() {
                   );
                 })}
               </ul>
-            </section>
+            </PodcastAccordionSection>
           </div>
         </section>
       </div>
