@@ -10,6 +10,7 @@ describe("normalizeTrendingBrief", () => {
     const brief = normalizeTrendingBrief({
       headline: "  Big day on Wikipedia  ",
       summary: "  A concise summary.  ",
+      podcastDescription: "  A compact podcast description.  ",
       spokenSummary: "Read more at https://example.com right now.  ",
       keyPoints: [" First point. ", "", "Second point."],
       sources: [
@@ -21,6 +22,7 @@ describe("normalizeTrendingBrief", () => {
 
     expect(brief.headline).toBe("Big day on Wikipedia");
     expect(brief.summary).toBe("A concise summary.");
+    expect(brief.podcastDescription).toBe("A compact podcast description.");
     expect(brief.spokenSummary).not.toContain("https://");
     expect(brief.keyPoints).toEqual(["First point.", "Second point."]);
     expect(brief.sources).toEqual([
@@ -55,12 +57,13 @@ describe("parseGeneratedTrendingBrief", () => {
     const parsed = parseGeneratedTrendingBrief(
       [
         "```json",
-        '{"headline":"H","summary":"S","spokenSummary":"SS","keyPoints":["A"],"sources":[{"title":"Reuters","url":"https://reuters.com"}]}',
+        '{"headline":"H","summary":"S","podcastDescription":"PD","spokenSummary":"SS","keyPoints":["A"],"sources":[{"title":"Reuters","url":"https://reuters.com"}]}',
         "```",
       ].join("\n"),
     );
 
     expect(parsed.headline).toBe("H");
+    expect(parsed.podcastDescription).toBe("PD");
     expect(parsed.sources[0]?.url).toBe("https://reuters.com");
   });
 });

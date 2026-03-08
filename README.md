@@ -16,7 +16,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Audio** — Powered by Edge TTS with Microsoft's neural voices — free, high-quality audio with full seek, scrub, and download support. Generated audio is cached in Convex so each section only needs to be synthesized once. Long sections are chunked before synthesis to stay within Edge TTS limits while keeping startup latency low.
 
-**Podcast feed** — Curio Garden publishes a public RSS podcast feed for Wikipedia's featured articles. Each episode is generated as a full-article MP3, stored in Convex, exposed through stable enclosure URLs, and ready for podcast apps to subscribe to.
+**Podcasts** — Curio Garden publishes multiple public RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, and the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
@@ -48,7 +48,7 @@ Text is normalized before synthesis — stripping citation markers and expanding
 
 Generated audio is cached per-section in Convex file storage so each section is only synthesized once. Subsequent plays (by any user) are served directly from the cache.
 
-Featured podcast episodes reuse that same section cache where possible, then concatenate the article into one stored MP3 for RSS delivery. A Vercel cron route can generate the latest featured episode on a schedule.
+Featured podcast episodes reuse that same section cache where possible, then concatenate the article into one stored MP3 for RSS delivery. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Vercel cron routes can generate both feeds on a schedule.
 
 > **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
@@ -135,7 +135,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
-| `CRON_SECRET` | No | Bearer token expected by the scheduled featured-podcast cron route |
+| `CRON_SECRET` | No | Bearer token expected by the scheduled podcast cron routes and manual sync routes |
 | `AI_GATEWAY_API_KEY` | No | Vercel AI Gateway API key used for the daily AI-generated trending brief |
 | `TRENDING_BRIEF_MODEL` | No | Optional primary AI Gateway model override for the daily trending brief |
 | `TRENDING_BRIEF_FALLBACK_MODEL` | No | Optional fallback AI Gateway model override for the daily trending brief |
@@ -143,22 +143,55 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 
-## Featured Podcast Feed
+## Podcasts
 
-Curio Garden can publish a public RSS feed of Wikipedia featured articles at `/api/podcast/featured.xml`.
+Curio Garden can publish multiple public RSS feeds:
 
-- The feed metadata makes it explicit that the article content comes from Wikipedia and is available under `CC BY-SA 4.0`.
+- Featured Articles: `/api/podcast/featured.xml`
+- Trending Brief: `/api/podcast/trending.xml`
+
+Featured Articles:
+
+- Feed metadata makes it explicit that the article content comes from Wikipedia and is available under `CC BY-SA 4.0`.
 - Each episode points at a stable enclosure URL under `/api/podcast/media/[episodeId]`, which redirects to the stored MP3 in Convex.
 - `POST /api/podcast/featured/sync` is a manual trigger for generating the latest featured episode and is protected by `CRON_SECRET`.
 - `GET /api/podcast/featured/cron` is the scheduled trigger used by Vercel cron and is protected by `CRON_SECRET`.
+
+Trending Brief:
+
+- Each episode points at a stable enclosure URL under `/api/podcast/media/trending/[briefId]`, which redirects to the stored MP3 in Convex.
+- Each episode also gets local collage artwork generated from up to four trending-article thumbnails, with the trending date rendered into the image and embedded into the MP3 metadata.
+- `POST /api/podcast/trending/sync` is a manual trigger for generating the latest trending brief episode and is protected by `CRON_SECRET`.
+- `GET /api/podcast/trending/cron` is the scheduled trigger used by Vercel cron and is protected by `CRON_SECRET`.
 
 To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Vercel will call `/api/podcast/featured/cron` using the schedule in `vercel.json`.
+3. Vercel will call `/api/podcast/featured/cron` and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
-The default schedule is `30 4 * * *`, which means `04:30 UTC` every day.
+The default schedules are:
+
+- `30 4 * * *` for the featured podcast (`04:30 UTC`)
+- `45 4 * * *` for the trending podcast (`04:45 UTC`)
+
+### Local podcast testing
+
+With `npm run dev` running locally:
+
+1. Generate the latest featured episode:
+   `curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/podcast/featured/sync`
+2. Generate the latest trending brief episode:
+   `curl -X POST -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/podcast/trending/sync`
+3. Inspect the feeds:
+   `http://127.0.0.1:3000/api/podcast/featured.xml`
+   `http://127.0.0.1:3000/api/podcast/trending.xml`
+4. Inspect the podcast pages:
+   `http://127.0.0.1:3000/podcasts`
+   `http://127.0.0.1:3000/podcasts/featured`
+   `http://127.0.0.1:3000/podcasts/trending`
+5. Inspect the trending artwork:
+   `http://127.0.0.1:3000/api/podcast/trending/artwork`
 
 ## Development Scripts
 
@@ -183,7 +216,9 @@ app/
   search/page.tsx         Search results page
   article/[slug]/page.tsx Article view with audio playback
   library/page.tsx        Saved reading list
-  podcast/page.tsx        Public podcast feed page with feed URL and recent episodes
+  podcast/page.tsx        Redirects legacy /podcast to /podcasts
+  podcasts/page.tsx       Public podcast index page for both feeds
+  podcasts/[slug]/page.tsx Dedicated archive page for each podcast feed
   globals.css             Design system tokens, utilities, and component styles
   api/tts/route.ts        Edge TTS API route (local dev — shells out to Python)
   api/featured/route.ts   Featured article API route
@@ -191,7 +226,13 @@ app/
   api/podcast/featured.xml/route.ts  RSS feed for featured podcast episodes
   api/podcast/featured/sync/route.ts Manual featured-episode generation trigger
   api/podcast/featured/cron/route.ts Scheduled featured-episode generation trigger
+  api/podcast/trending.xml/route.ts  RSS feed for trending-brief podcast episodes
+  api/podcast/trending/sync/route.ts Manual trending-brief generation trigger
+  api/podcast/trending/cron/route.ts Scheduled trending-brief generation trigger
   api/podcast/media/[episodeId]/route.ts Stable podcast media URL
+  api/podcast/media/trending/[briefId]/route.ts Stable trending podcast media URL
+  api/podcast/trending/artwork/route.ts Latest trending podcast artwork
+  api/podcast/trending/artwork/[briefId]/route.ts Episode-specific trending artwork
 
 _python/
   tts.py                 Edge TTS serverless function (Vercel production)
@@ -205,8 +246,11 @@ lib/
   audio-prefetch.ts       Prefetches summary audio and article thumbnails
   featured-article.ts     Shared featured-article lookup helpers
   trending-brief.ts       AI Gateway + TTS pipeline for the daily trending briefing
+  trending-podcast-artwork.ts  Collage artwork generator for trending podcast episodes
+  podcast-directory.ts    Shared podcast-directory metadata and page formatting helpers
   podcast-episode.ts      Server-side featured podcast generation pipeline
   podcast-feed.ts         Shared RSS metadata and podcast description helpers
+  podcast-rss.ts          Shared RSS XML formatting helpers
   tts-normalize.ts        Text normalization for TTS (abbreviation expansion)
   nsfw-filter.ts          Shared NSFW category/keyword filter and batch title check
   formatTime.ts           Duration formatting helpers
@@ -230,6 +274,7 @@ components/
   LocalModeBanner.tsx     Dismissable banner shown in local mode
   ThemeProvider.tsx       Dark/light theme with useSyncExternalStore
   ThemeToggle.tsx         Theme toggle button (sun/moon icons)
+  CopyFeedButton.tsx      Clipboard copy button for podcast feed URLs
   ServiceWorkerRegistration.tsx  Registers the PWA service worker
 
 hooks/
@@ -266,7 +311,7 @@ Primary Convex tables:
 - `sectionAudio` stores per-section audio blobs keyed by article, section key, and TTS normalization version.
 - `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
 - `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
-- `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date.
+- `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date, including the podcast audio asset and the image URLs used to generate trending collage artwork.
 
 ## Accessibility
 

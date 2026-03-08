@@ -3,9 +3,12 @@ import { gateway, generateText, stepCountIs } from "ai";
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@/convex/_generated/dataModel";
+import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import { fetchWikipediaFeaturedSnapshot } from "@/lib/featured-article";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
+import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
 import { generateTtsAudio } from "@/lib/tts-client";
+import { renderTrendingPodcastArtworkPng } from "@/lib/trending-podcast-artwork";
 
 const TTS_WORDS_PER_SECOND = 2.5;
 const DEFAULT_TRENDING_BRIEF_MODEL = "anthropic/claude-opus-4.5";
@@ -13,12 +16,13 @@ const DEFAULT_TRENDING_BRIEF_FALLBACK_MODEL = "openai/gpt-5.2";
 const MAX_ARTICLES_IN_PROMPT = 10;
 const MAX_KEY_POINTS = 5;
 const MAX_SOURCES = 6;
-const inFlightTrendingBriefs = new Map<string, Promise<TrendingBriefRecord>>();
+const inFlightTrendingBriefs = new Map<string, Promise<TrendingBriefSyncResult>>();
 
 type TrendingArticle = {
   title: string;
   extract: string;
   views: number;
+  imageUrl?: string;
 };
 
 type TrendingBriefSource = {
@@ -29,6 +33,7 @@ type TrendingBriefSource = {
 type GeneratedTrendingBrief = {
   headline: string;
   summary: string;
+  podcastDescription: string;
   spokenSummary: string;
   keyPoints: string[];
   sources: TrendingBriefSource[];
@@ -40,15 +45,22 @@ export type TrendingBriefRecord = {
   status: "pending" | "ready" | "failed";
   headline?: string;
   summary?: string;
+  podcastDescription?: string;
   spokenSummary?: string;
   keyPoints?: string[];
   articleTitles?: string[];
+  imageUrls?: string[];
   sources?: TrendingBriefSource[];
   audioUrl: string | null;
   durationSeconds?: number;
   byteLength?: number;
   model?: string;
   updatedAt: number;
+};
+
+export type TrendingBriefSyncResult = {
+  status: "created" | "already_exists";
+  brief: TrendingBriefRecord;
 };
 
 const estimateDurationSeconds = (text: string): number =>
@@ -91,6 +103,7 @@ export const parseGeneratedTrendingBrief = (
   if (
     typeof parsed.headline !== "string" ||
     typeof parsed.summary !== "string" ||
+    typeof parsed.podcastDescription !== "string" ||
     typeof parsed.spokenSummary !== "string" ||
     !Array.isArray(parsed.keyPoints) ||
     !Array.isArray(parsed.sources)
@@ -101,6 +114,7 @@ export const parseGeneratedTrendingBrief = (
   return {
     headline: parsed.headline,
     summary: parsed.summary,
+    podcastDescription: parsed.podcastDescription,
     spokenSummary: parsed.spokenSummary,
     keyPoints: parsed.keyPoints.filter(
       (item): item is string => typeof item === "string",
@@ -122,6 +136,7 @@ export const normalizeTrendingBrief = (
 ): GeneratedTrendingBrief => {
   const headline = sanitizeText(input.headline);
   const summary = sanitizeText(input.summary);
+  const podcastDescription = sanitizeText(input.podcastDescription);
   const spokenSummary = stripUrlsFromSpeech(sanitizeText(input.spokenSummary));
   const keyPoints = input.keyPoints
     .map((item) => sanitizeText(item))
@@ -132,6 +147,7 @@ export const normalizeTrendingBrief = (
   return {
     headline,
     summary,
+    podcastDescription: podcastDescription || summary,
     spokenSummary: spokenSummary || summary,
     keyPoints,
     sources,
@@ -160,7 +176,8 @@ export const buildTrendingBriefPrompt = ({
     "Base the explanation on recent reporting when possible. If the reason is uncertain, say that clearly.",
     "Do not claim that something is trending for a specific reason unless the search results support it.",
     "Return only valid JSON. Do not wrap it in markdown unless necessary.",
-    'Use this exact shape: {"headline":"...","summary":"...","spokenSummary":"...","keyPoints":["..."],"sources":[{"title":"...","url":"..."}]}.',
+    'Use this exact shape: {"headline":"...","summary":"...","podcastDescription":"...","spokenSummary":"...","keyPoints":["..."],"sources":[{"title":"...","url":"..."}]}.',
+    "For podcastDescription, write a compact 1-2 sentence episode description suitable for a podcast app listing. Keep it shorter than summary.",
     "For spokenSummary, write natural audio-ready prose with no markdown, no bullets, and no URLs.",
     "For summary, keep it readable on-screen in 1-2 short paragraphs.",
     "For keyPoints, provide 3-5 short bullets explaining the most likely drivers across the list.",
@@ -207,6 +224,7 @@ const getSafeTrendingArticles = async (): Promise<{
       title: candidate.title,
       extract: candidate.extract,
       views: candidate.views,
+      imageUrl: candidate.thumbnail?.source,
     }));
 
   return {
@@ -241,11 +259,13 @@ const uploadBlobToConvexStorage = async (
 export const isTrendingBriefEnabled = (): boolean =>
   Boolean(process.env.AI_GATEWAY_API_KEY);
 
-export const getDailyTrendingBrief = async ({
+const generateTrendingBriefRecord = async ({
   baseUrl,
+  force = false,
 }: {
   baseUrl: string;
-}): Promise<TrendingBriefRecord> => {
+  force?: boolean;
+}): Promise<TrendingBriefSyncResult> => {
   const { trendingDateIso, articles } = await getSafeTrendingArticles();
 
   if (articles.length === 0) {
@@ -255,14 +275,18 @@ export const getDailyTrendingBrief = async ({
   const existing = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
     trendingDate: trendingDateIso,
   })) as TrendingBriefRecord | null;
+  const existingReadyBrief =
+    existing?.status === "ready" && existing.audioUrl ? existing : null;
+  const imageUrls = articles
+    .map((article) => article.imageUrl?.trim())
+    .filter((value): value is string => Boolean(value))
+    .slice(0, 4);
 
-  if (existing?.status === "ready" && existing.audioUrl) {
-    return existing;
-  }
-
-  const inFlight = inFlightTrendingBriefs.get(trendingDateIso);
-  if (inFlight) {
-    return inFlight;
+  if (!force && existingReadyBrief) {
+    return {
+      status: "already_exists",
+      brief: existingReadyBrief,
+    };
   }
 
   if (!isTrendingBriefEnabled()) {
@@ -275,132 +299,198 @@ export const getDailyTrendingBrief = async ({
     process.env.TRENDING_BRIEF_FALLBACK_MODEL ||
     DEFAULT_TRENDING_BRIEF_FALLBACK_MODEL;
 
-  const generationPromise = (async (): Promise<TrendingBriefRecord> => {
+  if (!existingReadyBrief) {
     await fetchMutation(anyApi.trending.saveTrendingBrief, {
       trendingDate: trendingDateIso,
       status: "pending",
       articleTitles: articles.map((article) => article.title),
+      imageUrls,
+    });
+  }
+
+  try {
+    const researchResult = await generateText({
+      model,
+      system:
+        "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use web search to gather recent reporting about why topics are trending.",
+      prompt: buildTrendingResearchPrompt({
+        trendingDate: trendingDateIso,
+        articles,
+      }),
+      maxOutputTokens: 1200,
+      stopWhen: stepCountIs(3),
+      toolChoice: "required",
+      tools: {
+        news_search: gateway.tools.perplexitySearch({
+          searchRecencyFilter: "week",
+          searchLanguageFilter: ["en"],
+          maxResults: 8,
+          maxTokensPerPage: 1024,
+        }),
+      },
+      providerOptions: {
+        gateway: {
+          models: [fallbackModel],
+          user: "public-trending-brief",
+          tags: ["trending-brief", "daily-audio"],
+        } satisfies GatewayLanguageModelOptions,
+      },
     });
 
-    try {
-      const researchResult = await generateText({
-        model,
-        system:
-          "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use web search to gather recent reporting about why topics are trending.",
-        prompt: buildTrendingResearchPrompt({
+    if (researchResult.toolResults.length === 0) {
+      throw new Error("Trending brief research did not return any search results");
+    }
+
+    const researchContext = [
+      researchResult.text.trim(),
+      ...researchResult.toolResults.map((toolResult) =>
+        JSON.stringify(toolResult.output),
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const writingResult = await generateText({
+      model,
+      system:
+        "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using recent reporting, not speculation. Return only valid JSON.",
+      prompt: [
+        buildTrendingBriefPrompt({
           trendingDate: trendingDateIso,
           articles,
         }),
-        maxOutputTokens: 1200,
-        stopWhen: stepCountIs(3),
-        toolChoice: "required",
-        tools: {
-          news_search: gateway.tools.perplexitySearch({
-            searchRecencyFilter: "week",
-            searchLanguageFilter: ["en"],
-            maxResults: 8,
-            maxTokensPerPage: 1024,
-          }),
-        },
-        providerOptions: {
-          gateway: {
-            models: [fallbackModel],
-            user: "public-trending-brief",
-            tags: ["trending-brief", "daily-audio"],
-          } satisfies GatewayLanguageModelOptions,
-        },
-      });
+        "",
+        "Research context from recent news search:",
+        researchContext,
+      ].join("\n"),
+      maxOutputTokens: 1400,
+      providerOptions: {
+        gateway: {
+          models: [fallbackModel],
+          user: "public-trending-brief",
+          tags: ["trending-brief", "daily-audio"],
+        } satisfies GatewayLanguageModelOptions,
+      },
+    });
 
-      if (researchResult.toolResults.length === 0) {
-        throw new Error("Trending brief research did not return any search results");
-      }
+    if (!writingResult.text.trim()) {
+      throw new Error("Trending brief writing pass returned empty text");
+    }
 
-      const researchContext = [
-        researchResult.text.trim(),
-        ...researchResult.toolResults.map((toolResult) =>
-          JSON.stringify(toolResult.output),
-        ),
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+    const brief = normalizeTrendingBrief(
+      parseGeneratedTrendingBrief(writingResult.text),
+    );
+    const audioBlob = await generateTtsAudio(
+      { text: brief.spokenSummary },
+      { apiBaseUrl: baseUrl },
+    );
+    const artwork = await renderTrendingPodcastArtworkPng({
+      trendingDate: trendingDateIso,
+      headline: brief.headline,
+      articleTitles: articles.map((article) => article.title),
+      imageUrls,
+    });
+    const taggedAudioBlob = await addMp3MetadataToBlob(audioBlob, {
+      title: brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
+      artist: "Curio Garden",
+      album: TRENDING_PODCAST_TITLE,
+      artwork,
+    });
+    const uploadUrl = await fetchMutation(anyApi.trending.generateUploadUrl, {});
+    const storageId = await uploadBlobToConvexStorage(uploadUrl, taggedAudioBlob);
 
-      const writingResult = await generateText({
-        model,
-        system:
-          "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using recent reporting, not speculation. Return only valid JSON.",
-        prompt: [
-          buildTrendingBriefPrompt({
-            trendingDate: trendingDateIso,
-            articles,
-          }),
-          "",
-          "Research context from recent news search:",
-          researchContext,
-        ].join("\n"),
-        maxOutputTokens: 1400,
-        providerOptions: {
-          gateway: {
-            models: [fallbackModel],
-            user: "public-trending-brief",
-            tags: ["trending-brief", "daily-audio"],
-          } satisfies GatewayLanguageModelOptions,
-        },
-      });
+    await fetchMutation(anyApi.trending.saveTrendingBrief, {
+      trendingDate: trendingDateIso,
+      status: "ready",
+      headline: brief.headline,
+      summary: brief.summary,
+      podcastDescription: brief.podcastDescription,
+      spokenSummary: brief.spokenSummary,
+      keyPoints: brief.keyPoints,
+      articleTitles: articles.map((article) => article.title),
+      imageUrls,
+      sources: brief.sources,
+      storageId,
+      durationSeconds: estimateDurationSeconds(brief.spokenSummary),
+      byteLength: taggedAudioBlob.size,
+      model,
+    });
 
-      if (!writingResult.text.trim()) {
-        throw new Error("Trending brief writing pass returned empty text");
-      }
+    const saved = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
+      trendingDate: trendingDateIso,
+    })) as TrendingBriefRecord | null;
 
-      const brief = normalizeTrendingBrief(
-        parseGeneratedTrendingBrief(writingResult.text),
-      );
-      const audioBlob = await generateTtsAudio(
-        { text: brief.spokenSummary },
-        { apiBaseUrl: baseUrl },
-      );
-      const uploadUrl = await fetchMutation(anyApi.trending.generateUploadUrl, {});
-      const storageId = await uploadBlobToConvexStorage(uploadUrl, audioBlob);
+    if (!saved || saved.status !== "ready" || !saved.audioUrl) {
+      throw new Error("Trending brief was saved but could not be reloaded");
+    }
 
-      await fetchMutation(anyApi.trending.saveTrendingBrief, {
-        trendingDate: trendingDateIso,
-        status: "ready",
-        headline: brief.headline,
-        summary: brief.summary,
-        spokenSummary: brief.spokenSummary,
-        keyPoints: brief.keyPoints,
-        articleTitles: articles.map((article) => article.title),
-        sources: brief.sources,
-        storageId,
-        durationSeconds: estimateDurationSeconds(brief.spokenSummary),
-        byteLength: audioBlob.size,
-        model,
-      });
-
-      const saved = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
-        trendingDate: trendingDateIso,
-      })) as TrendingBriefRecord | null;
-
-      if (!saved || saved.status !== "ready" || !saved.audioUrl) {
-        throw new Error("Trending brief was saved but could not be reloaded");
-      }
-
-      return saved;
-    } catch (error) {
+    return {
+      status: "created",
+      brief: saved,
+    };
+  } catch (error) {
+    if (!existingReadyBrief) {
       await fetchMutation(anyApi.trending.saveTrendingBrief, {
         trendingDate: trendingDateIso,
         status: "failed",
         articleTitles: articles.map((article) => article.title),
+        imageUrls,
         lastError:
           error instanceof Error
             ? error.message
             : "Trending brief generation failed",
       });
-      throw error;
     }
-  })().finally(() => {
+    throw error;
+  }
+};
+
+export const syncDailyTrendingBrief = async ({
+  baseUrl,
+  force = false,
+}: {
+  baseUrl: string;
+  force?: boolean;
+}): Promise<TrendingBriefSyncResult> => {
+  const { trendingDateIso, articles } = await getSafeTrendingArticles();
+
+  if (articles.length === 0) {
+    throw new Error("No safe trending articles available for the daily brief");
+  }
+
+  const existing = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
+    trendingDate: trendingDateIso,
+  })) as TrendingBriefRecord | null;
+  const existingReadyBrief =
+    existing?.status === "ready" && existing.audioUrl ? existing : null;
+
+  if (!force && existingReadyBrief) {
+    return {
+      status: "already_exists",
+      brief: existingReadyBrief,
+    };
+  }
+
+  const inFlight = inFlightTrendingBriefs.get(trendingDateIso);
+  if (inFlight) {
+    return inFlight;
+  }
+  const generationPromise = generateTrendingBriefRecord({
+    baseUrl,
+    force,
+  }).finally(() => {
     inFlightTrendingBriefs.delete(trendingDateIso);
   });
 
   inFlightTrendingBriefs.set(trendingDateIso, generationPromise);
   return generationPromise;
+};
+
+export const getDailyTrendingBrief = async ({
+  baseUrl,
+}: {
+  baseUrl: string;
+}): Promise<TrendingBriefRecord> => {
+  const result = await syncDailyTrendingBrief({ baseUrl });
+  return result.brief;
 };

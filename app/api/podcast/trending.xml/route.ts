@@ -3,17 +3,18 @@ import { fetchQuery } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
-  FEATURED_PODCAST_DESCRIPTION,
-  FEATURED_PODCAST_SUBTITLE,
-  FEATURED_PODCAST_TITLE,
-  getPodcastArtworkUrl,
-  getPodcastDescription,
+  TRENDING_PODCAST_DESCRIPTION,
+  TRENDING_PODCAST_SUBTITLE,
+  TRENDING_PODCAST_TITLE,
+  getTrendingPodcastArtworkUrl,
+  getPodcastExcerpt,
   getPodcastSiteUrl,
 } from "@/lib/podcast-feed";
 import {
   ATOM_NS,
   PODCAST_NS,
   escapeXml,
+  formatPodcastDateIso,
   formatPodcastDuration,
   xmlTag,
 } from "@/lib/podcast-rss";
@@ -21,42 +22,57 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type FeaturedPodcastEpisode = Doc<"featuredPodcastEpisodes"> & {
+type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
   audioUrl: string | null;
+  imageUrls?: string[];
 };
+
+const formatTrendingDateTitle = (dateIso: string): string =>
+  new Date(`${dateIso}T00:00:00.000Z`).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 
 export const GET = async (req: NextRequest) => {
   try {
     const siteUrl = getPodcastSiteUrl(req.nextUrl.origin);
-    const feedUrl = `${siteUrl}/api/podcast/featured.xml`;
-    const articleBaseUrl = `${siteUrl}/article`;
-    const feedImageUrl = getPodcastArtworkUrl(siteUrl);
+    const feedUrl = `${siteUrl}/api/podcast/trending.xml`;
+    const feedImageUrl = getTrendingPodcastArtworkUrl(siteUrl);
+    const trendingPageUrl = `${siteUrl}/trending`;
 
-    const episodes = (await fetchQuery(anyApi.podcast.getRecentFeaturedEpisodes, {
+    const episodes = (await fetchQuery(anyApi.trending.getRecentTrendingBriefs, {
       status: "ready",
       limit: 50,
-    })) as FeaturedPodcastEpisode[];
+    })) as TrendingPodcastEpisode[];
 
-    const lastBuildDate = new Date(
-      episodes[0]?.updatedAt ?? Date.now(),
-    ).toUTCString();
+    const lastBuildDate =
+      formatPodcastDateIso(episodes[0]?.trendingDate) || new Date().toUTCString();
 
     const itemsXml = episodes
       .map((episode) => {
-        const mediaUrl = `${siteUrl}/api/podcast/media/${episode._id}`;
-        const articleUrl = `${articleBaseUrl}/${encodeURIComponent(episode.slug)}`;
-        const pubDate = new Date(episode.publishedAt).toUTCString();
+        const mediaUrl = `${siteUrl}/api/podcast/media/trending/${episode._id}`;
+        const pubDate =
+          formatPodcastDateIso(episode.trendingDate) ||
+          new Date(episode.updatedAt).toUTCString();
         const duration = formatPodcastDuration(episode.durationSeconds);
-        const guid = `${siteUrl}/podcast/featured/${episode._id}`;
-        const summary = getPodcastDescription(episode.description);
+        const guid = `${siteUrl}/podcast/trending/${episode._id}`;
+        const title =
+          episode.headline?.trim() ||
+          `Wikipedia Trending Brief: ${formatTrendingDateTitle(episode.trendingDate)}`;
+        const summary = getPodcastExcerpt(
+          episode.podcastDescription || episode.summary || episode.spokenSummary,
+        );
+        const itemImageUrl = getTrendingPodcastArtworkUrl(siteUrl, episode._id);
         const enclosureLength =
           episode.byteLength != null ? ` length="${episode.byteLength}"` : "";
 
         return `
   <item>
-    <title>${escapeXml(episode.title)}</title>
+    <title>${escapeXml(title)}</title>
     <description>${escapeXml(summary)}</description>
-    <link>${escapeXml(articleUrl)}</link>
+    <link>${escapeXml(trendingPageUrl)}</link>
     <guid isPermaLink="false">${escapeXml(guid)}</guid>
     <pubDate>${escapeXml(pubDate)}</pubDate>
     <enclosure url="${escapeXml(mediaUrl)}" type="audio/mpeg"${enclosureLength} />
@@ -65,7 +81,7 @@ export const GET = async (req: NextRequest) => {
     ${xmlTag("itunes:summary", summary)}
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
-    ${episode.imageUrl ? `<itunes:image href="${escapeXml(episode.imageUrl)}" />` : ""}
+    <itunes:image href="${escapeXml(itemImageUrl)}" />
   </item>`.trim();
       })
       .join("\n");
@@ -73,23 +89,23 @@ export const GET = async (req: NextRequest) => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}">
 <channel>
-  <title>${escapeXml(FEATURED_PODCAST_TITLE)}</title>
+  <title>${escapeXml(TRENDING_PODCAST_TITLE)}</title>
   <link>${escapeXml(siteUrl)}</link>
-  <description>${escapeXml(FEATURED_PODCAST_DESCRIPTION)}</description>
+  <description>${escapeXml(TRENDING_PODCAST_DESCRIPTION)}</description>
   <language>en-us</language>
   <lastBuildDate>${escapeXml(lastBuildDate)}</lastBuildDate>
   <image>
     <url>${escapeXml(feedImageUrl)}</url>
-    <title>${escapeXml(FEATURED_PODCAST_TITLE)}</title>
+    <title>${escapeXml(TRENDING_PODCAST_TITLE)}</title>
     <link>${escapeXml(siteUrl)}</link>
   </image>
   <atom:link href="${escapeXml(feedUrl)}" rel="self" type="application/rss+xml" />
   <itunes:author>Curio Garden</itunes:author>
-  <itunes:subtitle>${escapeXml(FEATURED_PODCAST_SUBTITLE)}</itunes:subtitle>
-  <itunes:summary>${escapeXml(FEATURED_PODCAST_DESCRIPTION)}</itunes:summary>
+  <itunes:subtitle>${escapeXml(TRENDING_PODCAST_SUBTITLE)}</itunes:subtitle>
+  <itunes:summary>${escapeXml(TRENDING_PODCAST_DESCRIPTION)}</itunes:summary>
   <itunes:explicit>false</itunes:explicit>
   <itunes:type>episodic</itunes:type>
-  <itunes:category text="Education" />
+  <itunes:category text="News" />
   <itunes:image href="${escapeXml(feedImageUrl)}" />
 ${itemsXml}
 </channel>
@@ -108,7 +124,7 @@ ${itemsXml}
         error:
           error instanceof Error
             ? error.message
-            : "Failed to generate featured podcast feed",
+            : "Failed to generate trending podcast feed",
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );

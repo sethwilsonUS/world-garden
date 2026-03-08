@@ -40,6 +40,39 @@ export const getTrendingBriefByDate = query({
   },
 });
 
+export const getTrendingBriefById = query({
+  args: {
+    briefId: v.id("trendingBriefs"),
+  },
+  async handler(ctx, args) {
+    const record = await ctx.db.get(args.briefId);
+    return record ? await withStorageUrl(ctx, record) : null;
+  },
+});
+
+export const getRecentTrendingBriefs = query({
+  args: {
+    limit: v.optional(v.number()),
+    status: v.optional(trendingBriefStatus),
+  },
+  async handler(ctx, args) {
+    const limit = Math.max(1, Math.min(args.limit ?? 20, 100));
+    const records = await ctx.db.query("trendingBriefs").collect();
+
+    const filtered = records
+      .filter((record) => (args.status ? record.status === args.status : true))
+      .sort((a, b) => {
+        if (a.trendingDate === b.trendingDate) {
+          return b.updatedAt - a.updatedAt;
+        }
+        return b.trendingDate.localeCompare(a.trendingDate);
+      })
+      .slice(0, limit);
+
+    return await Promise.all(filtered.map((record) => withStorageUrl(ctx, record)));
+  },
+});
+
 export const generateUploadUrl = mutation({
   async handler(ctx) {
     return await ctx.storage.generateUploadUrl();
@@ -52,9 +85,11 @@ export const saveTrendingBrief = mutation({
     status: trendingBriefStatus,
     headline: v.optional(v.string()),
     summary: v.optional(v.string()),
+    podcastDescription: v.optional(v.string()),
     spokenSummary: v.optional(v.string()),
     keyPoints: v.optional(v.array(v.string())),
     articleTitles: v.optional(v.array(v.string())),
+    imageUrls: v.optional(v.array(v.string())),
     sources: v.optional(
       v.array(
         v.object({
@@ -82,9 +117,11 @@ export const saveTrendingBrief = mutation({
         status: args.status,
         headline: args.headline,
         summary: args.summary,
+        podcastDescription: args.podcastDescription,
         spokenSummary: args.spokenSummary,
         keyPoints: args.keyPoints,
         articleTitles: args.articleTitles,
+        imageUrls: args.imageUrls,
         sources: args.sources,
         storageId: args.storageId,
         durationSeconds: args.durationSeconds,
@@ -101,9 +138,11 @@ export const saveTrendingBrief = mutation({
       status: args.status,
       headline: args.headline,
       summary: args.summary,
+      podcastDescription: args.podcastDescription,
       spokenSummary: args.spokenSummary,
       keyPoints: args.keyPoints,
       articleTitles: args.articleTitles,
+      imageUrls: args.imageUrls,
       sources: args.sources,
       storageId: args.storageId,
       durationSeconds: args.durationSeconds,

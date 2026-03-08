@@ -10,11 +10,36 @@ export const getPodcastDescription = (text: string | null | undefined): string =
   return normalized ?? text.trim();
 };
 
+export const getPodcastExcerpt = (
+  text: string | null | undefined,
+  maxLength = 220,
+): string => {
+  const description = getPodcastDescription(text);
+  if (!description) return "";
+  if (description.length <= maxLength) return description;
+
+  const sentenceMatch = description.match(/^(.+?[.!?])(\s|$)/);
+  const firstSentence = sentenceMatch?.[1]?.trim();
+  if (firstSentence && firstSentence.length <= maxLength) {
+    return firstSentence;
+  }
+
+  return `${description.slice(0, maxLength - 1).trimEnd()}…`;
+};
+
 export const getPodcastSiteUrl = (fallbackOrigin?: string): string =>
   (process.env.NEXT_PUBLIC_SITE_URL || fallbackOrigin || "http://localhost:3000").replace(/\/$/, "");
 
 export const getPodcastArtworkUrl = (fallbackOrigin?: string): string =>
   `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork`;
+
+export const getTrendingPodcastArtworkUrl = (
+  fallbackOrigin?: string,
+  briefId?: string,
+): string =>
+  briefId
+    ? `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork/${briefId}`
+    : `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork`;
 
 export const FEATURED_PODCAST_TITLE =
   "Wikipedia Featured Articles Presented by Curio Garden";
@@ -24,3 +49,12 @@ export const FEATURED_PODCAST_SUBTITLE =
 
 export const FEATURED_PODCAST_DESCRIPTION =
   "Daily audio editions of Wikipedia's featured article, presented by Curio Garden. Article content is sourced from Wikipedia and available under CC BY-SA 4.0. Wikipedia is a trademark of the Wikimedia Foundation.";
+
+export const TRENDING_PODCAST_TITLE =
+  "Wikipedia Trending Brief Presented by Curio Garden";
+
+export const TRENDING_PODCAST_SUBTITLE =
+  "A daily audio briefing on what is trending across Wikipedia and why.";
+
+export const TRENDING_PODCAST_DESCRIPTION =
+  "A daily audio briefing on what is trending across Wikipedia and why, presented by Curio Garden. Wikipedia topic lists are sourced from Wikimedia's public feeds, and linked reporting is summarized to explain likely trend drivers.";
