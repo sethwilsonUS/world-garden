@@ -14,7 +14,9 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Audio playback** — Listen to any Wikipedia article section by section. Play a single section, or hit Play All for the full lean-back experience with automatic progression. Adjustable speed from 0.5× to 3×, with your preference saved between sessions. Resume from where you left off when you return to an article. Download full articles as MP3 for offline listening.
 
-**Audio** — Powered by Edge TTS with Microsoft's neural voices — free, high-quality audio with full seek, scrub, and download support. Generated audio is cached in Convex so each section only needs to be synthesized once.
+**Audio** — Powered by Edge TTS with Microsoft's neural voices — free, high-quality audio with full seek, scrub, and download support. Generated audio is cached in Convex so each section only needs to be synthesized once. Long sections are chunked before synthesis to stay within Edge TTS limits while keeping startup latency low.
+
+**Podcast feed** — Curio Garden publishes a public RSS podcast feed for Wikipedia's featured articles. Each episode is generated as a full-article MP3, stored in Convex, exposed through stable enclosure URLs, and ready for podcast apps to subscribe to.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
@@ -42,6 +44,8 @@ Text is normalized before synthesis — stripping citation markers and expanding
 **Edge TTS** provides free, high-quality neural voices from Microsoft via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Runs as a local Python process during development and as a Vercel Python serverless function in production. Default voice is `en-US-AriaNeural`. Produces MP3s with full seek, scrub, and download support. On Vercel, this works out of the box. For local development, see [Local Audio Setup](#local-audio-setup) below.
 
 Generated audio is cached per-section in Convex file storage so each section is only synthesized once. Subsequent plays (by any user) are served directly from the cache.
+
+Featured podcast episodes reuse that same section cache where possible, then concatenate the article into one stored MP3 for RSS delivery. A Vercel cron route can generate the latest featured episode on a schedule.
 
 > **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
@@ -128,9 +132,27 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
+| `CRON_SECRET` | No | Bearer token expected by the scheduled featured-podcast cron route |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
+
+## Featured Podcast Feed
+
+Curio Garden can publish a public RSS feed of Wikipedia featured articles at `/api/podcast/featured.xml`.
+
+- The feed metadata makes it explicit that the article content comes from Wikipedia and is available under `CC BY-SA 4.0`.
+- Each episode points at a stable enclosure URL under `/api/podcast/media/[episodeId]`, which redirects to the stored MP3 in Convex.
+- `POST /api/podcast/featured/sync` is a manual trigger for generating the latest featured episode and is protected by `CRON_SECRET`.
+- `GET /api/podcast/featured/cron` is the scheduled trigger used by Vercel cron and is protected by `CRON_SECRET`.
+
+To enable scheduled generation in production:
+
+1. Set `CRON_SECRET` in Vercel project environment variables.
+2. Deploy the app.
+3. Vercel will call `/api/podcast/featured/cron` using the schedule in `vercel.json`.
+
+The default schedule is `30 4 * * *`, which means `04:30 UTC` every day.
 
 ## Development Scripts
 
@@ -155,8 +177,14 @@ app/
   search/page.tsx         Search results page
   article/[slug]/page.tsx Article view with audio playback
   library/page.tsx        Saved reading list
+  podcast/page.tsx        Public podcast feed page with feed URL and recent episodes
   globals.css             Design system tokens, utilities, and component styles
   api/tts/route.ts        Edge TTS API route (local dev — shells out to Python)
+  api/featured/route.ts   Featured article API route
+  api/podcast/featured.xml/route.ts  RSS feed for featured podcast episodes
+  api/podcast/featured/sync/route.ts Manual featured-episode generation trigger
+  api/podcast/featured/cron/route.ts Scheduled featured-episode generation trigger
+  api/podcast/media/[episodeId]/route.ts Stable podcast media URL
 
 _python/
   tts.py                 Edge TTS serverless function (Vercel production)
@@ -168,6 +196,9 @@ lib/
   convex-data-provider.tsx  Convex implementation (wraps useAction hooks)
   local-data-provider.tsx   Local implementation (direct Wikipedia API calls)
   audio-prefetch.ts       Prefetches summary audio and article thumbnails
+  featured-article.ts     Shared featured-article lookup helpers
+  podcast-episode.ts      Server-side featured podcast generation pipeline
+  podcast-feed.ts         Shared RSS metadata and podcast description helpers
   tts-normalize.ts        Text normalization for TTS (abbreviation expansion)
   nsfw-filter.ts          Shared NSFW category/keyword filter and batch title check
   formatTime.ts           Duration formatting helpers
@@ -200,10 +231,11 @@ hooks/
   useAudioElement.ts      Shared HTML audio element management
 
 convex/
-  schema.ts              Database schema (articles, sectionAudio, caches)
+  schema.ts              Database schema (articles, sectionAudio, podcast episodes/jobs)
   search.ts              Wikipedia search action
   articles.ts            Article query, upsert mutation, fetch-and-cache action
   audio.ts               Section audio caching (query, upload, save)
+  podcast.ts             Featured podcast queries, mutations, and upload helpers
   lib/
     wikipedia.ts         Wikipedia REST/Action API client (also used by local mode)
 
@@ -216,6 +248,15 @@ public/
   sw.js                  Service worker (cache-first for assets, network-first for APIs)
   icon.svg               App icon
 ```
+
+## Data Model
+
+Primary Convex tables:
+
+- `articles` stores cached Wikipedia article data used across search, article views, and podcast generation.
+- `sectionAudio` stores per-section audio blobs keyed by article, section key, and TTS normalization version.
+- `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
+- `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
 
 ## Accessibility
 

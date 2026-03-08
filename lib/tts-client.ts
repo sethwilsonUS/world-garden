@@ -10,8 +10,15 @@ type TtsErrorBody = {
   error?: string;
 };
 
+type TtsClientOptions = {
+  apiBaseUrl?: string;
+};
+
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
+
+const resolveTtsApiRoute = (apiBaseUrl?: string): string =>
+  apiBaseUrl ? new URL(TTS_API_ROUTE, apiBaseUrl).toString() : TTS_API_ROUTE;
 
 const splitIntoParagraphs = (text: string): string[] =>
   text
@@ -114,8 +121,8 @@ export const splitTtsTextIntoChunks = (
 const fetchSingleTtsAudio = async ({
   text,
   voiceId,
-}: TtsRequest): Promise<Blob> => {
-  const resp = await fetch(TTS_API_ROUTE, {
+}: TtsRequest, options?: TtsClientOptions): Promise<Blob> => {
+  const resp = await fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -135,7 +142,7 @@ const fetchSingleTtsAudio = async ({
 export const generateTtsAudio = async ({
   text,
   voiceId,
-}: TtsRequest): Promise<Blob> => {
+}: TtsRequest, options?: TtsClientOptions): Promise<Blob> => {
   const chunks = splitTtsTextIntoChunks(text);
   const joinedText = chunks.join(" ");
 
@@ -145,7 +152,9 @@ export const generateTtsAudio = async ({
 
   const audioChunks: Blob[] = [];
   for (const chunk of chunks) {
-    audioChunks.push(await fetchSingleTtsAudio({ text: chunk, voiceId }));
+    audioChunks.push(
+      await fetchSingleTtsAudio({ text: chunk, voiceId }, options),
+    );
   }
 
   if (audioChunks.length === 1) {
@@ -157,4 +166,5 @@ export const generateTtsAudio = async ({
 
 export const generateTtsAudioUrl = async (
   request: TtsRequest,
-): Promise<string> => URL.createObjectURL(await generateTtsAudio(request));
+  options?: TtsClientOptions,
+): Promise<string> => URL.createObjectURL(await generateTtsAudio(request, options));

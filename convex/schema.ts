@@ -1,6 +1,19 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const featuredPodcastEpisodeStatus = v.union(
+  v.literal("pending"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
+const featuredPodcastJobStatus = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
 export default defineSchema({
   articles: defineTable({
     wikiPageId: v.string(),
@@ -90,4 +103,36 @@ export default defineSchema({
     ),
     cachedAt: v.number(),
   }).index("by_wikiPageId_section", ["wikiPageId", "sectionTitle"]),
+
+  featuredPodcastEpisodes: defineTable({
+    featuredDate: v.string(),
+    articleId: v.id("articles"),
+    wikiPageId: v.string(),
+    slug: v.string(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    durationSeconds: v.optional(v.number()),
+    byteLength: v.optional(v.number()),
+    ttsNormVersion: v.string(),
+    status: featuredPodcastEpisodeStatus,
+    publishedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_featuredDate", ["featuredDate"])
+    .index("by_publishedAt", ["publishedAt"]),
+
+  featuredPodcastJobs: defineTable({
+    featuredDate: v.string(),
+    articleId: v.optional(v.id("articles")),
+    status: featuredPodcastJobStatus,
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_featuredDate", ["featuredDate"])
+    .index("by_status", ["status"]),
 });
