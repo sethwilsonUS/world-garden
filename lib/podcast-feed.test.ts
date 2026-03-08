@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   getPodcastArtworkUrl,
   getPodcastDescription,
+  getPodcastExcerpt,
   getPodcastSiteUrl,
+  getTrendingPodcastArtworkUrl,
 } from "./podcast-feed";
 
 describe("getPodcastDescription", () => {
@@ -21,6 +23,27 @@ describe("getPodcastDescription", () => {
   it("returns an empty string for empty input", () => {
     expect(getPodcastDescription("")).toBe("");
     expect(getPodcastDescription(null)).toBe("");
+  });
+});
+
+describe("getPodcastExcerpt", () => {
+  it("returns the first sentence when the paragraph is long", () => {
+    expect(
+      getPodcastExcerpt(
+        "First sentence is compact. Second sentence keeps going with extra detail that should not be needed in a short podcast description.",
+        80,
+      ),
+    ).toBe("First sentence is compact.");
+  });
+
+  it("truncates long text without a short first sentence", () => {
+    const excerpt = getPodcastExcerpt(
+      "This is a very long sentence without an early stop that keeps going and going until it needs to be clipped for display in a compact UI.",
+      70,
+    );
+
+    expect(excerpt.endsWith("…")).toBe(true);
+    expect(excerpt.length).toBeLessThanOrEqual(70);
   });
 });
 
@@ -46,6 +69,22 @@ describe("getPodcastArtworkUrl", () => {
   it("builds a stable absolute artwork URL", () => {
     expect(getPodcastArtworkUrl("https://curiogarden.org/")).toBe(
       "https://curiogarden.org/api/podcast/artwork",
+    );
+  });
+});
+
+describe("getTrendingPodcastArtworkUrl", () => {
+  it("builds the latest trending artwork URL", () => {
+    expect(getTrendingPodcastArtworkUrl("https://curiogarden.org/")).toBe(
+      "https://curiogarden.org/api/podcast/trending/artwork",
+    );
+  });
+
+  it("builds an episode-specific trending artwork URL", () => {
+    expect(
+      getTrendingPodcastArtworkUrl("https://curiogarden.org/", "brief123"),
+    ).toBe(
+      "https://curiogarden.org/api/podcast/trending/artwork/brief123",
     );
   });
 });

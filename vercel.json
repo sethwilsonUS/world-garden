@@ -4,7 +4,8 @@
     { "src": "_python/tts.py", "use": "@vercel/python" }
   ],
   "crons": [
-    { "path": "/api/podcast/featured/cron", "schedule": "30 4 * * *" }
+    { "path": "/api/podcast/featured/cron", "schedule": "30 4 * * *" },
+    { "path": "/api/podcast/trending/cron", "schedule": "45 4 * * *" }
   ],
   "routes": [
     { "src": "/api/tts", "dest": "_python/tts.py" }

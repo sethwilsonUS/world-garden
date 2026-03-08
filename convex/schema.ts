@@ -147,9 +147,11 @@ export default defineSchema({
     status: trendingBriefStatus,
     headline: v.optional(v.string()),
     summary: v.optional(v.string()),
+    podcastDescription: v.optional(v.string()),
     spokenSummary: v.optional(v.string()),
     keyPoints: v.optional(v.array(v.string())),
     articleTitles: v.optional(v.array(v.string())),
+    imageUrls: v.optional(v.array(v.string())),
     sources: v.optional(
       v.array(
         v.object({
