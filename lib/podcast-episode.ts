@@ -4,14 +4,25 @@ import { api } from "@/convex/_generated/api";
 import { type Doc, type Id } from "@/convex/_generated/dataModel";
 import type { FetchAndCacheResult } from "@/convex/articles";
 import { titleToSlug } from "@/convex/lib/wikipedia";
+import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import { fetchCurrentFeaturedArticle } from "@/lib/featured-article";
-import { getPodcastDescription } from "@/lib/podcast-feed";
+import {
+  FEATURED_PODCAST_TITLE,
+  getPodcastArtworkUrl,
+  getPodcastDescription,
+} from "@/lib/podcast-feed";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudio } from "@/lib/tts-client";
 
 const MIN_TTS_TEXT_LENGTH = 10;
 const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
+const MAX_EMBEDDED_ARTWORK_BYTES = 5 * 1024 * 1024;
+const SUPPORTED_ARTWORK_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+]);
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
@@ -103,6 +114,78 @@ const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
     throw new Error(`Fetching cached audio failed: ${response.status}`);
   }
   return await response.blob();
+};
+
+const normalizeArtworkMimeType = (value: string | null): string | null => {
+  if (!value) return null;
+  const mimeType = value.split(";")[0]?.trim().toLowerCase();
+  if (!mimeType) return null;
+  if (mimeType === "image/jpg") return "image/jpeg";
+  return mimeType;
+};
+
+const fetchEmbeddedArtwork = async (
+  url: string,
+): Promise<{ data: Uint8Array; mimeType: string } | null> => {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Artwork fetch failed: ${response.status}`);
+  }
+
+  const mimeType = normalizeArtworkMimeType(response.headers.get("content-type"));
+  if (!mimeType || !SUPPORTED_ARTWORK_MIME_TYPES.has(mimeType)) {
+    throw new Error(`Unsupported artwork content type: ${mimeType ?? "unknown"}`);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length === 0) {
+    throw new Error("Artwork fetch returned an empty file");
+  }
+  if (bytes.length > MAX_EMBEDDED_ARTWORK_BYTES) {
+    throw new Error(`Artwork exceeds ${MAX_EMBEDDED_ARTWORK_BYTES} byte limit`);
+  }
+
+  return { data: bytes, mimeType };
+};
+
+const tagPodcastEpisodeAudio = async ({
+  audioBlob,
+  baseUrl,
+  title,
+  artworkUrl,
+}: {
+  audioBlob: Blob;
+  baseUrl: string;
+  title: string;
+  artworkUrl?: string | null;
+}): Promise<Blob> => {
+  const artworkCandidates = [
+    artworkUrl ?? null,
+    getPodcastArtworkUrl(baseUrl),
+  ].filter((value): value is string => Boolean(value));
+
+  let artwork:
+    | {
+        data: Uint8Array;
+        mimeType: string;
+      }
+    | null = null;
+
+  for (const candidate of artworkCandidates) {
+    try {
+      artwork = await fetchEmbeddedArtwork(candidate);
+      if (artwork) break;
+    } catch {
+      artwork = null;
+    }
+  }
+
+  return await addMp3MetadataToBlob(audioBlob, {
+    title,
+    artist: "Curio Garden",
+    album: FEATURED_PODCAST_TITLE,
+    artwork: artwork ?? undefined,
+  });
 };
 
 const getExistingEpisode = async (
@@ -256,8 +339,14 @@ export const syncFeaturedPodcastEpisode = async ({
     }
 
     const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
+    const taggedBlob = await tagPodcastEpisodeAudio({
+      audioBlob: combinedBlob,
+      baseUrl,
+      title: article.title,
+      artworkUrl: article.thumbnailUrl,
+    });
     const uploadUrl = await fetchMutation(anyApi.podcast.generateUploadUrl, {});
-    const storageId = await uploadBlobToConvexStorage(uploadUrl, combinedBlob);
+    const storageId = await uploadBlobToConvexStorage(uploadUrl, taggedBlob);
 
     const episodeId = (await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
       featuredDate: feedDateIso,
@@ -269,7 +358,7 @@ export const syncFeaturedPodcastEpisode = async ({
       imageUrl: article.thumbnailUrl,
       storageId,
       durationSeconds: estimateDurationSeconds(sections.map((s) => s.text)),
-      byteLength: combinedBlob.size,
+      byteLength: taggedBlob.size,
       ttsNormVersion: TTS_NORM_VERSION,
       status: "ready",
       publishedAt,
