@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CopyFeedButton } from "@/components/CopyFeedButton";
+import { PodcastFeedActions } from "@/components/PodcastFeedActions";
 import { PodcastEpisodeArtwork } from "@/components/PodcastEpisodeArtwork";
 import {
   PODCAST_DIRECTORY,
@@ -62,12 +62,13 @@ const PodcastOverviewCard = ({
       <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-3">
         Feed URL
       </p>
-      <div className="flex items-start gap-3">
-        <code className="flex-1 overflow-x-auto rounded-xl bg-surface-2 border border-border px-4 py-3 text-sm text-foreground">
-          {feedUrl}
-        </code>
-        <CopyFeedButton value={feedUrl} />
-      </div>
+      <code
+        aria-label={`${title} feed URL`}
+        className="block overflow-x-auto rounded-xl bg-surface-2 border border-border px-4 py-3 text-sm text-foreground"
+      >
+        {feedUrl}
+      </code>
+      <PodcastFeedActions feedUrl={feedUrl} feedTitle={title} />
       <p className="text-sm text-muted mt-3 leading-[1.6]">
         For local testing, generate the latest episode first with an authorized{" "}
         <code>{syncRoute}</code>, then subscribe using this RSS URL.
@@ -147,7 +148,11 @@ export default async function PodcastsPage() {
                 >
                   Recent featured article episodes
                 </h2>
-                <Link href="/podcasts/featured" className="text-sm text-accent no-underline">
+                <Link
+                  href="/podcasts/featured"
+                  className="text-sm text-accent no-underline"
+                  aria-label="View all featured article podcast episodes"
+                >
                   View all
                 </Link>
               </div>
@@ -166,12 +171,14 @@ export default async function PodcastsPage() {
                           <Link
                             href={`/article/${encodeURIComponent(episode.slug)}`}
                             className="btn-secondary text-sm no-underline"
+                            aria-label={`View the Wikipedia article for ${episode.title}`}
                           >
                             View article
                           </Link>
                           <a
                             href={`/api/podcast/media/${episode._id}`}
                             className="btn-primary text-sm no-underline"
+                            aria-label={`Open the podcast audio file for ${episode.title}`}
                           >
                             Audio URL
                           </a>
@@ -205,7 +212,11 @@ export default async function PodcastsPage() {
                 >
                   Recent trending brief episodes
                 </h2>
-                <Link href="/podcasts/trending" className="text-sm text-accent no-underline">
+                <Link
+                  href="/podcasts/trending"
+                  className="text-sm text-accent no-underline"
+                  aria-label="View all trending brief podcast episodes"
+                >
                   View all
                 </Link>
               </div>
@@ -225,12 +236,14 @@ export default async function PodcastsPage() {
                           <Link
                             href="/trending"
                             className="btn-secondary text-sm no-underline"
+                            aria-label={`Open the trending page for ${title}`}
                           >
                             Open trending
                           </Link>
                           <a
                             href={`/api/podcast/media/trending/${episode._id}`}
                             className="btn-primary text-sm no-underline"
+                            aria-label={`Open the podcast audio file for ${title}`}
                           >
                             Audio URL
                           </a>
