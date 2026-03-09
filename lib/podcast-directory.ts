@@ -9,7 +9,6 @@ import {
   getPodcastDescription,
   getPodcastExcerpt,
   getPodcastSiteUrl,
-  getTrendingPodcastArtworkUrl,
 } from "@/lib/podcast-feed";
 
 export type FeaturedPodcastEpisode = Doc<"featuredPodcastEpisodes"> & {
@@ -105,8 +104,7 @@ export const getTrendingEpisodeSummary = (episode: TrendingPodcastEpisode): stri
 
 export const getTrendingEpisodeArtworkUrl = (
   episode: TrendingPodcastEpisode,
-  origin?: string,
-): string => episode.artworkUrl ?? getTrendingPodcastArtworkUrl(origin, episode._id);
+): string | null => episode.artworkUrl ?? episode.imageUrls?.[0] ?? null;
 
 export const getFeaturedEpisodes = async (
   limit: number,

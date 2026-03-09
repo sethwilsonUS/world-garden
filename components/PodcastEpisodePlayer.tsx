@@ -8,12 +8,14 @@ type PodcastEpisodePlayerProps = {
   audioUrl: string;
   title: string;
   durationSeconds?: number;
+  className?: string;
 };
 
 export const PodcastEpisodePlayer = ({
   audioUrl,
   title,
   durationSeconds,
+  className = "",
 }: PodcastEpisodePlayerProps) => {
   const { rate, setRate } = usePlaybackRate();
   const { audioRef, playing, currentTime, duration, toggle } = useAudioElement({
@@ -26,8 +28,10 @@ export const PodcastEpisodePlayer = ({
     effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
 
   return (
-    <div className="mb-5 rounded-2xl border border-border bg-surface-2 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-3">
+    <div
+      className={`rounded-xl border border-border bg-surface px-3 py-2.5 sm:px-3.5 sm:py-3 ${className}`.trim()}
+    >
+      <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
         <button
           type="button"
           onClick={toggle}
@@ -54,10 +58,10 @@ export const PodcastEpisodePlayer = ({
         </button>
 
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-muted">
+          <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">
             Episode audio
           </p>
-          <p className="m-0 mt-1 truncate font-display text-sm font-semibold text-foreground">
+          <p className="m-0 mt-0.5 truncate font-display text-[0.92rem] font-semibold text-foreground">
             {title}
           </p>
         </div>
@@ -70,7 +74,7 @@ export const PodcastEpisodePlayer = ({
             setRate(rates[(currentIndex + 1) % rates.length]);
           }}
           aria-label={`Playback speed ${formatRate(rate)}. Click to change.`}
-          className={`min-w-[44px] rounded-lg border border-border px-2.5 py-2 font-mono text-xs font-bold leading-none ${
+          className={`min-w-[44px] rounded-lg border border-border px-2.5 py-2 font-mono text-[0.72rem] font-bold leading-none ${
             rate !== 1 ? "text-accent" : "text-muted"
           }`}
         >
@@ -78,7 +82,7 @@ export const PodcastEpisodePlayer = ({
         </button>
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-2.5 flex items-center gap-2.5 sm:gap-3">
         <div
           aria-hidden="true"
           className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3"
@@ -88,7 +92,7 @@ export const PodcastEpisodePlayer = ({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="font-mono text-[0.7rem] text-muted tabular-nums">
+        <span className="shrink-0 font-mono text-[0.68rem] text-muted tabular-nums">
           {formatTime(currentTime)} / {formatTime(effectiveDuration)}
         </span>
       </div>

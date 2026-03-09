@@ -90,13 +90,21 @@ describe("episode artwork urls", () => {
     ).toBe("https://cdn.example.com/featured.png");
   });
 
-  it("builds the trending episode artwork route", () => {
+  it("falls back to the first imageUrl when artworkUrl is missing", () => {
     expect(
-      getTrendingEpisodeArtworkUrl(
-        { _id: "brief123" } as Parameters<typeof getTrendingEpisodeArtworkUrl>[0],
-        "https://curiogarden.org",
-      ),
-    ).toBe("https://curiogarden.org/api/podcast/trending/artwork/brief123");
+      getTrendingEpisodeArtworkUrl({
+        _id: "brief123",
+        imageUrls: ["https://upload.wikimedia.org/thumb1.jpg"],
+      } as Parameters<typeof getTrendingEpisodeArtworkUrl>[0]),
+    ).toBe("https://upload.wikimedia.org/thumb1.jpg");
+  });
+
+  it("returns null when no artwork or images are available", () => {
+    expect(
+      getTrendingEpisodeArtworkUrl({
+        _id: "brief123",
+      } as Parameters<typeof getTrendingEpisodeArtworkUrl>[0]),
+    ).toBeNull();
   });
 
   it("prefers the stored trending artwork url when present", () => {
