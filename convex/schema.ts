@@ -20,6 +20,11 @@ const trendingBriefStatus = v.union(
   v.literal("failed"),
 );
 
+const podcastShowAssetSlug = v.union(
+  v.literal("featured"),
+  v.literal("trending"),
+);
+
 export default defineSchema({
   articles: defineTable({
     wikiPageId: v.string(),
@@ -56,7 +61,9 @@ export default defineSchema({
     voiceId: v.optional(v.string()),
     ttsModel: v.optional(v.string()),
     durationSeconds: v.optional(v.number()),
-  }).index("by_article_section", ["articleId", "sectionKey"]),
+  })
+    .index("by_article_section", ["articleId", "sectionKey"])
+    .index("by_article_section_tts", ["articleId", "sectionKey", "ttsNormVersion"]),
 
   articleParseCache: defineTable({
     wikiPageId: v.string(),
@@ -137,6 +144,8 @@ export default defineSchema({
     status: featuredPodcastJobStatus,
     attempts: v.number(),
     lastError: v.optional(v.string()),
+    leaseOwner: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -172,4 +181,25 @@ export default defineSchema({
   })
     .index("by_trendingDate", ["trendingDate"])
     .index("by_updatedAt", ["updatedAt"]),
+
+  trendingBriefJobs: defineTable({
+    trendingDate: v.string(),
+    status: featuredPodcastJobStatus,
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    leaseOwner: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_trendingDate", ["trendingDate"])
+    .index("by_status", ["status"]),
+
+  podcastShowAssets: defineTable({
+    slug: podcastShowAssetSlug,
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_slug", ["slug"]),
 });

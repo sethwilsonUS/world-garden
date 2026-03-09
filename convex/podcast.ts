@@ -15,6 +15,11 @@ const featuredPodcastJobStatus = v.union(
   v.literal("failed"),
 );
 
+const podcastShowAssetSlug = v.union(
+  v.literal("featured"),
+  v.literal("trending"),
+);
+
 const withStorageUrl = async <
   T extends {
     storageId?: Id<"_storage">;
@@ -91,9 +96,112 @@ export const getFeaturedEpisodeJobByDate = query({
   },
 });
 
+export const claimFeaturedEpisodeJob = mutation({
+  args: {
+    featuredDate: v.string(),
+    articleId: v.optional(v.id("articles")),
+    owner: v.string(),
+    leaseMs: v.number(),
+  },
+  async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("featuredPodcastJobs")
+      .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
+      .first();
+
+    const now = Date.now();
+    const leaseExpiresAt = now + Math.max(args.leaseMs, 1);
+
+    if (
+      existing &&
+      existing.status === "running" &&
+      existing.leaseOwner &&
+      existing.leaseOwner !== args.owner &&
+      (existing.leaseExpiresAt ?? 0) > now
+    ) {
+      return { claimed: false, attempts: existing.attempts };
+    }
+
+    const attempts = (existing?.attempts ?? 0) + 1;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        articleId: args.articleId,
+        status: "running",
+        attempts,
+        lastError: undefined,
+        leaseOwner: args.owner,
+        leaseExpiresAt,
+        updatedAt: now,
+      });
+      return { claimed: true, attempts };
+    }
+
+    await ctx.db.insert("featuredPodcastJobs", {
+      featuredDate: args.featuredDate,
+      articleId: args.articleId,
+      status: "running",
+      attempts,
+      lastError: undefined,
+      leaseOwner: args.owner,
+      leaseExpiresAt,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { claimed: true, attempts };
+  },
+});
+
 export const generateUploadUrl = mutation({
   async handler(ctx) {
     return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const getPodcastShowAsset = query({
+  args: {
+    slug: podcastShowAssetSlug,
+  },
+  async handler(ctx, args) {
+    const record = await ctx.db
+      .query("podcastShowAssets")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    return record ? await withStorageUrl(ctx, record) : null;
+  },
+});
+
+export const savePodcastShowAsset = mutation({
+  args: {
+    slug: podcastShowAssetSlug,
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+  },
+  async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("podcastShowAssets")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        storageId: args.storageId,
+        mimeType: args.mimeType,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("podcastShowAssets", {
+      slug: args.slug,
+      storageId: args.storageId,
+      mimeType: args.mimeType,
+      createdAt: now,
+      updatedAt: now,
+    });
   },
 });
 
@@ -197,5 +305,36 @@ export const upsertFeaturedEpisodeJob = mutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+export const finalizeFeaturedEpisodeJob = mutation({
+  args: {
+    featuredDate: v.string(),
+    articleId: v.optional(v.id("articles")),
+    owner: v.string(),
+    status: v.union(v.literal("ready"), v.literal("failed")),
+    lastError: v.optional(v.string()),
+  },
+  async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("featuredPodcastJobs")
+      .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
+      .first();
+
+    if (!existing || existing.leaseOwner !== args.owner) {
+      return { updated: false };
+    }
+
+    await ctx.db.patch(existing._id, {
+      articleId: args.articleId,
+      status: args.status,
+      lastError: args.lastError,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      updatedAt: Date.now(),
+    });
+
+    return { updated: true };
   },
 });
