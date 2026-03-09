@@ -1,8 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PodcastFeedActions } from "@/components/PodcastFeedActions";
-import { PodcastEpisodeArtwork } from "@/components/PodcastEpisodeArtwork";
-import { PodcastEpisodePlayer } from "@/components/PodcastEpisodePlayer";
+import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
   getAbsoluteFeedUrl,
   getPodcastDirectoryEntry,
@@ -199,49 +198,33 @@ export default async function PodcastsPage() {
                   const description = getFeaturedEpisodeSummary(episode);
                   return (
                     <li key={episode._id}>
-                      <div className="garden-bed p-5">
-                        <PodcastEpisodeArtwork
-                          src={getFeaturedEpisodeArtworkUrl(episode)}
-                          alt={`Artwork for ${episode.title}`}
-                        />
-                        {episode.audioUrl && (
-                          <PodcastEpisodePlayer
-                            audioUrl={episode.audioUrl}
-                            title={episode.title}
-                            durationSeconds={episode.durationSeconds}
-                          />
-                        )}
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          <Link
-                            href={`/article/${encodeURIComponent(episode.slug)}`}
-                            className="btn-secondary text-sm no-underline"
-                            aria-label={`View the Wikipedia article for ${episode.title}`}
-                          >
-                            View article
-                          </Link>
-                          <a
-                            href={`/api/podcast/media/${episode._id}`}
-                            className="btn-primary text-sm no-underline"
-                            aria-label={`Open the podcast audio file for ${episode.title}`}
-                          >
-                            Audio URL
-                          </a>
-                        </div>
-
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.14em] text-muted font-semibold mb-2">
-                            {formatPodcastDate(episode.publishedAt)}
-                          </p>
-                          <h3 className="font-display text-[1.08rem] font-semibold text-foreground leading-[1.25]">
-                            {episode.title}
-                          </h3>
-                          {description && (
-                            <p className="text-sm text-muted mt-2 leading-[1.7]">
-                              {description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                      <PodcastEpisodeCard
+                        artworkSrc={getFeaturedEpisodeArtworkUrl(episode)}
+                        artworkAlt={`Artwork for ${episode.title}`}
+                        audioUrl={episode.audioUrl}
+                        durationSeconds={episode.durationSeconds}
+                        title={episode.title}
+                        dateLabel={formatPodcastDate(episode.publishedAt)}
+                        summary={description}
+                        actions={
+                          <>
+                            <Link
+                              href={`/article/${encodeURIComponent(episode.slug)}`}
+                              className="btn-secondary text-sm no-underline"
+                              aria-label={`View the Wikipedia article for ${episode.title}`}
+                            >
+                              View article
+                            </Link>
+                            <a
+                              href={`/api/podcast/media/${episode._id}`}
+                              className="btn-primary text-sm no-underline"
+                              aria-label={`Open the podcast audio file for ${episode.title}`}
+                            >
+                              Audio URL
+                            </a>
+                          </>
+                        }
+                      />
                     </li>
                   );
                 })}
@@ -259,49 +242,33 @@ export default async function PodcastsPage() {
                   const description = getTrendingEpisodeSummary(episode);
                   return (
                     <li key={episode._id}>
-                      <div className="garden-bed p-5">
-                        <PodcastEpisodeArtwork
-                          src={getTrendingEpisodeArtworkUrl(episode)}
-                          alt={`Artwork for ${title}`}
-                        />
-                        {episode.audioUrl && (
-                          <PodcastEpisodePlayer
-                            audioUrl={episode.audioUrl}
-                            title={title}
-                            durationSeconds={episode.durationSeconds}
-                          />
-                        )}
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          <Link
-                            href="/trending"
-                            className="btn-secondary text-sm no-underline"
-                            aria-label={`Open the trending page for ${title}`}
-                          >
-                            Open trending
-                          </Link>
-                          <a
-                            href={`/api/podcast/media/trending/${episode._id}`}
-                            className="btn-primary text-sm no-underline"
-                            aria-label={`Open the podcast audio file for ${title}`}
-                          >
-                            Audio URL
-                          </a>
-                        </div>
-
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.14em] text-muted font-semibold mb-2">
-                            {formatTrendingDate(episode.trendingDate)}
-                          </p>
-                          <h3 className="font-display text-[1.08rem] font-semibold text-foreground leading-[1.25]">
-                            {title}
-                          </h3>
-                          {description && (
-                            <p className="text-sm text-muted mt-2 leading-[1.7]">
-                              {description}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                      <PodcastEpisodeCard
+                        artworkSrc={getTrendingEpisodeArtworkUrl(episode)}
+                        artworkAlt={`Artwork for ${title}`}
+                        audioUrl={episode.audioUrl}
+                        durationSeconds={episode.durationSeconds}
+                        title={title}
+                        dateLabel={formatTrendingDate(episode.trendingDate)}
+                        summary={description}
+                        actions={
+                          <>
+                            <Link
+                              href="/trending"
+                              className="btn-secondary text-sm no-underline"
+                              aria-label={`Open the trending page for ${title}`}
+                            >
+                              Open trending
+                            </Link>
+                            <a
+                              href={`/api/podcast/media/trending/${episode._id}`}
+                              className="btn-primary text-sm no-underline"
+                              aria-label={`Open the podcast audio file for ${title}`}
+                            >
+                              Audio URL
+                            </a>
+                          </>
+                        }
+                      />
                     </li>
                   );
                 })}
