@@ -6,9 +6,10 @@ import {
   TRENDING_PODCAST_DESCRIPTION,
   TRENDING_PODCAST_SUBTITLE,
   TRENDING_PODCAST_TITLE,
-  getTrendingPodcastArtworkUrl,
+  getTrendingPodcastItemArtworkUrl,
   getPodcastExcerpt,
   getPodcastSiteUrl,
+  getTrendingPodcastShowArtworkUrl,
 } from "@/lib/podcast-feed";
 import {
   ATOM_NS,
@@ -24,6 +25,7 @@ export const revalidate = 0;
 type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
   audioUrl: string | null;
   imageUrls?: string[];
+  artworkUrl?: string | null;
 };
 
 const formatTrendingDateTitle = (dateIso: string): string =>
@@ -38,7 +40,7 @@ export const GET = async (req: NextRequest) => {
   try {
     const siteUrl = getPodcastSiteUrl(req.nextUrl.origin);
     const feedUrl = `${siteUrl}/api/podcast/trending.xml`;
-    const feedImageUrl = getTrendingPodcastArtworkUrl(siteUrl);
+    const feedImageUrl = getTrendingPodcastShowArtworkUrl(siteUrl);
     const trendingPageUrl = `${siteUrl}/trending`;
 
     const episodes = (await fetchQuery(anyApi.trending.getRecentTrendingBriefs, {
@@ -62,7 +64,14 @@ export const GET = async (req: NextRequest) => {
         const summary = getPodcastExcerpt(
           episode.podcastDescription || episode.summary || episode.spokenSummary,
         );
-        const itemImageUrl = getTrendingPodcastArtworkUrl(siteUrl, episode._id);
+        const itemImageUrl = getTrendingPodcastItemArtworkUrl(
+          {
+            artworkUrl: episode.artworkUrl,
+            imageUrls: episode.imageUrls,
+            briefId: episode._id,
+          },
+          siteUrl,
+        );
         const enclosureLength =
           episode.byteLength != null ? ` length="${episode.byteLength}"` : "";
 

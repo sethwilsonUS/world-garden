@@ -6,23 +6,14 @@ import type { FetchAndCacheResult } from "@/convex/articles";
 import { titleToSlug } from "@/convex/lib/wikipedia";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import { fetchCurrentFeaturedArticle } from "@/lib/featured-article";
-import {
-  FEATURED_PODCAST_TITLE,
-  getPodcastArtworkUrl,
-  getPodcastDescription,
-} from "@/lib/podcast-feed";
+import { renderFeaturedPodcastArtworkPng } from "@/lib/featured-podcast-artwork";
+import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudio } from "@/lib/tts-client";
 
 const MIN_TTS_TEXT_LENGTH = 10;
 const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
-const MAX_EMBEDDED_ARTWORK_BYTES = 5 * 1024 * 1024;
-const SUPPORTED_ARTWORK_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-]);
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
@@ -114,62 +105,6 @@ const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
     throw new Error(`Fetching cached audio failed: ${response.status}`);
   }
   return await response.blob();
-};
-
-const normalizeArtworkMimeType = (value: string | null): string | null => {
-  if (!value) return null;
-  const mimeType = value.split(";")[0]?.trim().toLowerCase();
-  if (!mimeType) return null;
-  if (mimeType === "image/jpg") return "image/jpeg";
-  return mimeType;
-};
-
-const fetchEmbeddedArtwork = async (
-  url: string,
-): Promise<{ data: Uint8Array; mimeType: string } | null> => {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Artwork fetch failed: ${response.status}`);
-  }
-
-  const mimeType = normalizeArtworkMimeType(response.headers.get("content-type"));
-  if (!mimeType || !SUPPORTED_ARTWORK_MIME_TYPES.has(mimeType)) {
-    throw new Error(`Unsupported artwork content type: ${mimeType ?? "unknown"}`);
-  }
-
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length === 0) {
-    throw new Error("Artwork fetch returned an empty file");
-  }
-  if (bytes.length > MAX_EMBEDDED_ARTWORK_BYTES) {
-    throw new Error(`Artwork exceeds ${MAX_EMBEDDED_ARTWORK_BYTES} byte limit`);
-  }
-
-  return { data: bytes, mimeType };
-};
-
-const resolveEpisodeArtwork = async ({
-  baseUrl,
-  artworkUrl,
-}: {
-  baseUrl: string;
-  artworkUrl?: string | null;
-}): Promise<{ data: Uint8Array; mimeType: string } | null> => {
-  const artworkCandidates = [
-    artworkUrl ?? null,
-    getPodcastArtworkUrl(baseUrl),
-  ].filter((value): value is string => Boolean(value));
-
-  for (const candidate of artworkCandidates) {
-    try {
-      const artwork = await fetchEmbeddedArtwork(candidate);
-      if (artwork) return artwork;
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
 };
 
 const tagPodcastEpisodeAudio = async ({
@@ -343,29 +278,26 @@ export const syncFeaturedPodcastEpisode = async ({
     }
 
     const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
-    const artwork = await resolveEpisodeArtwork({
-      baseUrl,
-      artworkUrl: article.thumbnailUrl,
+    const artwork = await renderFeaturedPodcastArtworkPng({
+      featuredDate: feedDateIso,
+      title: article.title,
+      imageUrl: article.thumbnailUrl,
     });
     const taggedBlob = await tagPodcastEpisodeAudio({
       audioBlob: combinedBlob,
       title: article.title,
       artwork,
     });
-    const artworkBlob = artwork
-      ? new Blob([Buffer.from(artwork.data)], { type: artwork.mimeType })
-      : null;
+    const artworkBlob = new Blob([Buffer.from(artwork.data)], {
+      type: artwork.mimeType,
+    });
     const [uploadUrl, artworkUploadUrl] = await Promise.all([
       fetchMutation(anyApi.podcast.generateUploadUrl, {}),
-      artworkBlob
-        ? fetchMutation(anyApi.podcast.generateUploadUrl, {})
-        : Promise.resolve(null),
+      fetchMutation(anyApi.podcast.generateUploadUrl, {}),
     ]);
     const [storageId, artworkStorageId] = await Promise.all([
       uploadBlobToConvexStorage(uploadUrl, taggedBlob),
-      artworkBlob && artworkUploadUrl
-        ? uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob)
-        : Promise.resolve(undefined),
+      uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
     ]);
 
     const episodeId = (await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
