@@ -8,6 +8,13 @@ const trendingBriefStatus = v.union(
   v.literal("failed"),
 );
 
+const trendingBriefJobStatus = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
 const withStorageUrl = async <
   T extends {
     storageId?: Id<"_storage">;
@@ -75,6 +82,72 @@ export const getRecentTrendingBriefs = query({
 export const generateUploadUrl = mutation({
   async handler(ctx) {
     return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const getTrendingBriefJobByDate = query({
+  args: {
+    trendingDate: v.string(),
+  },
+  async handler(ctx, args) {
+    return await ctx.db
+      .query("trendingBriefJobs")
+      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .first();
+  },
+});
+
+export const claimTrendingBriefJob = mutation({
+  args: {
+    trendingDate: v.string(),
+    owner: v.string(),
+    leaseMs: v.number(),
+  },
+  async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("trendingBriefJobs")
+      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .first();
+
+    const now = Date.now();
+    const leaseExpiresAt = now + Math.max(args.leaseMs, 1);
+
+    if (
+      existing &&
+      existing.status === "running" &&
+      existing.leaseOwner &&
+      existing.leaseOwner !== args.owner &&
+      (existing.leaseExpiresAt ?? 0) > now
+    ) {
+      return { claimed: false, attempts: existing.attempts };
+    }
+
+    const attempts = (existing?.attempts ?? 0) + 1;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        status: "running",
+        attempts,
+        lastError: undefined,
+        leaseOwner: args.owner,
+        leaseExpiresAt,
+        updatedAt: now,
+      });
+      return { claimed: true, attempts };
+    }
+
+    await ctx.db.insert("trendingBriefJobs", {
+      trendingDate: args.trendingDate,
+      status: "running",
+      attempts,
+      lastError: undefined,
+      leaseOwner: args.owner,
+      leaseExpiresAt,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { claimed: true, attempts };
   },
 });
 
@@ -154,5 +227,34 @@ export const saveTrendingBrief = mutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+export const finalizeTrendingBriefJob = mutation({
+  args: {
+    trendingDate: v.string(),
+    owner: v.string(),
+    status: v.union(v.literal("ready"), v.literal("failed")),
+    lastError: v.optional(v.string()),
+  },
+  async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("trendingBriefJobs")
+      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .first();
+
+    if (!existing || existing.leaseOwner !== args.owner) {
+      return { updated: false };
+    }
+
+    await ctx.db.patch(existing._id, {
+      status: args.status,
+      lastError: args.lastError,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      updatedAt: Date.now(),
+    });
+
+    return { updated: true };
   },
 });

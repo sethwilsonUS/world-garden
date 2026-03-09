@@ -43,6 +43,24 @@ export const saveSectionAudioRecord = mutation({
     durationSeconds: v.optional(v.number()),
   },
   async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("sectionAudio")
+      .withIndex("by_article_section_tts", (q) =>
+        q
+          .eq("articleId", args.articleId)
+          .eq("sectionKey", args.sectionKey)
+          .eq("ttsNormVersion", args.ttsNormVersion),
+      )
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        storageId: args.storageId,
+        durationSeconds: args.durationSeconds,
+      });
+      return existing._id;
+    }
+
     await ctx.db.insert("sectionAudio", {
       articleId: args.articleId,
       sectionKey: args.sectionKey,

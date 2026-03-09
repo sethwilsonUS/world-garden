@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { anyApi } from "convex/server";
 import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -14,12 +15,11 @@ import { generateTtsAudio } from "@/lib/tts-client";
 const MIN_TTS_TEXT_LENGTH = 10;
 const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
+const JOB_LEASE_MS = 8 * 60 * 1000;
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
 };
-
-type FeaturedPodcastJob = Doc<"featuredPodcastJobs">;
 
 type PodcastSectionSource = {
   sectionKey: string;
@@ -134,31 +134,24 @@ const getExistingEpisode = async (
     featuredDate,
   })) as FeaturedPodcastEpisodeWithUrl | null;
 
-const getExistingJob = async (
-  featuredDate: string,
-): Promise<FeaturedPodcastJob | null> =>
-  (await fetchQuery(anyApi.podcast.getFeaturedEpisodeJobByDate, {
-    featuredDate,
-  })) as FeaturedPodcastJob | null;
-
-const updateJob = async ({
+const finalizeJob = async ({
   featuredDate,
   articleId,
   status,
-  attempts,
+  owner,
   lastError,
 }: {
   featuredDate: string;
   articleId?: Id<"articles">;
-  status: "pending" | "running" | "ready" | "failed";
-  attempts: number;
+  status: "ready" | "failed";
+  owner: string;
   lastError?: string;
 }) => {
-  await fetchMutation(anyApi.podcast.upsertFeaturedEpisodeJob, {
+  await fetchMutation(anyApi.podcast.finalizeFeaturedEpisodeJob, {
     featuredDate,
     articleId,
+    owner,
     status,
-    attempts,
     lastError,
   });
 };
@@ -178,6 +171,7 @@ export const syncFeaturedPodcastEpisode = async ({
   const existingEpisode = await getExistingEpisode(feedDateIso);
   const existingReadyEpisode =
     existingEpisode?.status === "ready" ? existingEpisode : null;
+  const owner = randomUUID();
 
   if (!force && existingReadyEpisode) {
     return {
@@ -193,23 +187,42 @@ export const syncFeaturedPodcastEpisode = async ({
     slug: titleToSlug(tfa.title),
   });
   const articleId = article._id;
+  const claim = await fetchMutation(anyApi.podcast.claimFeaturedEpisodeJob, {
+    featuredDate: feedDateIso,
+    articleId,
+    owner,
+    leaseMs: JOB_LEASE_MS,
+  });
+
+  if (!claim.claimed) {
+    const latestEpisode = await getExistingEpisode(feedDateIso);
+    if (latestEpisode?.status === "ready") {
+      return {
+        status: "already_exists",
+        episode: latestEpisode,
+        generatedSectionCount: 0,
+        reusedSectionCount: 0,
+        totalSectionCount: 0,
+      };
+    }
+
+    throw new Error(`Featured podcast sync already running for ${feedDateIso}`);
+  }
+
   const publishedAt = getPublishedAt(feedDateIso, tfa.featuredDate);
   const sections = getPodcastSectionSources(article);
   const description = getPodcastDescription(article.summary || tfa.extract);
 
   if (sections.length === 0) {
+    await finalizeJob({
+      featuredDate: feedDateIso,
+      articleId,
+      owner,
+      status: "failed",
+      lastError: "Featured article does not contain any audio-suitable sections",
+    });
     throw new Error("Featured article does not contain any audio-suitable sections");
   }
-
-  const existingJob = await getExistingJob(feedDateIso);
-  const attempts = (existingJob?.attempts ?? 0) + 1;
-
-  await updateJob({
-    featuredDate: feedDateIso,
-    articleId,
-    status: "running",
-    attempts,
-  });
 
   if (!existingReadyEpisode) {
     await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
@@ -317,11 +330,11 @@ export const syncFeaturedPodcastEpisode = async ({
       publishedAt,
     })) as Id<"featuredPodcastEpisodes">;
 
-    await updateJob({
+    await finalizeJob({
       featuredDate: feedDateIso,
       articleId,
+      owner,
       status: "ready",
-      attempts,
     });
 
     const savedEpisode = await getExistingEpisode(feedDateIso);
@@ -340,11 +353,11 @@ export const syncFeaturedPodcastEpisode = async ({
     const message =
       error instanceof Error ? error.message : "Episode generation failed";
 
-    await updateJob({
+    await finalizeJob({
       featuredDate: feedDateIso,
       articleId,
+      owner,
       status: "failed",
-      attempts,
       lastError: message,
     });
 

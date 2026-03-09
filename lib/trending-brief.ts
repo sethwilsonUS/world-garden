@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { GatewayLanguageModelOptions } from "@ai-sdk/gateway";
 import { gateway, generateText, stepCountIs } from "ai";
 import { anyApi } from "convex/server";
@@ -16,6 +17,7 @@ const DEFAULT_TRENDING_BRIEF_FALLBACK_MODEL = "openai/gpt-5.2";
 const MAX_ARTICLES_IN_PROMPT = 10;
 const MAX_KEY_POINTS = 5;
 const MAX_SOURCES = 6;
+const JOB_LEASE_MS = 8 * 60 * 1000;
 const inFlightTrendingBriefs = new Map<string, Promise<TrendingBriefSyncResult>>();
 
 type TrendingArticle = {
@@ -278,6 +280,7 @@ const generateTrendingBriefRecord = async ({
   })) as TrendingBriefRecord | null;
   const existingReadyBrief =
     existing?.status === "ready" && existing.audioUrl ? existing : null;
+  const owner = randomUUID();
   const imageUrls = articles
     .map((article) => article.imageUrl?.trim())
     .filter((value): value is string => Boolean(value))
@@ -292,6 +295,27 @@ const generateTrendingBriefRecord = async ({
 
   if (!isTrendingBriefEnabled()) {
     throw new Error("AI trend briefing is not configured.");
+  }
+
+  const claim = await fetchMutation(anyApi.trending.claimTrendingBriefJob, {
+    trendingDate: trendingDateIso,
+    owner,
+    leaseMs: JOB_LEASE_MS,
+  });
+
+  if (!claim.claimed) {
+    const latest = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
+      trendingDate: trendingDateIso,
+    })) as TrendingBriefRecord | null;
+
+    if (latest?.status === "ready" && latest.audioUrl) {
+      return {
+        status: "already_exists",
+        brief: latest,
+      };
+    }
+
+    throw new Error(`Trending brief sync already running for ${trendingDateIso}`);
   }
 
   const model =
@@ -435,11 +459,27 @@ const generateTrendingBriefRecord = async ({
       throw new Error("Trending brief was saved but could not be reloaded");
     }
 
+    await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
+      trendingDate: trendingDateIso,
+      owner,
+      status: "ready",
+    });
+
     return {
       status: "created",
       brief: saved,
     };
   } catch (error) {
+    await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
+      trendingDate: trendingDateIso,
+      owner,
+      status: "failed",
+      lastError:
+        error instanceof Error
+          ? error.message
+          : "Trending brief generation failed",
+    });
+
     if (!existingReadyBrief) {
       await fetchMutation(anyApi.trending.saveTrendingBrief, {
         trendingDate: trendingDateIso,
