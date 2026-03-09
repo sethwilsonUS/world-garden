@@ -4,7 +4,9 @@ import {
   getPodcastDescription,
   getPodcastExcerpt,
   getPodcastSiteUrl,
-  getTrendingPodcastArtworkUrl,
+  getTrendingPodcastEpisodeArtworkUrl,
+  getTrendingPodcastItemArtworkUrl,
+  getTrendingPodcastShowArtworkUrl,
 } from "./podcast-feed";
 
 describe("getPodcastDescription", () => {
@@ -73,18 +75,58 @@ describe("getPodcastArtworkUrl", () => {
   });
 });
 
-describe("getTrendingPodcastArtworkUrl", () => {
-  it("builds the latest trending artwork URL", () => {
-    expect(getTrendingPodcastArtworkUrl("https://curiogarden.org/")).toBe(
+describe("getTrendingPodcastShowArtworkUrl", () => {
+  it("builds the trending show artwork URL", () => {
+    expect(getTrendingPodcastShowArtworkUrl("https://curiogarden.org/")).toBe(
       "https://curiogarden.org/api/podcast/trending/artwork",
     );
   });
+});
 
+describe("getTrendingPodcastEpisodeArtworkUrl", () => {
   it("builds an episode-specific trending artwork URL", () => {
     expect(
-      getTrendingPodcastArtworkUrl("https://curiogarden.org/", "brief123"),
+      getTrendingPodcastEpisodeArtworkUrl("https://curiogarden.org/", "brief123"),
     ).toBe(
       "https://curiogarden.org/api/podcast/trending/artwork/brief123",
     );
+  });
+});
+
+describe("getTrendingPodcastItemArtworkUrl", () => {
+  it("prefers stored artwork urls for feed items", () => {
+    expect(
+      getTrendingPodcastItemArtworkUrl(
+        {
+          artworkUrl: "https://cdn.example.com/brief.png",
+          imageUrls: ["https://images.example.com/first.png"],
+          briefId: "brief123",
+        },
+        "https://curiogarden.org/",
+      ),
+    ).toBe("https://cdn.example.com/brief.png");
+  });
+
+  it("falls back to the first episode image when stored artwork is missing", () => {
+    expect(
+      getTrendingPodcastItemArtworkUrl(
+        {
+          imageUrls: ["", "https://images.example.com/first.png"],
+          briefId: "brief123",
+        },
+        "https://curiogarden.org/",
+      ),
+    ).toBe("https://images.example.com/first.png");
+  });
+
+  it("falls back to the stable episode artwork route when no images exist", () => {
+    expect(
+      getTrendingPodcastItemArtworkUrl(
+        {
+          briefId: "brief123",
+        },
+        "https://curiogarden.org/",
+      ),
+    ).toBe("https://curiogarden.org/api/podcast/trending/artwork/brief123");
   });
 });

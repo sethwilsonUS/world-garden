@@ -4,8 +4,10 @@
     { "src": "_python/tts.py", "use": "@vercel/python" }
   ],
   "crons": [
-    { "path": "/api/podcast/featured/cron", "schedule": "30 4 * * *" },
-    { "path": "/api/podcast/trending/cron", "schedule": "45 4 * * *" }
+    { "path": "/api/podcast/featured/cron", "schedule": "10 23 * * *" },
+    { "path": "/api/podcast/featured/cron", "schedule": "40 23 * * *" },
+    { "path": "/api/podcast/trending/cron", "schedule": "45 4 * * *" },
+    { "path": "/api/podcast/trending/cron", "schedule": "15 5 * * *" }
   ],
   "routes": [
     { "src": "/api/tts", "dest": "_python/tts.py" }

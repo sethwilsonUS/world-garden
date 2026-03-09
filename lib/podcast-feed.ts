@@ -33,13 +33,34 @@ export const getPodcastSiteUrl = (fallbackOrigin?: string): string =>
 export const getPodcastArtworkUrl = (fallbackOrigin?: string): string =>
   `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork`;
 
-export const getTrendingPodcastArtworkUrl = (
+export const getTrendingPodcastShowArtworkUrl = (
   fallbackOrigin?: string,
-  briefId?: string,
+): string =>
+  `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork`;
+
+export const getTrendingPodcastEpisodeArtworkUrl = (
+  fallbackOrigin?: string,
+  briefId?: string | null,
 ): string =>
   briefId
     ? `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork/${briefId}`
     : `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork`;
+
+export const getTrendingPodcastItemArtworkUrl = (
+  {
+    artworkUrl,
+    imageUrls,
+    briefId,
+  }: {
+    artworkUrl?: string | null;
+    imageUrls?: string[] | null;
+    briefId?: string | null;
+  },
+  fallbackOrigin?: string,
+): string =>
+  artworkUrl?.trim() ||
+  imageUrls?.find((value) => Boolean(value?.trim()))?.trim() ||
+  getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId);
 
 export const FEATURED_PODCAST_TITLE =
   "Wikipedia Featured Articles Presented by Curio Garden";
