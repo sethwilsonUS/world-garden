@@ -1,13 +1,23 @@
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+  FEATURED_SHOW_ARTWORK_VERSION,
+  TRENDING_SHOW_ARTWORK_VERSION,
+} from "@/lib/podcast-feed";
 
 type ShowSlug = "featured" | "trending";
 
 type StoredShowAsset = {
   storageId: string;
   mimeType: string;
+  version?: number;
   artworkUrl?: string | null;
+};
+
+const SHOW_ARTWORK_VERSIONS: Record<ShowSlug, number> = {
+  featured: FEATURED_SHOW_ARTWORK_VERSION,
+  trending: TRENDING_SHOW_ARTWORK_VERSION,
 };
 
 const uploadBlobToConvexStorage = async (
@@ -39,11 +49,12 @@ export const getOrCreatePodcastShowArtworkUrl = async ({
   slug: ShowSlug;
   render: () => Promise<{ data: Uint8Array; mimeType: string }>;
 }): Promise<string> => {
+  const version = SHOW_ARTWORK_VERSIONS[slug];
   const existing = (await fetchQuery(anyApi.podcast.getPodcastShowAsset, {
     slug,
   })) as StoredShowAsset | null;
 
-  if (existing?.artworkUrl) {
+  if (existing?.artworkUrl && existing.version === version) {
     return existing.artworkUrl;
   }
 
@@ -59,6 +70,7 @@ export const getOrCreatePodcastShowArtworkUrl = async ({
     slug,
     storageId: storageId as Id<"_storage">,
     mimeType: artwork.mimeType,
+    version,
   });
 
   const saved = (await fetchQuery(anyApi.podcast.getPodcastShowAsset, {

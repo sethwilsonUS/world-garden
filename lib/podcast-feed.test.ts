@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  FEATURED_SHOW_ARTWORK_VERSION,
+  TRENDING_SHOW_ARTWORK_VERSION,
   getFeaturedPodcastEpisodeArtworkUrl,
   getFeaturedPodcastItemArtworkUrl,
   getPodcastArtworkUrl,
@@ -72,7 +74,7 @@ describe("getPodcastSiteUrl", () => {
 describe("getPodcastArtworkUrl", () => {
   it("builds a stable absolute artwork URL", () => {
     expect(getPodcastArtworkUrl("https://curiogarden.org/")).toBe(
-      "https://curiogarden.org/api/podcast/artwork",
+      `https://curiogarden.org/api/podcast/artwork?v=${FEATURED_SHOW_ARTWORK_VERSION}`,
     );
   });
 });
@@ -118,7 +120,7 @@ describe("getFeaturedPodcastItemArtworkUrl", () => {
 describe("getTrendingPodcastShowArtworkUrl", () => {
   it("builds the trending show artwork URL", () => {
     expect(getTrendingPodcastShowArtworkUrl("https://curiogarden.org/")).toBe(
-      "https://curiogarden.org/api/podcast/trending/artwork",
+      `https://curiogarden.org/api/podcast/trending/artwork?v=${TRENDING_SHOW_ARTWORK_VERSION}`,
     );
   });
 });

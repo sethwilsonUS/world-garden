@@ -30,8 +30,11 @@ export const getPodcastExcerpt = (
 export const getPodcastSiteUrl = (fallbackOrigin?: string): string =>
   (process.env.NEXT_PUBLIC_SITE_URL || fallbackOrigin || "http://localhost:3000").replace(/\/$/, "");
 
+export const FEATURED_SHOW_ARTWORK_VERSION = 1;
+export const TRENDING_SHOW_ARTWORK_VERSION = 2;
+
 export const getPodcastArtworkUrl = (fallbackOrigin?: string): string =>
-  `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork`;
+  `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork?v=${FEATURED_SHOW_ARTWORK_VERSION}`;
 
 export const getFeaturedPodcastEpisodeArtworkUrl = (
   fallbackOrigin?: string,
@@ -62,7 +65,7 @@ export const getFeaturedPodcastItemArtworkUrl = (
 export const getTrendingPodcastShowArtworkUrl = (
   fallbackOrigin?: string,
 ): string =>
-  `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork`;
+  `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/trending/artwork?v=${TRENDING_SHOW_ARTWORK_VERSION}`;
 
 export const getTrendingPodcastEpisodeArtworkUrl = (
   fallbackOrigin?: string,
