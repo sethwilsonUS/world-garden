@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadButton";
+import { AudioDownloadButton } from "@/components/AudioDownloadButton";
 import { PodcastFeedPanel } from "@/components/PodcastFeedPanel";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
@@ -203,9 +203,8 @@ export default async function PodcastsPage() {
                             >
                               View article
                             </Link>
-                            <ManagedAudioDownloadButton
+                            <AudioDownloadButton
                               href={`/api/podcast/media/${episode._id}?download=1`}
-                              title={episode.title}
                               ariaLabel={`Download the podcast audio for ${episode.title}`}
                               label="Download"
                               className="no-underline"
@@ -247,9 +246,8 @@ export default async function PodcastsPage() {
                             >
                               Open trending
                             </Link>
-                            <ManagedAudioDownloadButton
+                            <AudioDownloadButton
                               href={`/api/podcast/media/trending/${episode._id}?download=1`}
-                              title={title}
                               ariaLabel={`Download the podcast audio for ${title}`}
                               label="Download"
                               className="no-underline"
