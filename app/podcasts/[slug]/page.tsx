@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AudioDownloadButton } from "@/components/AudioDownloadButton";
+import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadButton";
 import { PodcastFeedPanel } from "@/components/PodcastFeedPanel";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
@@ -147,8 +147,9 @@ export default async function PodcastDetailPage({
                             >
                               View article
                             </Link>
-                            <AudioDownloadButton
+                            <ManagedAudioDownloadButton
                               href={`/api/podcast/media/${featuredEpisode._id}?download=1`}
+                              title={featuredEpisode.title}
                               ariaLabel={`Download the podcast audio for ${featuredEpisode.title}`}
                               label="Download"
                               className="no-underline"
@@ -195,8 +196,9 @@ export default async function PodcastDetailPage({
                             >
                               Open trending
                             </Link>
-                            <AudioDownloadButton
+                            <ManagedAudioDownloadButton
                               href={`/api/podcast/media/trending/${trendingEpisode._id}?download=1`}
+                              title={title}
                               ariaLabel={`Download the podcast audio for ${title}`}
                               label="Download"
                               className="no-underline"

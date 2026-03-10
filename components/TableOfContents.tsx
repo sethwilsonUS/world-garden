@@ -13,6 +13,7 @@ import {
   AudioDownloadButton,
   DownloadSpinnerIcon,
 } from "@/components/AudioDownloadButton";
+import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadButton";
 
 type Section = {
   title: string;
@@ -46,6 +47,7 @@ type TableOfContentsProps = {
   onTogglePlayAll?: () => void;
   onSkipSection?: () => void;
   onDownloadAll?: () => void;
+  downloadHref?: string;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: PlaybackRate) => void;
   audioProgress?: { currentTime: number; duration: number };
@@ -225,6 +227,7 @@ export const TableOfContents = ({
   onTogglePlayAll,
   onSkipSection,
   onDownloadAll,
+  downloadHref,
   playbackRate = 1,
   onPlaybackRateChange,
   audioProgress,
@@ -486,30 +489,43 @@ export const TableOfContents = ({
           </button>
         )}
 
-        {onDownloadAll && (
-          <AudioDownloadButton
-            onClick={onDownloadAll}
-            disabled={downloading || isGenerating}
-            label={summaryOnly ? "Download" : "Download all"}
-            ariaLabel={
-              downloading
-                ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
-                : summaryOnly
+        {(onDownloadAll || downloadHref) && (
+          downloadHref && !downloading ? (
+            <ManagedAudioDownloadButton
+              href={downloadHref}
+              title={articleTitle}
+              label={summaryOnly ? "Download" : "Download all"}
+              ariaLabel={
+                summaryOnly
                   ? "Download summary as audio file"
                   : "Download full article as one audio file"
-            }
-          >
-            {downloading ? (
-              <>
-                <DownloadSpinnerIcon />
-                {(downloadProgress?.current ?? 0) < (downloadProgress?.total ?? 0)
-                  ? `Preparing ${Math.min((downloadProgress?.current ?? 0) + 1, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0}...`
-                  : "Packaging..."}
-              </>
-            ) : (
-              undefined
-            )}
-          </AudioDownloadButton>
+              }
+            />
+          ) : onDownloadAll ? (
+            <AudioDownloadButton
+              onClick={onDownloadAll}
+              disabled={downloading || isGenerating}
+              label={summaryOnly ? "Download" : "Download all"}
+              ariaLabel={
+                downloading
+                  ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
+                  : summaryOnly
+                    ? "Download summary as audio file"
+                    : "Download full article as one audio file"
+              }
+            >
+              {downloading ? (
+                <>
+                  <DownloadSpinnerIcon />
+                  {(downloadProgress?.current ?? 0) < (downloadProgress?.total ?? 0)
+                    ? `Preparing ${Math.min((downloadProgress?.current ?? 0) + 1, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0}...`
+                    : "Packaging..."}
+                </>
+              ) : (
+                undefined
+              )}
+            </AudioDownloadButton>
+          ) : null
         )}
 
         {onPlaybackRateChange && (

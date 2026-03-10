@@ -17,7 +17,7 @@ type AudioDownloadButtonAsButton = SharedProps & {
 
 type AudioDownloadButtonAsLink = SharedProps & {
   href: string;
-  onClick?: never;
+  onClick?: MouseEventHandler<HTMLAnchorElement>;
   disabled?: never;
   download?: boolean | string;
 };
@@ -101,11 +101,13 @@ export const AudioDownloadButton = (props: AudioDownloadButtonProps) => {
   );
 
   if ("href" in props) {
+    const linkProps = props as AudioDownloadButtonAsLink;
     return (
       <a
-        href={props.href}
-        download={props.download ?? true}
-        aria-label={props.ariaLabel}
+        href={linkProps.href}
+        onClick={linkProps.onClick}
+        download={linkProps.download ?? true}
+        aria-label={linkProps.ariaLabel}
         className={className}
       >
         {content}

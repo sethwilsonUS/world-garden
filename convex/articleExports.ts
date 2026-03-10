@@ -20,6 +20,7 @@ import { titleToSlug } from "./lib/wikipedia";
 const MIN_TTS_TEXT_LENGTH = 10;
 const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
+const UPLOAD_RETRY_STATUS_CODES = new Set([400, 408, 409, 425, 429, 500, 502, 503, 504]);
 type TtsRequest = {
   text: string;
   voiceId?: string;
@@ -220,6 +221,11 @@ const generateTtsAudio = async (
     : new Blob(audioChunks, { type: "audio/mpeg" });
 };
 
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 const uploadBlobToConvexStorage = async (
   uploadUrl: string,
   blob: Blob,
@@ -231,7 +237,15 @@ const uploadBlobToConvexStorage = async (
   });
 
   if (!result.ok) {
-    throw new Error(`Convex storage upload failed: ${result.status}`);
+    const errorBody = await result.text().catch(() => "");
+    const detail = errorBody.trim().slice(0, 160);
+    const error = new Error(
+      `Convex storage upload failed: ${result.status}${
+        detail ? ` ${detail}` : ""
+      }`,
+    ) as Error & { status?: number };
+    error.status = result.status;
+    throw error;
   }
 
   const body = (await result.json()) as { storageId?: Id<"_storage"> };
@@ -240,6 +254,43 @@ const uploadBlobToConvexStorage = async (
   }
 
   return body.storageId;
+};
+
+const uploadBlobToConvexStorageWithRetries = async ({
+  blob,
+  getUploadUrl,
+  maxAttempts = 3,
+}: {
+  blob: Blob;
+  getUploadUrl: () => Promise<string>;
+  maxAttempts?: number;
+}): Promise<Id<"_storage">> => {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const uploadUrl = await getUploadUrl();
+      return await uploadBlobToConvexStorage(uploadUrl, blob);
+    } catch (error) {
+      lastError = error;
+      const status =
+        error instanceof Error &&
+        "status" in error &&
+        typeof (error as { status?: unknown }).status === "number"
+          ? (error as { status: number }).status
+          : null;
+
+      if (status == null || !UPLOAD_RETRY_STATUS_CODES.has(status) || attempt >= maxAttempts) {
+        throw error;
+      }
+
+      await sleep(250 * attempt);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Convex storage upload failed.");
 };
 
 const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
@@ -452,12 +503,60 @@ export const getArticleAudioExportInternal = internalQuery({
   },
 });
 
+export const getNextQueuedArticleAudioExportForClient = internalQuery({
+  args: {
+    clientId: v.string(),
+    excludeExportId: v.optional(v.id("articleAudioExports")),
+  },
+  async handler(ctx, args) {
+    const records = await ctx.db
+      .query("articleAudioExports")
+      .withIndex("by_clientId", (q) => q.eq("clientId", args.clientId))
+      .collect();
+
+    return records
+      .filter(
+        (record) =>
+          record._id !== args.excludeExportId &&
+          record.dismissedAt == null &&
+          record.status === "queued",
+      )
+      .sort((a, b) => a.createdAt - b.createdAt)[0] ?? null;
+  },
+});
+
 export const markArticleAudioExportRunning = internalMutation({
   args: {
     exportId: v.id("articleAudioExports"),
     sectionCount: v.number(),
   },
   async handler(ctx, args) {
+    const record = await ctx.db.get(args.exportId);
+    if (
+      !record ||
+      record.dismissedAt != null ||
+      record.status === "ready" ||
+      record.status === "failed" ||
+      record.status === "running"
+    ) {
+      return { claimed: false };
+    }
+
+    const clientRecords = await ctx.db
+      .query("articleAudioExports")
+      .withIndex("by_clientId", (q) => q.eq("clientId", record.clientId))
+      .collect();
+    const otherRunningRecord = clientRecords.find(
+      (candidate) =>
+        candidate._id !== args.exportId &&
+        candidate.dismissedAt == null &&
+        candidate.status === "running",
+    );
+
+    if (otherRunningRecord) {
+      return { claimed: false };
+    }
+
     await ctx.db.patch(args.exportId, {
       status: "running",
       stage: "rendering_audio",
@@ -466,6 +565,8 @@ export const markArticleAudioExportRunning = internalMutation({
       lastError: undefined,
       updatedAt: Date.now(),
     });
+
+    return { claimed: true };
   },
 });
 
@@ -531,6 +632,23 @@ export const processArticleAudioExport = internalAction({
     baseUrl: v.string(),
   },
   async handler(ctx, args) {
+    const scheduleNextQueuedExport = async (clientId: string) => {
+      const nextQueued = await ctx.runQuery(
+        internal.articleExports.getNextQueuedArticleAudioExportForClient,
+        {
+          clientId,
+          excludeExportId: args.exportId,
+        },
+      );
+
+      if (!nextQueued) return;
+
+      await ctx.scheduler.runAfter(0, internal.articleExports.processArticleAudioExport, {
+        exportId: nextQueued._id,
+        baseUrl: args.baseUrl,
+      });
+    };
+
     const record = await ctx.runQuery(
       internal.articleExports.getArticleAudioExportInternal,
       {
@@ -551,6 +669,7 @@ export const processArticleAudioExport = internalAction({
         exportId: args.exportId,
         lastError: "Article not found.",
       });
+      await scheduleNextQueuedExport(record.clientId);
       return;
     }
 
@@ -560,13 +679,17 @@ export const processArticleAudioExport = internalAction({
         exportId: args.exportId,
         lastError: "Article does not contain any audio-suitable sections.",
       });
+      await scheduleNextQueuedExport(record.clientId);
       return;
     }
 
-    await ctx.runMutation(internal.articleExports.markArticleAudioExportRunning, {
+    const claim = await ctx.runMutation(internal.articleExports.markArticleAudioExportRunning, {
       exportId: args.exportId,
       sectionCount: sections.length,
     });
+    if (!claim.claimed) {
+      return;
+    }
 
     try {
       const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
@@ -592,8 +715,10 @@ export const processArticleAudioExport = internalAction({
         if (!blob) {
           blob = await generateTtsAudio({ text: section.text }, args.baseUrl);
 
-          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
-          const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
+          const storageId = await uploadBlobToConvexStorageWithRetries({
+            blob,
+            getUploadUrl: () => ctx.runMutation(api.audio.generateUploadUrl, {}),
+          });
 
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
             articleId: article._id,
@@ -635,14 +760,17 @@ export const processArticleAudioExport = internalAction({
         artwork,
       });
 
-      const exportUploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
-      const storageId = await uploadBlobToConvexStorage(exportUploadUrl, taggedBlob);
+      const storageId = await uploadBlobToConvexStorageWithRetries({
+        blob: taggedBlob,
+        getUploadUrl: () => ctx.runMutation(api.audio.generateUploadUrl, {}),
+      });
 
       await ctx.runMutation(internal.articleExports.completeArticleAudioExport, {
         exportId: args.exportId,
         storageId,
         byteLength: taggedBlob.size,
       });
+      await scheduleNextQueuedExport(record.clientId);
     } catch (error) {
       await ctx.runMutation(internal.articleExports.failArticleAudioExport, {
         exportId: args.exportId,
@@ -651,6 +779,7 @@ export const processArticleAudioExport = internalAction({
             ? error.message
             : "Article audio export failed.",
       });
+      await scheduleNextQueuedExport(record.clientId);
     }
   },
 });

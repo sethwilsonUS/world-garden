@@ -112,6 +112,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         total: Math.max(currentArticleExport?.sectionCount ?? 1, 1),
       }
     : { current: 0, total: 0 };
+  const readyDownloadHref =
+    currentArticleExport?.status === "ready"
+      ? `/api/article/audio-export/${currentArticleExport._id}?download=1`
+      : undefined;
 
   useEffect(() => {
     if (fetchTriggered.current) return;
@@ -509,33 +513,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     analytics.downloadAll(summaryOnly ? "summary" : "full");
 
     try {
-      const triggerDownload = (exportId: string) => {
-        const link = document.createElement("a");
-        link.href = `/api/article/audio-export/${exportId}?download=1`;
-        link.download = "";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      };
-
-      if (currentArticleExport?.status === "ready") {
-        triggerDownload(currentArticleExport._id);
-        return;
-      }
-
-      const result = await queueExport({
+      await queueExport({
         articleId,
         title: displayArticle.title,
       });
-      if (result.status === "ready") {
-        triggerDownload(result.exportId);
-      }
     } catch (err) {
       setAudioError(
         err instanceof Error ? err.message : "Could not queue article download",
       );
     }
-  }, [articleId, currentArticleExport, displayArticle, downloading, queueExport]);
+  }, [articleId, displayArticle, downloading, queueExport]);
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
   if (displayArticle && !hasCheckedResume) {
@@ -682,7 +669,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       {displayArticle.thumbnailUrl ? (() => {
         const w = displayArticle.thumbnailWidth ?? 0;
         const h = displayArticle.thumbnailHeight ?? 0;
-        const isPortrait = h > w;
+        const isPortrait = w > 0 && h >= w;
         const openHeroLightbox = () => setHeroLightbox({ index: 0 });
 
         if (isPortrait) {
@@ -902,6 +889,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           onTogglePlayAll={handleTogglePlayAll}
           onSkipSection={handleSkipSection}
           onDownloadAll={handleDownloadAll}
+          downloadHref={readyDownloadHref}
           downloading={downloading}
           downloadProgress={downloadProgress}
           playbackRate={playbackRate}
