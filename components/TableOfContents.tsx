@@ -9,6 +9,10 @@ import {
   formatRate,
 } from "@/hooks/usePlaybackRate";
 import { formatTime } from "@/lib/formatTime";
+import {
+  AudioDownloadButton,
+  DownloadSpinnerIcon,
+} from "@/components/AudioDownloadButton";
 
 type Section = {
   title: string;
@@ -483,13 +487,11 @@ export const TableOfContents = ({
         )}
 
         {onDownloadAll && (
-          <button
+          <AudioDownloadButton
             onClick={onDownloadAll}
             disabled={downloading || isGenerating}
-            className={`inline-flex items-center gap-2 py-2.5 px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 ${
-              downloading || isGenerating ? "cursor-not-allowed opacity-70" : "cursor-pointer"
-            }`}
-            aria-label={
+            label={summaryOnly ? "Download" : "Download all"}
+            ariaLabel={
               downloading
                 ? `Downloading: generating section ${downloadProgress?.current ?? 0} of ${downloadProgress?.total ?? 0}`
                 : summaryOnly
@@ -499,54 +501,15 @@ export const TableOfContents = ({
           >
             {downloading ? (
               <>
-                <svg
-                  className="animate-spin shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  width={16}
-                  height={16}
-                  aria-hidden="true"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
+                <DownloadSpinnerIcon />
                 {(downloadProgress?.current ?? 0) < (downloadProgress?.total ?? 0)
                   ? `Generating ${(downloadProgress?.current ?? 0) + 1}/${downloadProgress?.total ?? 0}...`
                   : "Stitching..."}
               </>
             ) : (
-              <>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  width={16}
-                  height={16}
-                  aria-hidden="true"
-                  className="shrink-0"
-                >
-                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                {summaryOnly ? "Download" : "Download all"}
-              </>
+              undefined
             )}
-          </button>
+          </AudioDownloadButton>
         )}
 
         {onPlaybackRateChange && (
