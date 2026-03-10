@@ -42,6 +42,22 @@ const withStorageUrl = async <
   return { ...record, audioUrl, artworkUrl };
 };
 
+const withArtworkStorageUrl = async <
+  T extends {
+    storageId: Id<"_storage">;
+  },
+>(
+  ctx: {
+    storage: {
+      getUrl(storageId: Id<"_storage">): Promise<string | null>;
+    };
+  },
+  record: T,
+) => {
+  const artworkUrl = await ctx.storage.getUrl(record.storageId);
+  return { ...record, artworkUrl };
+};
+
 export const getRecentFeaturedEpisodes = query({
   args: {
     limit: v.optional(v.number()),
@@ -169,7 +185,7 @@ export const getPodcastShowAsset = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .first();
 
-    return record ? await withStorageUrl(ctx, record) : null;
+    return record ? await withArtworkStorageUrl(ctx, record) : null;
   },
 });
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  getFeaturedPodcastEpisodeArtworkUrl,
+  getFeaturedPodcastItemArtworkUrl,
   getPodcastArtworkUrl,
   getPodcastDescription,
   getPodcastExcerpt,
@@ -75,6 +77,44 @@ describe("getPodcastArtworkUrl", () => {
   });
 });
 
+describe("getFeaturedPodcastEpisodeArtworkUrl", () => {
+  it("builds an episode-specific featured artwork URL", () => {
+    expect(
+      getFeaturedPodcastEpisodeArtworkUrl(
+        "https://curiogarden.org/",
+        "episode123",
+      ),
+    ).toBe("https://curiogarden.org/api/podcast/artwork/episode123");
+  });
+});
+
+describe("getFeaturedPodcastItemArtworkUrl", () => {
+  it("prefers the stable episode artwork route when an episode id exists", () => {
+    expect(
+      getFeaturedPodcastItemArtworkUrl(
+        {
+          artworkUrl: "https://cdn.example.com/featured.png",
+          imageUrl: "https://images.example.com/article.png",
+          episodeId: "episode123",
+        },
+        "https://curiogarden.org/",
+      ),
+    ).toBe("https://curiogarden.org/api/podcast/artwork/episode123");
+  });
+
+  it("falls back to the stored artwork url when no episode id exists", () => {
+    expect(
+      getFeaturedPodcastItemArtworkUrl(
+        {
+          artworkUrl: "https://cdn.example.com/featured.png",
+          imageUrl: "https://images.example.com/article.png",
+        },
+        "https://curiogarden.org/",
+      ),
+    ).toBe("https://cdn.example.com/featured.png");
+  });
+});
+
 describe("getTrendingPodcastShowArtworkUrl", () => {
   it("builds the trending show artwork URL", () => {
     expect(getTrendingPodcastShowArtworkUrl("https://curiogarden.org/")).toBe(
@@ -94,7 +134,7 @@ describe("getTrendingPodcastEpisodeArtworkUrl", () => {
 });
 
 describe("getTrendingPodcastItemArtworkUrl", () => {
-  it("prefers stored artwork urls for feed items", () => {
+  it("prefers the stable episode artwork route when a brief id exists", () => {
     expect(
       getTrendingPodcastItemArtworkUrl(
         {
@@ -104,15 +144,14 @@ describe("getTrendingPodcastItemArtworkUrl", () => {
         },
         "https://curiogarden.org/",
       ),
-    ).toBe("https://cdn.example.com/brief.png");
+    ).toBe("https://curiogarden.org/api/podcast/trending/artwork/brief123");
   });
 
-  it("falls back to the first episode image when stored artwork is missing", () => {
+  it("falls back to the first episode image when no brief id exists", () => {
     expect(
       getTrendingPodcastItemArtworkUrl(
         {
           imageUrls: ["", "https://images.example.com/first.png"],
-          briefId: "brief123",
         },
         "https://curiogarden.org/",
       ),

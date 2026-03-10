@@ -172,7 +172,7 @@ To enable scheduled generation in production:
 
 The default schedules are:
 
-- `10 23 * * *` and `40 23 * * *` for the featured podcast (`23:10 UTC` primary run, `23:40 UTC` retry after Wikipedia rollover)
+- `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
 
 ### Local podcast testing

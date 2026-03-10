@@ -6,8 +6,9 @@ import {
   FEATURED_PODCAST_DESCRIPTION,
   FEATURED_PODCAST_SUBTITLE,
   FEATURED_PODCAST_TITLE,
-  getPodcastArtworkUrl,
+  getFeaturedPodcastItemArtworkUrl,
   getPodcastDescription,
+  getPodcastArtworkUrl,
   getPodcastSiteUrl,
 } from "@/lib/podcast-feed";
 import {
@@ -50,7 +51,14 @@ export const GET = async (req: NextRequest) => {
         const duration = formatPodcastDuration(episode.durationSeconds);
         const guid = `${siteUrl}/podcast/featured/${episode._id}`;
         const summary = getPodcastDescription(episode.description);
-        const itemImageUrl = episode.artworkUrl || episode.imageUrl;
+        const itemImageUrl = getFeaturedPodcastItemArtworkUrl(
+          {
+            artworkUrl: episode.artworkUrl,
+            imageUrl: episode.imageUrl,
+            episodeId: episode._id,
+          },
+          siteUrl,
+        );
         const enclosureLength =
           episode.byteLength != null ? ` length="${episode.byteLength}"` : "";
 
