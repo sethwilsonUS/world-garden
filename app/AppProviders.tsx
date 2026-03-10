@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 import dynamic from "next/dynamic";
+import { ArticleAudioExportFallbackProvider } from "@/components/ArticleAudioExportProvider";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
@@ -32,10 +33,12 @@ const LocalModeBanner = isLocal
 export const AppProviders = ({ children }: { children: ReactNode }) => {
   if (isLocal && LocalDataProvider) {
     return (
-      <LocalDataProvider>
-        {LocalModeBanner && <LocalModeBanner />}
-        {children}
-      </LocalDataProvider>
+      <ArticleAudioExportFallbackProvider>
+        <LocalDataProvider>
+          {LocalModeBanner && <LocalModeBanner />}
+          {children}
+        </LocalDataProvider>
+      </ArticleAudioExportFallbackProvider>
     );
   }
 

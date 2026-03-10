@@ -493,7 +493,7 @@ export const TableOfContents = ({
             label={summaryOnly ? "Download" : "Download all"}
             ariaLabel={
               downloading
-                ? `Downloading: generating section ${downloadProgress?.current ?? 0} of ${downloadProgress?.total ?? 0}`
+                ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
                 : summaryOnly
                   ? "Download summary as audio file"
                   : "Download full article as one audio file"
@@ -503,8 +503,8 @@ export const TableOfContents = ({
               <>
                 <DownloadSpinnerIcon />
                 {(downloadProgress?.current ?? 0) < (downloadProgress?.total ?? 0)
-                  ? `Generating ${(downloadProgress?.current ?? 0) + 1}/${downloadProgress?.total ?? 0}...`
-                  : "Stitching..."}
+                  ? `Preparing ${Math.min((downloadProgress?.current ?? 0) + 1, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0}...`
+                  : "Packaging..."}
               </>
             ) : (
               undefined

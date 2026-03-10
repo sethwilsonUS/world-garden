@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useData } from "@/lib/data-context";
+import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider";
 import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
 import { BookmarkButton } from "./BookmarkButton";
@@ -71,6 +72,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
 
   const { recordVisit, updateProgress, getProgress } = useHistory();
+  const { jobs: articleAudioExports, queueExport, isStartingArticle } =
+    useArticleAudioExports();
 
   const articleId = displayArticle?._id as Id<"articles"> | undefined;
   const cachedAudio = useQuery(
@@ -82,8 +85,6 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
   const [heroLightbox, setHeroLightbox] = useState<LightboxState>(null);
 
@@ -97,6 +98,20 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const fetchTriggered = useRef(false);
   const pendingAutoPlay = useRef(false);
   const playAllRef = useRef<HTMLButtonElement>(null);
+
+  const currentArticleExport =
+    articleAudioExports.find((job) => job.articleId === articleId) ?? null;
+  const isExportStarting = articleId ? isStartingArticle(articleId) : false;
+  const isExportRunning =
+    currentArticleExport?.status === "queued" ||
+    currentArticleExport?.status === "running";
+  const downloading = isExportStarting || isExportRunning;
+  const downloadProgress = downloading
+    ? {
+        current: currentArticleExport?.completedSectionCount ?? 0,
+        total: Math.max(currentArticleExport?.sectionCount ?? 1, 1),
+      }
+    : { current: 0, total: 0 };
 
   useEffect(() => {
     if (fetchTriggered.current) return;
@@ -487,66 +502,40 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   );
 
   const handleDownloadAll = useCallback(async () => {
-    if (!displayArticle || downloading) return;
+    if (!displayArticle || !articleId || downloading) return;
     const allSections = displayArticle.sections ?? [];
     const summaryOnly =
       allSections.filter((s) => s.content.length >= 20).length === 0;
     analytics.downloadAll(summaryOnly ? "summary" : "full");
-    const sectionKeys = [
-      "summary",
-      ...allSections
-        .map((s, i) => ({ section: s, index: i }))
-        .filter(({ section }) => section.content.length >= 20)
-        .map(({ index }) => `section-${index}`),
-    ];
-
-    setDownloading(true);
-    setDownloadProgress({ current: 0, total: sectionKeys.length });
 
     try {
-      const audioChunks: Blob[] = [];
+      const triggerDownload = (exportId: string) => {
+        const link = document.createElement("a");
+        link.href = `/api/article/audio-export/${exportId}?download=1`;
+        link.download = "";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
 
-      for (let i = 0; i < sectionKeys.length; i++) {
-        setDownloadProgress({ current: i, total: sectionKeys.length });
-
-        let url: string | null = cachedAudio?.urls[sectionKeys[i]] ?? null;
-
-        if (!url) {
-          let textContent: string;
-          if (sectionKeys[i] === "summary") {
-            textContent = displayArticle.summary ?? "";
-          } else {
-            const idx = parseInt(sectionKeys[i].replace("section-", ""), 10);
-            const section = allSections[idx];
-            textContent = section ? `${section.title}. ${section.content}` : "";
-          }
-          if (textContent.length >= 10) {
-            url = await generateEdgeTtsFromApi(textContent, sectionKeys[i]);
-            if (url) cacheAudioInConvex(sectionKeys[i], url);
-          }
-        }
-
-        if (url) {
-          const resp = await fetch(url);
-          audioChunks.push(await resp.blob());
-        }
+      if (currentArticleExport?.status === "ready") {
+        triggerDownload(currentArticleExport._id);
+        return;
       }
 
-      const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
-      const downloadUrl = URL.createObjectURL(combinedBlob);
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = `${displayArticle.title.replace(/[^a-zA-Z0-9 ]/g, "").trim()}.mp3`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(downloadUrl);
+      const result = await queueExport({
+        articleId,
+        title: displayArticle.title,
+      });
+      if (result.status === "ready") {
+        triggerDownload(result.exportId);
+      }
     } catch (err) {
-      setAudioError(err instanceof Error ? err.message : "Download failed");
-    } finally {
-      setDownloading(false);
+      setAudioError(
+        err instanceof Error ? err.message : "Could not queue article download",
+      );
     }
-  }, [displayArticle, downloading, generateEdgeTtsFromApi, cachedAudio, cacheAudioInConvex]);
+  }, [articleId, currentArticleExport, displayArticle, downloading, queueExport]);
 
   const [hasCheckedResume, setHasCheckedResume] = useState(false);
   if (displayArticle && !hasCheckedResume) {

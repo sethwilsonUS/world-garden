@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AudioDownloadButton } from "@/components/AudioDownloadButton";
-import { PodcastFeedActions } from "@/components/PodcastFeedActions";
+import { PodcastFeedPanel } from "@/components/PodcastFeedPanel";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
   getAbsoluteFeedUrl,
@@ -112,25 +112,12 @@ const PodcastAccordionSection = ({
           {children}
         </section>
 
-        <section aria-labelledby={`${accordionId}-feed-heading`}>
-          <h3
-            id={`${accordionId}-feed-heading`}
-            className="font-display text-[1.2rem] font-semibold text-foreground mb-4"
-          >
-            Feed
-          </h3>
-          <code
-            aria-label={`${title} feed URL`}
-            className="block overflow-x-auto rounded-xl bg-surface-2 border border-border px-4 py-3 text-sm text-foreground"
-          >
-            {feedUrl}
-          </code>
-          <PodcastFeedActions feedUrl={feedUrl} feedTitle={title} />
-          <p className="text-sm text-muted mt-3 leading-[1.6]">
-            For local testing, generate the latest episode first with an authorized{" "}
-            <code>{syncRoute}</code>, then subscribe using this RSS URL.
-          </p>
-        </section>
+        <PodcastFeedPanel
+          idBase={`${accordionId}-feed`}
+          title={title}
+          feedUrl={feedUrl}
+          syncRoute={syncRoute}
+        />
       </div>
     </details>
   </section>

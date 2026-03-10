@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AudioDownloadButton } from "@/components/AudioDownloadButton";
-import { PodcastFeedActions } from "@/components/PodcastFeedActions";
+import { PodcastFeedPanel } from "@/components/PodcastFeedPanel";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
   getAbsoluteFeedUrl,
@@ -93,24 +93,24 @@ export default async function PodcastDetailPage({
 
           <div className="garden-bed p-5 sm:p-6 mt-6">
             <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-3">
-              Feed URL
+              Follow this show
             </p>
-            <code
-              aria-label={`${entry.title} feed URL`}
-              className="block overflow-x-auto rounded-xl bg-surface-2 border border-border px-4 py-3 text-sm text-foreground"
-            >
-              {feedUrl}
-            </code>
-            <PodcastFeedActions feedUrl={feedUrl} feedTitle={entry.title} />
-            <p className="text-sm text-muted mt-3 leading-[1.6]">
-              For local testing, generate the latest episode first with an authorized{" "}
-              <code>{entry.syncRoute}</code>, then subscribe using this RSS URL.
+            <p className="text-sm text-foreground-2 leading-[1.7] mb-5 max-w-2xl">
+              Subscribe directly from this page, copy the RSS feed for another app,
+              or use Apple Podcasts&apos; <span className="font-medium text-foreground">Follow a Show by URL</span> flow.
             </p>
+            <PodcastFeedPanel
+              idBase={`${entry.slug}-podcast-follow`}
+              heading="Add to your podcast app"
+              title={entry.title}
+              feedUrl={feedUrl}
+              syncRoute={entry.syncRoute}
+            />
           </div>
 
           <div className="mt-8">
             <h2 className="font-display text-[1.35rem] font-semibold text-foreground mb-4">
-              Recent episodes
+              Archived episodes
             </h2>
 
             {entry.slug === "featured" ? (
