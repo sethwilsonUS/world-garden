@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AudioDownloadButton } from "@/components/AudioDownloadButton";
 import { PodcastFeedActions } from "@/components/PodcastFeedActions";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
@@ -146,13 +147,12 @@ export default async function PodcastDetailPage({
                             >
                               View article
                             </Link>
-                            <a
-                              href={`/api/podcast/media/${featuredEpisode._id}`}
-                              className="btn-primary text-sm no-underline"
-                              aria-label={`Open the podcast audio file for ${featuredEpisode.title}`}
-                            >
-                              Audio URL
-                            </a>
+                            <AudioDownloadButton
+                              href={`/api/podcast/media/${featuredEpisode._id}?download=1`}
+                              ariaLabel={`Download the podcast audio for ${featuredEpisode.title}`}
+                              label="Download"
+                              className="no-underline"
+                            />
                           </>
                         }
                       />
@@ -195,13 +195,12 @@ export default async function PodcastDetailPage({
                             >
                               Open trending
                             </Link>
-                            <a
-                              href={`/api/podcast/media/trending/${trendingEpisode._id}`}
-                              className="btn-primary text-sm no-underline"
-                              aria-label={`Open the podcast audio file for ${title}`}
-                            >
-                              Audio URL
-                            </a>
+                            <AudioDownloadButton
+                              href={`/api/podcast/media/trending/${trendingEpisode._id}?download=1`}
+                              ariaLabel={`Download the podcast audio for ${title}`}
+                              label="Download"
+                              className="no-underline"
+                            />
                           </>
                         }
                       />

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { AudioDownloadButton } from "@/components/AudioDownloadButton";
 import { PodcastFeedActions } from "@/components/PodcastFeedActions";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
@@ -215,13 +216,12 @@ export default async function PodcastsPage() {
                             >
                               View article
                             </Link>
-                            <a
-                              href={`/api/podcast/media/${episode._id}`}
-                              className="btn-primary text-sm no-underline"
-                              aria-label={`Open the podcast audio file for ${episode.title}`}
-                            >
-                              Audio URL
-                            </a>
+                            <AudioDownloadButton
+                              href={`/api/podcast/media/${episode._id}?download=1`}
+                              ariaLabel={`Download the podcast audio for ${episode.title}`}
+                              label="Download"
+                              className="no-underline"
+                            />
                           </>
                         }
                       />
@@ -259,13 +259,12 @@ export default async function PodcastsPage() {
                             >
                               Open trending
                             </Link>
-                            <a
-                              href={`/api/podcast/media/trending/${episode._id}`}
-                              className="btn-primary text-sm no-underline"
-                              aria-label={`Open the podcast audio file for ${title}`}
-                            >
-                              Audio URL
-                            </a>
+                            <AudioDownloadButton
+                              href={`/api/podcast/media/trending/${episode._id}?download=1`}
+                              ariaLabel={`Download the podcast audio for ${title}`}
+                              label="Download"
+                              className="no-underline"
+                            />
                           </>
                         }
                       />
