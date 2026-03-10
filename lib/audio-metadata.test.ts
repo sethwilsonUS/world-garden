@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMp3Metadata } from "./audio-metadata";
+import { addMp3Metadata, addMp3MetadataToBlob } from "./audio-metadata";
 
 const decoder = new TextDecoder();
 
@@ -36,5 +36,26 @@ describe("addMp3Metadata", () => {
 
     expect(decoder.decode(tagged)).toContain("TIT2");
     expect(decoder.decode(tagged)).not.toContain("APIC");
+  });
+
+  it("prepends metadata to a blob without rewriting the original mp3 bytes", async () => {
+    const originalMp3 = Uint8Array.of(0xff, 0xfb, 0x90, 0x64, 0x00, 0x11);
+    const blob = new Blob([originalMp3], { type: "audio/mpeg" });
+
+    const taggedBlob = await addMp3MetadataToBlob(blob, {
+      title: "Nintendo",
+      artist: "Curio Garden",
+    });
+
+    const taggedBytes = new Uint8Array(await taggedBlob.arrayBuffer());
+    const ascii = decoder.decode(taggedBytes);
+
+    expect(taggedBlob.type).toBe("audio/mpeg");
+    expect(ascii.startsWith("ID3")).toBe(true);
+    expect(ascii).toContain("TIT2");
+    expect(ascii).toContain("TPE1");
+    expect(Array.from(taggedBytes.slice(-originalMp3.length))).toEqual(
+      Array.from(originalMp3),
+    );
   });
 });

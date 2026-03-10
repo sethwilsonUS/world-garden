@@ -3,6 +3,7 @@
 import { ReactNode, useMemo } from "react";
 import { ConvexProvider, ConvexReactClient, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { ArticleAudioExportProvider } from "@/components/ArticleAudioExportProvider";
 import {
   DataContext,
   type DataContextValue,
@@ -46,7 +47,11 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
     ],
   );
 
-  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+  return (
+    <DataContext.Provider value={value}>
+      <ArticleAudioExportProvider>{children}</ArticleAudioExportProvider>
+    </DataContext.Provider>
+  );
 };
 
 export const ConvexDataProvider = ({ children }: { children: ReactNode }) => {

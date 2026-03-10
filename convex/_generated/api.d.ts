@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as articleExports from "../articleExports.js";
 import type * as articles from "../articles.js";
 import type * as audio from "../audio.js";
 import type * as lib_wikipedia from "../lib/wikipedia.js";
@@ -22,6 +23,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  articleExports: typeof articleExports;
   articles: typeof articles;
   audio: typeof audio;
   "lib/wikipedia": typeof lib_wikipedia;

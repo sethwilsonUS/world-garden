@@ -29,8 +29,20 @@ const concatBytes = (...chunks: Uint8Array[]): Uint8Array => {
   return result;
 };
 
-const encodeUtf16WithBom = (value: string): Uint8Array =>
-  new Uint8Array(Buffer.from(`\uFEFF${value}`, "utf16le"));
+const encodeUtf16WithBom = (value: string): Uint8Array => {
+  const result = new Uint8Array(2 + value.length * 2);
+  result[0] = 0xff;
+  result[1] = 0xfe;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    const offset = 2 + index * 2;
+    result[offset] = codeUnit & 0xff;
+    result[offset + 1] = codeUnit >> 8;
+  }
+
+  return result;
+};
 
 const encodeFrameId = (frameId: string): Uint8Array => textEncoder.encode(frameId);
 
@@ -83,10 +95,7 @@ const createApicFrame = (artwork: EmbeddedArtwork | undefined): Uint8Array | nul
   return createFrame("APIC", payload);
 };
 
-export const addMp3Metadata = (
-  mp3Data: Uint8Array,
-  metadata: Mp3Metadata,
-): Uint8Array => {
+const buildMp3MetadataTag = (metadata: Mp3Metadata): Uint8Array | null => {
   const frames = [
     createTextFrame("TIT2", metadata.title),
     createTextFrame("TPE1", metadata.artist),
@@ -94,25 +103,35 @@ export const addMp3Metadata = (
     createApicFrame(metadata.artwork),
   ].filter((frame): frame is Uint8Array => frame !== null);
 
-  if (frames.length === 0) return mp3Data;
+  if (frames.length === 0) return null;
 
   const tagBody = concatBytes(...frames);
-  const header = concatBytes(
+  return concatBytes(
     textEncoder.encode("ID3"),
     Uint8Array.of(0x03, 0x00, 0x00),
     encodeSynchsafeSize(tagBody.length),
+    tagBody,
   );
+};
 
-  return concatBytes(header, tagBody, mp3Data);
+export const addMp3Metadata = (
+  mp3Data: Uint8Array,
+  metadata: Mp3Metadata,
+): Uint8Array => {
+  const tag = buildMp3MetadataTag(metadata);
+  if (!tag) return mp3Data;
+
+  return concatBytes(tag, mp3Data);
 };
 
 export const addMp3MetadataToBlob = async (
   mp3Blob: Blob,
   metadata: Mp3Metadata,
 ): Promise<Blob> => {
-  const mp3Data = new Uint8Array(await mp3Blob.arrayBuffer());
-  const taggedData = addMp3Metadata(mp3Data, metadata);
-  const taggedBuffer = new ArrayBuffer(taggedData.byteLength);
-  new Uint8Array(taggedBuffer).set(taggedData);
-  return new Blob([taggedBuffer], { type: mp3Blob.type || "audio/mpeg" });
+  const tag = buildMp3MetadataTag(metadata);
+  if (!tag) return mp3Blob;
+
+  const tagBuffer = new ArrayBuffer(tag.byteLength);
+  new Uint8Array(tagBuffer).set(tag);
+  return new Blob([tagBuffer, mp3Blob], { type: mp3Blob.type || "audio/mpeg" });
 };

@@ -20,6 +20,19 @@ const trendingBriefStatus = v.union(
   v.literal("failed"),
 );
 
+const articleAudioExportStatus = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
+const articleAudioExportStage = v.union(
+  v.literal("queued"),
+  v.literal("rendering_audio"),
+  v.literal("packaging"),
+);
+
 const podcastShowAssetSlug = v.union(
   v.literal("featured"),
   v.literal("trending"),
@@ -203,4 +216,24 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
+
+  articleAudioExports: defineTable({
+    clientId: v.string(),
+    articleId: v.id("articles"),
+    slug: v.string(),
+    title: v.string(),
+    status: articleAudioExportStatus,
+    stage: v.optional(articleAudioExportStage),
+    sectionCount: v.number(),
+    completedSectionCount: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    byteLength: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    dismissedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_clientId", ["clientId"])
+    .index("by_articleId", ["articleId"])
+    .index("by_clientId_articleId", ["clientId", "articleId"]),
 });
