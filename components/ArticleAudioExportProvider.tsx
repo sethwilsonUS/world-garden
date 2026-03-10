@@ -35,6 +35,29 @@ type StartingJob = {
   startedAt: number;
 };
 
+type DirectDownloadToast = {
+  _id: string;
+  title: string;
+  href: string;
+  updatedAt: number;
+};
+
+type TrayJob = {
+  _id: string;
+  title: string;
+  status: "queued" | "running" | "ready" | "failed";
+  stage?: "queued" | "rendering_audio" | "packaging";
+  sectionCount: number;
+  completedSectionCount: number;
+  updatedAt: number;
+  articleId?: string;
+  lastError?: string;
+  downloadHref?: string;
+  statusLabelOverride?: string;
+  progressLabelOverride?: string;
+  kind: "export" | "download";
+};
+
 type ArticleAudioExportContextValue = {
   jobs: ArticleAudioExportJob[];
   queueExport: (args: {
@@ -43,6 +66,7 @@ type ArticleAudioExportContextValue = {
   }) => Promise<{ exportId: string; status: ArticleAudioExportJob["status"] }>;
   dismissExport: (exportId: string) => Promise<void>;
   isStartingArticle: (articleId: string) => boolean;
+  registerDirectDownload: (args: { title: string; href: string }) => void;
 };
 
 const ArticleAudioExportContext =
@@ -84,7 +108,8 @@ const resolveArticleExportBaseUrl = (origin: string): string => {
   return "https://curiogarden.org";
 };
 
-const statusLabel = (job: ArticleAudioExportJob): string => {
+const statusLabel = (job: TrayJob): string => {
+  if (job.statusLabelOverride) return job.statusLabelOverride;
   if (job.status === "ready") return "Ready to download";
   if (job.status === "failed") return "Export failed";
   if (job.stage === "packaging") return "Packaging MP3";
@@ -92,7 +117,8 @@ const statusLabel = (job: ArticleAudioExportJob): string => {
   return "Queued for export";
 };
 
-const progressLabel = (job: ArticleAudioExportJob): string => {
+const progressLabel = (job: TrayJob): string => {
+  if (job.progressLabelOverride) return job.progressLabelOverride;
   if (job.status === "ready") return "Your article audio file is ready.";
   if (job.status === "failed") {
     return job.lastError || "Something went wrong while exporting this article.";
@@ -178,7 +204,7 @@ const ArticleAudioExportTray = ({
   politeAnnouncement,
   assertiveAnnouncement,
 }: {
-  jobs: ArticleAudioExportJob[];
+  jobs: TrayJob[];
   onDismiss: (exportId: string) => void;
   onRetry: (articleId: string) => void;
   politeAnnouncement: string;
@@ -207,7 +233,7 @@ const ArticleAudioExportTray = ({
       </div>
 
       <section
-        aria-label="Article audio exports"
+        aria-label="Audio downloads"
         className="pointer-events-none fixed inset-x-4 bottom-4 z-[70] flex flex-col items-end gap-3"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
@@ -237,26 +263,6 @@ const ArticleAudioExportTray = ({
               key={job._id}
               className="pointer-events-auto garden-bed w-full max-w-[26rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
             >
-              <div className="h-1.5 bg-surface-3" aria-hidden="true">
-                <div
-                  className={`h-full rounded-r-full ${
-                    job.status === "failed"
-                      ? "bg-serious"
-                      : job.status === "ready"
-                        ? "bg-accent"
-                        : "bg-accent"
-                  }`}
-                  style={{
-                    width:
-                      job.status === "failed"
-                        ? "100%"
-                        : job.status === "ready"
-                          ? "100%"
-                          : `${progressPercent}%`,
-                  }}
-                />
-              </div>
-
               <div className="p-4 sm:p-4.5">
                 <div className="flex items-start gap-3">
                   <div
@@ -281,7 +287,7 @@ const ArticleAudioExportTray = ({
                     type="button"
                     onClick={() => onDismiss(job._id)}
                     className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    aria-label={`Dismiss export status for ${job.title}`}
+                    aria-label={`Dismiss audio download status for ${job.title}`}
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -317,16 +323,20 @@ const ArticleAudioExportTray = ({
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   {job.status === "ready" ? (
                     <a
-                      href={`/api/article/audio-export/${job._id}?download=1`}
+                      href={
+                        job.downloadHref ??
+                        `/api/article/audio-export/${job._id}?download=1`
+                      }
                       className="btn-primary min-h-11 px-4 py-2 text-sm no-underline"
-                      aria-label={`Download article audio for ${job.title}`}
+                      aria-label={`Download audio for ${job.title}`}
+                      download
                     >
-                      Download MP3
+                      {job.kind === "download" ? "Download again" : "Download MP3"}
                     </a>
-                  ) : job.status === "failed" ? (
+                  ) : job.status === "failed" && job.articleId ? (
                     <button
                       type="button"
-                      onClick={() => onRetry(job.articleId)}
+                      onClick={() => onRetry(job.articleId!)}
                       className="btn-primary min-h-11 px-4 py-2 text-sm"
                     >
                       Retry export
@@ -360,6 +370,7 @@ export const ArticleAudioExportProvider = ({
 }) => {
   const [clientId, setClientId] = useState<string | null>(null);
   const [startingJobs, setStartingJobs] = useState<StartingJob[]>([]);
+  const [directDownloads, setDirectDownloads] = useState<DirectDownloadToast[]>([]);
   const [politeAnnouncement, setPoliteAnnouncement] = useState("");
   const [assertiveAnnouncement, setAssertiveAnnouncement] = useState("");
   const previousStatusesRef = useRef<Record<string, string>>({});
@@ -397,6 +408,39 @@ export const ArticleAudioExportProvider = ({
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 4);
   }, [jobs, startingJobs]);
+  const trayJobs = useMemo<TrayJob[]>(() => {
+    const exportJobs = mergedJobs.map(
+      (job) =>
+        ({
+          ...job,
+          kind: "export",
+          downloadHref:
+            job.status === "ready"
+              ? `/api/article/audio-export/${job._id}?download=1`
+              : undefined,
+        }) satisfies TrayJob,
+    );
+    const downloadJobs = directDownloads.map(
+      (job) =>
+        ({
+          _id: job._id,
+          title: job.title,
+          status: "ready",
+          sectionCount: 0,
+          completedSectionCount: 0,
+          updatedAt: job.updatedAt,
+          downloadHref: job.href,
+          kind: "download",
+          statusLabelOverride: "Download started",
+          progressLabelOverride:
+            "Your browser should start the download. If it does not, download it again here.",
+        }) satisfies TrayJob,
+    );
+
+    return [...downloadJobs, ...exportJobs]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, 4);
+  }, [directDownloads, mergedJobs]);
 
   const startExport = useMutation(api.articleExports.startArticleAudioExport);
   const dismissExportMutation = useMutation(
@@ -404,7 +448,7 @@ export const ArticleAudioExportProvider = ({
   );
 
   useEffect(() => {
-    if (mergedJobs.length === 0) {
+    if (trayJobs.length === 0) {
       previousStatusesRef.current = {};
       return;
     }
@@ -413,9 +457,14 @@ export const ArticleAudioExportProvider = ({
     let nextAssertive = "";
     const nextStatuses: Record<string, string> = {};
 
-    for (const job of mergedJobs) {
+    for (const job of trayJobs) {
       nextStatuses[job._id] = job.status;
       const previousStatus = previousStatusesRef.current[job._id];
+
+      if (!previousStatus && job.kind === "download") {
+        nextPolite = `Download started for ${job.title}.`;
+        continue;
+      }
 
       if (!previousStatus && job.status === "queued") {
         nextPolite = `Preparing article audio for ${job.title}.`;
@@ -435,7 +484,7 @@ export const ArticleAudioExportProvider = ({
 
     if (nextPolite) setPoliteAnnouncement(nextPolite);
     if (nextAssertive) setAssertiveAnnouncement(nextAssertive);
-  }, [mergedJobs]);
+  }, [trayJobs]);
 
   const queueExport = useCallback(
     async ({ articleId, title }: { articleId: string; title: string }) => {
@@ -490,22 +539,53 @@ export const ArticleAudioExportProvider = ({
     [startingJobs],
   );
 
+  const registerDirectDownload = useCallback(
+    ({ title, href }: { title: string; href: string }) => {
+      setDirectDownloads((current) => {
+        const next = [
+          {
+            _id: `download-${title}-${href}`,
+            title,
+            href,
+            updatedAt: Date.now(),
+          },
+          ...current.filter((job) => job.href !== href),
+        ];
+        return next.slice(0, 4);
+      });
+    },
+    [],
+  );
+
   const value = useMemo<ArticleAudioExportContextValue>(
     () => ({
       jobs: mergedJobs,
       queueExport,
       dismissExport,
       isStartingArticle,
+      registerDirectDownload,
     }),
-    [mergedJobs, queueExport, dismissExport, isStartingArticle],
+    [
+      mergedJobs,
+      queueExport,
+      dismissExport,
+      isStartingArticle,
+      registerDirectDownload,
+    ],
   );
 
   return (
     <ArticleAudioExportContext.Provider value={value}>
       {children}
       <ArticleAudioExportTray
-        jobs={mergedJobs}
+        jobs={trayJobs}
         onDismiss={(exportId) => {
+          if (exportId.startsWith("download-")) {
+            setDirectDownloads((current) =>
+              current.filter((job) => job._id !== exportId),
+            );
+            return;
+          }
           if (exportId.startsWith("pending-")) {
             const articleId = exportId.slice("pending-".length);
             setStartingJobs((current) =>
@@ -542,6 +622,7 @@ export const ArticleAudioExportFallbackProvider = ({
       },
       dismissExport: async () => {},
       isStartingArticle: () => false,
+      registerDirectDownload: () => {},
     }),
     [],
   );
