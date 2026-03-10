@@ -33,6 +33,32 @@ export const getPodcastSiteUrl = (fallbackOrigin?: string): string =>
 export const getPodcastArtworkUrl = (fallbackOrigin?: string): string =>
   `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork`;
 
+export const getFeaturedPodcastEpisodeArtworkUrl = (
+  fallbackOrigin?: string,
+  episodeId?: string | null,
+): string =>
+  episodeId
+    ? `${getPodcastSiteUrl(fallbackOrigin)}/api/podcast/artwork/${episodeId}`
+    : getPodcastArtworkUrl(fallbackOrigin);
+
+export const getFeaturedPodcastItemArtworkUrl = (
+  {
+    artworkUrl,
+    imageUrl,
+    episodeId,
+  }: {
+    artworkUrl?: string | null;
+    imageUrl?: string | null;
+    episodeId?: string | null;
+  },
+  fallbackOrigin?: string,
+): string =>
+  episodeId?.trim()
+    ? getFeaturedPodcastEpisodeArtworkUrl(fallbackOrigin, episodeId)
+    : artworkUrl?.trim() ||
+      imageUrl?.trim() ||
+      getPodcastArtworkUrl(fallbackOrigin);
+
 export const getTrendingPodcastShowArtworkUrl = (
   fallbackOrigin?: string,
 ): string =>
@@ -57,10 +83,17 @@ export const getTrendingPodcastItemArtworkUrl = (
     briefId?: string | null;
   },
   fallbackOrigin?: string,
-): string =>
-  artworkUrl?.trim() ||
-  imageUrls?.find((value) => Boolean(value?.trim()))?.trim() ||
-  getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId);
+): string => {
+  if (briefId?.trim()) {
+    return getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId);
+  }
+
+  return (
+    artworkUrl?.trim() ||
+    imageUrls?.find((value) => Boolean(value?.trim()))?.trim() ||
+    getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId)
+  );
+};
 
 export const FEATURED_PODCAST_TITLE =
   "Wikipedia Featured Articles Presented by Curio Garden";
