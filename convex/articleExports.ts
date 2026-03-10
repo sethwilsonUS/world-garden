@@ -20,7 +20,6 @@ import { titleToSlug } from "./lib/wikipedia";
 const MIN_TTS_TEXT_LENGTH = 10;
 const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
-const UPLOAD_RETRY_STATUS_CODES = new Set([400, 408, 409, 425, 429, 500, 502, 503, 504]);
 type TtsRequest = {
   text: string;
   voiceId?: string;
@@ -219,82 +218,6 @@ const generateTtsAudio = async (
   return audioChunks.length === 1
     ? audioChunks[0]
     : new Blob(audioChunks, { type: "audio/mpeg" });
-};
-
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-const uploadBlobToConvexStorage = async (
-  uploadUrl: string,
-  blob: Blob,
-): Promise<Id<"_storage">> => {
-  const result = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": blob.type || "audio/mpeg",
-      "Content-Length": String(blob.size),
-      Accept: "application/json",
-    },
-    body: blob,
-  });
-
-  if (!result.ok) {
-    const errorBody = await result.text().catch(() => "");
-    const detail = errorBody.trim().slice(0, 160);
-    const error = new Error(
-      `Convex storage upload failed: ${result.status}${
-        detail ? ` ${detail}` : ""
-      }`,
-    ) as Error & { status?: number };
-    error.status = result.status;
-    throw error;
-  }
-
-  const body = (await result.json()) as { storageId?: Id<"_storage"> };
-  if (!body.storageId) {
-    throw new Error("Convex storage upload did not return a storageId");
-  }
-
-  return body.storageId;
-};
-
-const uploadBlobToConvexStorageWithRetries = async ({
-  blob,
-  getUploadUrl,
-  maxAttempts = 3,
-}: {
-  blob: Blob;
-  getUploadUrl: () => Promise<string>;
-  maxAttempts?: number;
-}): Promise<Id<"_storage">> => {
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      const uploadUrl = await getUploadUrl();
-      return await uploadBlobToConvexStorage(uploadUrl, blob);
-    } catch (error) {
-      lastError = error;
-      const status =
-        error instanceof Error &&
-        "status" in error &&
-        typeof (error as { status?: unknown }).status === "number"
-          ? (error as { status: number }).status
-          : null;
-
-      if (status == null || !UPLOAD_RETRY_STATUS_CODES.has(status) || attempt >= maxAttempts) {
-        throw error;
-      }
-
-      await sleep(250 * attempt);
-    }
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Convex storage upload failed.");
 };
 
 const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
@@ -719,10 +642,7 @@ export const processArticleAudioExport = internalAction({
         if (!blob) {
           blob = await generateTtsAudio({ text: section.text }, args.baseUrl);
 
-          const storageId = await uploadBlobToConvexStorageWithRetries({
-            blob,
-            getUploadUrl: () => ctx.runMutation(api.audio.generateUploadUrl, {}),
-          });
+          const storageId = await ctx.storage.store(blob);
 
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
             articleId: article._id,
@@ -764,10 +684,7 @@ export const processArticleAudioExport = internalAction({
         artwork,
       });
 
-      const storageId = await uploadBlobToConvexStorageWithRetries({
-        blob: taggedBlob,
-        getUploadUrl: () => ctx.runMutation(api.audio.generateUploadUrl, {}),
-      });
+      const storageId = await ctx.storage.store(taggedBlob);
 
       await ctx.runMutation(internal.articleExports.completeArticleAudioExport, {
         exportId: args.exportId,
