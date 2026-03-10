@@ -232,7 +232,11 @@ const uploadBlobToConvexStorage = async (
 ): Promise<Id<"_storage">> => {
   const result = await fetch(uploadUrl, {
     method: "POST",
-    headers: { "Content-Type": blob.type || "audio/mpeg" },
+    headers: {
+      "Content-Type": blob.type || "audio/mpeg",
+      "Content-Length": String(blob.size),
+      Accept: "application/json",
+    },
     body: blob,
   });
 

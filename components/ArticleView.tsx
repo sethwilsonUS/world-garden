@@ -112,6 +112,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         total: Math.max(currentArticleExport?.sectionCount ?? 1, 1),
       }
     : { current: 0, total: 0 };
+  const downloadStatus = currentArticleExport?.status ?? null;
+  const downloadStage = currentArticleExport?.stage ?? null;
   const readyDownloadHref =
     currentArticleExport?.status === "ready"
       ? `/api/article/audio-export/${currentArticleExport._id}?download=1`
@@ -892,6 +894,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           downloadHref={readyDownloadHref}
           downloading={downloading}
           downloadProgress={downloadProgress}
+          downloadStatus={downloadStatus}
+          downloadStage={downloadStage}
           playbackRate={playbackRate}
           onPlaybackRateChange={handlePlaybackRateChange}
           audioProgress={

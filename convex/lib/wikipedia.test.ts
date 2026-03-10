@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   titleToSlug,
   slugToTitle,
@@ -9,7 +9,12 @@ import {
   upscaleThumbUrl,
   toOriginalUrl,
   extractImages,
+  fetchArticleByTitle,
 } from "./wikipedia";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("titleToSlug", () => {
   it("replaces spaces with underscores", () => {
@@ -300,6 +305,57 @@ describe("cleanContentForTts", () => {
   it("collapses excessive newlines after cleanup", () => {
     const text = "Paragraph one.\n\n\n\n\nParagraph two.";
     expect(cleanContentForTts(text)).toBe("Paragraph one.\n\nParagraph two.");
+  });
+});
+
+describe("fetchArticleByTitle", () => {
+  it("falls back to REST summary thumbnail when pageimages omits one", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    fetchSpy
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            query: {
+              pages: {
+                "3705490": {
+                  pageid: 3705490,
+                  title: "Mortal Kombat",
+                  extract: "Lead summary",
+                  revisions: [{ revid: 123, timestamp: "2026-02-22T22:41:01Z" }],
+                },
+              },
+            },
+          }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            thumbnail: {
+              source:
+                "https://upload.wikimedia.org/wikipedia/en/thumb/b/b1/Mortal_Kombat_Logo.svg/330px-Mortal_Kombat_Logo.svg.png",
+              width: 330,
+              height: 330,
+            },
+          }),
+      } as Response);
+
+    const result = await fetchArticleByTitle("Mortal Kombat");
+
+    expect(result.thumbnailUrl).toBe(
+      "https://upload.wikimedia.org/wikipedia/en/thumb/b/b1/Mortal_Kombat_Logo.svg/330px-Mortal_Kombat_Logo.svg.png",
+    );
+    expect(result.thumbnailWidth).toBe(330);
+    expect(result.thumbnailHeight).toBe(330);
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      "https://en.wikipedia.org/api/rest_v1/page/summary/Mortal%20Kombat",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "User-Agent": expect.any(String) }),
+      }),
+    );
   });
 });
 

@@ -26,6 +26,7 @@ type ArticleAudioExportJob = {
   completedSectionCount: number;
   lastError?: string;
   audioUrl?: string | null;
+  createdAt: number;
   updatedAt: number;
 };
 
@@ -39,6 +40,7 @@ type DirectDownloadToast = {
   _id: string;
   title: string;
   href: string;
+  createdAt: number;
   updatedAt: number;
 };
 
@@ -49,6 +51,7 @@ type TrayJob = {
   stage?: "queued" | "rendering_audio" | "packaging";
   sectionCount: number;
   completedSectionCount: number;
+  createdAt: number;
   updatedAt: number;
   articleId?: string;
   lastError?: string;
@@ -113,8 +116,9 @@ const statusLabel = (job: TrayJob): string => {
   if (job.status === "ready") return "Ready to download";
   if (job.status === "failed") return "Export failed";
   if (job.stage === "packaging") return "Packaging MP3";
+  if (job.status === "queued") return "Queued";
   if (job.status === "running") return "Preparing article audio";
-  return "Queued for export";
+  return "Preparing article audio";
 };
 
 const progressLabel = (job: TrayJob): string => {
@@ -122,6 +126,9 @@ const progressLabel = (job: TrayJob): string => {
   if (job.status === "ready") return "Your article audio file is ready.";
   if (job.status === "failed") {
     return job.lastError || "Something went wrong while exporting this article.";
+  }
+  if (job.status === "queued") {
+    return "Waiting for the current download to finish before this one starts.";
   }
   if (job.stage === "packaging") return "Finalizing the download package.";
   if (job.sectionCount <= 0) return "Preparing your export.";
@@ -241,7 +248,7 @@ const ArticleAudioExportTray = ({
           const progressPercent =
             job.sectionCount > 0
               ? Math.max(
-                  8,
+                  0,
                   Math.min(
                     100,
                     Math.round(
@@ -306,7 +313,7 @@ const ArticleAudioExportTray = ({
                   </button>
                 </div>
 
-                {job.status !== "ready" && job.status !== "failed" && (
+                {job.status === "running" && (
                   <div className="mt-4 rounded-full bg-surface-3 p-1" aria-hidden="true">
                     <div
                       className="h-2 rounded-full bg-accent transition-[width] duration-300"
@@ -341,6 +348,10 @@ const ArticleAudioExportTray = ({
                     >
                       Retry export
                     </button>
+                  ) : job.status === "queued" ? (
+                    <span className="inline-flex min-h-11 items-center rounded-xl border border-border bg-surface-2 px-4 py-2 text-sm font-semibold text-foreground-2">
+                      Queued
+                    </span>
                   ) : (
                     <span className="inline-flex min-h-11 items-center rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-sm font-semibold text-accent">
                       Working in the background
@@ -400,12 +411,13 @@ export const ArticleAudioExportProvider = ({
             stage: "queued",
             sectionCount: 0,
             completedSectionCount: 0,
+            createdAt: job.startedAt,
             updatedAt: job.startedAt,
           }) satisfies ArticleAudioExportJob,
       );
 
     return [...optimisticJobs, ...(jobs as ArticleAudioExportJob[])]
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 4);
   }, [jobs, startingJobs]);
   const trayJobs = useMemo<TrayJob[]>(() => {
@@ -428,6 +440,7 @@ export const ArticleAudioExportProvider = ({
           status: "ready",
           sectionCount: 0,
           completedSectionCount: 0,
+          createdAt: job.createdAt,
           updatedAt: job.updatedAt,
           downloadHref: job.href,
           kind: "download",
@@ -438,7 +451,7 @@ export const ArticleAudioExportProvider = ({
     );
 
     return [...downloadJobs, ...exportJobs]
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 4);
   }, [directDownloads, mergedJobs]);
 
@@ -547,6 +560,7 @@ export const ArticleAudioExportProvider = ({
             _id: `download-${title}-${href}`,
             title,
             href,
+            createdAt: Date.now(),
             updatedAt: Date.now(),
           },
           ...current.filter((job) => job.href !== href),

@@ -1,4 +1,5 @@
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
+const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
 const USER_AGENT = "CurioGarden/1.0 (accessibility-first Wikipedia audio reader)";
 
 export type WikiSearchResult = {
@@ -26,6 +27,32 @@ export type WikiArticle = {
   thumbnailUrl?: string;
   thumbnailWidth?: number;
   thumbnailHeight?: number;
+};
+
+type WikiThumbnail = {
+  source: string;
+  width: number;
+  height: number;
+};
+
+const fetchSummaryThumbnail = async (
+  title: string,
+): Promise<WikiThumbnail | undefined> => {
+  try {
+    const response = await fetch(
+      `${WIKI_REST_API}/page/summary/${encodeURIComponent(title)}`,
+      {
+        headers: { "User-Agent": USER_AGENT },
+      },
+    );
+    if (!response.ok) return undefined;
+
+    const data = await response.json();
+    const thumbnail = data.thumbnail as WikiThumbnail | undefined;
+    return thumbnail;
+  } catch {
+    return undefined;
+  }
 };
 
 export const searchWikipedia = async (
@@ -98,7 +125,9 @@ export const fetchArticleByPageId = async (
   const fullText = page.extract ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
-  const thumbnail = page.thumbnail as { source: string; width: number; height: number } | undefined;
+  const thumbnail =
+    (page.thumbnail as WikiThumbnail | undefined) ??
+    (await fetchSummaryThumbnail(page.title as string));
 
   return {
     wikiPageId: String(page.pageid),
@@ -162,7 +191,9 @@ export const fetchArticleByTitle = async (
   const fullText = (page.extract as string) ?? "";
   const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
-  const thumbnail = page.thumbnail as { source: string; width: number; height: number } | undefined;
+  const thumbnail =
+    (page.thumbnail as WikiThumbnail | undefined) ??
+    (await fetchSummaryThumbnail(page.title as string));
 
   return {
     wikiPageId: String(page.pageid),

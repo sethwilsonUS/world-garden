@@ -40,6 +40,8 @@ type TableOfContentsProps = {
   isSpeaking?: boolean;
   downloading?: boolean;
   downloadProgress?: { current: number; total: number };
+  downloadStatus?: "queued" | "running" | "ready" | "failed" | null;
+  downloadStage?: "queued" | "rendering_audio" | "packaging" | null;
   onListenSection: (index: number) => void;
   onListenSummary: () => void;
   onPlayAll: () => void;
@@ -220,6 +222,8 @@ export const TableOfContents = ({
   isSpeaking = false,
   downloading = false,
   downloadProgress,
+  downloadStatus = null,
+  downloadStage = null,
   onListenSection,
   onListenSummary,
   onPlayAll,
@@ -507,19 +511,31 @@ export const TableOfContents = ({
               disabled={downloading || isGenerating}
               label={summaryOnly ? "Download" : "Download all"}
               ariaLabel={
-                downloading
-                  ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
-                  : summaryOnly
-                    ? "Download summary as audio file"
-                    : "Download full article as one audio file"
+                downloadStatus === "queued"
+                  ? "Article download queued"
+                  : downloadStage === "packaging"
+                    ? "Packaging article download"
+                    : downloading
+                      ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
+                      : summaryOnly
+                        ? "Download summary as audio file"
+                        : "Download full article as one audio file"
               }
             >
-              {downloading ? (
+              {downloadStatus === "queued" ? (
                 <>
                   <DownloadSpinnerIcon />
-                  {(downloadProgress?.current ?? 0) < (downloadProgress?.total ?? 0)
-                    ? `Preparing ${Math.min((downloadProgress?.current ?? 0) + 1, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0}...`
-                    : "Packaging..."}
+                  Queued
+                </>
+              ) : downloadStage === "packaging" ? (
+                <>
+                  <DownloadSpinnerIcon />
+                  Packaging...
+                </>
+              ) : downloading ? (
+                <>
+                  <DownloadSpinnerIcon />
+                  {`${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0} ready`}
                 </>
               ) : (
                 undefined
