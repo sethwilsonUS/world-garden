@@ -199,6 +199,7 @@ export default defineSchema({
     slug: podcastShowAssetSlug,
     storageId: v.id("_storage"),
     mimeType: v.string(),
+    version: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),

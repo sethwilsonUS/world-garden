@@ -194,6 +194,7 @@ export const savePodcastShowAsset = mutation({
     slug: podcastShowAssetSlug,
     storageId: v.id("_storage"),
     mimeType: v.string(),
+    version: v.number(),
   },
   async handler(ctx, args) {
     const existing = await ctx.db
@@ -206,6 +207,7 @@ export const savePodcastShowAsset = mutation({
       await ctx.db.patch(existing._id, {
         storageId: args.storageId,
         mimeType: args.mimeType,
+        version: args.version,
         updatedAt: now,
       });
       return existing._id;
@@ -215,6 +217,7 @@ export const savePodcastShowAsset = mutation({
       slug: args.slug,
       storageId: args.storageId,
       mimeType: args.mimeType,
+      version: args.version,
       createdAt: now,
       updatedAt: now,
     });
