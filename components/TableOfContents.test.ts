@@ -216,7 +216,7 @@ describe("TableOfContents audio eligibility", () => {
     expect(markup).toContain("(2)");
     expect(markup).toContain("Not suited for audio");
     expect(markup).toContain(
-      "title=\"This section is mostly table-like content, which usually does not sound great read aloud.\"",
+      "Why this section is not suited for audio",
     );
     expect(markup).toContain(
       "Election results — not available for audio: section reads like a table",
