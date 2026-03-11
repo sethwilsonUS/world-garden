@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTrendingBriefPrompt,
+  getCachedTrendingBriefContent,
+  hasCurrentTrendingArtworkVersion,
   normalizeTrendingBrief,
   parseGeneratedTrendingBrief,
   selectTrendingArtworkItems,
+  shouldReuseExistingTrendingBrief,
 } from "./trending-brief";
 
 describe("normalizeTrendingBrief", () => {
@@ -68,6 +71,123 @@ describe("selectTrendingArtworkItems", () => {
       { title: "Three", imageUrl: "3.png" },
       { title: "Five", imageUrl: "5.png" },
     ]);
+  });
+});
+
+describe("cached trending brief reuse", () => {
+  it("extracts cached generated content when a brief already has summary fields", () => {
+    expect(
+      getCachedTrendingBriefContent({
+        _id: "brief-1",
+        trendingDate: "2026-03-11",
+        status: "failed",
+        headline: "Cached headline",
+        summary: "Cached summary",
+        podcastDescription: "Cached podcast description",
+        spokenSummary: "Cached spoken summary",
+        keyPoints: ["Point one"],
+        sources: [{ title: "Reuters", url: "https://reuters.com" }],
+        audioUrl: null,
+        updatedAt: Date.now(),
+      } as Parameters<typeof getCachedTrendingBriefContent>[0]),
+    ).toEqual({
+      headline: "Cached headline",
+      summary: "Cached summary",
+      podcastDescription: "Cached podcast description",
+      spokenSummary: "Cached spoken summary",
+      keyPoints: ["Point one"],
+      sources: [{ title: "Reuters", url: "https://reuters.com" }],
+    });
+  });
+
+  it("does not treat incomplete records as cached generated content", () => {
+    expect(
+      getCachedTrendingBriefContent({
+        _id: "brief-1",
+        trendingDate: "2026-03-11",
+        status: "failed",
+        headline: "Missing the rest",
+        audioUrl: null,
+        updatedAt: Date.now(),
+      } as Parameters<typeof getCachedTrendingBriefContent>[0]),
+    ).toBeNull();
+  });
+
+  it("always reuses an existing ready brief, even if a force sync was requested", () => {
+    expect(
+      shouldReuseExistingTrendingBrief({
+        _id: "brief-1",
+        trendingDate: "2026-03-11",
+        status: "ready",
+        audioUrl: "https://cdn.example.com/brief.mp3",
+        artworkVersion: 2,
+        updatedAt: Date.now(),
+      } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
+    ).toBe(true);
+  });
+
+  it("does not reuse when regenArt is requested for an older artwork version", () => {
+    expect(
+      shouldReuseExistingTrendingBrief(
+        {
+          _id: "brief-1",
+          trendingDate: "2026-03-11",
+          status: "ready",
+          audioUrl: "https://cdn.example.com/brief.mp3",
+          artworkVersion: 1,
+          updatedAt: Date.now(),
+        } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
+        { regenArt: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("reuses when regenArt is requested and artwork is already current", () => {
+    expect(
+      shouldReuseExistingTrendingBrief(
+        {
+          _id: "brief-1",
+          trendingDate: "2026-03-11",
+          status: "ready",
+          audioUrl: "https://cdn.example.com/brief.mp3",
+          artworkVersion: 2,
+          updatedAt: Date.now(),
+        } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
+        { regenArt: true },
+      ),
+    ).toBe(true);
+  });
+
+  it("does not reuse when force and regenArt are both requested", () => {
+    expect(
+      shouldReuseExistingTrendingBrief(
+        {
+          _id: "brief-1",
+          trendingDate: "2026-03-11",
+          status: "ready",
+          audioUrl: "https://cdn.example.com/brief.mp3",
+          artworkVersion: 2,
+          updatedAt: Date.now(),
+        } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
+        { force: true, regenArt: true },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("hasCurrentTrendingArtworkVersion", () => {
+  it("detects the current artwork version", () => {
+    expect(
+      hasCurrentTrendingArtworkVersion({
+        artworkVersion: 2,
+      } as Parameters<typeof hasCurrentTrendingArtworkVersion>[0]),
+    ).toBe(true);
+
+    expect(
+      hasCurrentTrendingArtworkVersion({
+        artworkVersion: 1,
+      } as Parameters<typeof hasCurrentTrendingArtworkVersion>[0]),
+    ).toBe(false);
   });
 });
 

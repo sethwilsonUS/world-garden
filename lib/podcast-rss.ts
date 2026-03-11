@@ -1,5 +1,6 @@
 export const PODCAST_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd";
 export const ATOM_NS = "http://www.w3.org/2005/Atom";
+export const CONTENT_NS = "http://purl.org/rss/1.0/modules/content/";
 
 export const escapeXml = (value: string): string =>
   value

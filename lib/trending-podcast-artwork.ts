@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { createElement as h } from "react";
 import { loadOgFonts } from "@/app/og-fonts";
+import { convertArtworkToJpeg } from "@/lib/podcast-artwork-encode";
 
 const ARTWORK_SIZE = 3000;
 const ARTWORK_TILES = 4;
@@ -8,6 +9,8 @@ const PRIMARY = "#10261e";
 const SECONDARY = "#1b4332";
 const PANEL = "rgba(8, 23, 17, 0.82)";
 const BORDER = "rgba(255, 255, 255, 0.14)";
+const JPEG_BACKGROUND = PRIMARY;
+export const TRENDING_EPISODE_ARTWORK_VERSION = 2;
 const PLACEHOLDER_COLORS = [
   ["#0f766e", "#115e59"],
   ["#1d4ed8", "#1e3a8a"],
@@ -315,8 +318,14 @@ export const renderTrendingPodcastArtworkPng = async (
   input: TrendingArtworkInput,
 ): Promise<{ data: Uint8Array; mimeType: string }> => {
   const response = await renderTrendingPodcastArtworkResponse(input);
+  const pngData = new Uint8Array(await response.arrayBuffer());
+  const jpegData = await convertArtworkToJpeg({
+    data: pngData,
+    background: JPEG_BACKGROUND,
+  });
+
   return {
-    data: new Uint8Array(await response.arrayBuffer()),
-    mimeType: "image/png",
+    data: jpegData,
+    mimeType: "image/jpeg",
   };
 };

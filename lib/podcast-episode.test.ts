@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getPodcastSectionSources,
+  hasCurrentFeaturedArtworkVersion,
   shouldReuseExistingFeaturedEpisode,
 } from "./podcast-episode";
 
@@ -62,10 +63,12 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
     expect(
       shouldReuseExistingFeaturedEpisode({
         force: false,
+        regenArt: false,
         existingEpisode: {
           status: "ready",
           wikiPageId: "123",
           title: "Example article",
+          artworkVersion: 2,
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
@@ -76,10 +79,12 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
     expect(
       shouldReuseExistingFeaturedEpisode({
         force: false,
+        regenArt: false,
         existingEpisode: {
           status: "ready",
           wikiPageId: "999",
           title: "Older featured article",
+          artworkVersion: 2,
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
@@ -90,13 +95,63 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
     expect(
       shouldReuseExistingFeaturedEpisode({
         force: true,
+        regenArt: false,
         existingEpisode: {
           status: "ready",
           wikiPageId: "123",
           title: "Example article",
+          artworkVersion: 2,
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
+    ).toBe(false);
+  });
+
+  it("does not reuse when regenArt is requested for an older artwork version", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: true,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 1,
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
+  });
+
+  it("reuses when regenArt is requested but artwork is already current", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: true,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("hasCurrentFeaturedArtworkVersion", () => {
+  it("detects the current artwork version", () => {
+    expect(
+      hasCurrentFeaturedArtworkVersion({
+        artworkVersion: 2,
+      } as Parameters<typeof hasCurrentFeaturedArtworkVersion>[0]),
+    ).toBe(true);
+
+    expect(
+      hasCurrentFeaturedArtworkVersion({
+        artworkVersion: 1,
+      } as Parameters<typeof hasCurrentFeaturedArtworkVersion>[0]),
     ).toBe(false);
   });
 });

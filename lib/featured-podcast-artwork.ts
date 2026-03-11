@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { createElement as h } from "react";
 import { loadOgFonts } from "@/app/og-fonts";
+import { convertArtworkToJpeg } from "@/lib/podcast-artwork-encode";
 
 const ARTWORK_SIZE = 3000;
 const PRIMARY = "#10261e";
@@ -8,6 +9,8 @@ const SECONDARY = "#1b4332";
 const PANEL = "rgba(8, 23, 17, 0.84)";
 const BORDER = "rgba(255, 255, 255, 0.14)";
 const IMAGE_PANEL = "rgba(255, 255, 255, 0.05)";
+const JPEG_BACKGROUND = PRIMARY;
+export const FEATURED_EPISODE_ARTWORK_VERSION = 2;
 
 export type FeaturedArtworkInput = {
   featuredDate: string;
@@ -240,8 +243,14 @@ export const renderFeaturedPodcastArtworkPng = async (
   input: FeaturedArtworkInput,
 ): Promise<{ data: Uint8Array; mimeType: string }> => {
   const response = await renderFeaturedPodcastArtworkResponse(input);
+  const pngData = new Uint8Array(await response.arrayBuffer());
+  const jpegData = await convertArtworkToJpeg({
+    data: pngData,
+    background: JPEG_BACKGROUND,
+  });
+
   return {
-    data: new Uint8Array(await response.arrayBuffer()),
-    mimeType: "image/png",
+    data: jpegData,
+    mimeType: "image/jpeg",
   };
 };

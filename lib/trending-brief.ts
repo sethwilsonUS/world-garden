@@ -10,6 +10,7 @@ import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
 import { generateTtsAudio } from "@/lib/tts-client";
 import {
+  TRENDING_EPISODE_ARTWORK_VERSION,
   renderTrendingPodcastArtworkPng,
   type TrendingArtworkItem,
 } from "@/lib/trending-podcast-artwork";
@@ -57,6 +58,9 @@ export type TrendingBriefRecord = {
   imageUrls?: string[];
   artworkItems?: TrendingArtworkItem[];
   sources?: TrendingBriefSource[];
+  storageId?: string;
+  artworkStorageId?: string;
+  artworkVersion?: number;
   audioUrl: string | null;
   artworkUrl?: string | null;
   durationSeconds?: number;
@@ -76,6 +80,7 @@ export type TrendingBriefSyncResult = {
   publication: {
     reusedExisting: boolean;
     repairedExisting: boolean;
+    regeneratedArtwork: boolean;
   };
 };
 
@@ -86,6 +91,57 @@ export type DailyTrendingBriefState = {
   articleTitles: string[];
   brief: TrendingBriefRecord | null;
   lastError?: string;
+};
+
+const isNonEmptyString = (value: string | undefined): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+
+export const getCachedTrendingBriefContent = (
+  record: TrendingBriefRecord | null,
+): GeneratedTrendingBrief | null => {
+  if (
+    !record ||
+    !isNonEmptyString(record.headline) ||
+    !isNonEmptyString(record.summary) ||
+    !isNonEmptyString(record.podcastDescription) ||
+    !isNonEmptyString(record.spokenSummary) ||
+    !Array.isArray(record.keyPoints) ||
+    !Array.isArray(record.sources)
+  ) {
+    return null;
+  }
+
+  return {
+    headline: record.headline,
+    summary: record.summary,
+    podcastDescription: record.podcastDescription,
+    spokenSummary: record.spokenSummary,
+    keyPoints: record.keyPoints,
+    sources: record.sources,
+  };
+};
+
+export const hasCurrentTrendingArtworkVersion = (
+  record: Pick<TrendingBriefRecord, "artworkVersion"> | null,
+): boolean => record?.artworkVersion === TRENDING_EPISODE_ARTWORK_VERSION;
+
+export const shouldReuseExistingTrendingBrief = (
+  record: TrendingBriefRecord | null,
+  options?: { force?: boolean; regenArt?: boolean },
+): record is TrendingBriefRecord =>
+  Boolean(
+    record?.status === "ready" &&
+      record.audioUrl &&
+      !(options?.force && options?.regenArt) &&
+      (!options?.regenArt || hasCurrentTrendingArtworkVersion(record)),
+  );
+
+const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Fetching cached audio failed: ${response.status}`);
+  }
+  return await response.blob();
 };
 
 const estimateDurationSeconds = (text: string): number =>
@@ -302,9 +358,11 @@ export const isTrendingBriefEnabled = (): boolean =>
 const generateTrendingBriefRecord = async ({
   baseUrl,
   force = false,
+  regenArt = false,
 }: {
   baseUrl: string;
   force?: boolean;
+  regenArt?: boolean;
 }): Promise<TrendingBriefSyncResult> => {
   const { trendingDateIso, articles, artworkItems } =
     await getCurrentTrendingBriefSource();
@@ -316,13 +374,17 @@ const generateTrendingBriefRecord = async ({
   const existing = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
     trendingDate: trendingDateIso,
   })) as TrendingBriefRecord | null;
-  const existingReadyBrief =
-    existing?.status === "ready" && existing.audioUrl ? existing : null;
+  const existingReadyBrief = shouldReuseExistingTrendingBrief(existing, {
+    force,
+    regenArt,
+  })
+    ? existing
+    : null;
   const owner = randomUUID();
   const imageUrls = artworkItems.map((item) => item.imageUrl);
   const articleTitles = articles.map((article) => article.title);
 
-  if (!force && existingReadyBrief) {
+  if (existingReadyBrief) {
     return {
       status: "already_exists",
       brief: existingReadyBrief,
@@ -333,6 +395,7 @@ const generateTrendingBriefRecord = async ({
       publication: {
         reusedExisting: true,
         repairedExisting: false,
+        regeneratedArtwork: false,
       },
     };
   }
@@ -352,7 +415,7 @@ const generateTrendingBriefRecord = async ({
       trendingDate: trendingDateIso,
     })) as TrendingBriefRecord | null;
 
-    if (latest?.status === "ready" && latest.audioUrl) {
+    if (shouldReuseExistingTrendingBrief(latest, { force, regenArt })) {
       return {
         status: "already_exists",
         brief: latest,
@@ -363,6 +426,7 @@ const generateTrendingBriefRecord = async ({
         publication: {
           reusedExisting: true,
           repairedExisting: false,
+          regeneratedArtwork: false,
         },
       };
     }
@@ -386,106 +450,140 @@ const generateTrendingBriefRecord = async ({
     });
   }
 
+  const cachedBriefContent = getCachedTrendingBriefContent(existing);
+
   try {
-    const researchResult = await generateText({
-      model,
-      system:
-        "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use web search to gather recent reporting about why topics are trending.",
-      prompt: buildTrendingResearchPrompt({
-        trendingDate: trendingDateIso,
-        articles,
-      }),
-      maxOutputTokens: 1200,
-      stopWhen: stepCountIs(3),
-      toolChoice: "required",
-      tools: {
-        news_search: gateway.tools.perplexitySearch({
-          searchRecencyFilter: "week",
-          searchLanguageFilter: ["en"],
-          maxResults: 8,
-          maxTokensPerPage: 1024,
-        }),
-      },
-      providerOptions: {
-        gateway: {
-          models: [fallbackModel],
-          user: "public-trending-brief",
-          tags: ["trending-brief", "daily-audio"],
-        } satisfies GatewayLanguageModelOptions,
-      },
-    });
+    const brief = cachedBriefContent
+      ? normalizeTrendingBrief(cachedBriefContent)
+      : await (async (): Promise<GeneratedTrendingBrief> => {
+          const researchResult = await generateText({
+            model,
+            system:
+              "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use web search to gather recent reporting about why topics are trending.",
+            prompt: buildTrendingResearchPrompt({
+              trendingDate: trendingDateIso,
+              articles,
+            }),
+            maxOutputTokens: 1200,
+            stopWhen: stepCountIs(3),
+            toolChoice: "required",
+            tools: {
+              news_search: gateway.tools.perplexitySearch({
+                searchRecencyFilter: "week",
+                searchLanguageFilter: ["en"],
+                maxResults: 8,
+                maxTokensPerPage: 1024,
+              }),
+            },
+            providerOptions: {
+              gateway: {
+                models: [fallbackModel],
+                user: "public-trending-brief",
+                tags: ["trending-brief", "daily-audio"],
+              } satisfies GatewayLanguageModelOptions,
+            },
+          });
 
-    if (researchResult.toolResults.length === 0) {
-      throw new Error("Trending brief research did not return any search results");
-    }
+          if (researchResult.toolResults.length === 0) {
+            throw new Error("Trending brief research did not return any search results");
+          }
 
-    const researchContext = [
-      researchResult.text.trim(),
-      ...researchResult.toolResults.map((toolResult) =>
-        JSON.stringify(toolResult.output),
-      ),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+          const researchContext = [
+            researchResult.text.trim(),
+            ...researchResult.toolResults.map((toolResult) =>
+              JSON.stringify(toolResult.output),
+            ),
+          ]
+            .filter(Boolean)
+            .join("\n\n");
 
-    const writingResult = await generateText({
-      model,
-      system:
-        "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using recent reporting, not speculation. Return only valid JSON.",
-      prompt: [
-        buildTrendingBriefPrompt({
-          trendingDate: trendingDateIso,
-          articles,
-        }),
-        "",
-        "Research context from recent news search:",
-        researchContext,
-      ].join("\n"),
-      maxOutputTokens: 1400,
-      providerOptions: {
-        gateway: {
-          models: [fallbackModel],
-          user: "public-trending-brief",
-          tags: ["trending-brief", "daily-audio"],
-        } satisfies GatewayLanguageModelOptions,
-      },
-    });
+          const writingResult = await generateText({
+            model,
+            system:
+              "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using recent reporting, not speculation. Return only valid JSON.",
+            prompt: [
+              buildTrendingBriefPrompt({
+                trendingDate: trendingDateIso,
+                articles,
+              }),
+              "",
+              "Research context from recent news search:",
+              researchContext,
+            ].join("\n"),
+            maxOutputTokens: 1400,
+            providerOptions: {
+              gateway: {
+                models: [fallbackModel],
+                user: "public-trending-brief",
+                tags: ["trending-brief", "daily-audio"],
+              } satisfies GatewayLanguageModelOptions,
+            },
+          });
 
-    if (!writingResult.text.trim()) {
-      throw new Error("Trending brief writing pass returned empty text");
-    }
+          if (!writingResult.text.trim()) {
+            throw new Error("Trending brief writing pass returned empty text");
+          }
 
-    const brief = normalizeTrendingBrief(
-      parseGeneratedTrendingBrief(writingResult.text),
+          return normalizeTrendingBrief(
+            parseGeneratedTrendingBrief(writingResult.text),
+          );
+        })();
+
+    const canReuseStoredAssets = Boolean(
+      !regenArt &&
+      existing?.storageId &&
+        existing?.artworkStorageId &&
+        existing?.durationSeconds != null &&
+        existing?.byteLength != null,
     );
-    const audioBlob = await generateTtsAudio(
-      { text: brief.spokenSummary },
-      { apiBaseUrl: baseUrl },
-    );
-    const artwork = await renderTrendingPodcastArtworkPng({
-      trendingDate: trendingDateIso,
-      headline: brief.headline,
-      artworkItems,
-      articleTitles,
-      imageUrls,
-    });
-    const artworkBlob = new Blob([Buffer.from(artwork.data)], {
-      type: artwork.mimeType,
-    });
-    const taggedAudioBlob = await addMp3MetadataToBlob(audioBlob, {
-      title: brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
-      artist: "Curio Garden",
-      album: TRENDING_PODCAST_TITLE,
-      artwork,
-    });
-    const [audioUploadUrl, artworkUploadUrl] = await Promise.all([
-      fetchMutation(anyApi.trending.generateUploadUrl, {}),
-      fetchMutation(anyApi.trending.generateUploadUrl, {}),
-    ]);
-    const [storageId, artworkStorageId] = await Promise.all([
-      uploadBlobToConvexStorage(audioUploadUrl, taggedAudioBlob),
-      uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
-    ]);
+
+    const assetState = canReuseStoredAssets
+      ? {
+          storageId: existing?.storageId as Id<"_storage">,
+          artworkStorageId: existing?.artworkStorageId as Id<"_storage">,
+          durationSeconds: existing?.durationSeconds as number,
+          byteLength: existing?.byteLength as number,
+        }
+      : await (async () => {
+          const artwork = await renderTrendingPodcastArtworkPng({
+            trendingDate: trendingDateIso,
+            headline: brief.headline,
+            artworkItems,
+            articleTitles,
+            imageUrls,
+          });
+          const sourceAudioBlob =
+            regenArt && existing?.audioUrl
+              ? await fetchBlobFromUrl(existing.audioUrl)
+              : await generateTtsAudio(
+                  { text: brief.spokenSummary },
+                  { apiBaseUrl: baseUrl },
+                );
+          const artworkBlob = new Blob([Buffer.from(artwork.data)], {
+            type: artwork.mimeType,
+          });
+          const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
+            title: brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
+            artist: "Curio Garden",
+            album: TRENDING_PODCAST_TITLE,
+            artwork,
+          });
+          const [audioUploadUrl, artworkUploadUrl] = await Promise.all([
+            fetchMutation(anyApi.trending.generateUploadUrl, {}),
+            fetchMutation(anyApi.trending.generateUploadUrl, {}),
+          ]);
+          const [newStorageId, newArtworkStorageId] = await Promise.all([
+            uploadBlobToConvexStorage(audioUploadUrl, taggedAudioBlob),
+            uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
+          ]);
+
+          return {
+            storageId: newStorageId,
+            artworkStorageId: newArtworkStorageId,
+            durationSeconds: estimateDurationSeconds(brief.spokenSummary),
+            byteLength: taggedAudioBlob.size,
+          };
+        })();
 
     await fetchMutation(anyApi.trending.saveTrendingBrief, {
       trendingDate: trendingDateIso,
@@ -499,10 +597,11 @@ const generateTrendingBriefRecord = async ({
       imageUrls,
       artworkItems,
       sources: brief.sources,
-      storageId,
-      artworkStorageId,
-      durationSeconds: estimateDurationSeconds(brief.spokenSummary),
-      byteLength: taggedAudioBlob.size,
+      storageId: assetState.storageId,
+      artworkStorageId: assetState.artworkStorageId,
+      artworkVersion: TRENDING_EPISODE_ARTWORK_VERSION,
+      durationSeconds: assetState.durationSeconds,
+      byteLength: assetState.byteLength,
       model,
     });
 
@@ -530,6 +629,7 @@ const generateTrendingBriefRecord = async ({
       publication: {
         reusedExisting: false,
         repairedExisting: false,
+        regeneratedArtwork: regenArt,
       },
     };
   } catch (error) {
@@ -547,9 +647,15 @@ const generateTrendingBriefRecord = async ({
       await fetchMutation(anyApi.trending.saveTrendingBrief, {
         trendingDate: trendingDateIso,
         status: "failed",
+        headline: cachedBriefContent?.headline,
+        summary: cachedBriefContent?.summary,
+        podcastDescription: cachedBriefContent?.podcastDescription,
+        spokenSummary: cachedBriefContent?.spokenSummary,
+        keyPoints: cachedBriefContent?.keyPoints,
         articleTitles,
         imageUrls,
         artworkItems,
+        sources: cachedBriefContent?.sources,
         lastError:
           error instanceof Error
             ? error.message
@@ -563,9 +669,11 @@ const generateTrendingBriefRecord = async ({
 export const syncDailyTrendingBrief = async ({
   baseUrl,
   force = false,
+  regenArt = false,
 }: {
   baseUrl: string;
   force?: boolean;
+  regenArt?: boolean;
 }): Promise<TrendingBriefSyncResult> => {
   const { trendingDateIso, articles } = await getCurrentTrendingBriefSource();
 
@@ -576,10 +684,14 @@ export const syncDailyTrendingBrief = async ({
   const existing = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
     trendingDate: trendingDateIso,
   })) as TrendingBriefRecord | null;
-  const existingReadyBrief =
-    existing?.status === "ready" && existing.audioUrl ? existing : null;
+  const existingReadyBrief = shouldReuseExistingTrendingBrief(existing, {
+    force,
+    regenArt,
+  })
+    ? existing
+    : null;
 
-  if (!force && existingReadyBrief) {
+  if (existingReadyBrief) {
     return {
       status: "already_exists",
       brief: existingReadyBrief,
@@ -590,6 +702,7 @@ export const syncDailyTrendingBrief = async ({
       publication: {
         reusedExisting: true,
         repairedExisting: false,
+        regeneratedArtwork: false,
       },
     };
   }
@@ -601,6 +714,7 @@ export const syncDailyTrendingBrief = async ({
   const generationPromise = generateTrendingBriefRecord({
     baseUrl,
     force,
+    regenArt,
   }).finally(() => {
     inFlightTrendingBriefs.delete(trendingDateIso);
   });
