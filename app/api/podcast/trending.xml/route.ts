@@ -23,6 +23,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
+  artworkItems?: { title: string; imageUrl: string }[];
   audioUrl: string | null;
   imageUrls?: string[];
   artworkUrl?: string | null;
@@ -67,6 +68,7 @@ export const GET = async (req: NextRequest) => {
         const itemImageUrl = getTrendingPodcastItemArtworkUrl(
           {
             artworkUrl: episode.artworkUrl,
+            artworkItems: episode.artworkItems,
             imageUrls: episode.imageUrls,
             briefId: episode._id,
           },

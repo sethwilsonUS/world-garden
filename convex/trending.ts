@@ -8,13 +8,6 @@ const trendingBriefStatus = v.union(
   v.literal("failed"),
 );
 
-const trendingBriefJobStatus = v.union(
-  v.literal("pending"),
-  v.literal("running"),
-  v.literal("ready"),
-  v.literal("failed"),
-);
-
 const withStorageUrl = async <
   T extends {
     storageId?: Id<"_storage">;
@@ -162,6 +155,14 @@ export const saveTrendingBrief = mutation({
     keyPoints: v.optional(v.array(v.string())),
     articleTitles: v.optional(v.array(v.string())),
     imageUrls: v.optional(v.array(v.string())),
+    artworkItems: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          imageUrl: v.string(),
+        }),
+      ),
+    ),
     sources: v.optional(
       v.array(
         v.object({
@@ -195,6 +196,7 @@ export const saveTrendingBrief = mutation({
         keyPoints: args.keyPoints,
         articleTitles: args.articleTitles,
         imageUrls: args.imageUrls,
+        artworkItems: args.artworkItems,
         sources: args.sources,
         storageId: args.storageId,
         artworkStorageId: args.artworkStorageId,
@@ -217,6 +219,7 @@ export const saveTrendingBrief = mutation({
       keyPoints: args.keyPoints,
       articleTitles: args.articleTitles,
       imageUrls: args.imageUrls,
+      artworkItems: args.artworkItems,
       sources: args.sources,
       storageId: args.storageId,
       artworkStorageId: args.artworkStorageId,

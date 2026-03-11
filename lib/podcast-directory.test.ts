@@ -99,6 +99,21 @@ describe("episode artwork urls", () => {
     ).toBe("https://upload.wikimedia.org/thumb1.jpg");
   });
 
+  it("prefers artwork items over legacy image urls when artworkUrl is missing", () => {
+    expect(
+      getTrendingEpisodeArtworkUrl({
+        _id: "brief123",
+        artworkItems: [
+          {
+            title: "Lead",
+            imageUrl: "https://upload.wikimedia.org/artwork-item.jpg",
+          },
+        ],
+        imageUrls: ["https://upload.wikimedia.org/thumb1.jpg"],
+      } as Parameters<typeof getTrendingEpisodeArtworkUrl>[0]),
+    ).toBe("https://upload.wikimedia.org/artwork-item.jpg");
+  });
+
   it("returns null when no artwork or images are available", () => {
     expect(
       getTrendingEpisodeArtworkUrl({

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getPodcastSectionSources } from "./podcast-episode";
+import {
+  getPodcastSectionSources,
+  shouldReuseExistingFeaturedEpisode,
+} from "./podcast-episode";
 
 describe("getPodcastSectionSources", () => {
   it("uses only full-audio sections for the featured podcast", () => {
@@ -46,5 +49,54 @@ describe("getPodcastSectionSources", () => {
           "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
       },
     ]);
+  });
+});
+
+describe("shouldReuseExistingFeaturedEpisode", () => {
+  const article = {
+    wikiPageId: "123",
+    title: "Example article",
+  };
+
+  it("reuses an existing ready episode when it matches the current article", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not reuse a mismatched ready episode for the same featured date", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "999",
+          title: "Older featured article",
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reuse when force is enabled", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: true,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
   });
 });

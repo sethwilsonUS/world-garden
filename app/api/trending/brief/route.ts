@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { getDailyTrendingBrief, isTrendingBriefEnabled } from "@/lib/trending-brief";
+import { getDailyTrendingBriefState } from "@/lib/trending-brief";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 
 export const GET = async (req: Request) => {
   try {
-    const brief = await getDailyTrendingBrief({
-      baseUrl: new URL(req.url).origin,
-    });
+    void req;
+    const state = await getDailyTrendingBriefState();
 
     return NextResponse.json(
-      { enabled: true, brief },
+      state,
       { status: 200, headers: NO_CACHE_HEADERS },
     );
   } catch (error) {
@@ -21,12 +20,11 @@ export const GET = async (req: Request) => {
 
     return NextResponse.json(
       {
-        enabled: isTrendingBriefEnabled(),
+        enabled: false,
         error: message,
       },
       {
-        status:
-          message === "AI trend briefing is not configured." ? 503 : 500,
+        status: 500,
         headers: NO_CACHE_HEADERS,
       },
     );

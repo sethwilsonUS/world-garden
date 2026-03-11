@@ -40,6 +40,11 @@ export default function TrendingPage() {
     sources?: { title: string; url: string }[];
     audioUrl: string | null;
   } | null>(null);
+  const [briefState, setBriefState] = useState<{
+    enabled: boolean;
+    status: "disabled" | "missing" | "pending" | "failed" | "ready";
+    lastError?: string;
+  } | null>(null);
   const [briefLoading, setBriefLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
@@ -80,7 +85,9 @@ export default function TrendingPage() {
         if (!response.ok) return;
 
         const data = (await response.json()) as {
-          enabled?: boolean;
+          enabled: boolean;
+          status?: "disabled" | "missing" | "pending" | "failed" | "ready";
+          lastError?: string;
           brief?: {
             headline?: string;
             summary?: string;
@@ -90,8 +97,13 @@ export default function TrendingPage() {
           };
         };
 
-        if (cancelled || !data.brief) return;
-        setBrief(data.brief);
+        if (cancelled) return;
+        setBriefState({
+          enabled: data.enabled,
+          status: data.status ?? "missing",
+          lastError: data.lastError,
+        });
+        setBrief(data.brief ?? null);
       } catch {
         // Non-critical enhancement; fail quietly.
       } finally {
@@ -249,6 +261,51 @@ export default function TrendingPage() {
                   </ul>
                 </div>
               )}
+            </section>
+          ) : briefState?.enabled &&
+            (briefState.status === "missing" || briefState.status === "pending") ? (
+            <section
+              aria-labelledby="daily-brief-heading"
+              className="garden-bed p-6 mb-8"
+            >
+              <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
+                Daily audio briefing
+              </p>
+              <h2
+                id="daily-brief-heading"
+                className="font-display text-[1.35rem] font-semibold text-foreground leading-[1.2]"
+              >
+                Today&apos;s audio brief is still being prepared
+              </h2>
+              <p className="text-sm text-muted mt-2 leading-[1.7] max-w-3xl">
+                The trending podcast is now published by scheduled sync, so this page
+                won&apos;t generate it on demand. Check back after the daily podcast run
+                completes.
+              </p>
+            </section>
+          ) : briefState?.enabled && briefState.status === "failed" ? (
+            <section
+              aria-labelledby="daily-brief-heading"
+              className="garden-bed p-6 mb-8"
+            >
+              <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
+                Daily audio briefing
+              </p>
+              <h2
+                id="daily-brief-heading"
+                className="font-display text-[1.35rem] font-semibold text-foreground leading-[1.2]"
+              >
+                Today&apos;s audio brief couldn&apos;t be published yet
+              </h2>
+              <p className="text-sm text-muted mt-2 leading-[1.7] max-w-3xl">
+                The latest scheduled generation failed. A later retry or manual sync
+                can republish it.
+              </p>
+              {briefState.lastError ? (
+                <p className="text-xs text-muted mt-3 font-mono break-words">
+                  {briefState.lastError}
+                </p>
+              ) : null}
             </section>
           ) : null}
 

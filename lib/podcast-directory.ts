@@ -104,7 +104,11 @@ export const getTrendingEpisodeSummary = (episode: TrendingPodcastEpisode): stri
 
 export const getTrendingEpisodeArtworkUrl = (
   episode: TrendingPodcastEpisode,
-): string | null => episode.artworkUrl ?? episode.imageUrls?.[0] ?? null;
+): string | null =>
+  episode.artworkUrl ??
+  episode.artworkItems?.[0]?.imageUrl ??
+  episode.imageUrls?.[0] ??
+  null;
 
 export const getFeaturedEpisodes = async (
   limit: number,

@@ -194,6 +194,14 @@ export default defineSchema({
     keyPoints: v.optional(v.array(v.string())),
     articleTitles: v.optional(v.array(v.string())),
     imageUrls: v.optional(v.array(v.string())),
+    artworkItems: v.optional(
+      v.array(
+        v.object({
+          title: v.string(),
+          imageUrl: v.string(),
+        }),
+      ),
+    ),
     sources: v.optional(
       v.array(
         v.object({
