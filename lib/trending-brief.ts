@@ -62,6 +62,7 @@ export type TrendingBriefRecord = {
   durationSeconds?: number;
   byteLength?: number;
   model?: string;
+  lastError?: string;
   updatedAt: number;
 };
 
@@ -355,6 +356,14 @@ const generateTrendingBriefRecord = async ({
       return {
         status: "already_exists",
         brief: latest,
+        source: {
+          trendingDate: trendingDateIso,
+          articleTitles,
+        },
+        publication: {
+          reusedExisting: true,
+          repairedExisting: false,
+        },
       };
     }
 

@@ -225,6 +225,7 @@ export const syncFeaturedPodcastEpisode = async ({
       existingEpisode: existingReadyEpisode,
       article,
     })
+    && existingReadyEpisode
   ) {
     return {
       status: "already_exists",

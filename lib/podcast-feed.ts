@@ -56,11 +56,11 @@ export const getFeaturedPodcastItemArtworkUrl = (
   },
   fallbackOrigin?: string,
 ): string =>
-  episodeId?.trim()
+  artworkUrl?.trim() ||
+  imageUrl?.trim() ||
+  (episodeId?.trim()
     ? getFeaturedPodcastEpisodeArtworkUrl(fallbackOrigin, episodeId)
-    : artworkUrl?.trim() ||
-      imageUrl?.trim() ||
-      getPodcastArtworkUrl(fallbackOrigin);
+    : getPodcastArtworkUrl(fallbackOrigin));
 
 export const getTrendingPodcastShowArtworkUrl = (
   fallbackOrigin?: string,
@@ -89,17 +89,15 @@ export const getTrendingPodcastItemArtworkUrl = (
   },
   fallbackOrigin?: string,
 ): string => {
-  if (briefId?.trim()) {
-    return getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId);
-  }
-
   return (
     artworkUrl?.trim() ||
     artworkItems
       ?.find((item) => Boolean(item.imageUrl?.trim()))
       ?.imageUrl.trim() ||
     imageUrls?.find((value) => Boolean(value?.trim()))?.trim() ||
-    getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId)
+    (briefId?.trim()
+      ? getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId)
+      : getTrendingPodcastShowArtworkUrl(fallbackOrigin))
   );
 };
 

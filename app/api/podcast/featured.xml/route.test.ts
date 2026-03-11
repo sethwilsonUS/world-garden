@@ -20,6 +20,7 @@ describe("GET /api/podcast/featured.xml", () => {
         title: "Example Article",
         description: "Example summary.",
         imageUrl: "https://images.example.com/article.jpg",
+        artworkUrl: "https://cdn.example.com/featured-episode.png",
         audioUrl: "https://cdn.example.com/episode.mp3",
         status: "ready",
         publishedAt: Date.UTC(2026, 2, 11, 0, 0, 0),
@@ -38,5 +39,8 @@ describe("GET /api/podcast/featured.xml", () => {
     expect(response.status).toBe(200);
     expect(xml).toContain("<pubDate>Wed, 11 Mar 2026 06:45:00 GMT</pubDate>");
     expect(xml).not.toContain("<pubDate>Wed, 11 Mar 2026 00:00:00 GMT</pubDate>");
+    expect(xml).toContain(
+      '<itunes:image href="https://cdn.example.com/featured-episode.png" />',
+    );
   });
 });
