@@ -3,6 +3,7 @@ import {
   buildTrendingBriefPrompt,
   normalizeTrendingBrief,
   parseGeneratedTrendingBrief,
+  selectTrendingArtworkItems,
 } from "./trending-brief";
 
 describe("normalizeTrendingBrief", () => {
@@ -49,6 +50,24 @@ describe("buildTrendingBriefPrompt", () => {
     expect(prompt).toContain("Example Topic");
     expect(prompt).toContain("12,345 views");
     expect(prompt).toContain("Return only valid JSON");
+  });
+});
+
+describe("selectTrendingArtworkItems", () => {
+  it("keeps title and thumbnail pairs aligned and skips articles without thumbnails", () => {
+    expect(
+      selectTrendingArtworkItems([
+        { title: "One", imageUrl: "1.png" },
+        { title: "Two" },
+        { title: "Three", imageUrl: "3.png" },
+        { title: "Four", imageUrl: "" },
+        { title: "Five", imageUrl: "5.png" },
+      ]),
+    ).toEqual([
+      { title: "One", imageUrl: "1.png" },
+      { title: "Three", imageUrl: "3.png" },
+      { title: "Five", imageUrl: "5.png" },
+    ]);
   });
 });
 

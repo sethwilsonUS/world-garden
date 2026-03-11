@@ -140,6 +140,7 @@ describe("getTrendingPodcastItemArtworkUrl", () => {
     expect(
       getTrendingPodcastItemArtworkUrl(
         {
+          artworkItems: [{ title: "Lead", imageUrl: "https://images.example.com/lead.png" }],
           artworkUrl: "https://cdn.example.com/brief.png",
           imageUrls: ["https://images.example.com/first.png"],
           briefId: "brief123",
@@ -150,6 +151,17 @@ describe("getTrendingPodcastItemArtworkUrl", () => {
   });
 
   it("falls back to the first episode image when no brief id exists", () => {
+    expect(
+      getTrendingPodcastItemArtworkUrl(
+        {
+          artworkItems: [{ title: "Lead", imageUrl: "https://images.example.com/lead.png" }],
+        },
+        "https://curiogarden.org/",
+      ),
+    ).toBe("https://images.example.com/lead.png");
+  });
+
+  it("falls back to legacy image urls when artwork items are missing", () => {
     expect(
       getTrendingPodcastItemArtworkUrl(
         {

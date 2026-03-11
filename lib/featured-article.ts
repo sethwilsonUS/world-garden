@@ -15,6 +15,7 @@ export type WikipediaFeaturedArticle = {
   extract: string;
   thumbnail?: WikipediaFeaturedThumbnail;
   featuredDate: string | null;
+  wikiPageId?: string;
 };
 
 export type WikipediaTrendingArticle = {
@@ -31,6 +32,7 @@ type FeaturedFeedArticlePayload = {
   thumbnail?: WikipediaFeaturedThumbnail;
   timestamp?: string | null;
   views?: number;
+  pageid?: number | string;
 };
 
 type FeaturedFeedPayload = {
@@ -68,6 +70,8 @@ const toFeaturedArticle = (
         extract: (article.extract ?? "") as string,
         thumbnail: article.thumbnail,
         featuredDate: (article.timestamp ?? null) as string | null,
+        wikiPageId:
+          article.pageid != null ? String(article.pageid) : undefined,
       }
     : null;
 

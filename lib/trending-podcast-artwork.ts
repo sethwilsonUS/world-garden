@@ -20,9 +20,15 @@ type ArtworkTile = {
   imageUrl?: string | null;
 };
 
+export type TrendingArtworkItem = {
+  title: string;
+  imageUrl: string;
+};
+
 export type TrendingArtworkInput = {
   trendingDate: string;
   headline?: string | null;
+  artworkItems?: TrendingArtworkItem[];
   articleTitles?: string[];
   imageUrls?: string[];
 };
@@ -49,9 +55,22 @@ export const formatTrendingArtworkDate = (dateIso: string): string =>
   });
 
 export const selectTrendingArtworkTiles = (
+  artworkItems?: TrendingArtworkItem[],
   articleTitles?: string[],
   imageUrls?: string[],
 ): ArtworkTile[] => {
+  const explicitItems = (artworkItems ?? [])
+    .map((item) => ({
+      title: item.title.trim(),
+      imageUrl: item.imageUrl.trim(),
+    }))
+    .filter((item) => item.title && item.imageUrl)
+    .slice(0, ARTWORK_TILES);
+
+  if (explicitItems.length > 0) {
+    return explicitItems;
+  }
+
   const titles = articleTitles ?? [];
   const urls = imageUrls ?? [];
   const tiles: ArtworkTile[] = [];
@@ -97,11 +116,14 @@ const buildTileData = async (tiles: ArtworkTile[]) =>
 
 export const renderTrendingPodcastArtworkResponse = async ({
   trendingDate,
+  artworkItems,
   articleTitles,
   imageUrls,
 }: TrendingArtworkInput): Promise<ImageResponse> => {
   const fonts = await loadOgFonts();
-  const tiles = await buildTileData(selectTrendingArtworkTiles(articleTitles, imageUrls));
+  const tiles = await buildTileData(
+    selectTrendingArtworkTiles(artworkItems, articleTitles, imageUrls),
+  );
   const headerLabel = truncate(
     `Trending on Wikipedia ${formatTrendingArtworkDate(trendingDate)}`,
     40,

@@ -32,6 +32,15 @@ export type FeaturedPodcastSyncResult = {
   generatedSectionCount: number;
   reusedSectionCount: number;
   totalSectionCount: number;
+  source: {
+    featuredDate: string;
+    title: string;
+    wikiPageId: string;
+  };
+  publication: {
+    reusedExisting: boolean;
+    repairedExisting: boolean;
+  };
 };
 
 const getPublishedAt = (
@@ -134,6 +143,28 @@ const getExistingEpisode = async (
     featuredDate,
   })) as FeaturedPodcastEpisodeWithUrl | null;
 
+const normalizeTitle = (value: string): string => value.trim().toLowerCase();
+
+export const doesFeaturedEpisodeMatchArticle = (
+  episode: Pick<FeaturedPodcastEpisodeWithUrl, "wikiPageId" | "title">,
+  article: Pick<FetchAndCacheResult, "wikiPageId" | "title">,
+): boolean =>
+  episode.wikiPageId === article.wikiPageId &&
+  normalizeTitle(episode.title) === normalizeTitle(article.title);
+
+export const shouldReuseExistingFeaturedEpisode = ({
+  force,
+  existingEpisode,
+  article,
+}: {
+  force: boolean;
+  existingEpisode: Pick<FeaturedPodcastEpisodeWithUrl, "status" | "wikiPageId" | "title"> | null;
+  article: Pick<FetchAndCacheResult, "wikiPageId" | "title">;
+}): boolean =>
+  !force &&
+  existingEpisode?.status === "ready" &&
+  doesFeaturedEpisodeMatchArticle(existingEpisode, article);
+
 const finalizeJob = async ({
   featuredDate,
   articleId,
@@ -168,25 +199,47 @@ export const syncFeaturedPodcastEpisode = async ({
     throw new Error("Wikipedia did not return a featured article");
   }
 
+  const article = await fetchAction(api.articles.fetchAndCacheBySlug, {
+    slug: titleToSlug(tfa.title),
+  });
+  const articleId = article._id;
+  const source = {
+    featuredDate: feedDateIso,
+    title: article.title,
+    wikiPageId: article.wikiPageId,
+  };
   const existingEpisode = await getExistingEpisode(feedDateIso);
   const existingReadyEpisode =
     existingEpisode?.status === "ready" ? existingEpisode : null;
+  const existingEpisodeMatchesArticle = existingReadyEpisode
+    ? doesFeaturedEpisodeMatchArticle(existingReadyEpisode, article)
+    : false;
+  const repairedExisting = Boolean(
+    existingReadyEpisode && !existingEpisodeMatchesArticle,
+  );
   const owner = randomUUID();
 
-  if (!force && existingReadyEpisode) {
+  if (
+    shouldReuseExistingFeaturedEpisode({
+      force,
+      existingEpisode: existingReadyEpisode,
+      article,
+    })
+  ) {
     return {
       status: "already_exists",
       episode: existingReadyEpisode,
       generatedSectionCount: 0,
       reusedSectionCount: 0,
       totalSectionCount: 0,
+      source,
+      publication: {
+        reusedExisting: true,
+        repairedExisting: false,
+      },
     };
   }
 
-  const article = await fetchAction(api.articles.fetchAndCacheBySlug, {
-    slug: titleToSlug(tfa.title),
-  });
-  const articleId = article._id;
   const claim = await fetchMutation(anyApi.podcast.claimFeaturedEpisodeJob, {
     featuredDate: feedDateIso,
     articleId,
@@ -196,13 +249,21 @@ export const syncFeaturedPodcastEpisode = async ({
 
   if (!claim.claimed) {
     const latestEpisode = await getExistingEpisode(feedDateIso);
-    if (latestEpisode?.status === "ready") {
+    if (
+      latestEpisode?.status === "ready" &&
+      doesFeaturedEpisodeMatchArticle(latestEpisode, article)
+    ) {
       return {
         status: "already_exists",
         episode: latestEpisode,
         generatedSectionCount: 0,
         reusedSectionCount: 0,
         totalSectionCount: 0,
+        source,
+        publication: {
+          reusedExisting: true,
+          repairedExisting: false,
+        },
       };
     }
 
@@ -348,6 +409,11 @@ export const syncFeaturedPodcastEpisode = async ({
       generatedSectionCount,
       reusedSectionCount,
       totalSectionCount: sections.length,
+      source,
+      publication: {
+        reusedExisting: false,
+        repairedExisting,
+      },
     };
   } catch (error) {
     const message =

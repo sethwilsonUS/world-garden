@@ -78,10 +78,12 @@ export const getTrendingPodcastEpisodeArtworkUrl = (
 export const getTrendingPodcastItemArtworkUrl = (
   {
     artworkUrl,
+    artworkItems,
     imageUrls,
     briefId,
   }: {
     artworkUrl?: string | null;
+    artworkItems?: { title: string; imageUrl: string }[] | null;
     imageUrls?: string[] | null;
     briefId?: string | null;
   },
@@ -93,6 +95,9 @@ export const getTrendingPodcastItemArtworkUrl = (
 
   return (
     artworkUrl?.trim() ||
+    artworkItems
+      ?.find((item) => Boolean(item.imageUrl?.trim()))
+      ?.imageUrl.trim() ||
     imageUrls?.find((value) => Boolean(value?.trim()))?.trim() ||
     getTrendingPodcastEpisodeArtworkUrl(fallbackOrigin, briefId)
   );

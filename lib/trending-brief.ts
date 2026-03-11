@@ -9,7 +9,10 @@ import { fetchWikipediaFeaturedSnapshot } from "@/lib/featured-article";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
 import { generateTtsAudio } from "@/lib/tts-client";
-import { renderTrendingPodcastArtworkPng } from "@/lib/trending-podcast-artwork";
+import {
+  renderTrendingPodcastArtworkPng,
+  type TrendingArtworkItem,
+} from "@/lib/trending-podcast-artwork";
 
 const TTS_WORDS_PER_SECOND = 2.5;
 const DEFAULT_TRENDING_BRIEF_MODEL = "anthropic/claude-opus-4.5";
@@ -52,6 +55,7 @@ export type TrendingBriefRecord = {
   keyPoints?: string[];
   articleTitles?: string[];
   imageUrls?: string[];
+  artworkItems?: TrendingArtworkItem[];
   sources?: TrendingBriefSource[];
   audioUrl: string | null;
   artworkUrl?: string | null;
@@ -64,6 +68,23 @@ export type TrendingBriefRecord = {
 export type TrendingBriefSyncResult = {
   status: "created" | "already_exists";
   brief: TrendingBriefRecord;
+  source: {
+    trendingDate: string;
+    articleTitles: string[];
+  };
+  publication: {
+    reusedExisting: boolean;
+    repairedExisting: boolean;
+  };
+};
+
+export type DailyTrendingBriefState = {
+  enabled: boolean;
+  status: "disabled" | "missing" | "pending" | "failed" | "ready";
+  trendingDate: string;
+  articleTitles: string[];
+  brief: TrendingBriefRecord | null;
+  lastError?: string;
 };
 
 const estimateDurationSeconds = (text: string): number =>
@@ -209,9 +230,21 @@ const buildTrendingResearchPrompt = ({
   ].join("\n");
 };
 
-const getSafeTrendingArticles = async (): Promise<{
+export const selectTrendingArtworkItems = (
+  articles: Array<Pick<TrendingArticle, "title" | "imageUrl">>,
+): TrendingArtworkItem[] =>
+  articles
+    .map((article) => ({
+      title: article.title.trim(),
+      imageUrl: article.imageUrl?.trim() ?? "",
+    }))
+    .filter((article) => article.title && article.imageUrl)
+    .slice(0, 4);
+
+export const getCurrentTrendingBriefSource = async (): Promise<{
   trendingDateIso: string;
   articles: TrendingArticle[];
+  artworkItems: TrendingArtworkItem[];
 }> => {
   const snapshot = await fetchWikipediaFeaturedSnapshot();
   const candidateTitles = snapshot.trendingCandidates.map((candidate) => candidate.title);
@@ -230,10 +263,13 @@ const getSafeTrendingArticles = async (): Promise<{
       imageUrl: candidate.thumbnail?.source,
     }));
 
+  const artworkItems = selectTrendingArtworkItems(articles);
+
   return {
     trendingDateIso:
       snapshot.trendingDate?.replace(/Z$/, "") || snapshot.feedDateIso,
     articles,
+    artworkItems,
   };
 };
 
@@ -269,7 +305,8 @@ const generateTrendingBriefRecord = async ({
   baseUrl: string;
   force?: boolean;
 }): Promise<TrendingBriefSyncResult> => {
-  const { trendingDateIso, articles } = await getSafeTrendingArticles();
+  const { trendingDateIso, articles, artworkItems } =
+    await getCurrentTrendingBriefSource();
 
   if (articles.length === 0) {
     throw new Error("No safe trending articles available for the daily brief");
@@ -281,15 +318,21 @@ const generateTrendingBriefRecord = async ({
   const existingReadyBrief =
     existing?.status === "ready" && existing.audioUrl ? existing : null;
   const owner = randomUUID();
-  const imageUrls = articles
-    .map((article) => article.imageUrl?.trim())
-    .filter((value): value is string => Boolean(value))
-    .slice(0, 4);
+  const imageUrls = artworkItems.map((item) => item.imageUrl);
+  const articleTitles = articles.map((article) => article.title);
 
   if (!force && existingReadyBrief) {
     return {
       status: "already_exists",
       brief: existingReadyBrief,
+      source: {
+        trendingDate: trendingDateIso,
+        articleTitles,
+      },
+      publication: {
+        reusedExisting: true,
+        repairedExisting: false,
+      },
     };
   }
 
@@ -328,8 +371,9 @@ const generateTrendingBriefRecord = async ({
     await fetchMutation(anyApi.trending.saveTrendingBrief, {
       trendingDate: trendingDateIso,
       status: "pending",
-      articleTitles: articles.map((article) => article.title),
+      articleTitles,
       imageUrls,
+      artworkItems,
     });
   }
 
@@ -412,7 +456,8 @@ const generateTrendingBriefRecord = async ({
     const artwork = await renderTrendingPodcastArtworkPng({
       trendingDate: trendingDateIso,
       headline: brief.headline,
-      articleTitles: articles.map((article) => article.title),
+      artworkItems,
+      articleTitles,
       imageUrls,
     });
     const artworkBlob = new Blob([Buffer.from(artwork.data)], {
@@ -441,8 +486,9 @@ const generateTrendingBriefRecord = async ({
       podcastDescription: brief.podcastDescription,
       spokenSummary: brief.spokenSummary,
       keyPoints: brief.keyPoints,
-      articleTitles: articles.map((article) => article.title),
+      articleTitles,
       imageUrls,
+      artworkItems,
       sources: brief.sources,
       storageId,
       artworkStorageId,
@@ -468,6 +514,14 @@ const generateTrendingBriefRecord = async ({
     return {
       status: "created",
       brief: saved,
+      source: {
+        trendingDate: trendingDateIso,
+        articleTitles,
+      },
+      publication: {
+        reusedExisting: false,
+        repairedExisting: false,
+      },
     };
   } catch (error) {
     await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
@@ -484,8 +538,9 @@ const generateTrendingBriefRecord = async ({
       await fetchMutation(anyApi.trending.saveTrendingBrief, {
         trendingDate: trendingDateIso,
         status: "failed",
-        articleTitles: articles.map((article) => article.title),
+        articleTitles,
         imageUrls,
+        artworkItems,
         lastError:
           error instanceof Error
             ? error.message
@@ -503,7 +558,7 @@ export const syncDailyTrendingBrief = async ({
   baseUrl: string;
   force?: boolean;
 }): Promise<TrendingBriefSyncResult> => {
-  const { trendingDateIso, articles } = await getSafeTrendingArticles();
+  const { trendingDateIso, articles } = await getCurrentTrendingBriefSource();
 
   if (articles.length === 0) {
     throw new Error("No safe trending articles available for the daily brief");
@@ -519,6 +574,14 @@ export const syncDailyTrendingBrief = async ({
     return {
       status: "already_exists",
       brief: existingReadyBrief,
+      source: {
+        trendingDate: trendingDateIso,
+        articleTitles: articles.map((article) => article.title),
+      },
+      publication: {
+        reusedExisting: true,
+        repairedExisting: false,
+      },
     };
   }
 
@@ -537,11 +600,38 @@ export const syncDailyTrendingBrief = async ({
   return generationPromise;
 };
 
-export const getDailyTrendingBrief = async ({
-  baseUrl,
-}: {
-  baseUrl: string;
-}): Promise<TrendingBriefRecord> => {
-  const result = await syncDailyTrendingBrief({ baseUrl });
-  return result.brief;
+export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefState> => {
+  const { trendingDateIso, articles } = await getCurrentTrendingBriefSource();
+  const brief = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
+    trendingDate: trendingDateIso,
+  })) as TrendingBriefRecord | null;
+
+  if (!isTrendingBriefEnabled()) {
+    return {
+      enabled: false,
+      status: "disabled",
+      trendingDate: trendingDateIso,
+      articleTitles: articles.map((article) => article.title),
+      brief: null,
+    };
+  }
+
+  if (brief?.status === "ready" && brief.audioUrl) {
+    return {
+      enabled: true,
+      status: "ready",
+      trendingDate: trendingDateIso,
+      articleTitles: articles.map((article) => article.title),
+      brief,
+    };
+  }
+
+  return {
+    enabled: true,
+    status: brief?.status ?? "missing",
+    trendingDate: trendingDateIso,
+    articleTitles: articles.map((article) => article.title),
+    brief: null,
+    lastError: brief?.lastError,
+  };
 };

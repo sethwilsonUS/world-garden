@@ -47,7 +47,7 @@ export const GET = async (req: NextRequest) => {
       .map((episode) => {
         const mediaUrl = `${siteUrl}/api/podcast/media/${episode._id}`;
         const articleUrl = `${articleBaseUrl}/${encodeURIComponent(episode.slug)}`;
-        const pubDate = new Date(episode.publishedAt).toUTCString();
+        const pubDate = new Date(episode.updatedAt).toUTCString();
         const duration = formatPodcastDuration(episode.durationSeconds);
         const guid = `${siteUrl}/podcast/featured/${episode._id}`;
         const summary = getPodcastDescription(episode.description);

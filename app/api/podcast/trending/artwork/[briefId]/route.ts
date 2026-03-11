@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type TrendingPodcastEpisode = Doc<"trendingBriefs"> & {
+  artworkItems?: { title: string; imageUrl: string }[];
   imageUrls?: string[];
   artworkUrl?: string | null;
 };
@@ -41,6 +42,7 @@ export const GET = async (
     const response = await renderTrendingPodcastArtworkResponse({
       trendingDate: brief.trendingDate,
       headline: brief.headline,
+      artworkItems: brief.artworkItems,
       articleTitles: brief.articleTitles,
       imageUrls: brief.imageUrls,
     });
