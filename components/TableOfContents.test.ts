@@ -1,11 +1,27 @@
 import { describe, it, expect } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
+  TableOfContents,
   formatDuration,
   formatDurationAccessible,
   estimateDuration,
   durationLabel,
   TTS_WORDS_PER_SECOND,
 } from "./TableOfContents";
+import { DataContext, type DataContextValue } from "@/lib/data-context";
+
+const dataContextValue: DataContextValue = {
+  search: async () => [],
+  fetchArticle: async () => {
+    throw new Error("not implemented in test");
+  },
+  getSectionLinkCounts: async () => [],
+  getCitationCounts: async () => [],
+  getSectionLinks: async () => [],
+  getSectionCitations: async () => [],
+  getArticleImages: async () => [],
+};
 
 describe("formatDuration", () => {
   it("formats seconds only", () => {
@@ -151,5 +167,93 @@ describe("durationLabel", () => {
   it("returns estimate for empty durations map with rate > 1", () => {
     const result = durationLabel("section-0", "one two three four five", {}, 2);
     expect(result).toMatch(/^~/);
+  });
+});
+
+describe("TableOfContents audio eligibility", () => {
+  it("renders unavailable sections as greyed out and excludes them from play-all count", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+            {
+              title: "Election results",
+              level: 2,
+              content: [
+                "Year  Candidate  Vote",
+                "2020  Rivera     51.2%",
+                "2022  Patel      49.8%",
+              ].join("\n"),
+              audioMode: "unavailable" as const,
+              audioReason: "table_like" as const,
+            },
+          ],
+          activeSectionIndex: null,
+          isPlayingAll: false,
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain("Play all");
+    expect(markup).toContain("(2)");
+    expect(markup).toContain("Not suited for audio");
+    expect(markup).toContain(
+      "title=\"This section is mostly table-like content, which usually does not sound great read aloud.\"",
+    );
+    expect(markup).toContain(
+      "Election results — not available for audio: section reads like a table",
+    );
+  });
+
+  it("shows a Listen control for playable sections", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          activeSectionIndex: null,
+          isPlayingAll: false,
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain("Listen to History");
+    expect(markup).toContain(">Listen<");
   });
 });

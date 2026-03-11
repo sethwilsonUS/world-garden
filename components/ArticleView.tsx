@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useData } from "@/lib/data-context";
+import { useData, type Section } from "@/lib/data-context";
 import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider";
 import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
@@ -23,12 +23,7 @@ import { useMediaSession } from "@/hooks/useMediaSession";
 import { awaitSummaryAudio } from "@/lib/audio-prefetch";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudioUrl } from "@/lib/tts-client";
-
-type Section = {
-  title: string;
-  level: number;
-  content: string;
-};
+import { hasFullAudio } from "@/lib/audio-suitability";
 
 type ArticleData = {
   _id: string;
@@ -465,6 +460,14 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       sectionIdx: number | null,
     ) => {
       const currentRequest = ++requestId.current;
+      const section =
+        sectionIdx !== null ? sectionsRef.current[sectionIdx] : null;
+
+      if (section && !hasFullAudio(section)) {
+        setAudioError("Section is not available for audio.");
+        return;
+      }
+
       setAudioError(null);
       setActiveSectionIndex(sectionIdx);
       setFinishedPlaying(false);
@@ -541,8 +544,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const handlePlayAll = useCallback(
     (sections: Section[], articleTitle: string) => {
-      const summaryOnly =
-        sections.filter((s) => s.content.length >= 20).length === 0;
+      const summaryOnly = sections.filter(hasFullAudio).length === 0;
       analytics.playAll(summaryOnly ? "summary" : "full");
       const queue: QueueItem[] = [
         {
@@ -552,7 +554,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         },
         ...sections
           .map((s, i) => ({ section: s, index: i }))
-          .filter(({ section }) => section.content.length >= 20)
+          .filter(({ section }) => hasFullAudio(section))
           .map(({ section, index }) => ({
             sectionKey: `section-${index}`,
             label: `${section.title} \u2014 ${articleTitle}`,
@@ -683,8 +685,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const handleDownloadAll = useCallback(async () => {
     if (!displayArticle || !articleId || downloading) return;
     const allSections = displayArticle.sections ?? [];
-    const summaryOnly =
-      allSections.filter((s) => s.content.length >= 20).length === 0;
+    const summaryOnly = allSections.filter(hasFullAudio).length === 0;
     analytics.downloadAll(summaryOnly ? "summary" : "full");
 
     try {
@@ -813,12 +814,18 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     const sp = savedProgressState;
     if (sp?.sectionKey && displayArticle) {
       setShowResumeBanner(false);
-      const idx = sp.sectionIndex ?? null;
+      const requestedIndex = sp.sectionIndex ?? null;
+      const requestedSection =
+        requestedIndex !== null ? sections[requestedIndex] : null;
+      const idx =
+        requestedSection && !hasFullAudio(requestedSection)
+          ? null
+          : requestedIndex;
       const section = idx !== null ? sections[idx] : null;
       const label = section
         ? `${section.title} \u2014 ${displayArticle.title}`
         : `${displayArticle.title} \u2014 Summary`;
-      generateAudio(sp.sectionKey, label, idx);
+      generateAudio(idx !== null ? sp.sectionKey : "summary", label, idx);
     }
   };
 

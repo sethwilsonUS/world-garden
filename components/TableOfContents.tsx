@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useRef, type RefObject } from "react";
 import { useData } from "@/lib/data-context";
+import type { Section } from "@/lib/data-context";
+import {
+  getAudioReasonLabel,
+  getSoftAudioTooltip,
+  hasFullAudio,
+} from "@/lib/audio-suitability";
 import Link from "next/link";
 import {
   PLAYBACK_RATES,
@@ -14,12 +20,6 @@ import {
   DownloadSpinnerIcon,
 } from "@/components/AudioDownloadButton";
 import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadButton";
-
-type Section = {
-  title: string;
-  level: number;
-  content: string;
-};
 
 type LinkedArticle = {
   wikiPageId: string;
@@ -58,7 +58,6 @@ type TableOfContentsProps = {
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
-const MIN_AUDIO_CONTENT_LENGTH = 20;
 
 export const formatDuration = (totalSeconds: number, estimated: boolean): string => {
   const h = Math.floor(totalSeconds / 3600);
@@ -284,9 +283,7 @@ export const TableOfContents = ({
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
   const isSummaryActive = isSummaryPlaying || isSummaryPaused;
   const isSummaryLoading = isGenerating && isSummarySelected;
-  const audioSections = sections.filter(
-    (s) => s.content.length >= MIN_AUDIO_CONTENT_LENGTH,
-  );
+  const audioSections = sections.filter(hasFullAudio);
   const hasNonAudioSections = audioSections.length < sections.length;
   const playableCount = audioSections.length + 1;
   const summaryOnly = sections.length === 0 || audioSections.length === 0;
@@ -306,7 +303,7 @@ export const TableOfContents = ({
     }
 
     for (let i = 0; i < sections.length; i++) {
-      if (sections[i].content.length < MIN_AUDIO_CONTENT_LENGTH) continue;
+      if (!hasFullAudio(sections[i])) continue;
       const actual = sectionDurations?.[`section-${i}`];
       if (actual != null) {
         total += actual;
@@ -625,16 +622,16 @@ export const TableOfContents = ({
 
           {/* Section entries */}
           {sections.map((section, index) => {
-            const hasAudio =
-              section.content.length >= MIN_AUDIO_CONTENT_LENGTH;
-            const isSelected = hasAudio && activeSectionIndex === index;
+            const canListen = hasFullAudio(section);
+            const isSelected = canListen && activeSectionIndex === index;
             const isPlaying = isSelected && isSpeaking && !isPaused;
             const isSectionPaused = isSelected && isSpeaking && isPaused;
             const isActive = isPlaying || isSectionPaused;
             const isLoading = isGenerating && isSelected;
             const indent = (section.level - 2) * 16;
+            const unavailableTooltip = getSoftAudioTooltip(section.audioReason);
 
-            if (!hasAudio) {
+            if (!canListen) {
               return (
                 <li
                   key={index}
@@ -644,7 +641,7 @@ export const TableOfContents = ({
                     role="group"
                     className={`${rowClass} cursor-default`}
                     style={indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined}
-                    aria-label={`${section.title} — not available for audio`}
+                    aria-label={`${section.title} — not available for audio: ${getAudioReasonLabel(section.audioReason)}`}
                   >
                     <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
                       <span
@@ -656,6 +653,7 @@ export const TableOfContents = ({
                     <span
                       className={`${pillClass} bg-transparent text-muted border border-border`}
                       aria-hidden="true"
+                      title={unavailableTooltip}
                     >
                       <span>Not suited for audio</span>
                     </span>

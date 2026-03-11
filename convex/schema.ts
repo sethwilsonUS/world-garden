@@ -33,6 +33,21 @@ const articleAudioExportStage = v.union(
   v.literal("packaging"),
 );
 
+const articleSectionAudioMode = v.union(
+  v.literal("full"),
+  v.literal("summary_only"),
+  v.literal("unavailable"),
+);
+
+const articleSectionAudioReason = v.union(
+  v.literal("eligible"),
+  v.literal("too_short"),
+  v.literal("list_like"),
+  v.literal("table_like"),
+  v.literal("metadata_heavy"),
+  v.literal("low_prose_density"),
+);
+
 const podcastShowAssetSlug = v.union(
   v.literal("featured"),
   v.literal("trending"),
@@ -56,6 +71,10 @@ export default defineSchema({
           title: v.string(),
           level: v.number(),
           content: v.string(),
+          // Kept optional for older cached articles written before
+          // audio suitability metadata existed.
+          audioMode: v.optional(articleSectionAudioMode),
+          audioReason: v.optional(articleSectionAudioReason),
         }),
       ),
     ),

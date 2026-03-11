@@ -16,9 +16,9 @@ import {
 } from "../lib/tts-contract";
 import { normalizeTtsText, TTS_NORM_VERSION } from "../lib/tts-normalize";
 import { titleToSlug } from "./lib/wikipedia";
+import { hasFullAudio, type AudioMode, type AudioReason } from "../lib/audio-suitability";
 
 const MIN_TTS_TEXT_LENGTH = 10;
-const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
 type TtsRequest = {
   text: string;
@@ -37,6 +37,8 @@ type ArticleExportSource = {
     title: string;
     level: number;
     content: string;
+    audioMode?: AudioMode;
+    audioReason?: AudioReason;
   }[];
 };
 
@@ -45,7 +47,7 @@ type ArticleExportSection = {
   text: string;
 };
 
-const getArticleExportSections = (
+export const getArticleExportSections = (
   article: ArticleExportSource,
 ): ArticleExportSection[] => {
   const sections: ArticleExportSection[] = [];
@@ -59,7 +61,7 @@ const getArticleExportSections = (
 
   for (let index = 0; index < (article.sections ?? []).length; index += 1) {
     const section = article.sections?.[index];
-    if (!section || section.content.length < MIN_AUDIO_CONTENT_LENGTH) continue;
+    if (!section || !hasFullAudio(section)) continue;
     sections.push({
       sectionKey: `section-${index}`,
       text: `${section.title}. ${section.content}`,

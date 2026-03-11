@@ -1,3 +1,9 @@
+import {
+  attachAudioSuitability,
+  type AudioMode,
+  type AudioReason,
+} from "../../lib/audio-suitability";
+
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
 const USER_AGENT = "CurioGarden/1.0 (accessibility-first Wikipedia audio reader)";
@@ -13,6 +19,8 @@ export type WikiSection = {
   title: string;
   level: number;
   content: string;
+  audioMode: AudioMode;
+  audioReason: AudioReason;
 };
 
 export type WikiArticle = {
@@ -256,7 +264,13 @@ export const parseSections = (fullText: string): {
       fullText.substring(contentStart, contentEnd),
     );
 
-    sections.push({ title, level, content });
+    sections.push(
+      attachAudioSuitability({
+        title,
+        level,
+        content,
+      }),
+    );
   }
 
   return { summary, sections };
