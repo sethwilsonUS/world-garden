@@ -2,17 +2,19 @@ import { anyApi } from "convex/server";
 import { fetchQuery } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { renderFeaturedShowPodcastArtworkPng } from "@/lib/featured-show-podcast-artwork";
 import {
   FEATURED_PODCAST_DESCRIPTION,
   FEATURED_PODCAST_SUBTITLE,
   FEATURED_PODCAST_TITLE,
   getFeaturedPodcastItemArtworkUrl,
   getPodcastDescription,
-  getPodcastArtworkUrl,
   getPodcastSiteUrl,
 } from "@/lib/podcast-feed";
+import { getOrCreatePodcastShowArtworkUrl } from "@/lib/podcast-show-artwork-cache";
 import {
   ATOM_NS,
+  CONTENT_NS,
   PODCAST_NS,
   escapeXml,
   formatPodcastDuration,
@@ -32,7 +34,10 @@ export const GET = async (req: NextRequest) => {
     const siteUrl = getPodcastSiteUrl(req.nextUrl.origin);
     const feedUrl = `${siteUrl}/api/podcast/featured.xml`;
     const articleBaseUrl = `${siteUrl}/article`;
-    const feedImageUrl = getPodcastArtworkUrl(siteUrl);
+    const feedImageUrl = await getOrCreatePodcastShowArtworkUrl({
+      slug: "featured",
+      render: renderFeaturedShowPodcastArtworkPng,
+    });
 
     const episodes = (await fetchQuery(anyApi.podcast.getRecentFeaturedEpisodes, {
       status: "ready",
@@ -81,7 +86,7 @@ export const GET = async (req: NextRequest) => {
       .join("\n");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}">
+<rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}" xmlns:content="${CONTENT_NS}">
 <channel>
   <title>${escapeXml(FEATURED_PODCAST_TITLE)}</title>
   <link>${escapeXml(siteUrl)}</link>
@@ -98,6 +103,7 @@ export const GET = async (req: NextRequest) => {
   <itunes:subtitle>${escapeXml(FEATURED_PODCAST_SUBTITLE)}</itunes:subtitle>
   <itunes:summary>${escapeXml(FEATURED_PODCAST_DESCRIPTION)}</itunes:summary>
   <itunes:explicit>false</itunes:explicit>
+  <itunes:block>yes</itunes:block>
   <itunes:type>episodic</itunes:type>
   <itunes:category text="Education" />
   <itunes:image href="${escapeXml(feedImageUrl)}" />

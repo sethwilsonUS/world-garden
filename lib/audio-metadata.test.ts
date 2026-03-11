@@ -58,4 +58,25 @@ describe("addMp3Metadata", () => {
       Array.from(originalMp3),
     );
   });
+
+  it("replaces an existing leading ID3 tag instead of stacking another one", async () => {
+    const originalMp3 = Uint8Array.of(0xff, 0xfb, 0x90, 0x64, 0x00, 0x11);
+    const firstPass = addMp3Metadata(originalMp3, {
+      title: "First title",
+      artist: "Curio Garden",
+    });
+
+    const updated = addMp3Metadata(firstPass, {
+      title: "Second title",
+      artist: "Curio Garden",
+    });
+
+    const ascii = decoder.decode(updated);
+    expect(ascii.startsWith("ID3")).toBe(true);
+    expect(ascii).toContain("TIT2");
+    expect(ascii.indexOf("ID3", 3)).toBe(-1);
+    expect(Array.from(updated.slice(-originalMp3.length))).toEqual(
+      Array.from(originalMp3),
+    );
+  });
 });

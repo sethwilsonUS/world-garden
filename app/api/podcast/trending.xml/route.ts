@@ -2,6 +2,7 @@ import { anyApi } from "convex/server";
 import { fetchQuery } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { getOrCreatePodcastShowArtworkUrl } from "@/lib/podcast-show-artwork-cache";
 import {
   TRENDING_PODCAST_DESCRIPTION,
   TRENDING_PODCAST_SUBTITLE,
@@ -9,10 +10,11 @@ import {
   getTrendingPodcastItemArtworkUrl,
   getPodcastExcerpt,
   getPodcastSiteUrl,
-  getTrendingPodcastShowArtworkUrl,
 } from "@/lib/podcast-feed";
+import { renderTrendingShowPodcastArtworkPng } from "@/lib/trending-show-podcast-artwork";
 import {
   ATOM_NS,
+  CONTENT_NS,
   PODCAST_NS,
   escapeXml,
   formatPodcastDuration,
@@ -41,7 +43,10 @@ export const GET = async (req: NextRequest) => {
   try {
     const siteUrl = getPodcastSiteUrl(req.nextUrl.origin);
     const feedUrl = `${siteUrl}/api/podcast/trending.xml`;
-    const feedImageUrl = getTrendingPodcastShowArtworkUrl(siteUrl);
+    const feedImageUrl = await getOrCreatePodcastShowArtworkUrl({
+      slug: "trending",
+      render: renderTrendingShowPodcastArtworkPng,
+    });
     const trendingPageUrl = `${siteUrl}/trending`;
 
     const episodes = (await fetchQuery(anyApi.trending.getRecentTrendingBriefs, {
@@ -96,7 +101,7 @@ export const GET = async (req: NextRequest) => {
       .join("\n");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}">
+<rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}" xmlns:content="${CONTENT_NS}">
 <channel>
   <title>${escapeXml(TRENDING_PODCAST_TITLE)}</title>
   <link>${escapeXml(siteUrl)}</link>
@@ -113,6 +118,7 @@ export const GET = async (req: NextRequest) => {
   <itunes:subtitle>${escapeXml(TRENDING_PODCAST_SUBTITLE)}</itunes:subtitle>
   <itunes:summary>${escapeXml(TRENDING_PODCAST_DESCRIPTION)}</itunes:summary>
   <itunes:explicit>false</itunes:explicit>
+  <itunes:block>yes</itunes:block>
   <itunes:type>episodic</itunes:type>
   <itunes:category text="News" />
   <itunes:image href="${escapeXml(feedImageUrl)}" />

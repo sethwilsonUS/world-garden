@@ -114,6 +114,27 @@ const buildMp3MetadataTag = (metadata: Mp3Metadata): Uint8Array | null => {
   );
 };
 
+const decodeSynchsafeSize = (bytes: Uint8Array): number =>
+  ((bytes[0] ?? 0) << 21) |
+  ((bytes[1] ?? 0) << 14) |
+  ((bytes[2] ?? 0) << 7) |
+  (bytes[3] ?? 0);
+
+const stripLeadingId3Tag = (mp3Data: Uint8Array): Uint8Array => {
+  if (
+    mp3Data.length < 10 ||
+    mp3Data[0] !== 0x49 ||
+    mp3Data[1] !== 0x44 ||
+    mp3Data[2] !== 0x33
+  ) {
+    return mp3Data;
+  }
+
+  const tagSize = decodeSynchsafeSize(mp3Data.slice(6, 10));
+  const totalTagSize = 10 + tagSize;
+  return totalTagSize < mp3Data.length ? mp3Data.slice(totalTagSize) : mp3Data;
+};
+
 export const addMp3Metadata = (
   mp3Data: Uint8Array,
   metadata: Mp3Metadata,
@@ -121,7 +142,7 @@ export const addMp3Metadata = (
   const tag = buildMp3MetadataTag(metadata);
   if (!tag) return mp3Data;
 
-  return concatBytes(tag, mp3Data);
+  return concatBytes(tag, stripLeadingId3Tag(mp3Data));
 };
 
 export const addMp3MetadataToBlob = async (
@@ -131,7 +152,12 @@ export const addMp3MetadataToBlob = async (
   const tag = buildMp3MetadataTag(metadata);
   if (!tag) return mp3Blob;
 
+  const mp3Data = stripLeadingId3Tag(new Uint8Array(await mp3Blob.arrayBuffer()));
   const tagBuffer = new ArrayBuffer(tag.byteLength);
+  const mp3Buffer = new ArrayBuffer(mp3Data.byteLength);
   new Uint8Array(tagBuffer).set(tag);
-  return new Blob([tagBuffer, mp3Blob], { type: mp3Blob.type || "audio/mpeg" });
+  new Uint8Array(mp3Buffer).set(mp3Data);
+  return new Blob([tagBuffer, mp3Buffer], {
+    type: mp3Blob.type || "audio/mpeg",
+  });
 };

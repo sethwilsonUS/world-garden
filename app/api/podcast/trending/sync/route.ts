@@ -19,12 +19,16 @@ export const POST = async (req: NextRequest) => {
     );
   }
 
-  const body = (await req.json().catch(() => ({}))) as { force?: boolean };
+  const body = (await req.json().catch(() => ({}))) as {
+    force?: boolean;
+    regenArt?: boolean;
+  };
 
   try {
     const result = await syncDailyTrendingBrief({
       baseUrl: req.nextUrl.origin,
       force: body.force === true,
+      regenArt: body.regenArt === true,
     });
 
     return NextResponse.json(result, {

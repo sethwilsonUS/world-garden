@@ -7,7 +7,10 @@ import type { FetchAndCacheResult } from "@/convex/articles";
 import { titleToSlug } from "@/convex/lib/wikipedia";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import { fetchCurrentFeaturedArticle } from "@/lib/featured-article";
-import { renderFeaturedPodcastArtworkPng } from "@/lib/featured-podcast-artwork";
+import {
+  FEATURED_EPISODE_ARTWORK_VERSION,
+  renderFeaturedPodcastArtworkPng,
+} from "@/lib/featured-podcast-artwork";
 import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudio } from "@/lib/tts-client";
@@ -40,6 +43,7 @@ export type FeaturedPodcastSyncResult = {
   publication: {
     reusedExisting: boolean;
     repairedExisting: boolean;
+    regeneratedArtwork: boolean;
   };
 };
 
@@ -152,17 +156,27 @@ export const doesFeaturedEpisodeMatchArticle = (
   episode.wikiPageId === article.wikiPageId &&
   normalizeTitle(episode.title) === normalizeTitle(article.title);
 
+export const hasCurrentFeaturedArtworkVersion = (
+  episode: Pick<FeaturedPodcastEpisodeWithUrl, "artworkVersion"> | null,
+): boolean => episode?.artworkVersion === FEATURED_EPISODE_ARTWORK_VERSION;
+
 export const shouldReuseExistingFeaturedEpisode = ({
   force,
+  regenArt,
   existingEpisode,
   article,
 }: {
   force: boolean;
-  existingEpisode: Pick<FeaturedPodcastEpisodeWithUrl, "status" | "wikiPageId" | "title"> | null;
+  regenArt: boolean;
+  existingEpisode: Pick<
+    FeaturedPodcastEpisodeWithUrl,
+    "status" | "wikiPageId" | "title" | "artworkVersion"
+  > | null;
   article: Pick<FetchAndCacheResult, "wikiPageId" | "title">;
 }): boolean =>
   !force &&
   existingEpisode?.status === "ready" &&
+  (!regenArt || hasCurrentFeaturedArtworkVersion(existingEpisode)) &&
   doesFeaturedEpisodeMatchArticle(existingEpisode, article);
 
 const finalizeJob = async ({
@@ -190,9 +204,11 @@ const finalizeJob = async ({
 export const syncFeaturedPodcastEpisode = async ({
   baseUrl,
   force = false,
+  regenArt = false,
 }: {
   baseUrl: string;
   force?: boolean;
+  regenArt?: boolean;
 }): Promise<FeaturedPodcastSyncResult> => {
   const { tfa, feedDateIso } = await fetchCurrentFeaturedArticle();
   if (!tfa) {
@@ -222,6 +238,7 @@ export const syncFeaturedPodcastEpisode = async ({
   if (
     shouldReuseExistingFeaturedEpisode({
       force,
+      regenArt,
       existingEpisode: existingReadyEpisode,
       article,
     })
@@ -237,6 +254,7 @@ export const syncFeaturedPodcastEpisode = async ({
       publication: {
         reusedExisting: true,
         repairedExisting: false,
+        regeneratedArtwork: false,
       },
     };
   }
@@ -264,6 +282,7 @@ export const syncFeaturedPodcastEpisode = async ({
         publication: {
           reusedExisting: true,
           repairedExisting: false,
+          regeneratedArtwork: false,
         },
       };
     }
@@ -302,6 +321,80 @@ export const syncFeaturedPodcastEpisode = async ({
   }
 
   try {
+    if (
+      regenArt &&
+      existingReadyEpisode &&
+      existingEpisodeMatchesArticle &&
+      existingReadyEpisode.audioUrl
+    ) {
+      const audioBlob = await fetchBlobFromUrl(existingReadyEpisode.audioUrl);
+      const artwork = await renderFeaturedPodcastArtworkPng({
+        featuredDate: feedDateIso,
+        title: article.title,
+        imageUrl: article.thumbnailUrl,
+      });
+      const taggedBlob = await tagPodcastEpisodeAudio({
+        audioBlob,
+        title: article.title,
+        artwork,
+      });
+      const artworkBlob = new Blob([Buffer.from(artwork.data)], {
+        type: artwork.mimeType,
+      });
+      const [uploadUrl, artworkUploadUrl] = await Promise.all([
+        fetchMutation(anyApi.podcast.generateUploadUrl, {}),
+        fetchMutation(anyApi.podcast.generateUploadUrl, {}),
+      ]);
+      const [storageId, artworkStorageId] = await Promise.all([
+        uploadBlobToConvexStorage(uploadUrl, taggedBlob),
+        uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
+      ]);
+
+      await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
+        featuredDate: feedDateIso,
+        articleId,
+        wikiPageId: article.wikiPageId,
+        slug: titleToSlug(article.title),
+        title: article.title,
+        description,
+        imageUrl: article.thumbnailUrl,
+        storageId,
+        artworkStorageId,
+        artworkVersion: FEATURED_EPISODE_ARTWORK_VERSION,
+        durationSeconds: existingReadyEpisode.durationSeconds,
+        byteLength: taggedBlob.size,
+        ttsNormVersion: TTS_NORM_VERSION,
+        status: "ready",
+        publishedAt,
+      });
+
+      await finalizeJob({
+        featuredDate: feedDateIso,
+        articleId,
+        owner,
+        status: "ready",
+      });
+
+      const savedEpisode = await getExistingEpisode(feedDateIso);
+      if (!savedEpisode) {
+        throw new Error("Featured podcast episode artwork was regenerated but could not be reloaded");
+      }
+
+      return {
+        status: "created",
+        episode: savedEpisode,
+        generatedSectionCount: 0,
+        reusedSectionCount: 0,
+        totalSectionCount: 0,
+        source,
+        publication: {
+          reusedExisting: false,
+          repairedExisting,
+          regeneratedArtwork: true,
+        },
+      };
+    }
+
     const cachedAudio = await fetchQuery(api.audio.getAllSectionAudio, {
       articleId,
       ttsNormVersion: TTS_NORM_VERSION,
@@ -385,6 +478,7 @@ export const syncFeaturedPodcastEpisode = async ({
       imageUrl: article.thumbnailUrl,
       storageId,
       artworkStorageId,
+      artworkVersion: FEATURED_EPISODE_ARTWORK_VERSION,
       durationSeconds: estimateDurationSeconds(sections.map((s) => s.text)),
       byteLength: taggedBlob.size,
       ttsNormVersion: TTS_NORM_VERSION,
@@ -414,6 +508,7 @@ export const syncFeaturedPodcastEpisode = async ({
       publication: {
         reusedExisting: false,
         repairedExisting,
+        regeneratedArtwork: false,
       },
     };
   } catch (error) {
