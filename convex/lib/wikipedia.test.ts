@@ -138,10 +138,10 @@ describe("parseSections", () => {
       "This is the lead paragraph.",
       "",
       "== History ==",
-      "The history section has enough content to pass the minimum length filter easily.",
+      "The history section has enough content to pass the minimum length filter easily. It also has a second sentence so the prose-density rule treats it like actual narration.",
       "",
       "== Geography ==",
-      "The geography section also has enough content to pass the minimum length filter.",
+      "The geography section also has enough content to pass the minimum length filter. It describes the surrounding terrain in a second complete sentence.",
     ].join("\n");
 
     const result = parseSections(text);
@@ -149,6 +149,8 @@ describe("parseSections", () => {
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0].title).toBe("History");
     expect(result.sections[0].level).toBe(2);
+    expect(result.sections[0].audioMode).toBe("full");
+    expect(result.sections[0].audioReason).toBe("eligible");
     expect(result.sections[1].title).toBe("Geography");
   });
 
@@ -208,14 +210,17 @@ describe("parseSections", () => {
       "Too short.",
       "",
       "== Real Section ==",
-      "This section has enough content to be included in the output results.",
+      "This section has enough content to be included in the output results. It adds a second sentence so the new classifier keeps it available.",
     ].join("\n");
 
     const result = parseSections(text);
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0].title).toBe("Empty Section");
     expect(result.sections[0].content).toBe("Too short.");
+    expect(result.sections[0].audioMode).toBe("unavailable");
+    expect(result.sections[0].audioReason).toBe("too_short");
     expect(result.sections[1].title).toBe("Real Section");
+    expect(result.sections[1].audioMode).toBe("full");
   });
 
   it("handles level-3 headings", () => {
@@ -247,6 +252,35 @@ describe("parseSections", () => {
     expect(result.summary).toBe(
       "Einstein developed relativity. Some claim.",
     );
+  });
+
+  it("classifies list-like and table-like sections while parsing", () => {
+    const text = [
+      "Lead text.",
+      "",
+      "== Cast ==",
+      "Ada Lovelace",
+      "Alan Turing",
+      "Grace Hopper",
+      "Donald Knuth",
+      "",
+      "== Election results ==",
+      "Year  Candidate  Vote",
+      "2020  Rivera     51.2%",
+      "2022  Patel      49.8%",
+    ].join("\n");
+
+    const result = parseSections(text);
+    expect(result.sections[0]).toMatchObject({
+      title: "Cast",
+      audioMode: "unavailable",
+      audioReason: "list_like",
+    });
+    expect(result.sections[1]).toMatchObject({
+      title: "Election results",
+      audioMode: "unavailable",
+      audioReason: "table_like",
+    });
   });
 });
 
@@ -356,6 +390,58 @@ describe("fetchArticleByTitle", () => {
         headers: expect.objectContaining({ "User-Agent": expect.any(String) }),
       }),
     );
+  });
+
+  it("returns section audio metadata from the shared parser", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          query: {
+            pages: {
+              "101": {
+                pageid: 101,
+                title: "Example",
+                extract: [
+                  "Lead summary.",
+                  "",
+                  "== History ==",
+                  "The town rebuilt its center after a fire. It later added a tram system to connect the districts.",
+                  "",
+                  "== Cast ==",
+                  "Ada Lovelace",
+                  "Alan Turing",
+                  "Grace Hopper",
+                  "Donald Knuth",
+                ].join("\n"),
+                revisions: [{ revid: 456, timestamp: "2026-03-01T12:00:00Z" }],
+                thumbnail: {
+                  source: "https://upload.wikimedia.org/example.png",
+                  width: 320,
+                  height: 180,
+                },
+              },
+            },
+          },
+        }),
+    } as Response);
+
+    const result = await fetchArticleByTitle("Example");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.sections).toHaveLength(2);
+    expect(result.sections[0]).toMatchObject({
+      title: "History",
+      audioMode: "full",
+      audioReason: "eligible",
+    });
+    expect(result.sections[1]).toMatchObject({
+      title: "Cast",
+      audioMode: "unavailable",
+      audioReason: "list_like",
+    });
   });
 });
 

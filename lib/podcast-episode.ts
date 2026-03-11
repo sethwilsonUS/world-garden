@@ -11,9 +11,9 @@ import { renderFeaturedPodcastArtworkPng } from "@/lib/featured-podcast-artwork"
 import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudio } from "@/lib/tts-client";
+import { hasFullAudio } from "@/lib/audio-suitability";
 
 const MIN_TTS_TEXT_LENGTH = 10;
-const MIN_AUDIO_CONTENT_LENGTH = 20;
 const TTS_WORDS_PER_SECOND = 2.5;
 const JOB_LEASE_MS = 8 * 60 * 1000;
 
@@ -77,7 +77,7 @@ const uploadBlobToConvexStorage = async (
   return body.storageId;
 };
 
-const getPodcastSectionSources = (article: FetchAndCacheResult): PodcastSectionSource[] => {
+export const getPodcastSectionSources = (article: FetchAndCacheResult): PodcastSectionSource[] => {
   const items: PodcastSectionSource[] = [];
 
   if (article.summary && article.summary.length >= MIN_TTS_TEXT_LENGTH) {
@@ -89,7 +89,7 @@ const getPodcastSectionSources = (article: FetchAndCacheResult): PodcastSectionS
 
   for (let index = 0; index < article.sections.length; index += 1) {
     const section = article.sections[index];
-    if (section.content.length < MIN_AUDIO_CONTENT_LENGTH) continue;
+    if (!hasFullAudio(section)) continue;
     items.push({
       sectionKey: `section-${index}`,
       text: `${section.title}. ${section.content}`,

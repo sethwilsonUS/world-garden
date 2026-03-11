@@ -18,6 +18,21 @@ import {
   ParsedPageData,
 } from "./lib/wikipedia";
 
+const articleSectionAudioMode = v.union(
+  v.literal("full"),
+  v.literal("summary_only"),
+  v.literal("unavailable"),
+);
+
+const articleSectionAudioReason = v.union(
+  v.literal("eligible"),
+  v.literal("too_short"),
+  v.literal("list_like"),
+  v.literal("table_like"),
+  v.literal("metadata_heavy"),
+  v.literal("low_prose_density"),
+);
+
 /* ── Article CRUD ── */
 
 export const getByWikiPageId = query({
@@ -58,6 +73,8 @@ export const upsertArticle = internalMutation({
           title: v.string(),
           level: v.number(),
           content: v.string(),
+          audioMode: v.optional(articleSectionAudioMode),
+          audioReason: v.optional(articleSectionAudioReason),
         }),
       ),
     ),

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import type { AudioMode, AudioReason } from "@/lib/audio-suitability";
 
 export type SearchResult = {
   wikiPageId: string;
@@ -13,6 +14,8 @@ export type Section = {
   title: string;
   level: number;
   content: string;
+  audioMode: AudioMode;
+  audioReason: AudioReason;
 };
 
 export type Article = {
