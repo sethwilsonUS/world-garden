@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPodcastAdminAuthError } from "@/lib/podcast-admin-auth";
+import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { syncDailyTrendingBrief } from "@/lib/trending-brief";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -25,8 +26,9 @@ export const POST = async (req: NextRequest) => {
   };
 
   try {
+    const baseUrl = getPodcastSiteUrl(req.nextUrl.origin);
     const result = await syncDailyTrendingBrief({
-      baseUrl: req.nextUrl.origin,
+      baseUrl,
       force: body.force === true,
       regenArt: body.regenArt === true,
     });
