@@ -29,6 +29,7 @@ export const GET = async (req: NextRequest) => {
       headers: NO_CACHE_HEADERS,
     });
   } catch (error) {
+    console.error("[/api/podcast/trending/cron] sync failed", error);
     return NextResponse.json(
       {
         error:

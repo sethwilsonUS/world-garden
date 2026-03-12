@@ -36,6 +36,7 @@ export const POST = async (req: NextRequest) => {
       headers: NO_CACHE_HEADERS,
     });
   } catch (error) {
+    console.error("[/api/podcast/trending/sync] sync failed", error);
     return NextResponse.json(
       {
         error:

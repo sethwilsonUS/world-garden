@@ -149,6 +149,9 @@ const estimateDurationSeconds = (text: string): number =>
 
 const sanitizeText = (text: string): string => text.replace(/\r\n/g, "\n").trim();
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
 const stripUrlsFromSpeech = (text: string): string =>
   text.replace(/https?:\/\/\S+/g, "").replace(/\s{2,}/g, " ").trim();
 
@@ -381,8 +384,10 @@ const generateTrendingBriefRecord = async ({
     ? existing
     : null;
   const owner = randomUUID();
+  const runId = owner.slice(0, 8);
   const imageUrls = artworkItems.map((item) => item.imageUrl);
   const articleTitles = articles.map((article) => article.title);
+  let stage = "initializing";
 
   if (existingReadyBrief) {
     return {
@@ -453,6 +458,11 @@ const generateTrendingBriefRecord = async ({
   const cachedBriefContent = getCachedTrendingBriefContent(existing);
 
   try {
+    console.info(
+      `[podcast:trending ${trendingDateIso} run=${runId}] start force=${force} regenArt=${regenArt} existingStatus=${existing?.status ?? "missing"} cachedBrief=${Boolean(cachedBriefContent)}`,
+    );
+
+    stage = cachedBriefContent ? "reusing_cached_brief" : "generating_brief_content";
     const brief = cachedBriefContent
       ? normalizeTrendingBrief(cachedBriefContent)
       : await (async (): Promise<GeneratedTrendingBrief> => {
@@ -545,6 +555,7 @@ const generateTrendingBriefRecord = async ({
           byteLength: existing?.byteLength as number,
         }
       : await (async () => {
+          stage = "rendering_artwork";
           const artwork = await renderTrendingPodcastArtworkPng({
             trendingDate: trendingDateIso,
             headline: brief.headline,
@@ -552,6 +563,9 @@ const generateTrendingBriefRecord = async ({
             articleTitles,
             imageUrls,
           });
+          stage = regenArt && existing?.audioUrl
+            ? "reusing_existing_audio"
+            : "generating_tts_audio";
           const sourceAudioBlob =
             regenArt && existing?.audioUrl
               ? await fetchBlobFromUrl(existing.audioUrl)
@@ -562,16 +576,19 @@ const generateTrendingBriefRecord = async ({
           const artworkBlob = new Blob([Buffer.from(artwork.data)], {
             type: artwork.mimeType,
           });
+          stage = "tagging_audio";
           const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
             title: brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
             artist: "Curio Garden",
             album: TRENDING_PODCAST_TITLE,
             artwork,
           });
+          stage = "requesting_upload_urls";
           const [audioUploadUrl, artworkUploadUrl] = await Promise.all([
             fetchMutation(anyApi.trending.generateUploadUrl, {}),
             fetchMutation(anyApi.trending.generateUploadUrl, {}),
           ]);
+          stage = "uploading_assets";
           const [newStorageId, newArtworkStorageId] = await Promise.all([
             uploadBlobToConvexStorage(audioUploadUrl, taggedAudioBlob),
             uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
@@ -585,6 +602,7 @@ const generateTrendingBriefRecord = async ({
           };
         })();
 
+    stage = "saving_brief";
     await fetchMutation(anyApi.trending.saveTrendingBrief, {
       trendingDate: trendingDateIso,
       status: "ready",
@@ -605,6 +623,7 @@ const generateTrendingBriefRecord = async ({
       model,
     });
 
+    stage = "reloading_saved_brief";
     const saved = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
       trendingDate: trendingDateIso,
     })) as TrendingBriefRecord | null;
@@ -613,11 +632,16 @@ const generateTrendingBriefRecord = async ({
       throw new Error("Trending brief was saved but could not be reloaded");
     }
 
+    stage = "finalizing_job";
     await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
       trendingDate: trendingDateIso,
       owner,
       status: "ready",
     });
+
+    console.info(
+      `[podcast:trending ${trendingDateIso} run=${runId}] success reusedAssets=${canReuseStoredAssets} sources=${brief.sources.length}`,
+    );
 
     return {
       status: "created",
@@ -633,14 +657,19 @@ const generateTrendingBriefRecord = async ({
       },
     };
   } catch (error) {
+    const message = getErrorMessage(error);
+    const detailedMessage = `[${stage}] ${message}`;
+
+    console.error(
+      `[podcast:trending ${trendingDateIso} run=${runId}] failed at stage=${stage}: ${message}`,
+      error,
+    );
+
     await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
       trendingDate: trendingDateIso,
       owner,
       status: "failed",
-      lastError:
-        error instanceof Error
-          ? error.message
-          : "Trending brief generation failed",
+      lastError: detailedMessage,
     });
 
     if (!existingReadyBrief) {
@@ -656,13 +685,10 @@ const generateTrendingBriefRecord = async ({
         imageUrls,
         artworkItems,
         sources: cachedBriefContent?.sources,
-        lastError:
-          error instanceof Error
-            ? error.message
-            : "Trending brief generation failed",
+        lastError: detailedMessage,
       });
     }
-    throw error;
+    throw new Error(detailedMessage);
   }
 };
 

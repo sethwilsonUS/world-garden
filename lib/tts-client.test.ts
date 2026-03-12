@@ -102,4 +102,24 @@ describe("tts-client", () => {
     expect(url).toBe("blob:tts-audio");
     expect(URL.createObjectURL).toHaveBeenCalledOnce();
   });
+
+  it("includes HTTP details when the TTS endpoint returns a non-JSON error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: {
+          get: () => "text/plain",
+        },
+        text: async () => "upstream timeout while rendering audio",
+      })),
+    );
+
+    await expect(
+      generateTtsAudio({ text: "This text is definitely long enough." }),
+    ).rejects.toThrow(
+      "TTS chunk 1/1 failed (6 words): TTS request failed with 502 (text/plain): upstream timeout while rendering audio",
+    );
+  });
 });
