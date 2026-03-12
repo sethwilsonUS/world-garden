@@ -90,6 +90,9 @@ const uploadBlobToConvexStorage = async (
   return body.storageId;
 };
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
 export const getPodcastSectionSources = (article: FetchAndCacheResult): PodcastSectionSource[] => {
   const items: PodcastSectionSource[] = [];
 
@@ -234,6 +237,8 @@ export const syncFeaturedPodcastEpisode = async ({
     existingReadyEpisode && !existingEpisodeMatchesArticle,
   );
   const owner = randomUUID();
+  const runId = owner.slice(0, 8);
+  let stage = "initializing";
 
   if (
     shouldReuseExistingFeaturedEpisode({
@@ -321,18 +326,25 @@ export const syncFeaturedPodcastEpisode = async ({
   }
 
   try {
+    console.info(
+      `[podcast:featured ${feedDateIso} run=${runId}] start force=${force} regenArt=${regenArt} existingStatus=${existingEpisode?.status ?? "missing"} sections=${sections.length}`,
+    );
+
     if (
       regenArt &&
       existingReadyEpisode &&
       existingEpisodeMatchesArticle &&
       existingReadyEpisode.audioUrl
     ) {
+      stage = "reusing_existing_audio";
       const audioBlob = await fetchBlobFromUrl(existingReadyEpisode.audioUrl);
+      stage = "rendering_artwork";
       const artwork = await renderFeaturedPodcastArtworkPng({
         featuredDate: feedDateIso,
         title: article.title,
         imageUrl: article.thumbnailUrl,
       });
+      stage = "tagging_audio";
       const taggedBlob = await tagPodcastEpisodeAudio({
         audioBlob,
         title: article.title,
@@ -345,11 +357,13 @@ export const syncFeaturedPodcastEpisode = async ({
         fetchMutation(anyApi.podcast.generateUploadUrl, {}),
         fetchMutation(anyApi.podcast.generateUploadUrl, {}),
       ]);
+      stage = "uploading_assets";
       const [storageId, artworkStorageId] = await Promise.all([
         uploadBlobToConvexStorage(uploadUrl, taggedBlob),
         uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
       ]);
 
+      stage = "saving_episode";
       await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
         featuredDate: feedDateIso,
         articleId,
@@ -368,6 +382,7 @@ export const syncFeaturedPodcastEpisode = async ({
         publishedAt,
       });
 
+      stage = "finalizing_job";
       await finalizeJob({
         featuredDate: feedDateIso,
         articleId,
@@ -375,6 +390,7 @@ export const syncFeaturedPodcastEpisode = async ({
         status: "ready",
       });
 
+      stage = "reloading_saved_episode";
       const savedEpisode = await getExistingEpisode(feedDateIso);
       if (!savedEpisode) {
         throw new Error("Featured podcast episode artwork was regenerated but could not be reloaded");
@@ -418,18 +434,27 @@ export const syncFeaturedPodcastEpisode = async ({
       }
 
       if (!blob) {
-        blob = await generateTtsAudio(
-          { text: section.text },
-          { apiBaseUrl: baseUrl },
-        );
+        stage = `generating_section_audio:${section.sectionKey}`;
+        try {
+          blob = await generateTtsAudio(
+            { text: section.text },
+            { apiBaseUrl: baseUrl },
+          );
+        } catch (error) {
+          throw new Error(
+            `Section ${section.sectionKey} audio failed: ${getErrorMessage(error)}`,
+          );
+        }
         generatedSectionCount += 1;
 
+        stage = `uploading_section_audio:${section.sectionKey}`;
         const sectionUploadUrl = await fetchMutation(api.audio.generateUploadUrl, {});
         const sectionStorageId = await uploadBlobToConvexStorage(
           sectionUploadUrl,
           blob,
         );
 
+        stage = `saving_section_audio:${section.sectionKey}`;
         await fetchMutation(api.audio.saveSectionAudioRecord, {
           articleId,
           sectionKey: section.sectionKey,
@@ -446,11 +471,13 @@ export const syncFeaturedPodcastEpisode = async ({
     }
 
     const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
+    stage = "rendering_artwork";
     const artwork = await renderFeaturedPodcastArtworkPng({
       featuredDate: feedDateIso,
       title: article.title,
       imageUrl: article.thumbnailUrl,
     });
+    stage = "tagging_audio";
     const taggedBlob = await tagPodcastEpisodeAudio({
       audioBlob: combinedBlob,
       title: article.title,
@@ -463,11 +490,13 @@ export const syncFeaturedPodcastEpisode = async ({
       fetchMutation(anyApi.podcast.generateUploadUrl, {}),
       fetchMutation(anyApi.podcast.generateUploadUrl, {}),
     ]);
+    stage = "uploading_assets";
     const [storageId, artworkStorageId] = await Promise.all([
       uploadBlobToConvexStorage(uploadUrl, taggedBlob),
       uploadBlobToConvexStorage(artworkUploadUrl, artworkBlob),
     ]);
 
+    stage = "saving_episode";
     const episodeId = (await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
       featuredDate: feedDateIso,
       articleId,
@@ -486,6 +515,7 @@ export const syncFeaturedPodcastEpisode = async ({
       publishedAt,
     })) as Id<"featuredPodcastEpisodes">;
 
+    stage = "finalizing_job";
     await finalizeJob({
       featuredDate: feedDateIso,
       articleId,
@@ -493,10 +523,15 @@ export const syncFeaturedPodcastEpisode = async ({
       status: "ready",
     });
 
+    stage = "reloading_saved_episode";
     const savedEpisode = await getExistingEpisode(feedDateIso);
     if (!savedEpisode || savedEpisode._id !== episodeId) {
       throw new Error("Featured podcast episode was saved but could not be reloaded");
     }
+
+    console.info(
+      `[podcast:featured ${feedDateIso} run=${runId}] success generatedSections=${generatedSectionCount} reusedSections=${reusedSectionCount}`,
+    );
 
     return {
       status: "created",
@@ -512,15 +547,20 @@ export const syncFeaturedPodcastEpisode = async ({
       },
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Episode generation failed";
+    const message = getErrorMessage(error);
+    const detailedMessage = `[${stage}] ${message}`;
+
+    console.error(
+      `[podcast:featured ${feedDateIso} run=${runId}] failed at stage=${stage}: ${message}`,
+      error,
+    );
 
     await finalizeJob({
       featuredDate: feedDateIso,
       articleId,
       owner,
       status: "failed",
-      lastError: message,
+      lastError: detailedMessage,
     });
 
     if (!existingReadyEpisode) {
@@ -538,6 +578,6 @@ export const syncFeaturedPodcastEpisode = async ({
       });
     }
 
-    throw error;
+    throw new Error(detailedMessage);
   }
 };

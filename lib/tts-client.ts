@@ -14,6 +14,9 @@ type TtsClientOptions = {
   apiBaseUrl?: string;
 };
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
 
@@ -132,11 +135,36 @@ const fetchSingleTtsAudio = async ({
   });
 
   if (!resp.ok) {
-    const body = (await resp.json().catch(() => ({}))) as TtsErrorBody;
-    throw new Error(body.error ?? "Audio generation failed");
+    const contentType = resp.headers.get("content-type") ?? "unknown";
+    const bodyText = await resp.text().catch(() => "");
+
+    if (contentType.includes("application/json")) {
+      let body: TtsErrorBody | null = null;
+      try {
+        body = JSON.parse(bodyText) as TtsErrorBody;
+      } catch {
+        // Fall through to the structured fallback below.
+      }
+
+      if (body?.error?.trim()) {
+        throw new Error(body.error);
+      }
+    }
+
+    const preview = bodyText.replace(/\s+/g, " ").trim().slice(0, 160);
+    throw new Error(
+      preview
+        ? `TTS request failed with ${resp.status} (${contentType}): ${preview}`
+        : `TTS request failed with ${resp.status} (${contentType})`,
+    );
   }
 
-  return await resp.blob();
+  const blob = await resp.blob();
+  if (blob.size === 0) {
+    throw new Error("TTS returned an empty audio payload");
+  }
+
+  return blob;
 };
 
 export const generateTtsAudio = async ({
@@ -151,10 +179,16 @@ export const generateTtsAudio = async ({
   }
 
   const audioChunks: Blob[] = [];
-  for (const chunk of chunks) {
-    audioChunks.push(
-      await fetchSingleTtsAudio({ text: chunk, voiceId }, options),
-    );
+  for (const [index, chunk] of chunks.entries()) {
+    try {
+      audioChunks.push(
+        await fetchSingleTtsAudio({ text: chunk, voiceId }, options),
+      );
+    } catch (error) {
+      throw new Error(
+        `TTS chunk ${index + 1}/${chunks.length} failed (${countWords(chunk)} words): ${getErrorMessage(error)}`,
+      );
+    }
   }
 
   if (audioChunks.length === 1) {
