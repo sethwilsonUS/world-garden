@@ -12,6 +12,7 @@ import type * as articleExports from "../articleExports.js";
 import type * as articles from "../articles.js";
 import type * as audio from "../audio.js";
 import type * as auth from "../auth.js";
+import type * as badges from "../badges.js";
 import type * as bookmarks from "../bookmarks.js";
 import type * as didYouKnow from "../didYouKnow.js";
 import type * as lib_articleAudioPipeline from "../lib/articleAudioPipeline.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   articles: typeof articles;
   audio: typeof audio;
   auth: typeof auth;
+  badges: typeof badges;
   bookmarks: typeof bookmarks;
   didYouKnow: typeof didYouKnow;
   "lib/articleAudioPipeline": typeof lib_articleAudioPipeline;
