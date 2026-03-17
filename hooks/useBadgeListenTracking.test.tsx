@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBadgeListenTracking } from "./useBadgeListenTracking";
 import type { AwardedBadgeProgress } from "@/lib/badges";
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, {
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
 
 type HarnessProps = {
   audio: HTMLAudioElement;
@@ -66,12 +68,18 @@ const Harness = ({
   return null;
 };
 
-const createAudioStub = (): HTMLAudioElement =>
+type MutableAudioStub = {
+  currentTime: number;
+  paused: boolean;
+  playbackRate: number;
+};
+
+const createAudioStub = (): HTMLAudioElement & MutableAudioStub =>
   ({
     currentTime: 0,
     paused: false,
     playbackRate: 1,
-  } as HTMLAudioElement);
+  } as HTMLAudioElement & MutableAudioStub);
 
 describe("useBadgeListenTracking", () => {
   let container: HTMLDivElement;
