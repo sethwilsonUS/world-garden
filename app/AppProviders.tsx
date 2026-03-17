@@ -4,6 +4,7 @@ import { ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { ArticleAudioExportFallbackProvider } from "@/components/ArticleAudioExportProvider";
 import { LocalBookmarkProvider } from "@/hooks/useBookmarks";
+import { PersonalPlaylistFallbackProvider } from "@/hooks/usePersonalPlaylist";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
@@ -34,14 +35,16 @@ const LocalModeBanner = isLocal
 export const AppProviders = ({ children }: { children: ReactNode }) => {
   if (isLocal && LocalDataProvider) {
     return (
-      <ArticleAudioExportFallbackProvider>
-        <LocalBookmarkProvider>
-          <LocalDataProvider>
-            {LocalModeBanner && <LocalModeBanner />}
-            {children}
-          </LocalDataProvider>
-        </LocalBookmarkProvider>
-      </ArticleAudioExportFallbackProvider>
+      <PersonalPlaylistFallbackProvider>
+        <ArticleAudioExportFallbackProvider>
+          <LocalBookmarkProvider>
+            <LocalDataProvider>
+              {LocalModeBanner && <LocalModeBanner />}
+              {children}
+            </LocalDataProvider>
+          </LocalBookmarkProvider>
+        </ArticleAudioExportFallbackProvider>
+      </PersonalPlaylistFallbackProvider>
     );
   }
 

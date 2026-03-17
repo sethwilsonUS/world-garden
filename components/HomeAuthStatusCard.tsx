@@ -2,8 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { SignInButton, useUser } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
 const CardShell = ({
@@ -76,20 +75,20 @@ const AuthenticatedViewerState = () => {
 };
 
 export const HomeAuthStatusCard = () => {
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+
   return (
     <div aria-live="polite">
-      <AuthLoading>
+      {!isAuthLoaded ? (
         <CardShell
           eyebrow="Checking session"
-          title="Looking for a Convex session"
+          title="Checking your account"
         >
           <p className="text-sm leading-6 text-foreground-2">
             Checking whether to show your guest view or account dashboard.
           </p>
         </CardShell>
-      </AuthLoading>
-
-      <Unauthenticated>
+      ) : !isSignedIn ? (
         <CardShell
           eyebrow="Guest mode"
           title="Browse now, sync later"
@@ -113,11 +112,9 @@ export const HomeAuthStatusCard = () => {
             </Link>
           </div>
         </CardShell>
-      </Unauthenticated>
-
-      <Authenticated>
+      ) : (
         <AuthenticatedViewerState />
-      </Authenticated>
+      )}
     </div>
   );
 };

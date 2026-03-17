@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useData } from "@/lib/data-context";
+import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 type LinkedArticle = {
   wikiPageId: string;
@@ -86,19 +87,25 @@ export const RelatedArticles = ({
           const slug = encodeURIComponent(article.title.replace(/ /g, "_"));
           return (
             <li key={article.wikiPageId}>
-              <Link
-                href={`/article/${slug}`}
-                className="result-link block py-2.5 px-3.5 bg-surface border border-border rounded-[10px] no-underline transition-all duration-200"
-              >
-                <span className="block font-semibold text-foreground text-sm leading-[1.4]">
-                  {article.title}
-                </span>
-                {article.description && (
-                  <span className="block text-xs text-muted mt-0.5 leading-[1.4]">
-                    {article.description}
+              <div className="flex items-center gap-3 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 transition-all duration-200">
+                <Link
+                  href={`/article/${slug}`}
+                  className="result-link min-w-0 flex-1 no-underline"
+                >
+                  <span className="block text-sm font-semibold leading-[1.4] text-foreground">
+                    {article.title}
                   </span>
-                )}
-              </Link>
+                  {article.description && (
+                    <span className="mt-0.5 block text-xs leading-[1.4] text-muted">
+                      {article.description}
+                    </span>
+                  )}
+                </Link>
+                <PlaylistActionButton
+                  slug={article.title.replace(/ /g, "_")}
+                  title={article.title}
+                />
+              </div>
             </li>
           );
         })}
