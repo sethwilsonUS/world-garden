@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useData, type Section } from "@/lib/data-context";
+import { useData, type Article, type Section } from "@/lib/data-context";
 import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider";
 import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
+import { ArticleTopics } from "./ArticleTopics";
 import { BookmarkButton } from "./BookmarkButton";
 import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
@@ -26,19 +27,9 @@ import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudioUrl } from "@/lib/tts-client";
 import { hasFullAudio } from "@/lib/audio-suitability";
 
-type ArticleData = {
-  _id: string;
-  wikiPageId: string;
-  title: string;
-  language: string;
-  revisionId: string;
-  lastFetchedAt: number;
-  summary?: string;
-  thumbnailUrl?: string;
-  thumbnailWidth?: number;
-  thumbnailHeight?: number;
-  sections?: Section[];
-  lastEdited?: string;
+type ArticleData = Article & {
+  _id?: string;
+  lastFetchedAt?: number;
 };
 
 type QueueItem = {
@@ -842,14 +833,17 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   return (
     <article className="animate-fade-in-up">
       {/* 1. Title + Bookmark */}
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <h1 className="font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground m-0">
-          {displayArticle.title}
-        </h1>
-        <div className="flex items-center gap-2 shrink-0">
-          <PlaylistActionButton slug={slug} title={displayArticle.title} />
-          <BookmarkButton slug={slug} title={displayArticle.title} />
+      <div className="mb-4">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <h1 className="font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground m-0">
+            {displayArticle.title}
+          </h1>
+          <div className="flex items-center gap-2 shrink-0">
+            <PlaylistActionButton slug={slug} title={displayArticle.title} />
+            <BookmarkButton slug={slug} title={displayArticle.title} />
+          </div>
         </div>
+        <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
       </div>
 
       {displayArticle.thumbnailUrl ? (() => {
