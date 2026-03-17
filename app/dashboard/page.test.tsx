@@ -5,18 +5,13 @@ import DashboardPage from "./page";
 
 let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
 
-vi.mock("convex/react", () => ({
-  AuthLoading: ({ children }: { children: ReactNode }) =>
-    authState === "loading" ? createElement("div", null, children) : null,
-  Unauthenticated: ({ children }: { children: ReactNode }) =>
-    authState === "signed-out" ? createElement("div", null, children) : null,
-  Authenticated: ({ children }: { children: ReactNode }) =>
-    authState === "signed-in" ? createElement("div", null, children) : null,
-}));
-
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
     createElement("div", { "data-clerk-button": "sign-in" }, children),
+  useAuth: () => ({
+    isLoaded: authState !== "loading",
+    isSignedIn: authState === "signed-in",
+  }),
   useUser: () => ({
     user: {
       firstName: "Seth",
@@ -38,6 +33,32 @@ vi.mock("@/hooks/useBookmarks", () => ({
     isBookmarked: () => false,
     toggle: () => {},
     remove: () => {},
+  }),
+}));
+
+vi.mock("@/hooks/usePersonalPlaylist", () => ({
+  usePersonalPlaylist: () => ({
+    entries: [
+      {
+        _id: "playlist-1",
+        slug: "mars",
+        title: "Mars",
+        position: 0,
+        publishedAt: 10,
+        status: "ready",
+      },
+    ],
+    feedToken: "opaque-token",
+    feedUrl: "https://curiogarden.org/api/podcast/personal.xml?token=opaque-token",
+    isAvailable: true,
+    isLoaded: true,
+    addBySlug: async () => {},
+    remove: async () => {},
+    moveUp: async () => {},
+    moveDown: async () => {},
+    retry: async () => {},
+    isAdding: () => false,
+    isInPlaylist: () => false,
   }),
 }));
 
@@ -68,6 +89,7 @@ describe("DashboardPage", () => {
     expect(markup).toContain("Open Library");
     expect(markup).toContain("2 saved articles");
     expect(markup).toContain("Playlist");
+    expect(markup).toContain("opaque-token");
     expect(markup).toContain("Badges &amp; streaks");
   });
 });

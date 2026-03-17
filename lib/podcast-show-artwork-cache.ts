@@ -3,10 +3,11 @@ import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   FEATURED_SHOW_ARTWORK_VERSION,
+  PERSONAL_SHOW_ARTWORK_VERSION,
   TRENDING_SHOW_ARTWORK_VERSION,
 } from "@/lib/podcast-feed";
 
-type ShowSlug = "featured" | "trending";
+type ShowSlug = "featured" | "trending" | "personal";
 
 type StoredShowAsset = {
   storageId: string;
@@ -18,6 +19,7 @@ type StoredShowAsset = {
 const SHOW_ARTWORK_VERSIONS: Record<ShowSlug, number> = {
   featured: FEATURED_SHOW_ARTWORK_VERSION,
   trending: TRENDING_SHOW_ARTWORK_VERSION,
+  personal: PERSONAL_SHOW_ARTWORK_VERSION,
 };
 
 const uploadBlobToConvexStorage = async (

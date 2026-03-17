@@ -18,6 +18,7 @@ const featuredPodcastJobStatus = v.union(
 const podcastShowAssetSlug = v.union(
   v.literal("featured"),
   v.literal("trending"),
+  v.literal("personal"),
 );
 
 const withStorageUrl = async <

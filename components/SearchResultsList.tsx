@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { analytics } from "@/lib/analytics";
 import { useData } from "@/lib/data-context";
 import { usePrefetch } from "@/hooks/usePrefetch";
+import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 type SearchResult = {
   wikiPageId: string;
@@ -213,50 +214,56 @@ export const SearchResultsList = ({ term }: { term: string }) => {
               marginTop: index > 0 ? "6px" : 0,
             }}
           >
-            <Link
-              ref={(el) => {
-                linkRefs.current[index] = el;
-              }}
-              href={`/article/${encodeURIComponent(result.title.replace(/ /g, "_"))}`}
-              className="result-link flex items-center gap-4 py-3.5 px-[18px] no-underline rounded-[14px] bg-surface-2 border border-border transition-all duration-150"
-              aria-label={`${index + 1}. ${result.title}: ${result.description}`}
-              onClick={() => analytics.searchResultClicked()}
-              onMouseEnter={() => handleWarmAudio(result.title)}
-              onFocus={() => handleWarmAudio(result.title)}
-            >
-              <span
-                className="flex items-center justify-center w-7 h-7 rounded-lg bg-accent-bg text-accent text-xs font-bold shrink-0 font-mono"
-                aria-hidden="true"
+            <div className="flex items-center gap-3 rounded-[14px] border border-border bg-surface-2 py-3.5 pl-[18px] pr-3 transition-all duration-150">
+              <Link
+                ref={(el) => {
+                  linkRefs.current[index] = el;
+                }}
+                href={`/article/${encodeURIComponent(result.title.replace(/ /g, "_"))}`}
+                className="result-link flex min-w-0 flex-1 items-center gap-4 no-underline"
+                aria-label={`${index + 1}. ${result.title}: ${result.description}`}
+                onClick={() => analytics.searchResultClicked()}
+                onMouseEnter={() => handleWarmAudio(result.title)}
+                onFocus={() => handleWarmAudio(result.title)}
               >
-                {index + 1}
-              </span>
-
-              <div className="flex-1 min-w-0">
-                <span className="block font-display font-semibold text-base text-foreground">
-                  {result.title}
+                <span
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-bg font-mono text-xs font-bold text-accent"
+                  aria-hidden="true"
+                >
+                  {index + 1}
                 </span>
-                {result.description && (
-                  <span className="block text-muted text-[0.8125rem] leading-normal mt-0.5">
-                    {result.description}
-                  </span>
-                )}
-              </div>
 
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                width={18}
-                height={18}
-                aria-hidden="true"
-                className="text-accent shrink-0 opacity-60"
-              >
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
+                <div className="min-w-0 flex-1">
+                  <span className="block font-display text-base font-semibold text-foreground">
+                    {result.title}
+                  </span>
+                  {result.description && (
+                    <span className="mt-0.5 block text-[0.8125rem] leading-normal text-muted">
+                      {result.description}
+                    </span>
+                  )}
+                </div>
+
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  width={18}
+                  height={18}
+                  aria-hidden="true"
+                  className="shrink-0 text-accent opacity-60"
+                >
+                  <path d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+              <PlaylistActionButton
+                slug={result.title.replace(/ /g, "_")}
+                title={result.title}
+              />
+            </div>
           </li>
         ))}
       </ol>

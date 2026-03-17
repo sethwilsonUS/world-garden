@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { analytics } from "@/lib/analytics";
 import { usePrefetch } from "@/hooks/usePrefetch";
+import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 type FeaturedData = {
   title: string;
@@ -111,48 +112,56 @@ export const FeaturedArticle = () => {
             formatFeedDate(featured!.feedDate)}
         </p>
       )}
-      <Link
-        href={`/article/${slug}`}
-        className="result-link block bg-surface-2 border border-border rounded-2xl no-underline overflow-hidden transition-all duration-200"
-        onClick={() => analytics.featuredArticleAccessed()}
-      >
-        <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
-          {featured!.thumbnail && (
-            <div className="relative sm:w-40 sm:min-h-[120px] aspect-[16/9] sm:aspect-auto shrink-0 bg-surface-3 overflow-hidden">
-              <img
-                src={featured!.thumbnail.source}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-                loading="eager"
-              />
-            </div>
-          )}
-          <div className="px-5 py-4 min-w-0">
-            <span className="flex items-center gap-2 mb-2">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                width={16}
-                height={16}
-                aria-hidden="true"
-                className="text-accent shrink-0"
-              >
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-              <span className="font-display font-bold text-[1.0625rem] text-foreground">
-                {featured!.title}
+      <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
+        <Link
+          href={`/article/${slug}`}
+          className="result-link block no-underline"
+          onClick={() => analytics.featuredArticleAccessed()}
+        >
+          <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
+            {featured!.thumbnail && (
+              <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-surface-3 sm:min-h-[120px] sm:w-40 sm:aspect-auto">
+                <img
+                  src={featured!.thumbnail.source}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                  loading="eager"
+                />
+              </div>
+            )}
+            <div className="min-w-0 px-5 py-4">
+              <span className="mb-2 flex items-center gap-2">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  width={16}
+                  height={16}
+                  aria-hidden="true"
+                  className="shrink-0 text-accent"
+                >
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                <span className="font-display text-[1.0625rem] font-bold text-foreground">
+                  {featured!.title}
+                </span>
               </span>
-            </span>
-            <span className="block text-[0.8125rem] leading-[1.6] text-muted">
-              {truncatedExtract}
-            </span>
+              <span className="block text-[0.8125rem] leading-[1.6] text-muted">
+                {truncatedExtract}
+              </span>
+            </div>
           </div>
+        </Link>
+        <div className="flex items-center justify-end border-t border-border px-5 py-3">
+          <PlaylistActionButton
+            slug={featured!.title.replace(/ /g, "_")}
+            title={featured!.title}
+          />
         </div>
-      </Link>
+      </article>
     </section>
   );
 };

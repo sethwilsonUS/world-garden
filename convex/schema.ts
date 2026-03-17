@@ -33,6 +33,13 @@ const articleAudioExportStatus = v.union(
   v.literal("failed"),
 );
 
+const personalPlaylistEpisodeStatus = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
 const articleAudioExportStage = v.union(
   v.literal("queued"),
   v.literal("rendering_audio"),
@@ -57,6 +64,7 @@ const articleSectionAudioReason = v.union(
 const podcastShowAssetSlug = v.union(
   v.literal("featured"),
   v.literal("trending"),
+  v.literal("personal"),
 );
 
 export default defineSchema({
@@ -97,6 +105,47 @@ export default defineSchema({
   })
     .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
     .index("by_viewerTokenIdentifier_slug", ["viewerTokenIdentifier", "slug"]),
+
+  personalPodcastFeeds: defineTable({
+    viewerTokenIdentifier: v.string(),
+    feedToken: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_feedToken", ["feedToken"]),
+
+  personalPlaylistEpisodes: defineTable({
+    viewerTokenIdentifier: v.string(),
+    articleId: v.id("articles"),
+    wikiPageId: v.string(),
+    slug: v.string(),
+    title: v.string(),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    position: v.number(),
+    publishedAt: v.number(),
+    removedAt: v.optional(v.number()),
+    status: personalPlaylistEpisodeStatus,
+    storageId: v.optional(v.id("_storage")),
+    durationSeconds: v.optional(v.number()),
+    byteLength: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    leaseOwner: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_viewerTokenIdentifier_articleId", [
+      "viewerTokenIdentifier",
+      "articleId",
+    ])
+    .index("by_viewerTokenIdentifier_slug", ["viewerTokenIdentifier", "slug"])
+    .index("by_viewerTokenIdentifier_position", [
+      "viewerTokenIdentifier",
+      "position",
+    ]),
 
   sectionAudio: defineTable({
     articleId: v.id("articles"),

@@ -2,10 +2,11 @@
 
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { SignInButton, useUser } from "@clerk/nextjs";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { usePersonalPlaylist } from "@/hooks/usePersonalPlaylist";
 import { analytics } from "@/lib/analytics";
+import { PodcastFeedActions } from "@/components/PodcastFeedActions";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
@@ -122,6 +123,238 @@ const FeatureCard = ({
   );
 };
 
+const QueueActionButton = ({
+  label,
+  ariaLabel,
+  onClick,
+  disabled = false,
+  children,
+}: {
+  label: string;
+  ariaLabel: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) => {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      title={label}
+      className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-border bg-surface px-3 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      {children}
+    </button>
+  );
+};
+
+const playlistStatusLabel = (status: string): string => {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "running":
+      return "Generating";
+    case "ready":
+      return "Ready";
+    case "failed":
+      return "Needs retry";
+    default:
+      return "Pending";
+  }
+};
+
+const DashboardPlaylistCard = () => {
+  const {
+    entries,
+    feedUrl,
+    isAvailable,
+    isLoaded,
+    moveDown,
+    moveUp,
+    remove,
+    retry,
+  } = usePersonalPlaylist();
+  const readyCount = entries.filter((entry) => entry.status === "ready").length;
+
+  return (
+    <article className="garden-bed h-full p-6 lg:col-span-1">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+            Personalized queue
+          </p>
+          <h2 className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground">
+            Playlist
+          </h2>
+        </div>
+        <span className="inline-flex shrink-0 rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-accent">
+          {entries.length === 0 ? "Ready to plant" : `${entries.length} in queue`}
+        </span>
+      </div>
+
+      <p className="mt-4 text-sm leading-[1.8] text-foreground-2">
+        Playlist is separate from Library. Save something to Library when you
+        want to keep it around; add it here when you want it generated as a
+        listen-next podcast episode in your personal feed.
+      </p>
+
+      {!isLoaded ? (
+        <div className="mt-6 rounded-2xl border border-border bg-surface p-5" role="status">
+          <div className="skeleton h-4 w-28" />
+          <div className="skeleton mt-3 h-4 w-full" />
+          <div className="skeleton mt-2 h-4 w-[82%]" />
+        </div>
+      ) : !isAvailable ? (
+        <div className="mt-6 rounded-2xl border border-amber-400/30 bg-surface px-5 py-6">
+          <p className="font-display text-lg font-semibold text-foreground">
+            Playlist is waiting on account sync
+          </p>
+          <p className="mt-2 text-sm leading-[1.7] text-muted">
+            You&apos;re signed in with Clerk, but this session has not finished
+            connecting to Convex yet. Refresh in a moment, and if it keeps
+            happening, double-check the Clerk-to-Convex setup.
+          </p>
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-dashed border-border bg-surface px-5 py-6">
+          <p className="font-display text-lg font-semibold text-foreground">
+            Your queue is empty
+          </p>
+          <p className="mt-2 text-sm leading-[1.7] text-muted">
+            Add articles while browsing and they&apos;ll show up here in order.
+            The first add also creates your personal RSS feed.
+          </p>
+        </div>
+      ) : (
+        <ul className="mt-6 space-y-3" role="list">
+          {entries.map((entry, index) => (
+            <li key={entry._id}>
+              <div className="rounded-2xl border border-border bg-surface px-4 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex min-h-7 items-center rounded-full border border-border bg-surface-2 px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted">
+                        #{index + 1}
+                      </span>
+                      <span className="inline-flex min-h-7 items-center rounded-full border border-accent-border bg-accent-bg px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-accent">
+                        {playlistStatusLabel(entry.status)}
+                      </span>
+                    </div>
+                    <Link
+                      href={`/article/${encodeURIComponent(entry.slug)}`}
+                      className="mt-3 block font-display text-[1.05rem] font-semibold leading-[1.3] text-foreground no-underline"
+                    >
+                      {entry.title}
+                    </Link>
+                    <p className="mt-2 text-sm leading-[1.6] text-muted">
+                      {entry.status === "failed"
+                        ? entry.lastError || "Episode generation failed. Retry when ready."
+                        : entry.status === "ready"
+                          ? "Episode is ready for your feed and podcast app."
+                          : "Episode generation is working in the background."}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <QueueActionButton
+                      label="Move earlier"
+                      ariaLabel={`Move ${entry.title} earlier in the playlist`}
+                      onClick={() => void moveUp(entry._id, entry.title)}
+                      disabled={index === 0}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        width={16}
+                        height={16}
+                        aria-hidden="true"
+                      >
+                        <path d="m18 15-6-6-6 6" />
+                      </svg>
+                    </QueueActionButton>
+                    <QueueActionButton
+                      label="Move later"
+                      ariaLabel={`Move ${entry.title} later in the playlist`}
+                      onClick={() => void moveDown(entry._id, entry.title)}
+                      disabled={index === entries.length - 1}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        width={16}
+                        height={16}
+                        aria-hidden="true"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </QueueActionButton>
+                    {entry.status === "failed" ? (
+                      <button
+                        type="button"
+                        onClick={() => void retry(entry._id, entry.title)}
+                        className="btn-secondary inline-flex min-h-10 items-center justify-center px-4 py-2 text-sm"
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void remove(entry._id, entry.title)}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface-2"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-6 border-t border-border pt-6">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
+            {readyCount} ready episode{readyCount === 1 ? "" : "s"}
+          </span>
+          <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
+            RSS stays in sync with your current queue
+          </span>
+        </div>
+
+        {feedUrl ? (
+          <>
+            <code
+              aria-label="Personal playlist feed URL"
+              className="mt-4 block overflow-x-auto rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground"
+            >
+              {feedUrl}
+            </code>
+            <PodcastFeedActions
+              feedUrl={feedUrl}
+              feedTitle="Personal Playlist"
+            />
+          </>
+        ) : (
+          <p className="mt-4 text-sm leading-[1.7] text-muted">
+            Add your first article to create the personal RSS feed URL you can
+            paste into Apple Podcasts or any app that follows RSS by URL.
+          </p>
+        )}
+      </div>
+    </article>
+  );
+};
+
 const SignedOutDashboardTeaser = () => {
   return (
     <>
@@ -217,35 +450,32 @@ const SignedInDashboard = () => {
 
       <section
         aria-label="Dashboard modules"
-        className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)]"
+        className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.55fr)]"
       >
-        <FeatureCard
-          title="Library"
-          status="Working now"
-          description="Your synced reading list lives here. Save articles anywhere in the app and they will land in Library for easy return trips."
-          detail={librarySummary(bookmarkCount, areBookmarksLoaded)}
-          action={
-            <Link
-              href="/library"
-              className="btn-primary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
-            >
-              Open Library
-            </Link>
-          }
-          accent
-        />
-        <FeatureCard
-          title="Playlist"
-          status="Coming soon"
-          description="A deliberate, ordered queue for what you want to hear next, designed to grow into a personal podcast feed."
-          detail="This will differ from Library by focusing on sequence and playback flow, not just saved status."
-        />
-        <FeatureCard
-          title="Badges & streaks"
-          status="Coming soon"
-          description="A home for milestones, streaks, and other progress signals once we are ready to make curiosity a little more gameful."
-          detail="The slot is ready. We are just waiting for the actual trophies to stop photosynthesizing."
-        />
+        <div className="grid gap-5">
+          <FeatureCard
+            title="Library"
+            status="Working now"
+            description="Your synced reading list lives here. Save articles anywhere in the app and they will land in Library for easy return trips."
+            detail={librarySummary(bookmarkCount, areBookmarksLoaded)}
+            action={
+              <Link
+                href="/library"
+                className="btn-primary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+              >
+                Open Library
+              </Link>
+            }
+            accent
+          />
+          <FeatureCard
+            title="Badges & streaks"
+            status="Coming soon"
+            description="A home for milestones, streaks, and other progress signals once we are ready to make curiosity a little more gameful."
+            detail="The slot is ready. We are just waiting for the actual trophies to stop photosynthesizing."
+          />
+        </div>
+        <DashboardPlaylistCard />
       </section>
     </>
   );
@@ -303,6 +533,8 @@ const LocalModeDashboard = () => {
 };
 
 export const DashboardHub = () => {
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+
   useEffect(() => {
     analytics.dashboardPageAccessed();
   }, []);
@@ -334,18 +566,12 @@ export const DashboardHub = () => {
 
         {isLocal ? (
           <LocalModeDashboard />
+        ) : !isAuthLoaded ? (
+          <LoadingDashboard />
+        ) : !isSignedIn ? (
+          <SignedOutDashboardTeaser />
         ) : (
-          <>
-            <AuthLoading>
-              <LoadingDashboard />
-            </AuthLoading>
-            <Unauthenticated>
-              <SignedOutDashboardTeaser />
-            </Unauthenticated>
-            <Authenticated>
-              <SignedInDashboard />
-            </Authenticated>
-          </>
+          <SignedInDashboard />
         )}
       </div>
     </div>

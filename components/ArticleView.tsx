@@ -6,6 +6,7 @@ import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider"
 import { TableOfContents } from "./TableOfContents";
 import { ArticleHeader } from "./ArticleHeader";
 import { BookmarkButton } from "./BookmarkButton";
+import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
 import { ArticleGallery, Lightbox, type LightboxState } from "./ArticleGallery";
 import { useQuery, useMutation } from "convex/react";
@@ -845,7 +846,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         <h1 className="font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground m-0">
           {displayArticle.title}
         </h1>
-        <BookmarkButton slug={slug} title={displayArticle.title} />
+        <div className="flex items-center gap-2 shrink-0">
+          <PlaylistActionButton slug={slug} title={displayArticle.title} />
+          <BookmarkButton slug={slug} title={displayArticle.title} />
+        </div>
       </div>
 
       {displayArticle.thumbnailUrl ? (() => {

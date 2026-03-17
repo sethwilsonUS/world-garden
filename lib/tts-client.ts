@@ -1,10 +1,10 @@
-import { normalizeTtsText } from "@/lib/tts-normalize";
+import { normalizeTtsText } from "./tts-normalize";
 import {
   TTS_API_ROUTE,
   TTS_MIN_TEXT_LENGTH,
   getClientTtsMaxWordsPerRequest,
   type TtsRequest,
-} from "@/lib/tts-contract";
+} from "./tts-contract";
 
 type TtsErrorBody = {
   error?: string;

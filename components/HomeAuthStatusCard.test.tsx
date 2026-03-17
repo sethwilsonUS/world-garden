@@ -5,18 +5,13 @@ import { HomeAuthStatusCard } from "./HomeAuthStatusCard";
 
 let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
 
-vi.mock("convex/react", () => ({
-  AuthLoading: ({ children }: { children: ReactNode }) =>
-    authState === "loading" ? createElement("div", null, children) : null,
-  Unauthenticated: ({ children }: { children: ReactNode }) =>
-    authState === "signed-out" ? createElement("div", null, children) : null,
-  Authenticated: ({ children }: { children: ReactNode }) =>
-    authState === "signed-in" ? createElement("div", null, children) : null,
-}));
-
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
     createElement("div", { "data-clerk-button": "sign-in" }, children),
+  useAuth: () => ({
+    isLoaded: authState !== "loading",
+    isSignedIn: authState === "signed-in",
+  }),
   useUser: () => ({
     user: {
       firstName: "Seth",

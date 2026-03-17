@@ -7,6 +7,7 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { api } from "@/convex/_generated/api";
 import { ArticleAudioExportProvider } from "@/components/ArticleAudioExportProvider";
 import { HybridBookmarkProvider } from "@/hooks/useBookmarks";
+import { PersonalPlaylistProvider } from "@/hooks/usePersonalPlaylist";
 import {
   DataContext,
   type DataContextValue,
@@ -53,7 +54,9 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
   return (
     <DataContext.Provider value={value}>
       <HybridBookmarkProvider>
-        <ArticleAudioExportProvider>{children}</ArticleAudioExportProvider>
+        <PersonalPlaylistProvider>
+          <ArticleAudioExportProvider>{children}</ArticleAudioExportProvider>
+        </PersonalPlaylistProvider>
       </HybridBookmarkProvider>
     </DataContext.Provider>
   );
