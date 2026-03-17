@@ -1,8 +1,15 @@
-import { query, internalQuery, internalMutation, action } from "./_generated/server";
+import {
+  query,
+  internalQuery,
+  internalMutation,
+  action,
+  type ActionCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import {
+  fetchArticleBadgeKeys,
   fetchArticleByPageId,
   fetchArticleByTitle,
   fetchParsedPageData,
@@ -17,6 +24,10 @@ import {
   WikiCitation,
   ParsedPageData,
 } from "./lib/wikipedia";
+import {
+  BADGE_TOPIC_CACHE_VERSION,
+  type BadgeKey,
+} from "../lib/badges";
 
 const articleSectionAudioMode = v.union(
   v.literal("full"),
@@ -31,6 +42,17 @@ const articleSectionAudioReason = v.union(
   v.literal("table_like"),
   v.literal("metadata_heavy"),
   v.literal("low_prose_density"),
+);
+
+const badgeKey = v.union(
+  v.literal("history"),
+  v.literal("geography"),
+  v.literal("biography"),
+  v.literal("society_politics"),
+  v.literal("arts_culture"),
+  v.literal("science"),
+  v.literal("technology"),
+  v.literal("nature"),
 );
 
 /* ── Article CRUD ── */
@@ -67,6 +89,9 @@ export const upsertArticle = internalMutation({
     thumbnailUrl: v.optional(v.string()),
     thumbnailWidth: v.optional(v.number()),
     thumbnailHeight: v.optional(v.number()),
+    badgeKeys: v.optional(v.array(badgeKey)),
+    badgeTopicVersion: v.optional(v.number()),
+    badgeTopicsCachedAt: v.optional(v.number()),
     sections: v.optional(
       v.array(
         v.object({
@@ -96,6 +121,13 @@ export const upsertArticle = internalMutation({
         thumbnailUrl: args.thumbnailUrl,
         thumbnailWidth: args.thumbnailWidth,
         thumbnailHeight: args.thumbnailHeight,
+        ...(args.badgeKeys !== undefined
+          ? {
+              badgeKeys: args.badgeKeys,
+              badgeTopicVersion: args.badgeTopicVersion,
+              badgeTopicsCachedAt: args.badgeTopicsCachedAt,
+            }
+          : {}),
         sections: args.sections,
       });
       return existing._id;
@@ -112,6 +144,9 @@ export const upsertArticle = internalMutation({
       thumbnailUrl: args.thumbnailUrl,
       thumbnailWidth: args.thumbnailWidth,
       thumbnailHeight: args.thumbnailHeight,
+      badgeKeys: args.badgeKeys,
+      badgeTopicVersion: args.badgeTopicVersion,
+      badgeTopicsCachedAt: args.badgeTopicsCachedAt,
       sections: args.sections,
     });
   },
@@ -120,12 +155,66 @@ export const upsertArticle = internalMutation({
 export type FetchAndCacheResult = WikiArticle & {
   _id: Id<"articles">;
   sections: WikiSection[];
+  badgeKeys?: BadgeKey[];
+};
+
+export const getExistingArticleForRefresh = internalQuery({
+  args: { wikiPageId: v.string() },
+  async handler(ctx, args) {
+    return await ctx.db
+      .query("articles")
+      .withIndex("by_wikiPageId", (q) => q.eq("wikiPageId", args.wikiPageId))
+      .first();
+  },
+});
+
+const resolveBadgeCacheUpdate = async (
+  ctx: ActionCtx,
+  wikiPageId: string,
+): Promise<{
+  badgeKeys?: BadgeKey[];
+  badgeTopicVersion?: number;
+  badgeTopicsCachedAt?: number;
+}> => {
+  const existing = await ctx.runQuery(internal.articles.getExistingArticleForRefresh, {
+    wikiPageId,
+  });
+
+  if (
+    existing?.badgeKeys &&
+    existing.badgeTopicVersion === BADGE_TOPIC_CACHE_VERSION
+  ) {
+    return {
+      badgeKeys: existing.badgeKeys as BadgeKey[],
+      badgeTopicVersion: existing.badgeTopicVersion,
+      badgeTopicsCachedAt: existing.badgeTopicsCachedAt,
+    };
+  }
+
+  try {
+    const badgeKeys = await fetchArticleBadgeKeys(wikiPageId);
+    return {
+      badgeKeys,
+      badgeTopicVersion: BADGE_TOPIC_CACHE_VERSION,
+      badgeTopicsCachedAt: Date.now(),
+    };
+  } catch {
+    return existing?.badgeKeys
+      ? {
+          badgeKeys: existing.badgeKeys as BadgeKey[],
+          badgeTopicVersion:
+            existing.badgeTopicVersion ?? BADGE_TOPIC_CACHE_VERSION,
+          badgeTopicsCachedAt: existing.badgeTopicsCachedAt,
+        }
+      : {};
+  }
 };
 
 export const fetchAndCache = action({
   args: { wikiPageId: v.string() },
   async handler(ctx, args): Promise<FetchAndCacheResult> {
     const data = await fetchArticleByPageId(args.wikiPageId);
+    const badgeCacheUpdate = await resolveBadgeCacheUpdate(ctx, data.wikiPageId);
 
     const articleId: Id<"articles"> = await ctx.runMutation(
       internal.articles.upsertArticle,
@@ -140,12 +229,16 @@ export const fetchAndCache = action({
         thumbnailUrl: data.thumbnailUrl,
         thumbnailWidth: data.thumbnailWidth,
         thumbnailHeight: data.thumbnailHeight,
+        badgeKeys: badgeCacheUpdate.badgeKeys,
+        badgeTopicVersion: badgeCacheUpdate.badgeTopicVersion,
+        badgeTopicsCachedAt: badgeCacheUpdate.badgeTopicsCachedAt,
         sections: data.sections,
       },
     );
 
     return {
       _id: articleId,
+      badgeKeys: badgeCacheUpdate.badgeKeys,
       ...data,
     };
   },
@@ -156,6 +249,7 @@ export const fetchAndCacheBySlug = action({
   async handler(ctx, args): Promise<FetchAndCacheResult> {
     const title = slugToTitle(args.slug);
     const data = await fetchArticleByTitle(title);
+    const badgeCacheUpdate = await resolveBadgeCacheUpdate(ctx, data.wikiPageId);
 
     const articleId: Id<"articles"> = await ctx.runMutation(
       internal.articles.upsertArticle,
@@ -170,12 +264,16 @@ export const fetchAndCacheBySlug = action({
         thumbnailUrl: data.thumbnailUrl,
         thumbnailWidth: data.thumbnailWidth,
         thumbnailHeight: data.thumbnailHeight,
+        badgeKeys: badgeCacheUpdate.badgeKeys,
+        badgeTopicVersion: badgeCacheUpdate.badgeTopicVersion,
+        badgeTopicsCachedAt: badgeCacheUpdate.badgeTopicsCachedAt,
         sections: data.sections,
       },
     );
 
     return {
       _id: articleId,
+      badgeKeys: badgeCacheUpdate.badgeKeys,
       ...data,
     };
   },

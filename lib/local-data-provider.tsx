@@ -9,6 +9,7 @@ import {
 import {
   searchWikipedia,
   fetchArticleByTitle,
+  fetchArticleBadgeKeys,
   slugToTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
@@ -36,6 +37,14 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
       fetchArticle: async ({ slug }) => {
         const title = slugToTitle(slug);
         const data = await fetchArticleByTitle(title);
+        let badgeKeys: Article["badgeKeys"];
+
+        try {
+          badgeKeys = await fetchArticleBadgeKeys(data.wikiPageId);
+        } catch {
+          badgeKeys = undefined;
+        }
+
         const article: Article = {
           wikiPageId: data.wikiPageId,
           title: data.title,
@@ -47,6 +56,7 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
           thumbnailWidth: data.thumbnailWidth,
           thumbnailHeight: data.thumbnailHeight,
           sections: data.sections,
+          badgeKeys,
         };
         return article;
       },

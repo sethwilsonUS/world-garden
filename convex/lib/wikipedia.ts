@@ -3,6 +3,11 @@ import {
   type AudioMode,
   type AudioReason,
 } from "../../lib/audio-suitability";
+import {
+  BADGE_KEYS,
+  getBadgeTopicQuery,
+  type BadgeKey,
+} from "../../lib/badges";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
@@ -95,6 +100,48 @@ export const searchWikipedia = async (
       url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
     }),
   );
+};
+
+const articleTopicMatches = async (
+  wikiPageId: string,
+  topics: string,
+): Promise<boolean> => {
+  const params = new URLSearchParams({
+    action: "query",
+    format: "json",
+    list: "search",
+    srsearch: `pageid:${wikiPageId} articletopic:${topics}`,
+    srlimit: "1",
+    srwhat: "text",
+    origin: "*",
+  });
+
+  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
+    headers: { "User-Agent": USER_AGENT },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Wikipedia articletopic search failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const results = data.query?.search ?? [];
+  return results.some(
+    (item: { pageid?: number | string }) => String(item.pageid ?? "") === wikiPageId,
+  );
+};
+
+export const fetchArticleBadgeKeys = async (
+  wikiPageId: string,
+): Promise<BadgeKey[]> => {
+  const matches = await Promise.all(
+    BADGE_KEYS.map(async (key) => {
+      const didMatch = await articleTopicMatches(wikiPageId, getBadgeTopicQuery(key));
+      return didMatch ? key : null;
+    }),
+  );
+
+  return matches.filter((key): key is BadgeKey => key !== null);
 };
 
 export const fetchArticleByPageId = async (

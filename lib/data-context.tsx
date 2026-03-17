@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { AudioMode, AudioReason } from "@/lib/audio-suitability";
+import type { BadgeKey } from "@/lib/badges";
 
 export type SearchResult = {
   wikiPageId: string;
@@ -29,6 +30,7 @@ export type Article = {
   thumbnailWidth?: number;
   thumbnailHeight?: number;
   sections?: Section[];
+  badgeKeys?: BadgeKey[];
 };
 
 export type LinkedArticle = {
