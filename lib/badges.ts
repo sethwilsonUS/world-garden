@@ -191,6 +191,19 @@ export const getBadgeDefinition = (key: BadgeKey): BadgeDefinition => {
 export const getBadgeTopicQuery = (key: BadgeKey): string =>
   getBadgeDefinition(key).articletopics.join("|");
 
+export const getArticleTopicDisplayKeys = ({
+  badgeKeys,
+}: {
+  badgeKeys?: BadgeKey[];
+}): BadgeKey[] | undefined => {
+  if (badgeKeys === undefined) {
+    return undefined;
+  }
+
+  const badgeKeySet = new Set(badgeKeys);
+  return BADGE_KEYS.filter((key) => badgeKeySet.has(key));
+};
+
 export const expRequiredForLevel = (level: number): number => {
   if (level <= 0) return 0;
   return BADGE_LEVEL_BASE_EXP * level * (level + 1) / 2;

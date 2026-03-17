@@ -10,7 +10,7 @@ import { BookmarkButton } from "./BookmarkButton";
 import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
 import { ArticleGallery, Lightbox, type LightboxState } from "./ArticleGallery";
-import { useQuery, useMutation } from "convex/react";
+import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import {
@@ -21,11 +21,14 @@ import {
 import { analytics } from "@/lib/analytics";
 import { useHistory } from "@/hooks/useHistory";
 import { useAudioElement } from "@/hooks/useAudioElement";
+import { useBadgeListenTracking } from "@/hooks/useBadgeListenTracking";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { awaitSummaryAudio } from "@/lib/audio-prefetch";
+import { buildAwardedBadgeProgress } from "@/lib/badges";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudioUrl } from "@/lib/tts-client";
 import { hasFullAudio } from "@/lib/audio-suitability";
+import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
 
 type ArticleData = Article & {
   _id?: string;
@@ -187,6 +190,7 @@ const analyzeHeroImage = async (url: string): Promise<HeroImageAnalysis> => {
 
 export const ArticleView = ({ slug }: { slug: string }) => {
   const { fetchArticle } = useData();
+  const convex = useConvex();
 
   const [displayArticle, setDisplayArticle] = useState<ArticleData | null>(
     null,
@@ -206,6 +210,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
 
   const { recordVisit, updateProgress, getProgress } = useHistory();
+  const { showBadgeProgressToasts } = useBadgeProgressToasts();
   const { jobs: articleAudioExports, queueExport, isStartingArticle } =
     useArticleAudioExports();
 
@@ -216,12 +221,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   );
   const getUploadUrl = useMutation(api.audio.generateUploadUrl);
   const saveAudioRecord = useMutation(api.audio.saveSectionAudioRecord);
+  const reportBadgeListenProgress = useMutation(
+    api.badges.recordViewerArticleListenProgress,
+  );
 
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
   const [heroLightbox, setHeroLightbox] = useState<LightboxState>(null);
   const [heroImageAnalysis, setHeroImageAnalysis] = useState<HeroImageAnalysis | null>(null);
+  const [trackingSectionKey, setTrackingSectionKey] = useState<string | null>(null);
 
   const wikiPageId = displayArticle?.wikiPageId ?? "";
 
@@ -462,6 +471,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       setAudioError(null);
       setActiveSectionIndex(sectionIdx);
+      setTrackingSectionKey(sectionKey);
       setFinishedPlaying(false);
       lastPlayedSectionIdx.current = sectionIdx;
 
@@ -523,6 +533,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
     setIsPlayingAll(false);
     setActiveSectionIndex(null);
+    setTrackingSectionKey(null);
     setIsSpeaking(false);
     setIsPaused(false);
     if (isPlayingAll) {
@@ -565,6 +576,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const handleStopPlayAll = useCallback(() => {
     playAllQueue.current = [];
     setIsPlayingAll(false);
+    setTrackingSectionKey(null);
     setIsSpeaking(false);
     setIsPaused(false);
     audioElPause();
@@ -580,6 +592,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     } else {
       setIsPlayingAll(false);
       setActiveSectionIndex(null);
+      setTrackingSectionKey(null);
       setIsSpeaking(false);
       setIsPaused(false);
       setFinishedPlaying(true);
@@ -608,6 +621,34 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     onSeekTo: audioElSeek,
     onStop: handleStopPlayAll,
     onNextTrack: isPlayingAll ? handleSkipSection : undefined,
+  });
+
+  useBadgeListenTracking({
+    articleId,
+    wikiPageId: displayArticle?.wikiPageId,
+    slug,
+    title: displayArticle?.title,
+    summaryText: displayArticle?.summary,
+    sections: displayArticle?.sections ?? [],
+    sectionDurations: cachedAudio?.durations,
+    trackingSectionKey,
+    audioDurationSeconds: audioElDuration,
+    isPlaying: audioElPlaying,
+    audioRef,
+    reportProgress: reportBadgeListenProgress,
+    resolveAwardedBadges: async (awardedBadgeKeys) => {
+      const viewerBadgeProgress = await convex.query(
+        api.badges.getViewerBadgeProgress,
+        {},
+      );
+
+      return viewerBadgeProgress.badges
+        .filter((badge) => awardedBadgeKeys.includes(badge.key))
+        .map((badge) => buildAwardedBadgeProgress(badge.key, badge.exp));
+    },
+    onBadgesAwarded: ({ articleTitle, badges }) => {
+      showBadgeProgressToasts({ articleTitle, badges });
+    },
   });
 
   const handlePlaybackRateChange = useCallback((rate: PlaybackRate) => {

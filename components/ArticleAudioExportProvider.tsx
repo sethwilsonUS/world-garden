@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { useMutation, useQuery } from "convex/react";
@@ -74,6 +75,8 @@ type ArticleAudioExportContextValue = {
 
 const ArticleAudioExportContext =
   createContext<ArticleAudioExportContextValue | null>(null);
+
+const emptySubscribe = () => () => {};
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
@@ -398,6 +401,11 @@ export const ArticleAudioExportProvider = ({
 }: {
   children: ReactNode;
 }) => {
+  const hasMounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
   const [clientId, setClientId] = useState<string | null>(null);
   const [startingJobs, setStartingJobs] = useState<StartingJob[]>([]);
   const [directDownloads, setDirectDownloads] = useState<DirectDownloadToast[]>([]);
@@ -610,34 +618,36 @@ export const ArticleAudioExportProvider = ({
   return (
     <ArticleAudioExportContext.Provider value={value}>
       {children}
-      <ArticleAudioExportTray
-        jobs={trayJobs}
-        onDismiss={(exportId) => {
-          if (exportId.startsWith("download-")) {
-            setDirectDownloads((current) =>
-              current.filter((job) => job._id !== exportId),
-            );
-            return;
-          }
-          if (exportId.startsWith("pending-")) {
-            const articleId = exportId.slice("pending-".length);
-            setStartingJobs((current) =>
-              current.filter((job) => job.articleId !== articleId),
-            );
-            return;
-          }
-          void dismissExport(exportId);
-        }}
-        onRetry={(articleId) => {
-          const matchingJob = mergedJobs.find((job) => job.articleId === articleId);
-          void queueExport({
-            articleId,
-            title: matchingJob?.title ?? "Wikipedia article",
-          });
-        }}
-        politeAnnouncement={politeAnnouncement}
-        assertiveAnnouncement={assertiveAnnouncement}
-      />
+      {hasMounted ? (
+        <ArticleAudioExportTray
+          jobs={trayJobs}
+          onDismiss={(exportId) => {
+            if (exportId.startsWith("download-")) {
+              setDirectDownloads((current) =>
+                current.filter((job) => job._id !== exportId),
+              );
+              return;
+            }
+            if (exportId.startsWith("pending-")) {
+              const articleId = exportId.slice("pending-".length);
+              setStartingJobs((current) =>
+                current.filter((job) => job.articleId !== articleId),
+              );
+              return;
+            }
+            void dismissExport(exportId);
+          }}
+          onRetry={(articleId) => {
+            const matchingJob = mergedJobs.find((job) => job.articleId === articleId);
+            void queueExport({
+              articleId,
+              title: matchingJob?.title ?? "Wikipedia article",
+            });
+          }}
+          politeAnnouncement={politeAnnouncement}
+          assertiveAnnouncement={assertiveAnnouncement}
+        />
+      ) : null}
     </ArticleAudioExportContext.Provider>
   );
 };
