@@ -1,9 +1,6 @@
 import { type Id } from "../_generated/dataModel";
 import { titleToSlug } from "./wikipedia";
-import {
-  addMp3MetadataToBlob,
-  concatenateMp3Blobs,
-} from "../../lib/audio-metadata";
+import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
 import { generateTtsAudio } from "../../lib/tts-client";
 import { hasFullAudio, type AudioMode, type AudioReason } from "../../lib/audio-suitability";
 
@@ -29,7 +26,7 @@ export type ArticleAudioSection = {
   text: string;
 };
 
-export type AssembleArticleAudioArgs = {
+export type AssembleArticleAudioArgs<TStorageId = string> = {
   article: ArticleAudioSource;
   albumTitle: string;
   baseUrl: string;
@@ -38,7 +35,14 @@ export type AssembleArticleAudioArgs = {
     sectionKey: string;
     blob: Blob;
     durationSeconds: number;
-  }) => Promise<void>;
+  }) => Promise<string>;
+  saveCombinedAudio: (args: {
+    stream: ReadableStream<Uint8Array>;
+    contentType: string;
+  }) => Promise<{
+    storageId: TStorageId;
+    byteLength: number;
+  }>;
   onProgress?: (args: {
     completedSectionCount: number;
     sectionCount: number;
@@ -46,8 +50,8 @@ export type AssembleArticleAudioArgs = {
   }) => Promise<void> | void;
 };
 
-export type AssembleArticleAudioResult = {
-  blob: Blob;
+export type AssembleArticleAudioResult<TStorageId = string> = {
+  storageId: TStorageId;
   byteLength: number;
   durationSeconds: number;
   sectionCount: number;
@@ -57,6 +61,9 @@ export type AssembleArticleAudioResult = {
 
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
 
 export const estimateDurationSeconds = (text: string | string[]): number => {
   const joined = Array.isArray(text) ? text.join(" ") : text;
@@ -94,6 +101,78 @@ export const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
     throw new Error(`Fetching cached audio failed: ${response.status}`);
   }
   return await response.blob();
+};
+
+const verifyBlobUrlAccessible = async (url: string): Promise<void> => {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Fetching cached audio failed: ${response.status}`);
+  }
+
+  await response.body?.cancel();
+};
+
+const pipeStreamToController = async (
+  stream: ReadableStream<Uint8Array>,
+  controller: ReadableStreamDefaultController<Uint8Array>,
+): Promise<void> => {
+  const reader = stream.getReader();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      if (value) controller.enqueue(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+};
+
+const createArticleAudioStream = async ({
+  sectionAudioUrls,
+  metadata,
+}: {
+  sectionAudioUrls: string[];
+  metadata: {
+    title: string;
+    artist: string;
+    album: string;
+    artwork?: {
+      data: Uint8Array;
+      mimeType: string;
+      description?: string;
+    };
+  };
+}): Promise<ReadableStream<Uint8Array>> => {
+  const metadataBlob = await addMp3MetadataToBlob(
+    new Blob([], { type: "audio/mpeg" }),
+    metadata,
+    {
+      stripExistingId3Tags: false,
+    },
+  );
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        await pipeStreamToController(metadataBlob.stream(), controller);
+
+        for (const sectionAudioUrl of sectionAudioUrls) {
+          const response = await fetch(sectionAudioUrl, { cache: "no-store" });
+          if (!response.ok || !response.body) {
+            throw new Error(`Fetching section audio failed: ${response.status}`);
+          }
+
+          await pipeStreamToController(response.body, controller);
+        }
+
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
 };
 
 export const fetchArticleArtwork = async ({
@@ -134,53 +213,68 @@ export const fetchArticleArtwork = async ({
   }
 };
 
-export const assembleArticleAudio = async ({
+export const assembleArticleAudio = async <TStorageId = string>({
   article,
   albumTitle,
   baseUrl,
   getCachedSectionAudioUrls,
   saveSectionAudio,
+  saveCombinedAudio,
   onProgress,
-}: AssembleArticleAudioArgs): Promise<AssembleArticleAudioResult> => {
+}: AssembleArticleAudioArgs<TStorageId>): Promise<AssembleArticleAudioResult<TStorageId>> => {
   const sections = getArticleAudioSections(article);
   if (sections.length === 0) {
     throw new Error("Article does not contain any audio-suitable sections.");
   }
 
   const cachedUrls = await getCachedSectionAudioUrls();
-  const audioChunks: Blob[] = [];
+  const sectionAudioUrls: string[] = [];
   let generatedSectionCount = 0;
   let reusedSectionCount = 0;
 
   for (let index = 0; index < sections.length; index += 1) {
     const section = sections[index];
-    let blob: Blob | null = null;
-    const cachedUrl = cachedUrls[section.sectionKey];
+    let sectionAudioUrl: string | null = null;
+    const cachedUrl = cachedUrls[section.sectionKey]?.trim() || null;
 
     if (cachedUrl) {
       try {
-        blob = await fetchBlobFromUrl(cachedUrl);
+        await verifyBlobUrlAccessible(cachedUrl);
+        sectionAudioUrl = cachedUrl;
         reusedSectionCount += 1;
       } catch {
-        blob = null;
+        sectionAudioUrl = null;
       }
     }
 
-    if (!blob) {
-      blob = await generateTtsAudio(
-        { text: section.text },
-        { apiBaseUrl: baseUrl },
-      );
+    if (!sectionAudioUrl) {
+      let blob: Blob;
+      try {
+        blob = await generateTtsAudio(
+          { text: section.text },
+          { apiBaseUrl: baseUrl },
+        );
+      } catch (error) {
+        throw new Error(
+          `Generating audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
+        );
+      }
       generatedSectionCount += 1;
 
-      await saveSectionAudio({
-        sectionKey: section.sectionKey,
-        blob,
-        durationSeconds: estimateDurationSeconds(section.text),
-      });
+      try {
+        sectionAudioUrl = await saveSectionAudio({
+          sectionKey: section.sectionKey,
+          blob,
+          durationSeconds: estimateDurationSeconds(section.text),
+        });
+      } catch (error) {
+        throw new Error(
+          `Saving audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
+        );
+      }
     }
 
-    audioChunks.push(blob);
+    sectionAudioUrls.push(sectionAudioUrl);
 
     await onProgress?.({
       completedSectionCount: index + 1,
@@ -195,22 +289,36 @@ export const assembleArticleAudio = async ({
     stage: "packaging",
   });
 
-  const combinedBlob = await concatenateMp3Blobs(audioChunks);
   const artwork = await fetchArticleArtwork({
     baseUrl,
     slug: article.slug,
     title: article.title,
   });
-  const taggedBlob = await addMp3MetadataToBlob(combinedBlob, {
-    title: article.title,
-    artist: "Curio Garden",
-    album: albumTitle,
-    artwork,
-  });
+  let combinedAudio: {
+    storageId: TStorageId;
+    byteLength: number;
+  };
+  try {
+    const stream = await createArticleAudioStream({
+      sectionAudioUrls,
+      metadata: {
+        title: article.title,
+        artist: "Curio Garden",
+        album: albumTitle,
+        artwork,
+      },
+    });
+    combinedAudio = await saveCombinedAudio({
+      stream,
+      contentType: "audio/mpeg",
+    });
+  } catch (error) {
+    throw new Error(`Packaging combined audio failed: ${getErrorMessage(error)}`);
+  }
 
   return {
-    blob: taggedBlob,
-    byteLength: taggedBlob.size,
+    storageId: combinedAudio.storageId,
+    byteLength: combinedAudio.byteLength,
     durationSeconds: estimateDurationSeconds(sections.map((section) => section.text)),
     sectionCount: sections.length,
     generatedSectionCount,

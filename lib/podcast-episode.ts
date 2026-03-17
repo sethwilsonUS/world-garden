@@ -5,7 +5,10 @@ import { api } from "@/convex/_generated/api";
 import { type Doc, type Id } from "@/convex/_generated/dataModel";
 import type { FetchAndCacheResult } from "@/convex/articles";
 import { titleToSlug } from "@/convex/lib/wikipedia";
-import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
+import {
+  addMp3MetadataToBlob,
+  concatenateMp3Blobs,
+} from "@/lib/audio-metadata";
 import { fetchCurrentFeaturedArticle } from "@/lib/featured-article";
 import {
   FEATURED_EPISODE_ARTWORK_VERSION,
@@ -127,6 +130,7 @@ const tagPodcastEpisodeAudio = async ({
   audioBlob,
   title,
   artwork,
+  stripExistingId3Tags = true,
 }: {
   audioBlob: Blob;
   title: string;
@@ -134,13 +138,20 @@ const tagPodcastEpisodeAudio = async ({
     data: Uint8Array;
     mimeType: string;
   } | null;
+  stripExistingId3Tags?: boolean;
 }): Promise<Blob> => {
-  return await addMp3MetadataToBlob(audioBlob, {
-    title,
-    artist: "Curio Garden",
-    album: FEATURED_PODCAST_TITLE,
-    artwork: artwork ?? undefined,
-  });
+  return await addMp3MetadataToBlob(
+    audioBlob,
+    {
+      title,
+      artist: "Curio Garden",
+      album: FEATURED_PODCAST_TITLE,
+      artwork: artwork ?? undefined,
+    },
+    {
+      stripExistingId3Tags,
+    },
+  );
 };
 
 const getExistingEpisode = async (
@@ -470,7 +481,9 @@ export const syncFeaturedPodcastEpisode = async ({
       audioChunks.push(blob);
     }
 
-    const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
+    const combinedBlob = await concatenateMp3Blobs(audioChunks, {
+      stripId3Tags: "none",
+    });
     stage = "rendering_artwork";
     const artwork = await renderFeaturedPodcastArtworkPng({
       featuredDate: feedDateIso,
@@ -482,6 +495,7 @@ export const syncFeaturedPodcastEpisode = async ({
       audioBlob: combinedBlob,
       title: article.title,
       artwork,
+      stripExistingId3Tags: false,
     });
     const artworkBlob = new Blob([Buffer.from(artwork.data)], {
       type: artwork.mimeType,

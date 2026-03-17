@@ -11,6 +11,21 @@ type Mp3Metadata = {
   artwork?: EmbeddedArtwork;
 };
 
+type ByteRange = {
+  start: number;
+  end: number;
+};
+
+type AddMp3MetadataToBlobOptions = {
+  stripExistingId3Tags?: boolean;
+};
+
+type Mp3BlobStripMode = "all" | "leading" | "none";
+
+type ConcatenateMp3BlobOptions = {
+  stripId3Tags?: Mp3BlobStripMode;
+};
+
 const UTF16_TEXT_ENCODING = 0x01;
 const APIC_FRONT_COVER_TYPE = 0x03;
 
@@ -144,10 +159,33 @@ const readId3TagSizeAt = (
   return offset + totalTagSize <= mp3Data.length ? totalTagSize : null;
 };
 
-export const stripAllId3Tags = (mp3Data: Uint8Array): Uint8Array => {
-  const chunks: Uint8Array[] = [];
+const readLeadingId3TagSize = (
+  header: Uint8Array,
+  totalByteLength: number,
+): number | null => {
+  if (
+    header.length < 10 ||
+    header[0] !== 0x49 ||
+    header[1] !== 0x44 ||
+    header[2] !== 0x33
+  ) {
+    return null;
+  }
+
+  const sizeBytes = header.slice(6, 10);
+  if (sizeBytes.some((byte) => byte > 0x7f)) {
+    return null;
+  }
+
+  const totalTagSize = 10 + decodeSynchsafeSize(sizeBytes);
+  return totalTagSize <= totalByteLength ? totalTagSize : null;
+};
+
+const getId3StrippedByteRanges = (mp3Data: Uint8Array): ByteRange[] => {
+  const ranges: ByteRange[] = [];
   let cursor = 0;
   let segmentStart = 0;
+  let foundTag = false;
 
   while (cursor < mp3Data.length) {
     const tagSize = readId3TagSizeAt(mp3Data, cursor);
@@ -156,22 +194,84 @@ export const stripAllId3Tags = (mp3Data: Uint8Array): Uint8Array => {
       continue;
     }
 
+    foundTag = true;
     if (segmentStart < cursor) {
-      chunks.push(mp3Data.slice(segmentStart, cursor));
+      ranges.push({ start: segmentStart, end: cursor });
     }
 
     cursor += tagSize;
     segmentStart = cursor;
   }
 
-  if (segmentStart === 0) {
-    return mp3Data;
+  if (!foundTag) {
+    return mp3Data.length > 0
+      ? [{ start: 0, end: mp3Data.length }]
+      : [];
   }
 
   if (segmentStart < mp3Data.length) {
-    chunks.push(mp3Data.slice(segmentStart));
+    ranges.push({ start: segmentStart, end: mp3Data.length });
   }
 
+  return ranges;
+};
+
+const coversWholeBuffer = (
+  ranges: ByteRange[],
+  byteLength: number,
+): boolean =>
+  ranges.length === 1 &&
+  ranges[0]?.start === 0 &&
+  ranges[0]?.end === byteLength;
+
+const stripAllId3TagsFromBlob = async (mp3Blob: Blob): Promise<Blob[]> => {
+  const ranges = getId3StrippedByteRanges(
+    new Uint8Array(await mp3Blob.arrayBuffer()),
+  );
+
+  if (coversWholeBuffer(ranges, mp3Blob.size)) {
+    return [mp3Blob];
+  }
+
+  return ranges
+    .filter((range) => range.end > range.start)
+    .map((range) =>
+      mp3Blob.slice(range.start, range.end, mp3Blob.type || "audio/mpeg"),
+    );
+};
+
+const stripLeadingId3TagFromBlob = async (mp3Blob: Blob): Promise<Blob> => {
+  const header = new Uint8Array(await mp3Blob.slice(0, 10).arrayBuffer());
+  const leadingTagSize = readLeadingId3TagSize(header, mp3Blob.size);
+
+  return leadingTagSize == null
+    ? mp3Blob
+    : mp3Blob.slice(leadingTagSize, mp3Blob.size, mp3Blob.type || "audio/mpeg");
+};
+
+const stripId3TagsFromBlob = async (
+  mp3Blob: Blob,
+  mode: Mp3BlobStripMode,
+): Promise<Blob[]> => {
+  if (mode === "none") {
+    return [mp3Blob];
+  }
+
+  if (mode === "leading") {
+    const strippedBlob = await stripLeadingId3TagFromBlob(mp3Blob);
+    return strippedBlob.size > 0 ? [strippedBlob] : [];
+  }
+
+  return await stripAllId3TagsFromBlob(mp3Blob);
+};
+
+export const stripAllId3Tags = (mp3Data: Uint8Array): Uint8Array => {
+  const ranges = getId3StrippedByteRanges(mp3Data);
+  if (coversWholeBuffer(ranges, mp3Data.length)) {
+    return mp3Data;
+  }
+
+  const chunks = ranges.map((range) => mp3Data.slice(range.start, range.end));
   return chunks.length > 0 ? concatBytes(...chunks) : new Uint8Array();
 };
 
@@ -189,15 +289,14 @@ export const concatenateMp3Buffers = (
 
 export const concatenateMp3Blobs = async (
   mp3Parts: Blob[],
+  options?: ConcatenateMp3BlobOptions,
 ): Promise<Blob> => {
-  const buffers = await Promise.all(
-    mp3Parts.map(async (part) => new Uint8Array(await part.arrayBuffer())),
-  );
-  const combined = concatenateMp3Buffers(buffers);
-  const blobBuffer = new ArrayBuffer(combined.byteLength);
-  new Uint8Array(blobBuffer).set(combined);
-
-  return new Blob([blobBuffer], {
+  const sanitizedParts: Blob[] = [];
+  const stripId3Tags = options?.stripId3Tags ?? "all";
+  for (const part of mp3Parts) {
+    sanitizedParts.push(...(await stripId3TagsFromBlob(part, stripId3Tags)));
+  }
+  return new Blob(sanitizedParts, {
     type: "audio/mpeg",
   });
 };
@@ -215,16 +314,18 @@ export const addMp3Metadata = (
 export const addMp3MetadataToBlob = async (
   mp3Blob: Blob,
   metadata: Mp3Metadata,
+  options?: AddMp3MetadataToBlobOptions,
 ): Promise<Blob> => {
   const tag = buildMp3MetadataTag(metadata);
   if (!tag) return mp3Blob;
-
-  const mp3Data = stripAllId3Tags(new Uint8Array(await mp3Blob.arrayBuffer()));
   const tagBuffer = new ArrayBuffer(tag.byteLength);
-  const mp3Buffer = new ArrayBuffer(mp3Data.byteLength);
   new Uint8Array(tagBuffer).set(tag);
-  new Uint8Array(mp3Buffer).set(mp3Data);
-  return new Blob([tagBuffer, mp3Buffer], {
+
+  const audioParts =
+    options?.stripExistingId3Tags === false
+      ? [mp3Blob]
+      : await stripAllId3TagsFromBlob(mp3Blob);
+  return new Blob([tagBuffer, ...audioParts], {
     type: mp3Blob.type || "audio/mpeg",
   });
 };

@@ -5,6 +5,7 @@ import { type Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { getAuthenticatedViewerTokenIdentifier } from "./bookmarks";
 import { assembleArticleAudio, getArticleAudioSections, type ArticleAudioSource } from "./lib/articleAudioPipeline";
+import { uploadBlobToConvexStorage, uploadStreamToConvexStorage } from "./lib/storageUpload";
 import { TTS_NORM_VERSION } from "../lib/tts-normalize";
 
 const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
@@ -913,7 +914,8 @@ export const processViewerPlaylistEpisode = internalAction({
           return cachedAudio.urls;
         },
         saveSectionAudio: async ({ sectionKey, blob, durationSeconds }) => {
-          const storageId = await ctx.storage.store(blob);
+          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
+          const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
             articleId: article._id,
             sectionKey,
@@ -921,6 +923,15 @@ export const processViewerPlaylistEpisode = internalAction({
             ttsNormVersion: TTS_NORM_VERSION,
             durationSeconds,
           });
+          const storageUrl = await ctx.storage.getUrl(storageId);
+          if (!storageUrl) {
+            throw new Error("Stored section audio URL could not be resolved.");
+          }
+          return storageUrl;
+        },
+        saveCombinedAudio: async ({ stream, contentType }) => {
+          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
+          return await uploadStreamToConvexStorage(uploadUrl, stream, contentType);
         },
         onProgress: async ({ completedSectionCount, sectionCount, stage }) => {
           await ctx.runMutation(
@@ -935,14 +946,12 @@ export const processViewerPlaylistEpisode = internalAction({
           );
         },
       });
-
-      const storageId = await ctx.storage.store(result.blob);
       await ctx.runMutation(
         internal.personalPlaylist.completeViewerPlaylistEpisodeInternal,
         {
           episodeId: args.episodeId,
           owner,
-          storageId,
+          storageId: result.storageId,
           durationSeconds: result.durationSeconds,
           byteLength: result.byteLength,
         },
