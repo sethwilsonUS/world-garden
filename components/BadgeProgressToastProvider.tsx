@@ -4,12 +4,12 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { BadgeArtwork } from "@/components/BadgeArtwork";
 import {
   getAccessibleBadgeProgressLabel,
@@ -19,7 +19,6 @@ import {
 } from "@/lib/badges";
 
 const MAX_TOASTS = 4;
-const TOAST_DURATION_MS = 9_000;
 
 type BadgeToast = {
   id: string;
@@ -43,6 +42,8 @@ const BadgeProgressToastContext = createContext<BadgeProgressToastContextValue>(
   defaultBadgeProgressToastContext,
 );
 
+const emptySubscribe = () => () => {};
+
 const createAnnouncement = (
   articleTitle: string,
   badge: AwardedBadgeProgress,
@@ -54,6 +55,26 @@ const createAnnouncement = (
   return `${badge.label} badge gained 1 EXP from ${articleTitle}. ${getBadgeProgressLabel(badge)}.`;
 };
 
+const LevelUpBurstIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width={14}
+    height={14}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1L6.5 8.5l4.1-1.4Z" />
+    <path d="M19 4v3" />
+    <path d="M20.5 5.5h-3" />
+    <path d="M5 16v2.5" />
+    <path d="M6.2 17.2H3.8" />
+  </svg>
+);
+
 const BadgeProgressToastCard = ({
   toast,
   onDismiss,
@@ -64,34 +85,48 @@ const BadgeProgressToastCard = ({
   const progressLabel = getBadgeProgressLabel(toast.badge);
   const progressPercent = getBadgeProgressPercent(toast.badge);
   const accessibilityLabel = `${getAccessibleBadgeProgressLabel(toast.badge)} Credited from ${toast.articleTitle}.`;
+  const statusLabel = toast.badge.leveledUp
+    ? "Badge leveled up"
+    : "Badge progress";
+  const statusChipLabel = toast.badge.leveledUp
+    ? `Level ${toast.badge.level}`
+    : `Lvl ${toast.badge.level}`;
+  const timestampLabel = new Date(toast.createdAt).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
   return (
     <article
       aria-label={accessibilityLabel}
-      className="pointer-events-auto garden-bed w-full max-w-[24rem] overflow-hidden border border-[color:rgba(147,164,151,0.22)] bg-[linear-gradient(180deg,rgba(247,244,236,0.98),rgba(232,238,229,0.96))] shadow-[0_18px_45px_rgba(28,33,32,0.18)]"
+      className="pointer-events-auto garden-bed w-full max-w-[26rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
     >
-      <div className="p-4">
+      <div className="p-4 sm:p-4.5">
         <div className="flex items-start gap-3">
-          <div className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-2xl border border-accent-border bg-[color:rgba(255,255,255,0.72)] text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+          <div
+            className="relative mt-0.5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-2xl border border-accent-border bg-accent-bg text-accent"
+          >
             <BadgeArtwork badgeKey={toast.badge.key} className="size-7" />
+            {toast.badge.leveledUp ? (
+              <span
+                data-level-up-icon="true"
+                className="absolute -right-1.5 -top-1.5 inline-flex size-6 items-center justify-center rounded-full border border-accent-border bg-surface text-accent shadow-[0_8px_18px_rgba(0,0,0,0.12)]"
+              >
+                <LevelUpBurstIcon />
+              </span>
+            ) : null}
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-accent">
-                {toast.badge.leveledUp ? "Level up" : "Badge progress"}
-              </p>
-              <span className="inline-flex rounded-full border border-accent-border bg-[color:rgba(255,255,255,0.72)] px-2 py-0.5 font-mono text-[0.72rem] font-bold uppercase tracking-[0.12em] text-accent">
-                Lvl {toast.badge.level}
-              </span>
-            </div>
-
-            <h2 className="mt-1 font-display text-[1.1rem] leading-[1.15] text-foreground">
+            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-muted">
+              {statusLabel}
+            </p>
+            <h2 className="mt-1 font-display text-[1.02rem] leading-[1.2] text-foreground">
               {toast.badge.label}
             </h2>
-            <p className="mt-1 text-sm leading-[1.55] text-foreground-2">
+            <p className="mt-2 text-sm leading-[1.6] text-foreground-2">
               {toast.badge.leveledUp
-                ? `You hit level ${toast.badge.level} by finishing enough of ${toast.articleTitle}.`
+                ? `${toast.articleTitle} pushed ${toast.badge.label} from level ${toast.badge.previousLevel} to level ${toast.badge.level}.`
                 : `+1 EXP from ${toast.articleTitle}.`}
             </p>
           </div>
@@ -99,7 +134,7 @@ const BadgeProgressToastCard = ({
           <button
             type="button"
             onClick={() => onDismiss(toast.id)}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border/80 bg-[color:rgba(255,255,255,0.72)] text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-[color:rgba(244,246,241,0.96)]"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             aria-label={`Dismiss badge progress for ${toast.badge.label}`}
           >
             <svg
@@ -127,14 +162,26 @@ const BadgeProgressToastCard = ({
             <span>{progressLabel}</span>
           </div>
 
-          <div className="mt-2 rounded-full bg-[color:rgba(52,73,64,0.12)] p-1" aria-hidden="true">
+          <div className="mt-2 rounded-full bg-surface-3 p-1" aria-hidden="true">
             <div
-              className={`h-2 rounded-full transition-[width] duration-500 ${
-                toast.badge.leveledUp ? "bg-accent" : "bg-[color:rgba(95,123,109,0.82)]"
-              }`}
+              className="h-2 rounded-full bg-accent transition-[width] duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex min-h-11 items-center rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-sm font-semibold text-accent">
+            {statusChipLabel}
+          </span>
+          {toast.badge.leveledUp ? (
+            <span className="inline-flex min-h-11 items-center rounded-xl border border-border bg-surface-2 px-4 py-2 text-sm font-semibold text-foreground-2">
+              Up from Lvl {toast.badge.previousLevel}
+            </span>
+          ) : null}
+          <span className="text-xs text-muted">
+            {timestampLabel}
+          </span>
         </div>
       </div>
     </article>
@@ -159,8 +206,8 @@ const BadgeProgressToastTray = ({
       {toasts.length > 0 ? (
         <section
           aria-label="Badge progress"
-          className="pointer-events-none fixed inset-x-4 top-4 z-[72] flex flex-col items-end gap-3 sm:top-5"
-          style={{ paddingTop: "env(safe-area-inset-top)" }}
+          className="pointer-events-none fixed inset-x-4 bottom-4 z-[70] flex flex-col items-end gap-3"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         >
           {toasts.map((toast) => (
             <BadgeProgressToastCard
@@ -180,28 +227,16 @@ export const BadgeProgressToastProvider = ({
 }: {
   children: ReactNode;
 }) => {
+  const hasMounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
   const [toasts, setToasts] = useState<BadgeToast[]>([]);
   const [politeAnnouncement, setPoliteAnnouncement] = useState("");
-  const timeoutIdsRef = useRef<Map<string, number>>(new Map());
 
   const dismissToast = useCallback((id: string) => {
-    const timeoutId = timeoutIdsRef.current.get(id);
-    if (timeoutId !== undefined) {
-      window.clearTimeout(timeoutId);
-      timeoutIdsRef.current.delete(id);
-    }
     setToasts((current) => current.filter((toast) => toast.id !== id));
-  }, []);
-
-  useEffect(() => {
-    const timeoutIds = timeoutIdsRef.current;
-
-    return () => {
-      for (const timeoutId of timeoutIds.values()) {
-        window.clearTimeout(timeoutId);
-      }
-      timeoutIds.clear();
-    };
   }, []);
 
   const showBadgeProgressToasts = useCallback(
@@ -224,15 +259,8 @@ export const BadgeProgressToastProvider = ({
 
       setToasts((current) => [...incomingToasts, ...current].slice(0, MAX_TOASTS));
       setPoliteAnnouncement(createAnnouncement(articleTitle, badges[0]));
-
-      for (const toast of incomingToasts) {
-        const timeoutId = window.setTimeout(() => {
-          dismissToast(toast.id);
-        }, TOAST_DURATION_MS);
-        timeoutIdsRef.current.set(toast.id, timeoutId);
-      }
     },
-    [dismissToast],
+    [],
   );
 
   const value = useMemo<BadgeProgressToastContextValue>(
@@ -245,11 +273,16 @@ export const BadgeProgressToastProvider = ({
   return (
     <BadgeProgressToastContext.Provider value={value}>
       {children}
-      <BadgeProgressToastTray
-        toasts={toasts}
-        onDismiss={dismissToast}
-        politeAnnouncement={politeAnnouncement}
-      />
+      {hasMounted
+        ? createPortal(
+            <BadgeProgressToastTray
+              toasts={toasts}
+              onDismiss={dismissToast}
+              politeAnnouncement={politeAnnouncement}
+            />,
+            document.body,
+          )
+        : null}
     </BadgeProgressToastContext.Provider>
   );
 };

@@ -11,7 +11,7 @@ describe("ArticleTopics", () => {
       }),
     );
 
-    expect(markup).toContain("Topics");
+    expect(markup).toContain("Related topics");
     expect(markup.indexOf("History")).toBeLessThan(markup.indexOf("Science"));
     expect(markup.indexOf("Science")).toBeLessThan(
       markup.indexOf("Technology"),

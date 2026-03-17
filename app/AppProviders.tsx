@@ -3,6 +3,7 @@
 import { ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { ArticleAudioExportFallbackProvider } from "@/components/ArticleAudioExportProvider";
+import { BadgeProgressToastFallbackProvider } from "@/components/BadgeProgressToastProvider";
 import { LocalBookmarkProvider } from "@/hooks/useBookmarks";
 import { PersonalPlaylistFallbackProvider } from "@/hooks/usePersonalPlaylist";
 
@@ -37,12 +38,14 @@ export const AppProviders = ({ children }: { children: ReactNode }) => {
     return (
       <PersonalPlaylistFallbackProvider>
         <ArticleAudioExportFallbackProvider>
-          <LocalBookmarkProvider>
-            <LocalDataProvider>
-              {LocalModeBanner && <LocalModeBanner />}
-              {children}
-            </LocalDataProvider>
-          </LocalBookmarkProvider>
+          <BadgeProgressToastFallbackProvider>
+            <LocalBookmarkProvider>
+              <LocalDataProvider>
+                {LocalModeBanner && <LocalModeBanner />}
+                {children}
+              </LocalDataProvider>
+            </LocalBookmarkProvider>
+          </BadgeProgressToastFallbackProvider>
         </ArticleAudioExportFallbackProvider>
       </PersonalPlaylistFallbackProvider>
     );

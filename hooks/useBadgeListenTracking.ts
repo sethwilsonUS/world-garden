@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { Section } from "@/lib/data-context";
 import type {
   AwardedBadgeProgress,
+  BadgeKey,
   BadgeListenProgressResult,
 } from "@/lib/badges";
 import {
@@ -51,10 +52,39 @@ type UseBadgeListenTrackingArgs = {
     articleTitle: string;
     badges: AwardedBadgeProgress[];
   }) => void;
+  resolveAwardedBadges?: (
+    awardedBadgeKeys: BadgeKey[],
+  ) => Promise<AwardedBadgeProgress[]>;
 };
 
 const isUnauthorizedError = (error: unknown): boolean =>
   error instanceof Error && /unauthorized/i.test(error.message);
+
+const coerceBadgeListenProgressResult = (
+  value: unknown,
+  fallbackTotalDurationSeconds: number,
+): BadgeListenProgressResult => {
+  const candidate =
+    value && typeof value === "object"
+      ? (value as Partial<BadgeListenProgressResult>)
+      : null;
+
+  return {
+    heardSeconds:
+      typeof candidate?.heardSeconds === "number" ? candidate.heardSeconds : 0,
+    totalDurationSeconds:
+      typeof candidate?.totalDurationSeconds === "number"
+        ? candidate.totalDurationSeconds
+        : fallbackTotalDurationSeconds,
+    qualified: candidate?.qualified === true,
+    awardedBadgeKeys: Array.isArray(candidate?.awardedBadgeKeys)
+      ? candidate.awardedBadgeKeys
+      : [],
+    awardedBadges: Array.isArray(candidate?.awardedBadges)
+      ? candidate.awardedBadges
+      : [],
+  };
+};
 
 export const useBadgeListenTracking = ({
   articleId,
@@ -70,6 +100,7 @@ export const useBadgeListenTracking = ({
   audioRef,
   reportProgress,
   onBadgesAwarded,
+  resolveAwardedBadges,
 }: UseBadgeListenTrackingArgs) => {
   const enabledRef = useRef(!isLocal);
   const isPlayingRef = useRef(isPlaying);
@@ -133,23 +164,39 @@ export const useBadgeListenTracking = ({
       if (heardRanges.length === 0) return;
 
       pendingRangesRef.current = [];
+      const totalDurationSeconds = resolveTotalDuration();
 
       try {
-        const result = await reportProgress({
+        const rawResult = await reportProgress({
           articleId,
           wikiPageId,
           slug,
           title,
-          totalDurationSeconds: resolveTotalDuration(),
+          totalDurationSeconds,
           sectionKey,
           sectionDurationSeconds: resolveSectionDuration(sectionKey),
           heardRanges,
-        }) as BadgeListenProgressResult;
+        });
+        const result = coerceBadgeListenProgressResult(
+          rawResult,
+          totalDurationSeconds,
+        );
+        let awardedBadges = result.awardedBadges;
 
-        if (result.awardedBadges.length > 0) {
+        // Some environments may return the award keys without the expanded
+        // badge payload. Fall back to a query so the UI can still show a toast.
+        if (
+          awardedBadges.length === 0 &&
+          result.awardedBadgeKeys.length > 0 &&
+          resolveAwardedBadges
+        ) {
+          awardedBadges = await resolveAwardedBadges(result.awardedBadgeKeys);
+        }
+
+        if (awardedBadges.length > 0) {
           onBadgesAwarded?.({
             articleTitle: title,
-            badges: result.awardedBadges,
+            badges: awardedBadges,
           });
         }
       } catch (error) {
@@ -174,6 +221,7 @@ export const useBadgeListenTracking = ({
       title,
       wikiPageId,
       onBadgesAwarded,
+      resolveAwardedBadges,
     ],
   );
 

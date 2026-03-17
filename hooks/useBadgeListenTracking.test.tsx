@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBadgeListenTracking } from "./useBadgeListenTracking";
-import type { AwardedBadgeProgress } from "@/lib/badges";
+import type { AwardedBadgeProgress, BadgeKey } from "@/lib/badges";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -19,6 +19,9 @@ type HarnessProps = {
     articleTitle: string;
     badges: AwardedBadgeProgress[];
   }) => void;
+  resolveAwardedBadges?: (
+    awardedBadgeKeys: BadgeKey[],
+  ) => Promise<AwardedBadgeProgress[]>;
 };
 
 const articleId = "article-1" as never;
@@ -29,6 +32,7 @@ const Harness = ({
   isPlaying,
   reportProgress,
   onBadgesAwarded,
+  resolveAwardedBadges,
 }: HarnessProps) => {
   useBadgeListenTracking({
     articleId,
@@ -63,6 +67,7 @@ const Harness = ({
     audioRef: { current: audio },
     reportProgress,
     onBadgesAwarded,
+    resolveAwardedBadges,
   });
 
   return null;
@@ -296,6 +301,78 @@ describe("useBadgeListenTracking", () => {
       await Promise.resolve();
     });
 
+    expect(onBadgesAwarded).toHaveBeenCalledWith({
+      articleTitle: "Roman roads",
+      badges: [
+        expect.objectContaining({
+          key: "history",
+          gainedExp: 1,
+        }),
+      ],
+    });
+  });
+
+  it("can resolve awarded badges from awarded keys when the mutation omits detailed payloads", async () => {
+    const audio = createAudioStub();
+    const onBadgesAwarded = vi.fn();
+    const resolveAwardedBadges = vi.fn().mockResolvedValue([
+      {
+        key: "history",
+        label: "History",
+        description: "Stories of empires.",
+        glyph: "quill-scroll",
+        exp: 1,
+        creditedArticleCount: 1,
+        level: 0,
+        expIntoLevel: 1,
+        expForNextLevel: 5,
+        nextLevelTarget: 5,
+        previousLevel: 0,
+        leveledUp: false,
+        gainedExp: 1,
+      },
+    ]);
+    const reportProgress = vi.fn().mockResolvedValue({
+      heardSeconds: 8,
+      totalDurationSeconds: 10,
+      qualified: true,
+      awardedBadgeKeys: ["history"],
+      awardedBadges: [],
+    });
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+          onBadgesAwarded={onBadgesAwarded}
+          resolveAwardedBadges={resolveAwardedBadges}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      audio.currentTime = 2.1;
+      vi.advanceTimersByTime(1_000);
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying={false}
+          reportProgress={reportProgress}
+          onBadgesAwarded={onBadgesAwarded}
+          resolveAwardedBadges={resolveAwardedBadges}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(resolveAwardedBadges).toHaveBeenCalledWith(["history"]);
     expect(onBadgesAwarded).toHaveBeenCalledWith({
       articleTitle: "Roman roads",
       badges: [
