@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { addMp3Metadata } from "./audio-metadata";
 import {
   generateTtsAudio,
   generateTtsAudioUrl,
@@ -15,6 +16,11 @@ const makeWords = (prefix: string, count: number): string =>
 
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
+const toBlobBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+};
 
 describe("tts-client", () => {
   beforeEach(() => {
@@ -72,6 +78,36 @@ describe("tts-client", () => {
     }
 
     expect(await blob.text()).toBe(requestBodies.map((body) => body.text).join(""));
+  });
+
+  it("strips embedded ID3 tags when combining multiple TTS chunks", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body)) as { text: string };
+        const taggedBytes = addMp3Metadata(
+          new TextEncoder().encode(request.text),
+          {
+            title: "Chunk",
+            artist: "Curio Garden",
+          },
+        );
+
+        return {
+          ok: true,
+          blob: async () =>
+            new Blob([toBlobBuffer(taggedBytes)], { type: "audio/mpeg" }),
+        };
+      }),
+    );
+
+    const text = [makeWords("alpha", 700), makeWords("beta", 650)].join("\n\n");
+    const blob = await generateTtsAudio({ text });
+    const combinedText = await blob.text();
+
+    expect(combinedText).toContain("alpha0");
+    expect(combinedText).toContain("beta0");
+    expect(combinedText).not.toContain("ID3");
   });
 
   it("splits sentence-free text by words when no softer boundary exists", () => {

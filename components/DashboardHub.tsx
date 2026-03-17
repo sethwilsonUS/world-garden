@@ -165,6 +165,62 @@ const playlistStatusLabel = (status: string): string => {
   }
 };
 
+const playlistStageLabel = (entry: {
+  status: string;
+  stage?: "queued" | "rendering_audio" | "packaging";
+}): string => {
+  if (entry.status === "ready") return "Ready";
+  if (entry.status === "failed") return "Needs retry";
+  if (entry.stage === "packaging") return "Packaging MP3";
+  if (entry.status === "queued") return "Queued";
+  if (entry.stage === "rendering_audio") return "Rendering audio";
+  if (entry.status === "running") return "Generating";
+  return playlistStatusLabel(entry.status);
+};
+
+const playlistProgressLabel = (entry: {
+  status: string;
+  stage?: "queued" | "rendering_audio" | "packaging";
+  sectionCount?: number;
+  completedSectionCount?: number;
+  lastError?: string;
+}): string => {
+  if (entry.status === "failed") {
+    return entry.lastError || "Episode generation failed. Retry when ready.";
+  }
+  if (entry.status === "ready") {
+    return "Episode is ready for your feed and podcast app.";
+  }
+  if (entry.status === "queued") {
+    return "Waiting for earlier playlist items to finish generating.";
+  }
+  if (entry.stage === "packaging") {
+    return "Stitching sections into one podcast-ready MP3.";
+  }
+  if ((entry.sectionCount ?? 0) > 0) {
+    return `${Math.min(entry.completedSectionCount ?? 0, entry.sectionCount ?? 0)} of ${entry.sectionCount} sections ready`;
+  }
+  return "Preparing article audio in the background.";
+};
+
+const playlistProgressPercent = (entry: {
+  status: string;
+  stage?: "queued" | "rendering_audio" | "packaging";
+  sectionCount?: number;
+  completedSectionCount?: number;
+}): number | null => {
+  if (entry.status !== "running") return null;
+  if (entry.stage === "packaging") return 100;
+  if (!entry.sectionCount || entry.sectionCount <= 0) return null;
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(((entry.completedSectionCount ?? 0) / entry.sectionCount) * 100),
+    ),
+  );
+};
+
 const DashboardPlaylistCard = () => {
   const {
     entries,
@@ -239,7 +295,7 @@ const DashboardPlaylistCard = () => {
                         #{index + 1}
                       </span>
                       <span className="inline-flex min-h-7 items-center rounded-full border border-accent-border bg-accent-bg px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-accent">
-                        {playlistStatusLabel(entry.status)}
+                        {playlistStageLabel(entry)}
                       </span>
                     </div>
                     <Link
@@ -249,12 +305,25 @@ const DashboardPlaylistCard = () => {
                       {entry.title}
                     </Link>
                     <p className="mt-2 text-sm leading-[1.6] text-muted">
-                      {entry.status === "failed"
-                        ? entry.lastError || "Episode generation failed. Retry when ready."
-                        : entry.status === "ready"
-                          ? "Episode is ready for your feed and podcast app."
-                          : "Episode generation is working in the background."}
+                      {playlistProgressLabel(entry)}
                     </p>
+                    {playlistProgressPercent(entry) != null ? (
+                      <div className="mt-3 max-w-sm">
+                        <div
+                          aria-label={`Generation progress for ${entry.title}`}
+                          aria-valuemax={100}
+                          aria-valuemin={0}
+                          aria-valuenow={playlistProgressPercent(entry) ?? 0}
+                          role="progressbar"
+                          className="h-2 overflow-hidden rounded-full bg-surface-2"
+                        >
+                          <div
+                            className="h-full rounded-full bg-accent transition-[width] duration-300"
+                            style={{ width: `${playlistProgressPercent(entry)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                     <QueueActionButton

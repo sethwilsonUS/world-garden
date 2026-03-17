@@ -11,6 +11,7 @@ const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
 const PERSONAL_PODCAST_ALBUM_TITLE = "Curio Garden Personal Playlist";
 
 type PersonalPlaylistEpisodeStatus = "queued" | "running" | "ready" | "failed";
+type PersonalPlaylistEpisodeStage = "queued" | "rendering_audio" | "packaging";
 
 type PersonalPlaylistEpisodeDoc = {
   _id: Id<"personalPlaylistEpisodes">;
@@ -25,6 +26,9 @@ type PersonalPlaylistEpisodeDoc = {
   publishedAt: number;
   removedAt?: number;
   status: PersonalPlaylistEpisodeStatus;
+  stage?: PersonalPlaylistEpisodeStage;
+  sectionCount?: number;
+  completedSectionCount?: number;
   storageId?: Id<"_storage">;
   durationSeconds?: number;
   byteLength?: number;
@@ -213,6 +217,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     title: string;
     description?: string;
     imageUrl?: string;
+    sectionCount: number;
   },
 ): Promise<UpsertViewerPlaylistEpisodeResult> => {
   const now = Date.now();
@@ -236,6 +241,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       title: args.title,
       description: args.description,
       imageUrl: args.imageUrl,
+      sectionCount: args.sectionCount,
       updatedAt: now,
     });
 
@@ -258,21 +264,47 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       imageUrl: args.imageUrl,
       removedAt: undefined,
       position: activeEpisodes.length,
+      status: "queued",
+      stage: "queued",
+      sectionCount: args.sectionCount,
+      completedSectionCount: 0,
+      storageId: undefined,
+      durationSeconds: undefined,
+      byteLength: undefined,
+      lastError: undefined,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
       updatedAt: now,
     });
 
     const refreshedEpisodes = [
       ...activeEpisodes,
-      { ...existing, ...args, removedAt: undefined, position: activeEpisodes.length },
+      {
+        ...existing,
+        ...args,
+        removedAt: undefined,
+        position: activeEpisodes.length,
+        status: "queued" as const,
+        stage: "queued" as const,
+        sectionCount: args.sectionCount,
+        completedSectionCount: 0,
+        storageId: undefined,
+        durationSeconds: undefined,
+        byteLength: undefined,
+        lastError: undefined,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        updatedAt: now,
+      },
     ];
     await rewriteActiveViewerQueue(ctx, refreshedEpisodes, now);
 
     return {
       feedToken: feed.feedToken,
       episodeId: existing._id,
-      status: existing.status,
+      status: "queued",
       added: true,
-      shouldSchedule: existing.status === "queued",
+      shouldSchedule: true,
     };
   }
 
@@ -287,6 +319,9 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     position: activeEpisodes.length,
     publishedAt: buildPublishedAt(now, activeEpisodes.length),
     status: "queued",
+    stage: "queued",
+    sectionCount: args.sectionCount,
+    completedSectionCount: 0,
     createdAt: now,
     updatedAt: now,
   });
@@ -307,6 +342,9 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
         position: activeEpisodes.length,
         publishedAt: buildPublishedAt(now, activeEpisodes.length),
         status: "queued",
+        stage: "queued" as const,
+        sectionCount: args.sectionCount,
+        completedSectionCount: 0,
         createdAt: now,
         updatedAt: now,
       },
@@ -381,6 +419,7 @@ export const addViewerPlaylistEpisodeBySlug = action({
         title: article.title,
         description: article.summary,
         imageUrl: article.thumbnailUrl,
+        sectionCount: getArticleAudioSections(article).length,
       },
     );
 
@@ -514,6 +553,8 @@ export const retryViewerPlaylistEpisode = mutation({
 
     await ctx.db.patch(args.episodeId, {
       status: "queued",
+      stage: "queued",
+      completedSectionCount: 0,
       lastError: undefined,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
@@ -597,6 +638,7 @@ export const upsertViewerPlaylistEpisodeInternal = internalMutation({
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
+    sectionCount: v.number(),
   },
   async handler(ctx, args) {
     return await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -666,6 +708,7 @@ export const markViewerPlaylistEpisodeRunningInternal = internalMutation({
 
     await ctx.db.patch(args.episodeId, {
       status: "running",
+      stage: "rendering_audio",
       lastError: undefined,
       leaseOwner: args.owner,
       leaseExpiresAt: now + PERSONAL_PLAYLIST_LEASE_MS,
@@ -692,10 +735,13 @@ export const completeViewerPlaylistEpisodeInternal = internalMutation({
 
     await ctx.db.patch(args.episodeId, {
       status: "ready",
+      stage: undefined,
       storageId: args.storageId,
       durationSeconds: args.durationSeconds,
       byteLength: args.byteLength,
       lastError: undefined,
+      completedSectionCount:
+        episode.sectionCount ?? episode.completedSectionCount ?? 0,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
       updatedAt: Date.now(),
@@ -719,6 +765,7 @@ export const failViewerPlaylistEpisodeInternal = internalMutation({
 
     await ctx.db.patch(args.episodeId, {
       status: "failed",
+      stage: undefined,
       lastError: args.lastError,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
@@ -726,6 +773,35 @@ export const failViewerPlaylistEpisodeInternal = internalMutation({
     });
 
     return { failed: true };
+  },
+});
+
+export const updateViewerPlaylistEpisodeProgressInternal = internalMutation({
+  args: {
+    episodeId: v.id("personalPlaylistEpisodes"),
+    owner: v.string(),
+    completedSectionCount: v.number(),
+    sectionCount: v.number(),
+    stage: v.union(
+      v.literal("queued"),
+      v.literal("rendering_audio"),
+      v.literal("packaging"),
+    ),
+  },
+  async handler(ctx, args) {
+    const episode = (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
+    if (!episode || episode.leaseOwner !== args.owner) {
+      return { updated: false };
+    }
+
+    await ctx.db.patch(args.episodeId, {
+      stage: args.stage,
+      sectionCount: args.sectionCount,
+      completedSectionCount: args.completedSectionCount,
+      updatedAt: Date.now(),
+    });
+
+    return { updated: true };
   },
 });
 
@@ -810,6 +886,17 @@ export const processViewerPlaylistEpisode = internalAction({
       return;
     }
 
+    await ctx.runMutation(
+      internal.personalPlaylist.updateViewerPlaylistEpisodeProgressInternal,
+      {
+        episodeId: args.episodeId,
+        owner,
+        completedSectionCount: 0,
+        sectionCount: sections.length,
+        stage: "rendering_audio",
+      },
+    );
+
     try {
       const result = await assembleArticleAudio({
         article: {
@@ -834,6 +921,18 @@ export const processViewerPlaylistEpisode = internalAction({
             ttsNormVersion: TTS_NORM_VERSION,
             durationSeconds,
           });
+        },
+        onProgress: async ({ completedSectionCount, sectionCount, stage }) => {
+          await ctx.runMutation(
+            internal.personalPlaylist.updateViewerPlaylistEpisodeProgressInternal,
+            {
+              episodeId: args.episodeId,
+              owner,
+              completedSectionCount,
+              sectionCount,
+              stage,
+            },
+          );
         },
       });
 

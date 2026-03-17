@@ -136,6 +136,7 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
+      sectionCount: 4,
     });
 
     expect(result.added).toBe(true);
@@ -165,6 +166,7 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
+      sectionCount: 4,
     };
 
     const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -175,7 +177,7 @@ describe("personal playlist data helpers", () => {
     expect(getEpisodes()).toHaveLength(1);
   });
 
-  it("soft-removes and later restores the same episode record", async () => {
+  it("soft-removes and later restores the same episode record in queued state", async () => {
     const { ctx, getEpisodes } = createCtx();
     const args = {
       viewerTokenIdentifier: "user-1",
@@ -185,6 +187,7 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
+      sectionCount: 4,
     };
 
     const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -200,9 +203,12 @@ describe("personal playlist data helpers", () => {
     visible = await listViewerPlaylistEpisodesForCtx(ctx, "user-1");
 
     expect(restored.episodeId).toBe(first.episodeId);
+    expect(restored.status).toBe("queued");
+    expect(restored.shouldSchedule).toBe(true);
     expect(getEpisodes()).toHaveLength(1);
     expect(visible).toHaveLength(1);
     expect(visible[0]._id).toBe(first.episodeId);
+    expect(visible[0].status).toBe("queued");
   });
 
   it("rewrites queue position and synthetic publishedAt when moved", async () => {
@@ -214,6 +220,7 @@ describe("personal playlist data helpers", () => {
       wikiPageId: "wiki-1",
       slug: "mars",
       title: "Mars",
+      sectionCount: 3,
     });
     vi.advanceTimersByTime(1_000);
     const second = await upsertViewerPlaylistEpisodeForCtx(ctx, {
@@ -222,6 +229,7 @@ describe("personal playlist data helpers", () => {
       wikiPageId: "wiki-2",
       slug: "venus",
       title: "Venus",
+      sectionCount: 5,
     });
 
     await moveViewerPlaylistEpisodeForCtx(ctx, {
