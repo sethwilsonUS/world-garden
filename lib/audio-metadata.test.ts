@@ -6,6 +6,11 @@ import {
 } from "./audio-metadata";
 
 const decoder = new TextDecoder();
+const toBlobBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+};
 
 describe("addMp3Metadata", () => {
   it("prepends ID3 metadata and preserves the original mp3 bytes", () => {
@@ -118,7 +123,9 @@ describe("addMp3Metadata", () => {
     });
 
     const taggedBlob = await addMp3MetadataToBlob(
-      new Blob([firstTagged, secondTagged], { type: "audio/mpeg" }),
+      new Blob([toBlobBuffer(firstTagged), toBlobBuffer(secondTagged)], {
+        type: "audio/mpeg",
+      }),
       {
         title: "Combined file",
         artist: "Curio Garden",

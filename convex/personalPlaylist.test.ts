@@ -136,6 +136,7 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
+      sectionCount: 4,
     });
 
     expect(result.added).toBe(true);
@@ -165,6 +166,7 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
+      sectionCount: 4,
     };
 
     const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -185,6 +187,7 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
+      sectionCount: 4,
     };
 
     const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -217,6 +220,7 @@ describe("personal playlist data helpers", () => {
       wikiPageId: "wiki-1",
       slug: "mars",
       title: "Mars",
+      sectionCount: 3,
     });
     vi.advanceTimersByTime(1_000);
     const second = await upsertViewerPlaylistEpisodeForCtx(ctx, {
@@ -225,6 +229,7 @@ describe("personal playlist data helpers", () => {
       wikiPageId: "wiki-2",
       slug: "venus",
       title: "Venus",
+      sectionCount: 5,
     });
 
     await moveViewerPlaylistEpisodeForCtx(ctx, {

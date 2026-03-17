@@ -193,7 +193,11 @@ export const concatenateMp3Blobs = async (
   const buffers = await Promise.all(
     mp3Parts.map(async (part) => new Uint8Array(await part.arrayBuffer())),
   );
-  return new Blob([concatenateMp3Buffers(buffers)], {
+  const combined = concatenateMp3Buffers(buffers);
+  const blobBuffer = new ArrayBuffer(combined.byteLength);
+  new Uint8Array(blobBuffer).set(combined);
+
+  return new Blob([blobBuffer], {
     type: "audio/mpeg",
   });
 };

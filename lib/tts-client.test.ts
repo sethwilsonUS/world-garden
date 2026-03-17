@@ -16,6 +16,11 @@ const makeWords = (prefix: string, count: number): string =>
 
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
+const toBlobBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+};
 
 describe("tts-client", () => {
   beforeEach(() => {
@@ -90,7 +95,8 @@ describe("tts-client", () => {
 
         return {
           ok: true,
-          blob: async () => new Blob([taggedBytes], { type: "audio/mpeg" }),
+          blob: async () =>
+            new Blob([toBlobBuffer(taggedBytes)], { type: "audio/mpeg" }),
         };
       }),
     );

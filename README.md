@@ -8,7 +8,7 @@
 ![WCAG 2.2 AA](https://img.shields.io/badge/WCAG_2.2-AA-green?logo=accessibility&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
 
-Your Wikipedia listening library — an accessibility-first web app that turns Wikipedia articles into structured, navigable audio you can listen to right in your browser.
+Your Wikipedia listening library and personal podcast queue — an accessibility-first web app that turns Wikipedia articles into structured, navigable audio you can listen to right in your browser or follow in your podcast app.
 
 ## Features
 
@@ -16,7 +16,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Audio** — Powered by Edge TTS with Microsoft's neural voices — free, high-quality audio with full seek, scrub, and download support. Generated audio is cached in Convex so each section only needs to be synthesized once. Long sections are chunked before synthesis to stay within Edge TTS limits while keeping startup latency low.
 
-**Podcasts** — Curio Garden publishes multiple public RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, and the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork.
+**Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
@@ -24,7 +24,11 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 **Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display. A Gallery section below the table of contents shows all images from the article with their captions in a card grid, with a keyboard-navigable lightbox for full-size viewing.
 
-**Your library** — Recently listened articles appear on the home page. Save articles to your reading list with one tap and find them on the Library page. All persisted in your browser — no account needed.
+**Accounts and dashboard** — Clerk sign-in unlocks a dashboard with a synced library, a personal playlist queue, copyable RSS feed URLs, and queue management controls for moving, removing, and retrying generated episodes. Guests can still explore freely and keep a device-local library without creating an account.
+
+**Your library** — Recently listened articles appear on the home page. Save articles to your reading list with one tap and find them on the Library page. Guests keep bookmarks on the current device, while signed-in readers get a synced library across sessions.
+
+**Personal playlist** — Add an article to your playlist while browsing to queue a full-article MP3 for background generation. Playlist is intentionally separate from Library: Library is for keeping things around, Playlist is for sequencing what should play next in your personal podcast feed.
 
 **Accessibility** — Built from the ground up for WCAG 2.2 AA compliance: skip links, semantic landmarks, visible focus outlines, screen reader support with ARIA labels and live regions, full keyboard navigation, high-contrast text in light and dark modes, and color-independent status indicators.
 
@@ -34,6 +38,7 @@ Your Wikipedia listening library — an accessibility-first web app that turns W
 
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
+- **Auth:** Clerk for sign-in and account sessions, bridged into Convex auth for viewer-scoped data
 - **TTS:** Edge TTS (free neural voices via Python `edge-tts`) with Convex-backed caching
 - **AI:** Vercel AI Gateway via the AI SDK for daily trend brief generation and web search
 - **Styling:** Tailwind CSS 4 + CSS custom properties
@@ -48,7 +53,7 @@ Text is normalized before synthesis — stripping citation markers and expanding
 
 Generated audio is cached per-section in Convex file storage so each section is only synthesized once. Subsequent plays (by any user) are served directly from the cache.
 
-Featured podcast episodes reuse that same section cache where possible, then concatenate the article into one stored MP3 for RSS delivery. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Vercel cron routes can generate both feeds on a schedule.
+Featured podcast episodes and personal playlist episodes both reuse that same section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Vercel cron routes can generate the public feeds on a schedule.
 
 > **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
@@ -63,11 +68,13 @@ npm run local
 
 Open [http://localhost:3000](http://localhost:3000). You can browse, search, and navigate articles immediately. History, bookmarks, playback speed, and theme are persisted in localStorage.
 
+Local mode skips Clerk and Convex entirely, so account-only features such as the synced dashboard, personal playlist, and personal RSS feed are intentionally unavailable there.
+
 Audio requires a one-time Python setup (takes 30 seconds) — see [Local Audio Setup](#local-audio-setup) below.
 
 ## Full Setup (with Convex)
 
-For article caching, persistence, and audio caching:
+For article caching, synced accounts, personal playlist feeds, and audio caching:
 
 ### Prerequisites
 
@@ -100,6 +107,8 @@ Clerk can boot in keyless mode for a quick local smoke test, so you do not need 
 4. If your dashboard shows the older auth flow instead, open `JWT templates`, create a `Convex` template, and use that issuer value instead.
 5. Copy the Clerk `Frontend API URL`. Convex uses that value as `CLERK_JWT_ISSUER_DOMAIN`.
 6. In `API keys`, copy the publishable key and secret key into `.env.local` and your Vercel project.
+
+This auth bridge powers all signed-in viewer features: the synced Library, the Dashboard, and the per-user Personal Playlist RSS feed.
 
 In the Convex dashboard for your deployment:
 
@@ -154,8 +163,8 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `NEXT_PUBLIC_CONVEX_URL` | Convex mode | Convex deployment URL (auto-generated by `npx convex dev`) |
 | `CONVEX_DEPLOYMENT` | Convex mode | Convex deployment identifier |
 | `CLERK_JWT_ISSUER_DOMAIN` | Convex mode | Clerk Frontend API URL configured in the Convex dashboard for JWT verification |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key for a claimed local/prod app; keyless mode can omit this initially |
-| `CLERK_SECRET_KEY` | No | Clerk secret key for a claimed local/prod app; add locally and in Vercel after claiming the app |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot |
+| `CLERK_SECRET_KEY` | No | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments |
 | `NEXT_PUBLIC_LOCAL_MODE` | No | Set to `"true"` to run without Convex |
 | `USE_PYTHON_TTS` | No | Route `/api/tts` to the standalone Python TTS server (used by `npm run dev:python`) |
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
@@ -171,10 +180,11 @@ See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 
 ## Podcasts
 
-Curio Garden can publish multiple public RSS feeds:
+Curio Garden can publish multiple RSS feeds:
 
 - Featured Articles: `/api/podcast/featured.xml`
 - Trending Brief: `/api/podcast/trending.xml`
+- Personal Playlist: `/api/podcast/personal.xml?token=...`
 
 Featured Articles:
 
@@ -189,6 +199,14 @@ Trending Brief:
 - Each episode also gets local collage artwork generated from up to four trending-article thumbnails, with the trending date rendered into the image and embedded into the MP3 metadata.
 - `POST /api/podcast/trending/sync` is a manual trigger for generating the latest trending brief episode and is protected by `CRON_SECRET`.
 - `GET /api/podcast/trending/cron` is the scheduled trigger used by Vercel cron and is protected by `CRON_SECRET`.
+
+Personal Playlist:
+
+- The feed is account-scoped and exposed only through an opaque tokenized URL shown in the signed-in dashboard.
+- Each queue item becomes one full-article episode once background generation finishes.
+- Only `ready` items appear in the RSS feed, and enclosure URLs are served from `/api/podcast/media/personal/[episodeId]?token=...`.
+- The feed uses generic Curio Garden show metadata and cached artwork from `/api/podcast/personal/artwork`.
+- This feed is meant for `Follow a Show by URL` in podcast apps, not for listing in the public podcast directory.
 
 To enable scheduled generation in production:
 
@@ -218,6 +236,10 @@ With `npm run dev` running locally:
    `http://127.0.0.1:3000/podcasts/trending`
 5. Inspect the trending artwork:
    `http://127.0.0.1:3000/api/podcast/trending/artwork`
+6. Test the personal playlist feed:
+   sign in locally, add an article to Playlist, then copy the tokenized feed URL from `/dashboard`
+
+For Apple Podcasts and other validators, use a preview or production HTTPS deployment instead of `localhost`; podcast clients generally expect the feed, artwork, and media URLs to be publicly reachable.
 
 ## Development Scripts
 
@@ -239,9 +261,10 @@ app/
   AppProviders.tsx        Switches between Convex and local data providers
   ConvexClientProvider.tsx  Convex client wrapper
   page.tsx                Landing page with search, featured article, trending, recently listened
+  dashboard/page.tsx      Signed-in account hub for synced library and playlist queue
   search/page.tsx         Search results page
   article/[slug]/page.tsx Article view with audio playback
-  library/page.tsx        Saved reading list
+  library/page.tsx        Saved reading list (guest-local or account-synced)
   podcast/page.tsx        Redirects legacy /podcast to /podcasts
   podcasts/page.tsx       Public podcast index page for both feeds
   podcasts/[slug]/page.tsx Dedicated archive page for each podcast feed
@@ -252,10 +275,13 @@ app/
   api/podcast/featured.xml/route.ts  RSS feed for featured podcast episodes
   api/podcast/featured/sync/route.ts Manual featured-episode generation trigger
   api/podcast/featured/cron/route.ts Scheduled featured-episode generation trigger
+  api/podcast/personal.xml/route.ts  Tokenized personal playlist RSS feed
+  api/podcast/personal/artwork/route.ts  Personal playlist show artwork
   api/podcast/trending.xml/route.ts  RSS feed for trending-brief podcast episodes
   api/podcast/trending/sync/route.ts Manual trending-brief generation trigger
   api/podcast/trending/cron/route.ts Scheduled trending-brief generation trigger
   api/podcast/media/[episodeId]/route.ts Stable podcast media URL
+  api/podcast/media/personal/[episodeId]/route.ts Stable personal playlist media URL
   api/podcast/media/trending/[briefId]/route.ts Stable trending podcast media URL
   api/podcast/trending/artwork/route.ts Latest trending podcast artwork
   api/podcast/trending/artwork/[briefId]/route.ts Episode-specific trending artwork
@@ -277,6 +303,7 @@ lib/
   podcast-episode.ts      Server-side featured podcast generation pipeline
   podcast-feed.ts         Shared RSS metadata and podcast description helpers
   podcast-rss.ts          Shared RSS XML formatting helpers
+  personal-show-podcast-artwork.ts  Artwork generator for the personal playlist show
   tts-normalize.ts        Text normalization for TTS (abbreviation expansion)
   nsfw-filter.ts          Shared NSFW category/keyword filter and batch title check
   formatTime.ts           Duration formatting helpers
@@ -284,6 +311,7 @@ lib/
 components/
   AccessibleLayout.tsx    Skip link, navbar, footer, landmark structure
   AuthNavControls.tsx     Clerk sign-in, sign-up, and user menu controls
+  DashboardHub.tsx        Signed-in dashboard shell with library and playlist modules
   SearchForm.tsx          Accessible search form (GET /search?q=...)
   SearchResultsList.tsx   Wikipedia search results with loading/error states
   ArticleView.tsx         Article loader with audio playback, thumbnails, and resume
@@ -292,6 +320,7 @@ components/
   AudioPlayer.tsx         File-based audio player with seek/scrub/download
   TableOfContents.tsx     Section list with per-section playback and Play All
   BookmarkButton.tsx      Save/unsave article to reading list
+  PlaylistActionButton.tsx  Add-article action for the personal playlist queue
   BackButton.tsx          Navigation back button
   RecentlyListened.tsx    Recently listened articles grid (home page)
   FeaturedArticle.tsx     Today's Featured Article card with thumbnail (home page)
@@ -302,23 +331,26 @@ components/
   ThemeProvider.tsx       Dark/light theme with useSyncExternalStore
   ThemeToggle.tsx         Theme toggle button (sun/moon icons)
   CopyFeedButton.tsx      Clipboard copy button for podcast feed URLs
+  PodcastFeedActions.tsx  Feed copy helpers and Apple Podcasts instructions
   ServiceWorkerRegistration.tsx  Registers the PWA service worker
 
 hooks/
   usePlaybackRate.ts      Persisted playback speed (0.5x–3x)
   useHistory.ts           Reading history with resume progress tracking
-  useBookmarks.ts         Reading list / saved articles
+  useBookmarks.ts         Hybrid reading list / saved articles (guest + account)
+  usePersonalPlaylist.tsx Signed-in personal playlist state and actions
   useAudioElement.ts      Shared HTML audio element management
 
 convex/
   auth.config.ts         Clerk JWT provider configuration for Convex
   auth.ts                Authenticated viewer query used for the integration smoke test
-  schema.ts              Database schema (articles, sectionAudio, podcast episodes/jobs)
+  schema.ts              Database schema (articles, bookmarks, playlist feeds, podcast episodes/jobs)
   search.ts              Wikipedia search action
   articles.ts            Article query, upsert mutation, fetch-and-cache action
   audio.ts               Section audio caching (query, upload, save)
   trending.ts            Daily trending-brief queries and mutations
   podcast.ts             Featured podcast queries, mutations, and upload helpers
+  personalPlaylist.ts    Viewer-scoped playlist queue, generation, and RSS feed helpers
   lib/
     wikipedia.ts         Wikipedia REST/Action API client (also used by local mode)
 
@@ -339,7 +371,11 @@ proxy.ts                Clerk middleware entrypoint for App Router auth
 Primary Convex tables:
 
 - `articles` stores cached Wikipedia article data used across search, article views, and podcast generation.
+- `bookmarks` stores saved Library articles keyed by viewer identity, with guest imports merged into signed-in accounts on the same device.
+- `personalPodcastFeeds` stores one opaque feed token per signed-in viewer for the tokenized Personal Playlist RSS feed.
+- `personalPlaylistEpisodes` stores the ordered personal queue plus generation state, progress, and stored MP3 metadata for each playlist episode.
 - `sectionAudio` stores per-section audio blobs keyed by article, section key, and TTS normalization version.
+- `podcastShowAssets` stores cached show artwork for featured, trending, and personal feeds.
 - `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
 - `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
 - `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date, including the podcast audio asset and the image URLs used to generate trending collage artwork.

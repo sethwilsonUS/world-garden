@@ -26,6 +26,9 @@ type PlaylistEntry = {
   position: number;
   publishedAt: number;
   status: "queued" | "running" | "ready" | "failed";
+  stage?: "queued" | "rendering_audio" | "packaging";
+  sectionCount?: number;
+  completedSectionCount?: number;
   durationSeconds?: number;
   byteLength?: number;
   lastError?: string;
