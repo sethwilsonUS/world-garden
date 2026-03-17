@@ -24,8 +24,8 @@ export const PodcastFeedActions = ({
     const copied = await copyTextToClipboard(feedUrl);
     setStatusMessage(
       copied
-        ? "Feed URL copied. In Apple Podcasts, choose Follow a Show by URL and paste it."
-        : "Could not copy automatically. Copy the feed URL manually, then paste it into Apple Podcasts.",
+        ? "Feed URL copied. In Apple Podcasts, choose Follow a Show by URL and paste it. Feed updates often appear within a few hours."
+        : "Could not copy automatically. Copy the feed URL manually, then paste it into Apple Podcasts. Feed updates often appear within a few hours.",
     );
   };
 
@@ -66,6 +66,12 @@ export const PodcastFeedActions = ({
       <p id={descriptionId} className="mt-3 text-sm text-muted leading-[1.6]">
         Tip: this copies the RSS feed so you can paste it into Apple Podcasts
         using <span className="font-medium text-foreground">Follow a Show by URL</span>.
+      </p>
+      <p className="mt-2 text-sm text-muted leading-[1.6]">
+        Expect a little lag: Apple Podcasts usually picks up feed changes
+        within a few hours, while artwork or metadata updates can take up to a
+        day. On Mac, you can try <span className="font-medium text-foreground">Command-R</span>;
+        on iPhone, Apple does not document an equivalent manual refresh.
       </p>
       <p className="sr-only" aria-live="polite" role="status">
         {statusMessage}

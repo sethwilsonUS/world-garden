@@ -1,4 +1,5 @@
 import { normalizeTtsText } from "./tts-normalize";
+import { concatenateMp3Blobs } from "./audio-metadata";
 import {
   TTS_API_ROUTE,
   TTS_MIN_TEXT_LENGTH,
@@ -191,11 +192,7 @@ export const generateTtsAudio = async ({
     }
   }
 
-  if (audioChunks.length === 1) {
-    return audioChunks[0];
-  }
-
-  return new Blob(audioChunks, { type: "audio/mpeg" });
+  return await concatenateMp3Blobs(audioChunks);
 };
 
 export const generateTtsAudioUrl = async (

@@ -258,21 +258,41 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       imageUrl: args.imageUrl,
       removedAt: undefined,
       position: activeEpisodes.length,
+      status: "queued",
+      storageId: undefined,
+      durationSeconds: undefined,
+      byteLength: undefined,
+      lastError: undefined,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
       updatedAt: now,
     });
 
     const refreshedEpisodes = [
       ...activeEpisodes,
-      { ...existing, ...args, removedAt: undefined, position: activeEpisodes.length },
+      {
+        ...existing,
+        ...args,
+        removedAt: undefined,
+        position: activeEpisodes.length,
+        status: "queued" as const,
+        storageId: undefined,
+        durationSeconds: undefined,
+        byteLength: undefined,
+        lastError: undefined,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+        updatedAt: now,
+      },
     ];
     await rewriteActiveViewerQueue(ctx, refreshedEpisodes, now);
 
     return {
       feedToken: feed.feedToken,
       episodeId: existing._id,
-      status: existing.status,
+      status: "queued",
       added: true,
-      shouldSchedule: existing.status === "queued",
+      shouldSchedule: true,
     };
   }
 

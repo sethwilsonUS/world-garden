@@ -1,6 +1,9 @@
 import { type Id } from "../_generated/dataModel";
 import { titleToSlug } from "./wikipedia";
-import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
+import {
+  addMp3MetadataToBlob,
+  concatenateMp3Blobs,
+} from "../../lib/audio-metadata";
 import { generateTtsAudio } from "../../lib/tts-client";
 import { hasFullAudio, type AudioMode, type AudioReason } from "../../lib/audio-suitability";
 
@@ -192,7 +195,7 @@ export const assembleArticleAudio = async ({
     stage: "packaging",
   });
 
-  const combinedBlob = new Blob(audioChunks, { type: "audio/mpeg" });
+  const combinedBlob = await concatenateMp3Blobs(audioChunks);
   const artwork = await fetchArticleArtwork({
     baseUrl,
     slug: article.slug,
