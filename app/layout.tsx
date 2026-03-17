@@ -80,6 +80,7 @@ export default function RootLayout({
       <AppProviders>
         <ThemeProvider>
           <AccessibleLayout
+            authEnabled={!isLocal}
             authControls={isLocal ? undefined : <AuthNavControls />}
             mobileAuthControls={isLocal ? undefined : <AuthNavControls mobile />}
           >

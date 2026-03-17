@@ -1,18 +1,21 @@
 "use client";
 
-import { Authenticated, AuthLoading, Unauthenticated, useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import type { ReactNode } from "react";
+import Link from "next/link";
+import { SignInButton, useUser } from "@clerk/nextjs";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { useBookmarks } from "@/hooks/useBookmarks";
 
 const CardShell = ({
   eyebrow,
   title,
-  body,
   statusTone = "text-accent",
+  children,
 }: {
   eyebrow: string;
   title: string;
-  body: string;
   statusTone?: string;
+  children: ReactNode;
 }) => {
   return (
     <section
@@ -28,70 +31,47 @@ const CardShell = ({
       >
         {title}
       </h2>
-      <p className="text-sm leading-6 text-foreground-2 mt-2">{body}</p>
+      <div className="mt-2">{children}</div>
     </section>
   );
 };
 
 const AuthenticatedViewerState = () => {
-  const viewer = useQuery(api.auth.viewer, {});
-
-  if (viewer === undefined) {
-    return (
-      <CardShell
-        eyebrow="Checking session"
-        title="Convex is validating your session"
-        body="Your Clerk session is signed in. Waiting for Convex to confirm the token and load your viewer details."
-      />
-    );
-  }
-
-  if (!viewer) {
-    return (
-      <CardShell
-        eyebrow="Session mismatch"
-        title="Clerk is signed in, but Convex does not see a viewer yet"
-        body="Finish the Clerk-to-Convex dashboard setup, then refresh this page to re-run the smoke test."
-        statusTone="text-serious"
-      />
-    );
-  }
-
-  const primaryIdentity = viewer.email ?? viewer.name ?? viewer.subject;
+  const { user } = useUser();
+  const { entries, isLoaded } = useBookmarks();
+  const displayName =
+    user?.firstName ??
+    user?.fullName ??
+    user?.primaryEmailAddress?.emailAddress?.split("@")[0] ??
+    "there";
+  const savedSummary = !isLoaded
+    ? "Syncing your saved articles."
+    : entries.length === 0
+      ? "Your synced Library is ready for its first article."
+      : `${entries.length} saved article${entries.length === 1 ? "" : "s"} waiting in Library.`;
 
   return (
-    <section
-      aria-labelledby="auth-status-heading"
-      className="garden-bed pattern-leaves overflow-hidden px-6 py-5 text-left"
-    >
-      <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-accent">
-        Clerk to Convex
+    <CardShell eyebrow="Signed in" title={`Welcome back, ${displayName}`}>
+      <p className="text-sm leading-6 text-foreground-2">
+        Your account is ready. {savedSummary} Dashboard is the new home for
+        synced reading now, with playlists and progress features planted for a
+        later season.
       </p>
-      <h2
-        id="auth-status-heading"
-        className="font-display text-xl font-semibold text-foreground mt-2"
-      >
-        Convex sees you
-      </h2>
-      <p className="text-sm leading-6 text-foreground-2 mt-2">
-        Signed in as <span className="font-semibold text-foreground">{primaryIdentity}</span>.
-        The Convex viewer query resolved with your Clerk-backed identity.
-      </p>
-      <dl className="mt-4 grid gap-3 text-sm text-foreground-2 sm:grid-cols-2">
-        <div>
-          <dt className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted">
-            Subject
-          </dt>
-          <dd className="mt-1 break-all text-foreground">{viewer.subject}</dd>
-        </div>
-        <div>
-          <dt className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted">
-            Issuer
-          </dt>
-          <dd className="mt-1 break-all text-foreground">{viewer.issuer}</dd>
-        </div>
-      </dl>
-    </section>
+      <div className="mt-4 flex flex-wrap gap-3">
+        <Link
+          href="/dashboard"
+          className="btn-primary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+        >
+          Open Dashboard
+        </Link>
+        <Link
+          href="/library"
+          className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+        >
+          Open Library
+        </Link>
+      </div>
+    </CardShell>
   );
 };
 
@@ -102,16 +82,37 @@ export const HomeAuthStatusCard = () => {
         <CardShell
           eyebrow="Checking session"
           title="Looking for a Convex session"
-          body="Clerk and Convex are comparing notes so we can show the right signed-in state."
-        />
+        >
+          <p className="text-sm leading-6 text-foreground-2">
+            Checking whether to show your guest view or account dashboard.
+          </p>
+        </CardShell>
       </AuthLoading>
 
       <Unauthenticated>
         <CardShell
           eyebrow="Guest mode"
-          title="You are browsing anonymously"
-          body="Sign in from the header to test the Clerk-to-Convex handshake. The app stays fully public either way."
-        />
+          title="Browse now, sync later"
+        >
+          <p className="text-sm leading-6 text-foreground-2">
+            Curio Garden stays public without an account. New here? Continue
+            with Google or create an email account in the sign-in flow when you
+            want synced bookmarks and a dashboard for future features.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <SignInButton>
+              <button className="btn-primary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm">
+                Sign in
+              </button>
+            </SignInButton>
+            <Link
+              href="/library"
+              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+            >
+              Open Library
+            </Link>
+          </div>
+        </CardShell>
       </Unauthenticated>
 
       <Authenticated>
