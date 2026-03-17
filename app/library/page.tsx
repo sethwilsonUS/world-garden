@@ -4,9 +4,14 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { analytics } from "@/lib/analytics";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { getBookmarkListViewState } from "@/lib/bookmarks";
 
 export default function LibraryPage() {
-  const { entries, remove } = useBookmarks();
+  const { entries, remove, isLoaded } = useBookmarks();
+  const viewState = getBookmarkListViewState({
+    isLoaded,
+    entriesCount: entries.length,
+  });
 
   useEffect(() => {
     analytics.libraryPageAccessed();
@@ -45,7 +50,18 @@ export default function LibraryPage() {
             Reading list
           </h1>
 
-          {entries.length === 0 ? (
+          {viewState === "loading" ? (
+            <div className="garden-bed text-center py-12 px-6" role="status">
+              <div className="skeleton h-4 w-32 mx-auto" />
+              <p className="font-display font-semibold text-lg text-foreground mt-4">
+                Loading your reading list
+              </p>
+              <p className="text-muted text-sm mt-2">
+                Fetching your saved articles and any guest bookmarks ready for
+                this account on this device.
+              </p>
+            </div>
+          ) : viewState === "empty" ? (
             <div
               className="garden-bed text-center py-12 px-6"
               role="status"

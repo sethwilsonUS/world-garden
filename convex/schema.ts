@@ -20,6 +20,12 @@ const trendingBriefStatus = v.union(
   v.literal("failed"),
 );
 
+const didYouKnowAudioStatus = v.union(
+  v.literal("pending"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
 const articleAudioExportStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -81,6 +87,16 @@ export default defineSchema({
   })
     .index("by_wikiPageId", ["wikiPageId"])
     .index("by_slug", ["slug"]),
+
+  bookmarks: defineTable({
+    viewerTokenIdentifier: v.string(),
+    slug: v.string(),
+    title: v.string(),
+    savedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_viewerTokenIdentifier_slug", ["viewerTokenIdentifier", "slug"]),
 
   sectionAudio: defineTable({
     articleId: v.id("articles"),
@@ -236,6 +252,45 @@ export default defineSchema({
   })
     .index("by_trendingDate", ["trendingDate"])
     .index("by_status", ["status"]),
+
+  didYouKnowAudio: defineTable({
+    feedDate: v.string(),
+    status: didYouKnowAudioStatus,
+    title: v.optional(v.string()),
+    spokenText: v.optional(v.string()),
+    itemTexts: v.optional(v.array(v.string())),
+    storageId: v.optional(v.id("_storage")),
+    durationSeconds: v.optional(v.number()),
+    byteLength: v.optional(v.number()),
+    voiceId: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate", ["feedDate"])
+    .index("by_updatedAt", ["updatedAt"]),
+
+  didYouKnowAudioJobs: defineTable({
+    feedDate: v.string(),
+    status: featuredPodcastJobStatus,
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    leaseOwner: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate", ["feedDate"])
+    .index("by_status", ["status"]),
+
+  routeQuotas: defineTable({
+    key: v.string(),
+    count: v.number(),
+    windowStart: v.number(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
 
   podcastShowAssets: defineTable({
     slug: podcastShowAssetSlug,
