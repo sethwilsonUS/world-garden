@@ -62,6 +62,28 @@ vi.mock("@/hooks/usePersonalPlaylist", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useBadges", () => ({
+  useBadges: () => ({
+    badges: [
+      {
+        key: "history",
+        label: "History",
+        description: "Stories of empires.",
+        glyph: "quill-scroll",
+        exp: 0,
+        creditedArticleCount: 0,
+        level: 0,
+        expIntoLevel: 0,
+        expForNextLevel: 5,
+        nextLevelTarget: 5,
+      },
+    ],
+    totalExp: 0,
+    unlockedBadgeCount: 0,
+    isLoaded: true,
+  }),
+}));
+
 vi.mock("@/lib/analytics", () => ({
   analytics: {
     dashboardPageAccessed: vi.fn(),
@@ -90,6 +112,7 @@ describe("DashboardPage", () => {
     expect(markup).toContain("2 saved articles");
     expect(markup).toContain("Playlist");
     expect(markup).toContain("opaque-token");
-    expect(markup).toContain("Badges &amp; streaks");
+    expect(markup).toContain("Signed-in progress");
+    expect(markup).toContain("Podcast plays in podcast apps do not count toward badges yet.");
   });
 });
