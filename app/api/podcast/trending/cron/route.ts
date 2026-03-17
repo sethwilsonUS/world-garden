@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPodcastAdminAuthError } from "@/lib/podcast-admin-auth";
 import { getPodcastSiteUrl } from "@/lib/podcast-feed";
+import { enforceRouteQuota } from "@/lib/route-rate-limit";
 import { syncDailyTrendingBrief } from "@/lib/trending-brief";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -18,6 +19,17 @@ export const GET = async (req: NextRequest) => {
         headers: NO_CACHE_HEADERS,
       },
     );
+  }
+
+  const quotaResponse = await enforceRouteQuota({
+    req,
+    scope: "trending-daily-audio-sync",
+    limit: 6,
+    windowMs: 10 * 60 * 1000,
+    label: "Trending daily audio generation",
+  });
+  if (quotaResponse) {
+    return quotaResponse;
   }
 
   try {

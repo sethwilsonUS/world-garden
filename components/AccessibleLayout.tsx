@@ -64,7 +64,15 @@ const CloseIcon = () => (
   </svg>
 );
 
-export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
+export const AccessibleLayout = ({
+  children,
+  authControls,
+  mobileAuthControls,
+}: {
+  children: ReactNode;
+  authControls?: ReactNode;
+  mobileAuthControls?: ReactNode;
+}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -159,6 +167,12 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
               Trending
             </Link>
             <Link
+              href="/did-you-know"
+              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+            >
+              Did you know?
+            </Link>
+            <Link
               href="/podcasts"
               className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
             >
@@ -171,6 +185,7 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
               Library
             </Link>
             <ThemeToggle />
+            {authControls}
           </div>
 
           {/* Mobile: theme toggle + hamburger */}
@@ -212,6 +227,12 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 Trending
               </Link>
               <Link
+                href="/did-you-know"
+                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
+              >
+                Did you know?
+              </Link>
+              <Link
                 href="/podcasts"
                 className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
               >
@@ -223,6 +244,9 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
               >
                 Library
               </Link>
+              {mobileAuthControls ? (
+                <div className="pt-3 mt-2 border-t border-border">{mobileAuthControls}</div>
+              ) : null}
             </div>
           </div>
         )}
@@ -254,7 +278,7 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
             </div>
             <nav
               aria-label="Footer navigation"
-              className="flex gap-4"
+              className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2"
             >
               <Link
                 href="/"
@@ -269,6 +293,12 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 Trending
               </Link>
               <Link
+                href="/did-you-know"
+                className="text-foreground-2 no-underline text-sm"
+              >
+                Did you know?
+              </Link>
+              <Link
                 href="/podcasts"
                 className="text-foreground-2 no-underline text-sm"
               >
@@ -279,6 +309,18 @@ export const AccessibleLayout = ({ children }: { children: ReactNode }) => {
                 className="text-foreground-2 no-underline text-sm"
               >
                 Library
+              </Link>
+              <Link
+                href="/privacy"
+                className="text-foreground-2 no-underline text-sm"
+              >
+                Privacy
+              </Link>
+              <Link
+                href="/terms"
+                className="text-foreground-2 no-underline text-sm"
+              >
+                Terms
               </Link>
             </nav>
           </div>

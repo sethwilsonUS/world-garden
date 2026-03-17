@@ -4,7 +4,10 @@ import { SearchForm } from "@/components/SearchForm";
 import { RecentlyListened } from "@/components/RecentlyListened";
 import { FeaturedArticle } from "@/components/FeaturedArticle";
 import { CuriousAbout } from "@/components/CuriousAbout";
+import { HomeAuthStatusCard } from "@/components/HomeAuthStatusCard";
 import { RandomArticleButton } from "@/components/RandomArticleButton";
+
+const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 export default function Home() {
   return (
@@ -53,6 +56,12 @@ export default function Home() {
         </div>
 
       </section>
+
+      {!isLocal ? (
+        <div className="max-w-xl mx-auto mt-10 animate-fade-in-up-delay-2">
+          <HomeAuthStatusCard />
+        </div>
+      ) : null}
 
       <div className="max-w-xl mx-auto animate-fade-in-up-delay-2">
         <FeaturedArticle />

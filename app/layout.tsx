@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
 import { Fraunces, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { AppProviders } from "./AppProviders";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AccessibleLayout } from "@/components/AccessibleLayout";
+import { AuthNavControls } from "@/components/AuthNavControls";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { TrendingBriefWarmup } from "@/components/TrendingBriefWarmup";
 import { Analytics } from "@vercel/analytics/next";
@@ -66,11 +68,32 @@ const themeToggleCss = `
 .light .theme-icon-moon { display: inline-flex; }
 `;
 
+const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const shell = (
+    <>
+      <AppProviders>
+        <ThemeProvider>
+          <AccessibleLayout
+            authControls={isLocal ? undefined : <AuthNavControls />}
+            mobileAuthControls={isLocal ? undefined : <AuthNavControls mobile />}
+          >
+            {children}
+          </AccessibleLayout>
+        </ThemeProvider>
+      </AppProviders>
+      <TrendingBriefWarmup />
+      <ServiceWorkerRegistration />
+      <Analytics />
+      <SpeedInsights />
+    </>
+  );
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -87,15 +110,7 @@ export default function RootLayout({
         className={`${fraunces.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased animated-bg`}
         style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
-        <AppProviders>
-          <ThemeProvider>
-            <AccessibleLayout>{children}</AccessibleLayout>
-          </ThemeProvider>
-        </AppProviders>
-        <TrendingBriefWarmup />
-        <ServiceWorkerRegistration />
-        <Analytics />
-        <SpeedInsights />
+        {isLocal ? shell : <ClerkProvider dynamic>{shell}</ClerkProvider>}
       </body>
     </html>
   );

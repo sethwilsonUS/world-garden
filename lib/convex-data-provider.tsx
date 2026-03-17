@@ -1,9 +1,12 @@
 "use client";
 
 import { ReactNode, useMemo } from "react";
-import { ConvexProvider, ConvexReactClient, useAction } from "convex/react";
+import { useAuth } from "@clerk/nextjs";
+import { ConvexReactClient, useAction } from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { api } from "@/convex/_generated/api";
 import { ArticleAudioExportProvider } from "@/components/ArticleAudioExportProvider";
+import { HybridBookmarkProvider } from "@/hooks/useBookmarks";
 import {
   DataContext,
   type DataContextValue,
@@ -49,15 +52,17 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
 
   return (
     <DataContext.Provider value={value}>
-      <ArticleAudioExportProvider>{children}</ArticleAudioExportProvider>
+      <HybridBookmarkProvider>
+        <ArticleAudioExportProvider>{children}</ArticleAudioExportProvider>
+      </HybridBookmarkProvider>
     </DataContext.Provider>
   );
 };
 
 export const ConvexDataProvider = ({ children }: { children: ReactNode }) => {
   return (
-    <ConvexProvider client={convex}>
+    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
       <ConvexDataProviderInner>{children}</ConvexDataProviderInner>
-    </ConvexProvider>
+    </ConvexProviderWithClerk>
   );
 };

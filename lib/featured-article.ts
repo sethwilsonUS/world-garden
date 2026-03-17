@@ -25,6 +25,30 @@ export type WikipediaTrendingArticle = {
   thumbnail?: WikipediaFeaturedThumbnail;
 };
 
+export type WikipediaDidYouKnowLink = {
+  title: string;
+  slug: string;
+  text: string;
+};
+
+export type WikipediaDidYouKnowSegment =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "link";
+      text: string;
+      title: string;
+      slug: string;
+    };
+
+export type WikipediaDidYouKnowItem = {
+  text: string;
+  links: WikipediaDidYouKnowLink[];
+  segments: WikipediaDidYouKnowSegment[];
+};
+
 type FeaturedFeedArticlePayload = {
   titles?: { normalized?: string };
   title?: string;
@@ -35,17 +59,24 @@ type FeaturedFeedArticlePayload = {
   pageid?: number | string;
 };
 
+type DidYouKnowPayload = {
+  html?: string;
+  text?: string;
+};
+
 type FeaturedFeedPayload = {
   tfa?: FeaturedFeedArticlePayload;
   mostread?: {
     articles?: FeaturedFeedArticlePayload[];
     date?: string | null;
   };
+  dyk?: DidYouKnowPayload[];
 };
 
 export type WikipediaFeaturedSnapshot = {
   tfa: WikipediaFeaturedArticle | null;
   trendingCandidates: WikipediaTrendingArticle[];
+  didYouKnow: WikipediaDidYouKnowItem[];
   trendingDate: string | null;
   trendingSource: string | null;
   feedDate: string;
@@ -83,6 +114,136 @@ const toTrendingArticle = (
   views: (article.views ?? 0) as number,
   thumbnail: article.thumbnail,
 });
+
+const ARTICLE_PATH_PREFIX = "/wiki/";
+const BLOCKED_DYK_PREFIXES = [
+  "Category:",
+  "File:",
+  "Help:",
+  "Portal:",
+  "Special:",
+  "Template:",
+  "Template_talk:",
+  "Wikipedia:",
+] as const;
+
+const decodeHtmlEntities = (value: string): string =>
+  value
+    .replace(/&#(\d+);/g, (_, dec) =>
+      String.fromCodePoint(Number.parseInt(dec, 10)),
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+
+const stripTags = (value: string): string => value.replace(/<[^>]+>/g, "");
+
+const normalizeHtmlText = (value: string): string =>
+  decodeHtmlEntities(stripTags(value).replace(/\s+/g, " "));
+
+const appendTextSegment = (
+  segments: WikipediaDidYouKnowSegment[],
+  text: string,
+) => {
+  if (text.length === 0) return;
+
+  const previous = segments[segments.length - 1];
+  if (previous?.type === "text") {
+    previous.text += text;
+    return;
+  }
+
+  segments.push({ type: "text", text });
+};
+
+const toDidYouKnowLink = (
+  href: string,
+  text: string,
+): WikipediaDidYouKnowLink | null => {
+  try {
+    const url = new URL(decodeHtmlEntities(href), "https://en.wikipedia.org");
+
+    if (url.origin !== "https://en.wikipedia.org") return null;
+    if (!url.pathname.startsWith(ARTICLE_PATH_PREFIX)) return null;
+
+    const slug = decodeURIComponent(url.pathname.slice(ARTICLE_PATH_PREFIX.length));
+    if (!slug) return null;
+    if (BLOCKED_DYK_PREFIXES.some((prefix) => slug.startsWith(prefix))) {
+      return null;
+    }
+
+    return {
+      title: slug.replace(/_/g, " "),
+      slug,
+      text,
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const parseDidYouKnowItem = (
+  item: DidYouKnowPayload,
+): WikipediaDidYouKnowItem | null => {
+  const fallbackText = normalizeHtmlText(item.text ?? "").trim();
+  const html = item.html ?? "";
+
+  if (!html && !fallbackText) return null;
+  if (!html) {
+    return {
+      text: fallbackText,
+      links: [],
+      segments: fallbackText ? [{ type: "text", text: fallbackText }] : [],
+    };
+  }
+
+  const segments: WikipediaDidYouKnowSegment[] = [];
+  const links: WikipediaDidYouKnowLink[] = [];
+  const anchorRe = /<a\b[^>]*href=(["'])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi;
+
+  let lastIndex = 0;
+  for (const match of html.matchAll(anchorRe)) {
+    const [fullMatch, , href, innerHtml] = match;
+    const matchIndex = match.index ?? 0;
+
+    appendTextSegment(segments, normalizeHtmlText(html.slice(lastIndex, matchIndex)));
+
+    const linkText = normalizeHtmlText(innerHtml).trim();
+    const link = linkText ? toDidYouKnowLink(href, linkText) : null;
+
+    if (link) {
+      links.push(link);
+      segments.push({
+        type: "link",
+        text: link.text,
+        title: link.title,
+        slug: link.slug,
+      });
+    } else {
+      appendTextSegment(segments, linkText);
+    }
+
+    lastIndex = matchIndex + fullMatch.length;
+  }
+
+  appendTextSegment(segments, normalizeHtmlText(html.slice(lastIndex)));
+
+  const text = segments.map((segment) => segment.text).join("").trim() || fallbackText;
+  if (!text) return null;
+
+  return {
+    text,
+    links,
+    segments:
+      segments.length > 0 ? segments : [{ type: "text", text }],
+  };
+};
 
 const fetchFeaturedFeedPayload = async (
   feedDate: string,
@@ -123,6 +284,9 @@ export const fetchWikipediaFeaturedSnapshot = async (
   return {
     tfa: toFeaturedArticle(todayData.tfa),
     trendingCandidates: mostRead.map(toTrendingArticle),
+    didYouKnow: (todayData.dyk ?? [])
+      .map(parseDidYouKnowItem)
+      .filter((item): item is WikipediaDidYouKnowItem => item !== null),
     trendingDate,
     trendingSource,
     feedDate,

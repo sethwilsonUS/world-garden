@@ -7,7 +7,7 @@ const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 function errorResponse(reason: string, status = 502) {
   console.error(`[/api/featured] ${reason}`);
   return NextResponse.json(
-    { tfa: null, trending: [], error: reason },
+    { tfa: null, trending: [], didYouKnow: [], error: reason },
     { status, headers: NO_CACHE_HEADERS },
   );
 }
@@ -17,6 +17,7 @@ export async function GET() {
     const {
       tfa,
       trendingCandidates,
+      didYouKnow,
       trendingDate,
       trendingSource,
       feedDate,
@@ -52,7 +53,7 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { tfa, trending, trendingDate, feedDate: feedDateIso },
+      { tfa, trending, didYouKnow, trendingDate, feedDate: feedDateIso },
       {
         headers: {
           "Cache-Control":
