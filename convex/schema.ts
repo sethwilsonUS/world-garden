@@ -67,6 +67,22 @@ const podcastShowAssetSlug = v.union(
   v.literal("personal"),
 );
 
+const badgeKey = v.union(
+  v.literal("history"),
+  v.literal("geography"),
+  v.literal("biography"),
+  v.literal("society_politics"),
+  v.literal("arts_culture"),
+  v.literal("science"),
+  v.literal("technology"),
+  v.literal("nature"),
+);
+
+const heardRange = v.object({
+  startSecond: v.number(),
+  endSecond: v.number(),
+});
+
 export default defineSchema({
   articles: defineTable({
     wikiPageId: v.string(),
@@ -79,6 +95,9 @@ export default defineSchema({
     thumbnailUrl: v.optional(v.string()),
     thumbnailWidth: v.optional(v.number()),
     thumbnailHeight: v.optional(v.number()),
+    badgeKeys: v.optional(v.array(badgeKey)),
+    badgeTopicVersion: v.optional(v.number()),
+    badgeTopicsCachedAt: v.optional(v.number()),
     sections: v.optional(
       v.array(
         v.object({
@@ -372,4 +391,49 @@ export default defineSchema({
     .index("by_clientId", ["clientId"])
     .index("by_articleId", ["articleId"])
     .index("by_clientId_articleId", ["clientId", "articleId"]),
+
+  viewerArticleListenProgress: defineTable({
+    viewerTokenIdentifier: v.string(),
+    articleId: v.id("articles"),
+    wikiPageId: v.string(),
+    slug: v.string(),
+    title: v.string(),
+    totalDurationSeconds: v.number(),
+    heardSeconds: v.number(),
+    qualifiedAt: v.optional(v.number()),
+    sections: v.array(
+      v.object({
+        sectionKey: v.string(),
+        durationSeconds: v.number(),
+        heardRanges: v.array(heardRange),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_viewerTokenIdentifier_wikiPageId", [
+      "viewerTokenIdentifier",
+      "wikiPageId",
+    ])
+    .index("by_viewerTokenIdentifier_articleId", [
+      "viewerTokenIdentifier",
+      "articleId",
+    ]),
+
+  badgeArticleCredits: defineTable({
+    viewerTokenIdentifier: v.string(),
+    articleId: v.id("articles"),
+    wikiPageId: v.string(),
+    slug: v.string(),
+    title: v.string(),
+    badgeKey,
+    earnedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_viewerTokenIdentifier_wikiPageId_badgeKey", [
+      "viewerTokenIdentifier",
+      "wikiPageId",
+      "badgeKey",
+    ]),
 });
