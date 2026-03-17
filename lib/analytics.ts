@@ -9,6 +9,7 @@ export const analytics = {
   searchResultsLoaded: () => track("Search Results Loaded"),
   searchResultClicked: () => track("Search Result Clicked"),
   articleBookmarked: () => track("Article Bookmarked"),
+  dashboardPageAccessed: () => track("Dashboard Page Accessed"),
   libraryPageAccessed: () => track("Library Page Accessed"),
   featuredArticleAccessed: () => track("Featured Article Accessed"),
   trendingPageAccessed: () => track("Trending Page Accessed"),

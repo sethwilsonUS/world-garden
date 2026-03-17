@@ -4,6 +4,7 @@ import { ReactNode, useState, useRef, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
+import { SiteNavLinks } from "./SiteNavLinks";
 
 const MOBILE_MENU_ID = "mobile-nav-menu";
 
@@ -68,10 +69,12 @@ export const AccessibleLayout = ({
   children,
   authControls,
   mobileAuthControls,
+  authEnabled = false,
 }: {
   children: ReactNode;
   authControls?: ReactNode;
   mobileAuthControls?: ReactNode;
+  authEnabled?: boolean;
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
@@ -154,36 +157,7 @@ export const AccessibleLayout = ({
 
           {/* Desktop nav */}
           <div className="hidden sm:flex items-center gap-3">
-            <Link
-              href="/"
-              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-            >
-              Home
-            </Link>
-            <Link
-              href="/trending"
-              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-            >
-              Trending
-            </Link>
-            <Link
-              href="/did-you-know"
-              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-            >
-              Did you know?
-            </Link>
-            <Link
-              href="/podcasts"
-              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-            >
-              Podcasts
-            </Link>
-            <Link
-              href="/library"
-              className="text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-            >
-              Library
-            </Link>
+            <SiteNavLinks variant="desktop" authEnabled={authEnabled} />
             <ThemeToggle />
             {authControls}
           </div>
@@ -214,36 +188,7 @@ export const AccessibleLayout = ({
             className="sm:hidden absolute top-full left-0 right-0 bg-surface-nav backdrop-blur-2xl border-b border-border shadow-lg"
           >
             <div className="container mx-auto px-4 py-4 flex flex-col gap-1">
-              <Link
-                href="/"
-                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-              >
-                Home
-              </Link>
-              <Link
-                href="/trending"
-                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-              >
-                Trending
-              </Link>
-              <Link
-                href="/did-you-know"
-                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-              >
-                Did you know?
-              </Link>
-              <Link
-                href="/podcasts"
-                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-              >
-                Podcasts
-              </Link>
-              <Link
-                href="/library"
-                className="text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200"
-              >
-                Library
-              </Link>
+              <SiteNavLinks variant="mobile" authEnabled={authEnabled} />
               {mobileAuthControls ? (
                 <div className="pt-3 mt-2 border-t border-border">{mobileAuthControls}</div>
               ) : null}
@@ -280,46 +225,11 @@ export const AccessibleLayout = ({
               aria-label="Footer navigation"
               className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2"
             >
-              <Link
-                href="/"
-                className="text-foreground-2 no-underline text-sm"
-              >
-                Home
-              </Link>
-              <Link
-                href="/trending"
-                className="text-foreground-2 no-underline text-sm"
-              >
-                Trending
-              </Link>
-              <Link
-                href="/did-you-know"
-                className="text-foreground-2 no-underline text-sm"
-              >
-                Did you know?
-              </Link>
-              <Link
-                href="/podcasts"
-                className="text-foreground-2 no-underline text-sm"
-              >
-                Podcasts
-              </Link>
-              <Link
-                href="/library"
-                className="text-foreground-2 no-underline text-sm"
-              >
-                Library
-              </Link>
-              <Link
-                href="/privacy"
-                className="text-foreground-2 no-underline text-sm"
-              >
+              <SiteNavLinks variant="footer" authEnabled={authEnabled} />
+              <Link href="/privacy" className="text-foreground-2 no-underline text-sm">
                 Privacy
               </Link>
-              <Link
-                href="/terms"
-                className="text-foreground-2 no-underline text-sm"
-              >
+              <Link href="/terms" className="text-foreground-2 no-underline text-sm">
                 Terms
               </Link>
             </nav>

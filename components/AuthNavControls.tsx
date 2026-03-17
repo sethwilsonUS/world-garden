@@ -1,4 +1,4 @@
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 const desktopButtonClass =
   "btn-secondary min-h-9 px-3 py-2 text-sm no-underline";
@@ -20,9 +20,6 @@ export const AuthNavControls = ({ mobile = false }: { mobile?: boolean }) => {
         <SignInButton>
           <button className={buttonClass}>Sign in</button>
         </SignInButton>
-        <SignUpButton>
-          <button className={buttonClass}>Sign up</button>
-        </SignUpButton>
       </Show>
 
       <Show when="signed-in">
