@@ -15,6 +15,7 @@ import {
   getArticleAudioSections,
   type ArticleAudioSource,
 } from "./lib/articleAudioPipeline";
+import { uploadBlobToConvexStorage, uploadStreamToConvexStorage } from "./lib/storageUpload";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
@@ -395,7 +396,8 @@ export const processArticleAudioExport = internalAction({
           return cachedAudio.urls;
         },
         saveSectionAudio: async ({ sectionKey, blob, durationSeconds }) => {
-          const storageId = await ctx.storage.store(blob);
+          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
+          const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
             articleId: article._id,
             sectionKey,
@@ -403,6 +405,15 @@ export const processArticleAudioExport = internalAction({
             ttsNormVersion: TTS_NORM_VERSION,
             durationSeconds,
           });
+          const storageUrl = await ctx.storage.getUrl(storageId);
+          if (!storageUrl) {
+            throw new Error("Stored section audio URL could not be resolved.");
+          }
+          return storageUrl;
+        },
+        saveCombinedAudio: async ({ stream, contentType }) => {
+          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
+          return await uploadStreamToConvexStorage(uploadUrl, stream, contentType);
         },
         onProgress: async ({ completedSectionCount, stage }) => {
           await ctx.runMutation(
@@ -416,11 +427,9 @@ export const processArticleAudioExport = internalAction({
         },
       });
 
-      const storageId = await ctx.storage.store(result.blob);
-
       await ctx.runMutation(internal.articleExports.completeArticleAudioExport, {
         exportId: args.exportId,
-        storageId,
+        storageId: result.storageId,
         byteLength: result.byteLength,
       });
       await scheduleNextQueuedExport(record.clientId);

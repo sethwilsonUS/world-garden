@@ -16,6 +16,7 @@ import type * as badges from "../badges.js";
 import type * as bookmarks from "../bookmarks.js";
 import type * as didYouKnow from "../didYouKnow.js";
 import type * as lib_articleAudioPipeline from "../lib/articleAudioPipeline.js";
+import type * as lib_storageUpload from "../lib/storageUpload.js";
 import type * as lib_wikipedia from "../lib/wikipedia.js";
 import type * as personalPlaylist from "../personalPlaylist.js";
 import type * as podcast from "../podcast.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   bookmarks: typeof bookmarks;
   didYouKnow: typeof didYouKnow;
   "lib/articleAudioPipeline": typeof lib_articleAudioPipeline;
+  "lib/storageUpload": typeof lib_storageUpload;
   "lib/wikipedia": typeof lib_wikipedia;
   personalPlaylist: typeof personalPlaylist;
   podcast: typeof podcast;

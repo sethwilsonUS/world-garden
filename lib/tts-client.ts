@@ -192,7 +192,9 @@ export const generateTtsAudio = async ({
     }
   }
 
-  return await concatenateMp3Blobs(audioChunks);
+  return await concatenateMp3Blobs(audioChunks, {
+    stripId3Tags: "leading",
+  });
 };
 
 export const generateTtsAudioUrl = async (

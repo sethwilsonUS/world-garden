@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addMp3Metadata,
   addMp3MetadataToBlob,
+  concatenateMp3Blobs,
   concatenateMp3Buffers,
 } from "./audio-metadata";
 
@@ -140,5 +141,88 @@ describe("addMp3Metadata", () => {
     expect(Array.from(taggedBytes.slice(-(firstAudio.length + secondAudio.length)))).toEqual(
       [...Array.from(firstAudio), ...Array.from(secondAudio)],
     );
+  });
+
+  it("concatenates blob parts without leaving embedded ID3 tags behind", async () => {
+    const firstAudio = Uint8Array.of(0xff, 0xfb, 0x90, 0x64, 0x00, 0x11);
+    const secondAudio = Uint8Array.of(0xff, 0xfb, 0x91, 0x64, 0x22, 0x33);
+    const firstTagged = addMp3Metadata(firstAudio, {
+      title: "First chunk",
+      artist: "Curio Garden",
+    });
+    const secondTagged = addMp3Metadata(secondAudio, {
+      title: "Second chunk",
+      artist: "Curio Garden",
+    });
+
+    const combinedBlob = await concatenateMp3Blobs([
+      new Blob([toBlobBuffer(firstTagged)], { type: "audio/mpeg" }),
+      new Blob([toBlobBuffer(secondTagged)], { type: "audio/mpeg" }),
+    ]);
+
+    const combinedBytes = new Uint8Array(await combinedBlob.arrayBuffer());
+
+    expect(decoder.decode(combinedBytes)).not.toContain("ID3");
+    expect(Array.from(combinedBytes)).toEqual([
+      ...Array.from(firstAudio),
+      ...Array.from(secondAudio),
+    ]);
+  });
+
+  it("can strip only leading ID3 tags when concatenating blob parts", async () => {
+    const firstAudio = Uint8Array.of(0xff, 0xfb, 0x90, 0x64, 0x00, 0x11);
+    const secondAudio = Uint8Array.of(0xff, 0xfb, 0x91, 0x64, 0x22, 0x33);
+    const firstTagged = addMp3Metadata(firstAudio, {
+      title: "First chunk",
+      artist: "Curio Garden",
+    });
+    const secondTagged = addMp3Metadata(secondAudio, {
+      title: "Second chunk",
+      artist: "Curio Garden",
+    });
+
+    const combinedBlob = await concatenateMp3Blobs(
+      [
+        new Blob([toBlobBuffer(firstTagged)], { type: "audio/mpeg" }),
+        new Blob([toBlobBuffer(secondTagged)], { type: "audio/mpeg" }),
+      ],
+      {
+        stripId3Tags: "leading",
+      },
+    );
+
+    const combinedBytes = new Uint8Array(await combinedBlob.arrayBuffer());
+
+    expect(decoder.decode(combinedBytes)).not.toContain("ID3");
+    expect(Array.from(combinedBytes)).toEqual([
+      ...Array.from(firstAudio),
+      ...Array.from(secondAudio),
+    ]);
+  });
+
+  it("can prepend metadata to a pre-sanitized blob without re-reading the audio bytes", async () => {
+    const originalMp3 = new Blob(
+      [Uint8Array.of(0xff, 0xfb, 0x90, 0x64, 0x00, 0x11)],
+      { type: "audio/mpeg" },
+    );
+    const arrayBufferSpy = vi.spyOn(Blob.prototype, "arrayBuffer");
+
+    const taggedBlob = await addMp3MetadataToBlob(
+      originalMp3,
+      {
+        title: "Already clean",
+        artist: "Curio Garden",
+      },
+      {
+        stripExistingId3Tags: false,
+      },
+    );
+
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+
+    const taggedBytes = new Uint8Array(await taggedBlob.arrayBuffer());
+    expect(decoder.decode(taggedBytes)).toContain("TIT2");
+
+    arrayBufferSpy.mockRestore();
   });
 });
