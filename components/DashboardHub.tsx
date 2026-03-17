@@ -3,7 +3,9 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
+import { DashboardBadgeCard } from "@/components/DashboardBadgeCard";
 import { useBookmarks } from "@/hooks/useBookmarks";
+import { useBadges } from "@/hooks/useBadges";
 import { usePersonalPlaylist } from "@/hooks/usePersonalPlaylist";
 import { analytics } from "@/lib/analytics";
 import { PodcastFeedActions } from "@/components/PodcastFeedActions";
@@ -492,6 +494,12 @@ const SignedOutDashboardTeaser = () => {
 const SignedInDashboard = () => {
   const { user, isLoaded: isUserLoaded } = useUser();
   const { entries, isLoaded: areBookmarksLoaded } = useBookmarks();
+  const {
+    badges,
+    totalExp,
+    unlockedBadgeCount,
+    isLoaded: areBadgesLoaded,
+  } = useBadges();
   const displayName = accountDisplayName(user);
   const email = user?.primaryEmailAddress?.emailAddress;
   const bookmarkCount = entries.length;
@@ -537,11 +545,11 @@ const SignedInDashboard = () => {
             }
             accent
           />
-          <FeatureCard
-            title="Badges & streaks"
-            status="Coming soon"
-            description="A home for milestones, streaks, and other progress signals once we are ready to make curiosity a little more gameful."
-            detail="The slot is ready. We are just waiting for the actual trophies to stop photosynthesizing."
+          <DashboardBadgeCard
+            badges={badges}
+            totalExp={totalExp}
+            unlockedBadgeCount={unlockedBadgeCount}
+            isLoaded={areBadgesLoaded}
           />
         </div>
         <DashboardPlaylistCard />
