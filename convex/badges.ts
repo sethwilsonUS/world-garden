@@ -12,6 +12,8 @@ import {
   buildAwardedBadgeProgress,
   buildBadgeProgress,
   buildEmptyBadgeProgress,
+  type BadgeCreditEntry,
+  type BadgeCreditSummary,
   type BadgeKey,
   type BadgeListenProgressResult,
   type BadgeProgress,
@@ -188,10 +190,27 @@ const summarizeViewerBadgeCredits = (
   };
 };
 
+const summarizeBadgeCreditDetails = (
+  credits: BadgeCreditDoc[],
+): BadgeCreditSummary[] =>
+  BADGE_KEYS.map((badgeKey) => ({
+    badgeKey,
+    credits: credits
+      .filter((credit) => credit.badgeKey === badgeKey)
+      .sort((left, right) => right.earnedAt - left.earnedAt)
+      .map<BadgeCreditEntry>((credit) => ({
+        wikiPageId: credit.wikiPageId,
+        slug: credit.slug,
+        title: credit.title,
+        earnedAt: credit.earnedAt,
+      })),
+  }));
+
 export const getViewerBadgeProgressForCtx = async (
   ctx: BadgeQueryCtx,
 ): Promise<{
   badges: BadgeProgress[];
+  badgeCredits: BadgeCreditSummary[];
   totalExp: number;
   unlockedBadgeCount: number;
 }> => {
@@ -203,7 +222,10 @@ export const getViewerBadgeProgressForCtx = async (
     )
     .collect()) as BadgeCreditDoc[];
 
-  return summarizeViewerBadgeCredits(credits);
+  return {
+    ...summarizeViewerBadgeCredits(credits),
+    badgeCredits: summarizeBadgeCreditDetails(credits),
+  };
 };
 
 const awardBadgeCreditsForQualifiedArticle = async (
@@ -363,6 +385,38 @@ export const recordViewerArticleListenProgressForCtx = async (
 export const getViewerBadgeProgress = query({
   args: {},
   handler: (ctx) => getViewerBadgeProgressForCtx(ctx),
+});
+
+export const getViewerBadgeCreditsByKeyForCtx = async (
+  ctx: BadgeQueryCtx,
+  args: {
+    badgeKey: BadgeKey;
+  },
+): Promise<BadgeCreditEntry[]> => {
+  const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+  const credits = (await ctx.db
+    .query("badgeArticleCredits")
+    .withIndex("by_viewerTokenIdentifier", (q) =>
+      q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
+    )
+    .collect()) as BadgeCreditDoc[];
+
+  return credits
+    .filter((credit) => credit.badgeKey === args.badgeKey)
+    .sort((left, right) => right.earnedAt - left.earnedAt)
+    .map<BadgeCreditEntry>((credit) => ({
+      wikiPageId: credit.wikiPageId,
+      slug: credit.slug,
+      title: credit.title,
+      earnedAt: credit.earnedAt,
+    }));
+};
+
+export const getViewerBadgeCreditsByKey = query({
+  args: {
+    badgeKey: badgeKeyValidator,
+  },
+  handler: (ctx, args) => getViewerBadgeCreditsByKeyForCtx(ctx, args),
 });
 
 export const recordViewerArticleListenProgress = mutation({
