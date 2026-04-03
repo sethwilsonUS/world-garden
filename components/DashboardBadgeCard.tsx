@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
+import { createPortal } from "react-dom";
 import { BadgeArtwork } from "@/components/BadgeArtwork";
 import { api } from "@/convex/_generated/api";
 import {
@@ -37,13 +38,24 @@ const formatBadgeCreditDate = (timestamp: number): string =>
     year: "numeric",
   });
 
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
 const BadgeDetailsDialog = ({
   badge,
   credits,
   onClose,
 }: BadgeDetailsDialogProps) => {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const articlesScrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrollBodyRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
   const articlesId = useId();
@@ -64,8 +76,6 @@ const BadgeDetailsDialog = ({
     !creditsAreLoading &&
     resolvedCredits.length === 0 &&
     badge.creditedArticleCount > 0;
-  const [showTopScrollCue, setShowTopScrollCue] = useState(false);
-  const [showBottomScrollCue, setShowBottomScrollCue] = useState(false);
   const dialogShellClass = locked
     ? "border-border bg-surface text-foreground"
     : "border-accent-border bg-surface text-foreground shadow-[0_18px_48px_var(--color-accent-glow)]";
@@ -79,59 +89,110 @@ const BadgeDetailsDialog = ({
     ? "bg-surface-3 ring-border"
     : "bg-surface/75 ring-accent-border";
   const progressFillClass = locked ? "bg-muted/60" : "bg-accent";
+  const [panelHeight, setPanelHeight] = useState<number | null>(null);
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
-    const previousOverflow = document.body.style.overflow;
-    dialog.showModal();
+    restoreFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      if (dialog.open) dialog.close();
-    };
-  }, []);
+    const focusCloseButton = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus();
+    });
 
-  useEffect(() => {
-    const node = articlesScrollRef.current;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((element) => !element.hasAttribute("disabled"));
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+
+      if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(focusCloseButton);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousBodyOverflow;
+      restoreFocusRef.current?.focus();
+    };
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    const node = scrollBodyRef.current;
     if (!node) return;
 
-    const updateScrollCues = () => {
-      const { scrollTop, scrollHeight, clientHeight } = node;
-      const canScroll = scrollHeight - clientHeight > 8;
-      setShowTopScrollCue(canScroll && scrollTop > 8);
-      setShowBottomScrollCue(canScroll && scrollTop + clientHeight < scrollHeight - 8);
+    const updatePanelHeight = () => {
+      const maxHeight = Math.max(320, Math.floor(window.innerHeight * 0.9));
+      const nextHeight = Math.min(node.scrollHeight, maxHeight);
+      setPanelHeight((current) => (current === nextHeight ? current : nextHeight));
     };
 
-    updateScrollCues();
-    node.addEventListener("scroll", updateScrollCues, { passive: true });
-    window.addEventListener("resize", updateScrollCues);
+    updatePanelHeight();
+    window.addEventListener("resize", updatePanelHeight);
+    const resizeObserver = new ResizeObserver(updatePanelHeight);
+    resizeObserver.observe(node);
 
     return () => {
-      node.removeEventListener("scroll", updateScrollCues);
-      window.removeEventListener("resize", updateScrollCues);
+      window.removeEventListener("resize", updatePanelHeight);
+      resizeObserver.disconnect();
     };
   }, [resolvedCredits.length, creditsAreLoading, hasCreditMismatch]);
 
-  return (
-    <dialog
-      ref={dialogRef}
-      className="fixed inset-0 m-0 h-screen w-screen max-h-none max-w-none overflow-hidden border-none bg-transparent p-0 outline-none"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-    >
-      <div
-        className="flex min-h-full items-center justify-center bg-black/60 px-4 py-5 backdrop-blur-sm"
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[80]">
+      <button
+        type="button"
+        aria-label={`Close ${badge.label} badge details`}
+        className="absolute inset-0 bg-black/60"
+        style={{
+          backdropFilter: "blur(4px)",
+          WebkitBackdropFilter: "blur(4px)",
+        }}
         onClick={onClose}
-      >
+      />
+      <div className="absolute inset-0 flex items-center justify-center px-4 py-5 pointer-events-none">
         <div
-          className={`relative flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[1.6rem] border ${dialogShellClass}`}
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={descriptionId}
+          className={`pointer-events-auto relative w-full max-w-xl overflow-hidden rounded-[1.6rem] border ${dialogShellClass}`}
+          style={{
+            height: panelHeight === null ? "min(90vh, calc(100vh - 2.5rem))" : `${panelHeight}px`,
+            maxHeight: "min(90vh, calc(100vh - 2.5rem))",
+          }}
           onClick={(event) => event.stopPropagation()}
         >
           <div
@@ -144,7 +205,10 @@ const BadgeDetailsDialog = ({
             }}
           />
 
-          <div className="relative flex flex-1 flex-col p-5 sm:p-6">
+          <div
+            ref={scrollBodyRef}
+            className="scrollbar-subtle relative h-full overflow-y-auto p-5 sm:p-6"
+          >
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 items-center gap-4">
                 <div
@@ -172,9 +236,9 @@ const BadgeDetailsDialog = ({
               </div>
 
               <button
+                ref={closeButtonRef}
                 type="button"
                 onClick={onClose}
-                autoFocus
                 aria-label={`Close ${badge.label} badge details`}
                 className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border bg-surface text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
@@ -256,10 +320,7 @@ const BadgeDetailsDialog = ({
               </div>
             </div>
 
-            <section
-              aria-labelledby={articlesId}
-              className="mt-6 flex min-h-0 flex-1 flex-col"
-            >
+            <section aria-labelledby={articlesId} className="mt-6">
               <div className="flex items-center justify-between gap-3">
                 <h3
                   id={articlesId}
@@ -291,68 +352,36 @@ const BadgeDetailsDialog = ({
                   earn the first EXP.
                 </p>
               ) : (
-                <div className="relative mt-3 min-h-0 flex-1">
-                  {showTopScrollCue ? (
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8"
-                      style={{
-                        background:
-                          "linear-gradient(180deg, var(--color-surface) 18%, rgba(0,0,0,0) 100%)",
-                      }}
-                    />
-                  ) : null}
-
-                  <div
-                    ref={articlesScrollRef}
-                    className="scrollbar-hidden h-full overflow-y-auto pr-1"
-                  >
-                    <ul className="space-y-2 pb-2">
-                      {resolvedCredits.map((credit) => (
-                        <li key={`${credit.slug}-${credit.earnedAt}`}>
-                          <Link
-                            href={`/article/${credit.slug}`}
-                            onClick={onClose}
-                            className="group flex min-h-11 items-start justify-between gap-3 rounded-[1rem] border border-border bg-surface-2 px-3.5 py-3 text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                          >
-                            <span className="min-w-0">
-                              <span className="block text-sm leading-[1.45] text-foreground">
-                                {credit.title}
-                              </span>
-                              <span className="mt-1 block font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted">
-                                Listened on {formatBadgeCreditDate(credit.earnedAt)}
-                              </span>
-                            </span>
-                            <span className="mt-0.5 shrink-0 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted transition-colors duration-200 group-hover:text-accent">
-                              View
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {showBottomScrollCue ? (
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-12 items-end justify-center pb-1.5"
-                      style={{
-                        background:
-                          "linear-gradient(180deg, rgba(0,0,0,0) 0%, var(--color-surface) 82%)",
-                      }}
-                    >
-                      <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-muted">
-                        Scroll for more
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
+                <ul className="mt-3 space-y-2 pb-6 sm:pb-7">
+                  {resolvedCredits.map((credit) => (
+                    <li key={`${credit.slug}-${credit.earnedAt}`}>
+                      <Link
+                        href={`/article/${credit.slug}`}
+                        onClick={onClose}
+                        className="group flex min-h-11 items-start justify-between gap-3 rounded-[1rem] border border-border bg-surface-2 px-3.5 py-3 text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-sm leading-[1.45] text-foreground">
+                            {credit.title}
+                          </span>
+                          <span className="mt-1 block font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted">
+                            Listened on {formatBadgeCreditDate(credit.earnedAt)}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 shrink-0 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted transition-colors duration-200 group-hover:text-accent">
+                          View
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               )}
             </section>
           </div>
         </div>
       </div>
-    </dialog>
+    </div>,
+    document.body,
   );
 };
 
