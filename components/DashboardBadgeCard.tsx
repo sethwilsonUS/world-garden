@@ -43,6 +43,7 @@ const BadgeDetailsDialog = ({
   onClose,
 }: BadgeDetailsDialogProps) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const articlesScrollRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
   const articlesId = useId();
@@ -63,6 +64,8 @@ const BadgeDetailsDialog = ({
     !creditsAreLoading &&
     resolvedCredits.length === 0 &&
     badge.creditedArticleCount > 0;
+  const [showTopScrollCue, setShowTopScrollCue] = useState(false);
+  const [showBottomScrollCue, setShowBottomScrollCue] = useState(false);
   const dialogShellClass = locked
     ? "border-border bg-surface text-foreground"
     : "border-accent-border bg-surface text-foreground shadow-[0_18px_48px_var(--color-accent-glow)]";
@@ -91,6 +94,27 @@ const BadgeDetailsDialog = ({
     };
   }, []);
 
+  useEffect(() => {
+    const node = articlesScrollRef.current;
+    if (!node) return;
+
+    const updateScrollCues = () => {
+      const { scrollTop, scrollHeight, clientHeight } = node;
+      const canScroll = scrollHeight - clientHeight > 8;
+      setShowTopScrollCue(canScroll && scrollTop > 8);
+      setShowBottomScrollCue(canScroll && scrollTop + clientHeight < scrollHeight - 8);
+    };
+
+    updateScrollCues();
+    node.addEventListener("scroll", updateScrollCues, { passive: true });
+    window.addEventListener("resize", updateScrollCues);
+
+    return () => {
+      node.removeEventListener("scroll", updateScrollCues);
+      window.removeEventListener("resize", updateScrollCues);
+    };
+  }, [resolvedCredits.length, creditsAreLoading, hasCreditMismatch]);
+
   return (
     <dialog
       ref={dialogRef}
@@ -107,7 +131,7 @@ const BadgeDetailsDialog = ({
         onClick={onClose}
       >
         <div
-          className={`relative w-full max-w-xl overflow-hidden rounded-[1.6rem] border ${dialogShellClass}`}
+          className={`relative flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[1.6rem] border ${dialogShellClass}`}
           onClick={(event) => event.stopPropagation()}
         >
           <div
@@ -120,7 +144,7 @@ const BadgeDetailsDialog = ({
             }}
           />
 
-          <div className="relative max-h-[calc(100vh-2.5rem)] overflow-y-auto p-5 sm:p-6">
+          <div className="relative flex flex-1 flex-col p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 items-center gap-4">
                 <div
@@ -232,7 +256,10 @@ const BadgeDetailsDialog = ({
               </div>
             </div>
 
-            <section aria-labelledby={articlesId} className="mt-6">
+            <section
+              aria-labelledby={articlesId}
+              className="mt-6 flex min-h-0 flex-1 flex-col"
+            >
               <div className="flex items-center justify-between gap-3">
                 <h3
                   id={articlesId}
@@ -264,29 +291,62 @@ const BadgeDetailsDialog = ({
                   earn the first EXP.
                 </p>
               ) : (
-                <ul className="mt-3 space-y-2">
-                  {resolvedCredits.map((credit) => (
-                    <li key={`${credit.slug}-${credit.earnedAt}`}>
-                      <Link
-                        href={`/article/${credit.slug}`}
-                        onClick={onClose}
-                        className="group flex min-h-11 items-start justify-between gap-3 rounded-[1rem] border border-border bg-surface-2 px-3.5 py-3 text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                      >
-                        <span className="min-w-0">
-                          <span className="block text-sm leading-[1.45] text-foreground">
-                            {credit.title}
-                          </span>
-                          <span className="mt-1 block font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted">
-                            Listened on {formatBadgeCreditDate(credit.earnedAt)}
-                          </span>
-                        </span>
-                        <span className="mt-0.5 shrink-0 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted transition-colors duration-200 group-hover:text-accent">
-                          View
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <div className="relative mt-3 min-h-0 flex-1">
+                  {showTopScrollCue ? (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, var(--color-surface) 18%, rgba(0,0,0,0) 100%)",
+                      }}
+                    />
+                  ) : null}
+
+                  <div
+                    ref={articlesScrollRef}
+                    className="scrollbar-hidden h-full overflow-y-auto pr-1"
+                  >
+                    <ul className="space-y-2 pb-2">
+                      {resolvedCredits.map((credit) => (
+                        <li key={`${credit.slug}-${credit.earnedAt}`}>
+                          <Link
+                            href={`/article/${credit.slug}`}
+                            onClick={onClose}
+                            className="group flex min-h-11 items-start justify-between gap-3 rounded-[1rem] border border-border bg-surface-2 px-3.5 py-3 text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                          >
+                            <span className="min-w-0">
+                              <span className="block text-sm leading-[1.45] text-foreground">
+                                {credit.title}
+                              </span>
+                              <span className="mt-1 block font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted">
+                                Listened on {formatBadgeCreditDate(credit.earnedAt)}
+                              </span>
+                            </span>
+                            <span className="mt-0.5 shrink-0 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted transition-colors duration-200 group-hover:text-accent">
+                              View
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {showBottomScrollCue ? (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-12 items-end justify-center pb-1.5"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, rgba(0,0,0,0) 0%, var(--color-surface) 82%)",
+                      }}
+                    >
+                      <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-muted">
+                        Scroll for more
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </section>
           </div>
