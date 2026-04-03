@@ -279,6 +279,15 @@ body {
   -webkit-backdrop-filter: blur(4px);
 }
 
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Footer ── */
 .garden-divider {
   border: none;
