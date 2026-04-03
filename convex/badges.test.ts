@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Id } from "./_generated/dataModel";
 import {
+  getViewerBadgeCreditsByKeyForCtx,
   getViewerBadgeProgressForCtx,
   recordViewerArticleListenProgressForCtx,
 } from "./badges";
@@ -367,6 +368,21 @@ describe("getViewerBadgeProgressForCtx", () => {
     await expect(getViewerBadgeProgressForCtx(ctx as never)).resolves.toMatchObject({
       totalExp: 2,
       unlockedBadgeCount: 0,
+      badgeCredits: expect.arrayContaining([
+        expect.objectContaining({
+          badgeKey: "history",
+          credits: expect.arrayContaining([
+            expect.objectContaining({
+              title: "Canals",
+              slug: "Canals",
+            }),
+            expect.objectContaining({
+              title: "Roman roads",
+              slug: "Roman_roads",
+            }),
+          ]),
+        }),
+      ]),
       badges: expect.arrayContaining([
         expect.objectContaining({
           key: "history",
@@ -378,5 +394,57 @@ describe("getViewerBadgeProgressForCtx", () => {
         }),
       ]),
     });
+  });
+});
+
+describe("getViewerBadgeCreditsByKey", () => {
+  it("returns the credited articles for a selected badge in most-recent-first order", async () => {
+    const { ctx } = createCtx({
+      credits: [
+        {
+          _id: "badgeArticleCredits-1" as Id<"badgeArticleCredits">,
+          viewerTokenIdentifier: "viewer-1",
+          articleId: "article-1" as Id<"articles">,
+          wikiPageId: "wiki-1",
+          slug: "Roman_roads",
+          title: "Roman roads",
+          badgeKey: "history",
+          earnedAt: 1,
+        },
+        {
+          _id: "badgeArticleCredits-2" as Id<"badgeArticleCredits">,
+          viewerTokenIdentifier: "viewer-1",
+          articleId: "article-2" as Id<"articles">,
+          wikiPageId: "wiki-2",
+          slug: "Canals",
+          title: "Canals",
+          badgeKey: "history",
+          earnedAt: 2,
+        },
+        {
+          _id: "badgeArticleCredits-3" as Id<"badgeArticleCredits">,
+          viewerTokenIdentifier: "viewer-1",
+          articleId: "article-3" as Id<"articles">,
+          wikiPageId: "wiki-3",
+          slug: "Ada_Lovelace",
+          title: "Ada Lovelace",
+          badgeKey: "biography",
+          earnedAt: 3,
+        },
+      ],
+    });
+
+    await expect(
+      getViewerBadgeCreditsByKeyForCtx(ctx as never, { badgeKey: "history" }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        title: "Canals",
+        slug: "Canals",
+      }),
+      expect.objectContaining({
+        title: "Roman roads",
+        slug: "Roman_roads",
+      }),
+    ]);
   });
 });

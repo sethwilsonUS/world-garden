@@ -35,6 +35,20 @@ export type BadgeProgress = {
   nextLevelTarget: number;
 };
 
+export type BadgeCreditEntry = {
+  wikiPageId: string;
+  slug: string;
+  title: string;
+  earnedAt: number;
+};
+
+export type BadgeCreditSummary = {
+  badgeKey: BadgeKey;
+  credits: BadgeCreditEntry[];
+};
+
+export type BadgeCreditsByBadge = Record<BadgeKey, BadgeCreditEntry[]>;
+
 export type AwardedBadgeProgress = BadgeProgress & {
   previousLevel: number;
   leveledUp: boolean;
@@ -203,6 +217,17 @@ export const getArticleTopicDisplayKeys = ({
   const badgeKeySet = new Set(badgeKeys);
   return BADGE_KEYS.filter((key) => badgeKeySet.has(key));
 };
+
+export const buildEmptyBadgeCreditsByBadge = (): BadgeCreditsByBadge => ({
+  history: [],
+  geography: [],
+  biography: [],
+  society_politics: [],
+  arts_culture: [],
+  science: [],
+  technology: [],
+  nature: [],
+});
 
 export const expRequiredForLevel = (level: number): number => {
   if (level <= 0) return 0;

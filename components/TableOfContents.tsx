@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, type RefObject } from "react";
+import { InfoTooltip } from "@/components/InfoTooltip";
 import { useData } from "@/lib/data-context";
 import type { Section } from "@/lib/data-context";
 import {
@@ -207,84 +208,6 @@ const SoundIcon = () => {
 const rowClass = "flex items-center justify-between gap-4 w-full py-2.5 px-3 rounded-xl text-left";
 
 const pillClass = "inline-flex items-center gap-[5px] px-3 py-[5px] rounded-full font-semibold text-xs leading-none whitespace-nowrap shrink-0";
-
-const UnavailableAudioHint = ({
-  id,
-  text,
-}: {
-  id: string;
-  text: string;
-}) => {
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <span
-      ref={wrapperRef}
-      className="relative inline-flex items-center"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <button
-        type="button"
-        aria-label="Why this section is not suited for audio"
-        aria-expanded={open}
-        aria-describedby={open ? id : undefined}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen((value) => !value);
-        }}
-        onFocus={() => setOpen(true)}
-        onBlur={(event) => {
-          if (!wrapperRef.current?.contains(event.relatedTarget as Node | null)) {
-            setOpen(false);
-          }
-        }}
-        className="inline-flex size-5 items-center justify-center rounded-full border border-border bg-surface text-muted transition-colors duration-150 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-      >
-        <span aria-hidden="true" className="font-mono text-[0.6875rem] leading-none">
-          ?
-        </span>
-      </button>
-      {open && (
-        <span
-          id={id}
-          role="tooltip"
-          className="absolute right-0 top-[calc(100%+0.45rem)] z-10 w-56 rounded-xl border px-3 py-2 text-left text-[0.75rem] font-normal leading-snug text-foreground shadow-2xl backdrop-blur-md"
-          style={{
-            backgroundColor: "var(--color-surface)",
-            borderColor: "var(--color-border)",
-            boxShadow:
-              "0 18px 42px rgba(0, 0, 0, 0.26), 0 2px 8px rgba(0, 0, 0, 0.16)",
-          }}
-        >
-          {text}
-        </span>
-      )}
-    </span>
-  );
-};
 
 export const TableOfContents = ({
   articleTitle,
@@ -735,9 +658,12 @@ export const TableOfContents = ({
                       >
                         <span>Not suited for audio</span>
                       </span>
-                      <UnavailableAudioHint
-                        id={`section-unavailable-hint-${index}`}
+                      <InfoTooltip
+                        label="Why this section is not suited for audio"
                         text={unavailableTooltip}
+                        align="right"
+                        buttonClassName="size-6"
+                        tooltipClassName="w-56"
                       />
                     </span>
                   </div>

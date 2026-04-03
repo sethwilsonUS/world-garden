@@ -496,6 +496,7 @@ const SignedInDashboard = () => {
   const { entries, isLoaded: areBookmarksLoaded } = useBookmarks();
   const {
     badges,
+    badgeCredits,
     totalExp,
     unlockedBadgeCount,
     isLoaded: areBadgesLoaded,
@@ -547,6 +548,7 @@ const SignedInDashboard = () => {
           />
           <DashboardBadgeCard
             badges={badges}
+            badgeCredits={badgeCredits}
             totalExp={totalExp}
             unlockedBadgeCount={unlockedBadgeCount}
             isLoaded={areBadgesLoaded}
