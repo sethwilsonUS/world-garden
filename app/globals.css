@@ -282,10 +282,36 @@ body {
 .scrollbar-hidden {
   -ms-overflow-style: none;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-muted) 52%, transparent) transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 10px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-muted) 42%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.scrollbar-subtle:hover::-webkit-scrollbar-thumb,
+.scrollbar-subtle:focus-within::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-muted) 62%, transparent);
 }
 
 /* ── Footer ── */
