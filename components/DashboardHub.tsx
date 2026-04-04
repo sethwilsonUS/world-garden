@@ -33,6 +33,52 @@ const accountDisplayName = (user: ReturnType<typeof useUser>["user"]) => {
   );
 };
 
+const playlistSummary = ({
+  entryCount,
+  isAvailable,
+  isLoaded,
+  readyCount,
+}: {
+  entryCount: number;
+  isAvailable: boolean;
+  isLoaded: boolean;
+  readyCount: number;
+}) => {
+  if (!isLoaded) {
+    return "Syncing your queue, feed status, and episode generation progress.";
+  }
+
+  if (!isAvailable) {
+    return "Your account is still connecting the playlist queue to Convex.";
+  }
+
+  if (entryCount === 0) {
+    return "Your listen-next queue is ready. Add an article anywhere in Curio Garden to start building your personal feed.";
+  }
+
+  return `${entryCount} queued item${entryCount === 1 ? "" : "s"}, with ${readyCount} ready for your personal feed right now.`;
+};
+
+const badgesSummary = ({
+  isLoaded,
+  totalExp,
+  unlockedBadgeCount,
+}: {
+  isLoaded: boolean;
+  totalExp: number;
+  unlockedBadgeCount: number;
+}) => {
+  if (!isLoaded) {
+    return "Loading your signed-in listening progress and topic badge totals.";
+  }
+
+  if (totalExp === 0) {
+    return "Your first badge EXP will land after you listen to enough of an article page while signed in.";
+  }
+
+  return `${totalExp} total EXP across ${unlockedBadgeCount} unlocked badge${unlockedBadgeCount === 1 ? "" : "s"}.`;
+};
+
 const SignInCta = ({
   label,
   className,
@@ -74,6 +120,42 @@ const SectionShell = ({
       </p>
       <div className="mt-8">{children}</div>
     </section>
+  );
+};
+
+const DashboardSummaryCard = ({
+  eyebrow,
+  title,
+  description,
+  detail,
+  action,
+  accent = false,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  detail: ReactNode;
+  action: ReactNode;
+  accent?: boolean;
+}) => {
+  return (
+    <article
+      className={`garden-bed flex h-full flex-col p-6 ${
+        accent ? "border-accent-border bg-accent-bg" : ""
+      }`}
+    >
+      <div className="min-w-0">
+        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+          {eyebrow}
+        </p>
+        <h2 className="mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
+          {title}
+        </h2>
+      </div>
+      <p className="mt-4 text-sm leading-[1.8] text-foreground-2">{description}</p>
+      <div className="mt-4 text-sm leading-[1.7] text-muted">{detail}</div>
+      <div className="mt-auto pt-6">{action}</div>
+    </article>
   );
 };
 
@@ -223,27 +305,37 @@ const playlistProgressPercent = (entry: {
   );
 };
 
-const DashboardPlaylistCard = () => {
-  const {
-    entries,
-    feedUrl,
-    isAvailable,
-    isLoaded,
-    moveDown,
-    moveUp,
-    remove,
-    retry,
-  } = usePersonalPlaylist();
+type DashboardPlaylistCardProps = Pick<
+  ReturnType<typeof usePersonalPlaylist>,
+  "entries" | "feedUrl" | "isAvailable" | "isLoaded" | "moveDown" | "moveUp" | "remove" | "retry"
+> & {
+  headingId?: string;
+};
+
+const DashboardPlaylistCard = ({
+  entries,
+  feedUrl,
+  isAvailable,
+  isLoaded,
+  moveDown,
+  moveUp,
+  remove,
+  retry,
+  headingId,
+}: DashboardPlaylistCardProps) => {
   const readyCount = entries.filter((entry) => entry.status === "ready").length;
 
   return (
-    <article className="garden-bed h-full p-6 lg:col-span-1">
+    <article className="garden-bed h-full p-6 sm:p-7">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
             Personalized queue
           </p>
-          <h2 className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground">
+          <h2
+            id={headingId}
+            className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground"
+          >
             Playlist
           </h2>
         </div>
@@ -457,7 +549,7 @@ const SignedOutDashboardTeaser = () => {
 
       <section
         aria-label="Dashboard feature preview"
-        className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)]"
+        className="grid gap-5 md:grid-cols-2 xl:grid-cols-3"
       >
         <FeatureCard
           title="Library"
@@ -494,6 +586,7 @@ const SignedOutDashboardTeaser = () => {
 const SignedInDashboard = () => {
   const { user, isLoaded: isUserLoaded } = useUser();
   const { entries, isLoaded: areBookmarksLoaded } = useBookmarks();
+  const personalPlaylist = usePersonalPlaylist();
   const {
     badges,
     badgeCredits,
@@ -504,6 +597,10 @@ const SignedInDashboard = () => {
   const displayName = accountDisplayName(user);
   const email = user?.primaryEmailAddress?.emailAddress;
   const bookmarkCount = entries.length;
+  const playlistCount = personalPlaylist.entries.length;
+  const readyPlaylistCount = personalPlaylist.entries.filter(
+    (entry) => entry.status === "ready",
+  ).length;
 
   return (
     <>
@@ -526,35 +623,128 @@ const SignedInDashboard = () => {
         </div>
       </SectionShell>
 
+      <section aria-label="Dashboard overview" className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        <DashboardSummaryCard
+          eyebrow="Synced reading"
+          title="Library"
+          description="Your saved articles stay separate from the dashboard so the reading list can remain focused and roomy."
+          detail={
+            <>
+              <span className="inline-flex items-center rounded-full border border-accent-border bg-accent-bg px-3 py-1.5 text-accent">
+                {librarySummary(bookmarkCount, areBookmarksLoaded)}
+              </span>
+            </>
+          }
+          action={
+            <Link
+              href="/library"
+              className="btn-primary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+            >
+              Open Library
+            </Link>
+          }
+          accent
+        />
+        <DashboardSummaryCard
+          eyebrow="Listen next"
+          title="Playlist"
+          description="Use the queue for article-to-podcast generation, then jump straight into the operational section below when you want to rearrange it."
+          detail={
+            <div className="flex flex-wrap gap-2.5">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5">
+                {personalPlaylist.isLoaded
+                  ? `${playlistCount} in queue`
+                  : "Syncing queue"}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5">
+                {personalPlaylist.isLoaded
+                  ? `${readyPlaylistCount} ready episode${readyPlaylistCount === 1 ? "" : "s"}`
+                  : "Checking feed"}
+              </span>
+              <span className="basis-full text-sm leading-[1.7] text-muted">
+                {playlistSummary({
+                  entryCount: playlistCount,
+                  isAvailable: personalPlaylist.isAvailable,
+                  isLoaded: personalPlaylist.isLoaded,
+                  readyCount: readyPlaylistCount,
+                })}
+              </span>
+            </div>
+          }
+          action={
+            <a
+              href="#playlist"
+              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+            >
+              Jump to Playlist
+            </a>
+          }
+        />
+        <DashboardSummaryCard
+          eyebrow="Signed-in progress"
+          title="Badges"
+          description="Topic badges stay visible on the dashboard, but they get their own full-width section so the grid can breathe."
+          detail={
+            <div className="flex flex-wrap gap-2.5">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5">
+                {areBadgesLoaded ? `${totalExp} EXP` : "Loading EXP"}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5">
+                {areBadgesLoaded
+                  ? `${unlockedBadgeCount} unlocked`
+                  : "Loading badges"}
+              </span>
+              <span className="basis-full text-sm leading-[1.7] text-muted">
+                {badgesSummary({
+                  isLoaded: areBadgesLoaded,
+                  totalExp,
+                  unlockedBadgeCount,
+                })}
+              </span>
+            </div>
+          }
+          action={
+            <a
+              href="#badges"
+              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+            >
+              Jump to Badges
+            </a>
+          }
+        />
+      </section>
+
       <section
-        aria-label="Dashboard modules"
-        className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.55fr)]"
+        id="playlist"
+        aria-labelledby="dashboard-playlist-heading"
+        className="scroll-mt-20 pt-8"
       >
-        <div className="grid gap-5">
-          <FeatureCard
-            title="Library"
-            status="Working now"
-            description="Your synced reading list lives here. Save articles anywhere in the app and they will land in Library for easy return trips."
-            detail={librarySummary(bookmarkCount, areBookmarksLoaded)}
-            action={
-              <Link
-                href="/library"
-                className="btn-primary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
-              >
-                Open Library
-              </Link>
-            }
-            accent
-          />
-          <DashboardBadgeCard
-            badges={badges}
-            badgeCredits={badgeCredits}
-            totalExp={totalExp}
-            unlockedBadgeCount={unlockedBadgeCount}
-            isLoaded={areBadgesLoaded}
-          />
-        </div>
-        <DashboardPlaylistCard />
+        <DashboardPlaylistCard
+          entries={personalPlaylist.entries}
+          feedUrl={personalPlaylist.feedUrl}
+          isAvailable={personalPlaylist.isAvailable}
+          isLoaded={personalPlaylist.isLoaded}
+          moveDown={personalPlaylist.moveDown}
+          moveUp={personalPlaylist.moveUp}
+          remove={personalPlaylist.remove}
+          retry={personalPlaylist.retry}
+          headingId="dashboard-playlist-heading"
+        />
+      </section>
+
+      <section
+        id="badges"
+        aria-labelledby="dashboard-badges-heading"
+        className="scroll-mt-20 pt-8"
+      >
+        <DashboardBadgeCard
+          badges={badges}
+          badgeCredits={badgeCredits}
+          totalExp={totalExp}
+          unlockedBadgeCount={unlockedBadgeCount}
+          isLoaded={areBadgesLoaded}
+          headingId="dashboard-badges-heading"
+        />
       </section>
     </>
   );
@@ -620,7 +810,7 @@ export const DashboardHub = () => {
 
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
-      <div className="max-w-6xl mx-auto">
+      <div className="mx-auto max-w-[88rem]">
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
