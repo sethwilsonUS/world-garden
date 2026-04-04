@@ -225,4 +225,28 @@ describe("addMp3Metadata", () => {
 
     arrayBufferSpy.mockRestore();
   });
+
+  it("falls back to buffer concatenation when blob slicing fails", async () => {
+    const firstAudio = Uint8Array.of(0xff, 0xfb, 0x90, 0x64, 0x00, 0x11);
+    const secondAudio = Uint8Array.of(0xff, 0xfb, 0x91, 0x64, 0x22, 0x33);
+    const sliceSpy = vi
+      .spyOn(Blob.prototype, "slice")
+      .mockImplementation(() => {
+        throw new Error("offset is out of bounds");
+      });
+
+    const combinedBlob = await concatenateMp3Blobs([
+      new Blob([toBlobBuffer(firstAudio)], { type: "audio/mpeg" }),
+      new Blob([toBlobBuffer(secondAudio)], { type: "audio/mpeg" }),
+    ]);
+
+    const combinedBytes = new Uint8Array(await combinedBlob.arrayBuffer());
+
+    expect(Array.from(combinedBytes)).toEqual([
+      ...Array.from(firstAudio),
+      ...Array.from(secondAudio),
+    ]);
+
+    sliceSpy.mockRestore();
+  });
 });

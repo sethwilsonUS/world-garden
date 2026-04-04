@@ -55,6 +55,24 @@ describe("tts-client", () => {
     expect(await blob.text()).toBe(text);
   });
 
+  it("returns a single chunk directly without invoking blob concatenation", async () => {
+    const sliceSpy = vi
+      .spyOn(Blob.prototype, "slice")
+      .mockImplementation(() => {
+        throw new Error("offset is out of bounds");
+      });
+
+    const blob = await generateTtsAudio({
+      text: "This article summary is comfortably under the configured request limit.",
+    });
+
+    expect(await blob.text()).toBe(
+      "This article summary is comfortably under the configured request limit.",
+    );
+
+    sliceSpy.mockRestore();
+  });
+
   it("chunks oversized text into bounded requests and combines the audio", async () => {
     const text = [
       makeWords("alpha", 700),

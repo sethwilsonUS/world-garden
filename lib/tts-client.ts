@@ -192,6 +192,10 @@ export const generateTtsAudio = async ({
     }
   }
 
+  if (audioChunks.length === 1) {
+    return audioChunks[0];
+  }
+
   return await concatenateMp3Blobs(audioChunks, {
     stripId3Tags: "leading",
   });
