@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import { createPortal } from "react-dom";
@@ -53,7 +53,6 @@ const BadgeDetailsDialog = ({
   onClose,
 }: BadgeDetailsDialogProps) => {
   const panelRef = useRef<HTMLDivElement>(null);
-  const scrollBodyRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -89,7 +88,6 @@ const BadgeDetailsDialog = ({
     ? "bg-surface-3 ring-border"
     : "bg-surface/75 ring-accent-border";
   const progressFillClass = locked ? "bg-muted/60" : "bg-accent";
-  const [panelHeight, setPanelHeight] = useState<number | null>(null);
 
   useEffect(() => {
     restoreFocusRef.current = document.activeElement instanceof HTMLElement
@@ -144,27 +142,6 @@ const BadgeDetailsDialog = ({
     };
   }, [onClose]);
 
-  useLayoutEffect(() => {
-    const node = scrollBodyRef.current;
-    if (!node) return;
-
-    const updatePanelHeight = () => {
-      const maxHeight = Math.max(320, Math.floor(window.innerHeight * 0.9));
-      const nextHeight = Math.min(node.scrollHeight, maxHeight);
-      setPanelHeight((current) => (current === nextHeight ? current : nextHeight));
-    };
-
-    updatePanelHeight();
-    window.addEventListener("resize", updatePanelHeight);
-    const resizeObserver = new ResizeObserver(updatePanelHeight);
-    resizeObserver.observe(node);
-
-    return () => {
-      window.removeEventListener("resize", updatePanelHeight);
-      resizeObserver.disconnect();
-    };
-  }, [resolvedCredits.length, creditsAreLoading, hasCreditMismatch]);
-
   if (typeof document === "undefined") {
     return null;
   }
@@ -188,11 +165,8 @@ const BadgeDetailsDialog = ({
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={descriptionId}
-          className={`pointer-events-auto relative w-full max-w-xl overflow-hidden rounded-[1.6rem] border ${dialogShellClass}`}
-          style={{
-            height: panelHeight === null ? "min(90vh, calc(100vh - 2.5rem))" : `${panelHeight}px`,
-            maxHeight: "min(90vh, calc(100vh - 2.5rem))",
-          }}
+          className={`scrollbar-subtle pointer-events-auto relative w-full max-w-xl overflow-y-auto rounded-[1.6rem] border ${dialogShellClass}`}
+          style={{ maxHeight: "min(90vh, calc(100vh - 2.5rem))" }}
           onClick={(event) => event.stopPropagation()}
         >
           <div
@@ -205,10 +179,7 @@ const BadgeDetailsDialog = ({
             }}
           />
 
-          <div
-            ref={scrollBodyRef}
-            className="scrollbar-subtle relative h-full overflow-y-auto p-5 sm:p-6"
-          >
+          <div className="relative p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 items-center gap-4">
                 <div

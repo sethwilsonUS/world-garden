@@ -44,6 +44,12 @@ const concatBytes = (...chunks: Uint8Array[]): Uint8Array => {
   return result;
 };
 
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+};
+
 const encodeUtf16WithBom = (value: string): Uint8Array => {
   const result = new Uint8Array(2 + value.length * 2);
   result[0] = 0xff;
@@ -249,6 +255,15 @@ const stripLeadingId3TagFromBlob = async (mp3Blob: Blob): Promise<Blob> => {
     : mp3Blob.slice(leadingTagSize, mp3Blob.size, mp3Blob.type || "audio/mpeg");
 };
 
+const stripLeadingId3Tag = (mp3Data: Uint8Array): Uint8Array => {
+  const leadingTagSize = readLeadingId3TagSize(
+    mp3Data.slice(0, 10),
+    mp3Data.length,
+  );
+
+  return leadingTagSize == null ? mp3Data : mp3Data.slice(leadingTagSize);
+};
+
 const stripId3TagsFromBlob = async (
   mp3Blob: Blob,
   mode: Mp3BlobStripMode,
@@ -291,14 +306,35 @@ export const concatenateMp3Blobs = async (
   mp3Parts: Blob[],
   options?: ConcatenateMp3BlobOptions,
 ): Promise<Blob> => {
-  const sanitizedParts: Blob[] = [];
   const stripId3Tags = options?.stripId3Tags ?? "all";
-  for (const part of mp3Parts) {
-    sanitizedParts.push(...(await stripId3TagsFromBlob(part, stripId3Tags)));
+
+  try {
+    const sanitizedParts: Blob[] = [];
+    for (const part of mp3Parts) {
+      sanitizedParts.push(...(await stripId3TagsFromBlob(part, stripId3Tags)));
+    }
+
+    return new Blob(sanitizedParts, {
+      type: "audio/mpeg",
+    });
+  } catch {
+    const buffers = await Promise.all(
+      mp3Parts.map(async (part) => new Uint8Array(await part.arrayBuffer())),
+    );
+
+    const sanitizedBuffers = buffers
+      .map((buffer) => {
+        if (stripId3Tags === "none") return buffer;
+        if (stripId3Tags === "leading") return stripLeadingId3Tag(buffer);
+        return stripAllId3Tags(buffer);
+      })
+      .filter((buffer) => buffer.length > 0);
+
+    const combined = concatenateMp3Buffers(sanitizedBuffers);
+    return new Blob([toArrayBuffer(combined)], {
+      type: "audio/mpeg",
+    });
   }
-  return new Blob(sanitizedParts, {
-    type: "audio/mpeg",
-  });
 };
 
 export const addMp3Metadata = (

@@ -38,56 +38,45 @@ asyncio.run(main())
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
 
-const generateWithEdgeTtsStream = (
+const generateWithEdgeTts = (
   text: string,
   voice: string,
-): ReadableStream<Uint8Array> => {
-  let proc: ReturnType<typeof spawn> | null = null;
+): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON_PATH, ["-c", PYTHON_SCRIPT], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
 
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      proc = spawn(PYTHON_PATH, ["-c", PYTHON_SCRIPT], {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+    if (!proc.stdout || !proc.stderr || !proc.stdin) {
+      proc.kill();
+      reject(new Error("edge-tts process streams were unavailable"));
+      return;
+    }
 
-      if (!proc.stdout || !proc.stderr || !proc.stdin) {
-        controller.error(new Error("edge-tts process streams were unavailable"));
-        proc.kill();
+    const chunks: Buffer[] = [];
+    let stderr = "";
+
+    proc.stdout.on("data", (data: Buffer) => {
+      chunks.push(data);
+    });
+    proc.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `edge-tts exited with code ${code}`));
         return;
       }
 
-      let stderr = "";
+      resolve(Buffer.concat(chunks));
+    });
 
-      proc.stdout.on("data", (data: Buffer) => {
-        controller.enqueue(new Uint8Array(data));
-      });
-      proc.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
+    proc.on("error", reject);
 
-      proc.on("close", (code) => {
-        if (code === 0) {
-          controller.close();
-          return;
-        }
-
-        controller.error(
-          new Error(stderr.trim() || `edge-tts exited with code ${code}`),
-        );
-      });
-
-      proc.on("error", (error) => {
-        controller.error(error);
-      });
-
-      proc.stdin.write(JSON.stringify({ text, voice }));
-      proc.stdin.end();
-    },
-    cancel() {
-      proc?.kill();
-    },
+    proc.stdin.write(JSON.stringify({ text, voice }));
+    proc.stdin.end();
   });
-};
 
 export const POST = async (req: NextRequest) => {
   try {
@@ -116,12 +105,20 @@ export const POST = async (req: NextRequest) => {
 
     const voice = voiceId && VOICE_RE.test(voiceId) ? voiceId : DEFAULT_VOICE;
 
-    const audioStream = generateWithEdgeTtsStream(text, voice);
+    const audioBuffer = await generateWithEdgeTts(text, voice);
 
-    return new NextResponse(audioStream, {
+    if (audioBuffer.length === 0) {
+      return NextResponse.json(
+        { error: "No audio was generated" },
+        { status: 500 },
+      );
+    }
+
+    return new NextResponse(new Uint8Array(audioBuffer), {
       status: 200,
       headers: {
         "Content-Type": "audio/mpeg",
+        "Content-Length": String(audioBuffer.length),
       },
     });
   } catch (err) {
