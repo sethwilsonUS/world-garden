@@ -23,6 +23,7 @@ type DashboardBadgeCardProps = {
   totalExp: number;
   unlockedBadgeCount: number;
   isLoaded: boolean;
+  headingId?: string;
 };
 
 type BadgeDetailsDialogProps = {
@@ -362,8 +363,9 @@ export const DashboardBadgeCard = ({
   totalExp,
   unlockedBadgeCount,
   isLoaded,
+  headingId,
 }: DashboardBadgeCardProps) => {
-  const badgeGridClass = "mt-6 grid gap-3 sm:grid-cols-2";
+  const badgeGridClass = "mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3";
   const [selectedBadgeKey, setSelectedBadgeKey] = useState<BadgeKey | null>(null);
   const triggerRefs = useRef<Partial<Record<BadgeKey, HTMLButtonElement | null>>>(
     {},
@@ -388,7 +390,10 @@ export const DashboardBadgeCard = ({
           <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
             Signed-in progress
           </p>
-          <h2 className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground">
+          <h2
+            id={headingId}
+            className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground"
+          >
             Badges
           </h2>
         </div>
