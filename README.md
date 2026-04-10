@@ -212,11 +212,12 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Vercel will call `/api/podcast/featured/cron` and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+3. Vercel will call `/api/podcast/featured/cron`, `/api/did-you-know/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
 - `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
+- `15 0 * * *` and `45 0 * * *` for Did You Know audio (`00:15 UTC` primary run, `00:45 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
 
 ### Local podcast testing

@@ -4,6 +4,10 @@ import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@/convex/_generated/dataModel";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import {
+  buildDidYouKnowEditionMetadata,
+  buildDidYouKnowEditionTitle,
+} from "@/lib/did-you-know-edition";
+import {
   fetchWikipediaFeaturedSnapshot,
   getWikipediaFeaturedFeedDate,
   type WikipediaDidYouKnowItem,
@@ -85,20 +89,6 @@ const estimateDurationSeconds = (text: string): number =>
     Math.round(text.split(/\s+/).filter(Boolean).length / TTS_WORDS_PER_SECOND),
   );
 
-const formatDidYouKnowDate = (feedDateIso: string): string => {
-  try {
-    const date = new Date(`${feedDateIso}T12:00:00Z`);
-    if (Number.isNaN(date.getTime())) return feedDateIso;
-    return date.toLocaleDateString(undefined, {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return feedDateIso;
-  }
-};
-
 const normalizeFactForSpeech = (text: string): string => {
   const cleaned = text.replace(/^\.\.\.\s*/, "").replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
@@ -109,7 +99,7 @@ const getSnapshotDate = (feedDateIso: string): Date =>
   new Date(`${feedDateIso}T12:00:00Z`);
 
 export const buildDidYouKnowAudioTitle = (feedDateIso: string): string =>
-  `Did You Know? ${formatDidYouKnowDate(feedDateIso)}`;
+  buildDidYouKnowEditionTitle(feedDateIso);
 
 export const resolveDidYouKnowFeedDateIso = (feedDateIso?: string): string =>
   feedDateIso && FEED_DATE_RE.test(feedDateIso)
@@ -123,7 +113,10 @@ export const buildDidYouKnowSpeechScript = ({
   feedDateIso: string;
   items: WikipediaDidYouKnowItem[];
 }): string => {
-  const titleDate = formatDidYouKnowDate(feedDateIso);
+  const titleDate = buildDidYouKnowEditionTitle(feedDateIso).replace(
+    "Did You Know? ",
+    "",
+  );
   const facts = items
     .map((item) => normalizeFactForSpeech(item.text))
     .filter(Boolean)
@@ -147,7 +140,10 @@ export const getDidYouKnowAudioState = async ({
   feedDateIso?: string;
 } = {}): Promise<DidYouKnowAudioState> => {
   const resolvedFeedDate = resolveDidYouKnowFeedDateIso(feedDateIso);
-  const title = buildDidYouKnowAudioTitle(resolvedFeedDate);
+  const { title } = buildDidYouKnowEditionMetadata({
+    feedDateIso: resolvedFeedDate,
+    itemTexts: [],
+  });
   const record = (await fetchQuery(anyApi.didYouKnow.getDidYouKnowAudioByDate, {
     feedDate: resolvedFeedDate,
   })) as DidYouKnowAudioRecord | null;
@@ -188,13 +184,13 @@ const generateDidYouKnowAudioRecord = async ({
   feedDateIso?: string;
 }): Promise<DidYouKnowAudioSyncResult> => {
   const resolvedFeedDate = resolveDidYouKnowFeedDateIso(feedDateIso);
-  const title = buildDidYouKnowAudioTitle(resolvedFeedDate);
   const voiceId = process.env.DID_YOU_KNOW_VOICE_ID?.trim() || undefined;
   const owner = randomUUID();
   const runId = owner.slice(0, 8);
   let stage = "initializing";
   let spokenText: string | undefined;
   let itemTexts: string[] | undefined;
+  let title = buildDidYouKnowAudioTitle(resolvedFeedDate);
 
   const existing = (await fetchQuery(anyApi.didYouKnow.getDidYouKnowAudioByDate, {
     feedDate: resolvedFeedDate,
@@ -247,6 +243,11 @@ const generateDidYouKnowAudioRecord = async ({
     if (snapshot.didYouKnow.length === 0) {
       throw new Error("Wikipedia did not return any Did You Know items");
     }
+
+    ({ title } = buildDidYouKnowEditionMetadata({
+      feedDateIso: resolvedFeedDate,
+      itemTexts,
+    }));
 
     spokenText = buildDidYouKnowSpeechScript({
       feedDateIso: resolvedFeedDate,

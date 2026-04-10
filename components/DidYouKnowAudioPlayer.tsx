@@ -171,8 +171,9 @@ export const DidYouKnowAudioPlayer = ({
               Listen to today&apos;s Did You Know list
             </h2>
             <p className="text-sm text-muted mt-2 leading-[1.7]">
-              Generated once per feed date and cached in Convex so later visits
-              reuse the same audio file.
+              Usually prepared ahead of time each day and cached in Convex so
+              most visits can play immediately. If Wikipedia updates late, this
+              page can still generate the audio as a fallback.
             </p>
           </div>
 
@@ -229,8 +230,9 @@ export const DidYouKnowAudioPlayer = ({
         Generating today&apos;s audio
       </h2>
       <p className="text-sm text-foreground-2 leading-[1.75] mt-3">
-        The first request for a new feed date renders and caches a single audio
-        file in Convex. Once this finishes, later visits can play it immediately.
+        Today&apos;s audio is usually prepared on a daily cron. If that run is
+        still catching up, this page will generate and cache the file once as a
+        fallback.
       </p>
       <div className="mt-4">
         <div className="skeleton mb-2" style={{ width: "100%", height: "14px" }} />
