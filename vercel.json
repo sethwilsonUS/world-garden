@@ -5,7 +5,9 @@
   ],
   "crons": [
     { "path": "/api/podcast/featured/cron", "schedule": "10 0 * * *" },
+    { "path": "/api/did-you-know/audio/cron", "schedule": "15 0 * * *" },
     { "path": "/api/podcast/featured/cron", "schedule": "40 0 * * *" },
+    { "path": "/api/did-you-know/audio/cron", "schedule": "45 0 * * *" },
     { "path": "/api/podcast/trending/cron", "schedule": "45 4 * * *" },
     { "path": "/api/podcast/trending/cron", "schedule": "15 5 * * *" }
   ],
