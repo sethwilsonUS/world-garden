@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { parseDidYouKnowItem } from "./featured-article";
+import { isMostReadDateStale, parseDidYouKnowItem } from "./featured-article";
+
+describe("isMostReadDateStale", () => {
+  it("allows normal most-read lag from Wikipedia analytics", () => {
+    expect(
+      isMostReadDateStale({
+        feedDate: "2026/04/20",
+        trendingDate: "2026-04-18Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("flags a most-read date that is several days behind the feed date", () => {
+    expect(
+      isMostReadDateStale({
+        feedDate: "2026/04/20",
+        trendingDate: "2026-04-16Z",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("parseDidYouKnowItem", () => {
   it("converts Wikipedia article links into internal slug segments", () => {

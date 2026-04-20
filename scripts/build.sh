@@ -17,6 +17,6 @@ elif [ "${VERCEL_ENV:-}" = "preview" ]; then
   npx convex deploy --cmd 'next build' --preview-name "$BRANCH"
 
 else
-  echo "▸ Local build — Next.js only"
-  next build
+  echo "▸ Local build — Next.js only (webpack)"
+  next build --webpack
 fi

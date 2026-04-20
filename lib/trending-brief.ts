@@ -88,6 +88,7 @@ export type DailyTrendingBriefState = {
   enabled: boolean;
   status: "disabled" | "missing" | "pending" | "failed" | "ready";
   trendingDate: string;
+  sourceIsStale?: boolean;
   articleTitles: string[];
   brief: TrendingBriefRecord | null;
   lastError?: string;
@@ -303,6 +304,7 @@ export const selectTrendingArtworkItems = (
 
 export const getCurrentTrendingBriefSource = async (): Promise<{
   trendingDateIso: string;
+  sourceIsStale: boolean;
   articles: TrendingArticle[];
   artworkItems: TrendingArtworkItem[];
 }> => {
@@ -328,6 +330,7 @@ export const getCurrentTrendingBriefSource = async (): Promise<{
   return {
     trendingDateIso:
       snapshot.trendingDate?.replace(/Z$/, "") || snapshot.feedDateIso,
+    sourceIsStale: snapshot.trendingIsStale,
     articles,
     artworkItems,
   };
@@ -750,7 +753,8 @@ export const syncDailyTrendingBrief = async ({
 };
 
 export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefState> => {
-  const { trendingDateIso, articles } = await getCurrentTrendingBriefSource();
+  const { trendingDateIso, sourceIsStale, articles } =
+    await getCurrentTrendingBriefSource();
   const brief = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
     trendingDate: trendingDateIso,
   })) as TrendingBriefRecord | null;
@@ -760,6 +764,7 @@ export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefSt
       enabled: false,
       status: "disabled",
       trendingDate: trendingDateIso,
+      sourceIsStale,
       articleTitles: articles.map((article) => article.title),
       brief: null,
     };
@@ -770,6 +775,7 @@ export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefSt
       enabled: true,
       status: "ready",
       trendingDate: trendingDateIso,
+      sourceIsStale,
       articleTitles: articles.map((article) => article.title),
       brief,
     };
@@ -779,6 +785,7 @@ export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefSt
     enabled: true,
     status: brief?.status ?? "missing",
     trendingDate: trendingDateIso,
+    sourceIsStale,
     articleTitles: articles.map((article) => article.title),
     brief: null,
     lastError: brief?.lastError,

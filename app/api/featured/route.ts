@@ -20,6 +20,8 @@ export async function GET() {
       didYouKnow,
       trendingDate,
       trendingSource,
+      trendingSourceType,
+      trendingIsStale,
       feedDate,
       feedDateIso,
     } = await fetchWikipediaFeaturedSnapshot();
@@ -53,7 +55,16 @@ export async function GET() {
     }
 
     return NextResponse.json(
-      { tfa, trending, didYouKnow, trendingDate, feedDate: feedDateIso },
+      {
+        tfa,
+        trending,
+        didYouKnow,
+        trendingDate,
+        trendingSource,
+        trendingSourceType,
+        trendingIsStale,
+        feedDate: feedDateIso,
+      },
       {
         headers: {
           "Cache-Control":

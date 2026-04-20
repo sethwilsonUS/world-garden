@@ -125,6 +125,7 @@ export const GET = async (req: NextRequest) => {
           enabled: isTrendingBriefEnabled(),
           source: {
             trendingDate: trendingSource.trendingDateIso,
+            sourceIsStale: trendingSource.sourceIsStale,
             titles: trendingSource.articles.map((article) => article.title),
           },
           stored: trendingBrief
