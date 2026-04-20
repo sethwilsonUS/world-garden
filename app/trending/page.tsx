@@ -33,6 +33,7 @@ export default function TrendingPage() {
   const { rate, setRate } = usePlaybackRate();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [trendingDate, setTrendingDate] = useState<string | null>(null);
+  const [trendingIsStale, setTrendingIsStale] = useState(false);
   const [brief, setBrief] = useState<{
     headline?: string;
     summary?: string;
@@ -65,6 +66,7 @@ export default function TrendingPage() {
         if (trending.length === 0 || cancelled) return;
         setArticles(trending);
         setTrendingDate(date);
+        setTrendingIsStale(Boolean(data.trendingIsStale));
       } catch {
         // Fail silently — trending is non-critical
       } finally {
@@ -157,7 +159,8 @@ export default function TrendingPage() {
             </p>
             {trendingDate && (
               <p className="text-muted text-xs mt-1" aria-live="polite">
-                Last updated: {formatTrendingDate(trendingDate)}
+                Most-read data from: {formatTrendingDate(trendingDate)}
+                {trendingIsStale ? " (latest available from Wikipedia)" : ""}
               </p>
             )}
           </div>
