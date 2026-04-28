@@ -55,10 +55,6 @@ export const CuriousAbout = () => {
         const safe = trending.slice(0, MAX_ARTICLES);
         setArticles(safe);
         setTrendingDate(date);
-
-        for (const article of safe) {
-          prefetch(article.title);
-        }
       } catch {
         // Nice-to-have section; fail silently
       } finally {
@@ -68,7 +64,7 @@ export const CuriousAbout = () => {
     return () => {
       cancelled = true;
     };
-  }, [prefetch]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
