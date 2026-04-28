@@ -62,7 +62,6 @@ export const FeaturedArticle = () => {
         const feedDate = data.feedDate ?? null;
         if (!tfa || cancelled) return;
         setFeatured({ ...tfa, feedDate });
-        prefetch(tfa.title);
       } catch {
         // Featured article is a nice-to-have; fail silently
       } finally {
@@ -72,7 +71,7 @@ export const FeaturedArticle = () => {
     return () => {
       cancelled = true;
     };
-  }, [prefetch]);
+  }, []);
 
   if (!loading && !featured) return null;
 
@@ -117,6 +116,8 @@ export const FeaturedArticle = () => {
           href={`/article/${slug}`}
           className="result-link block no-underline"
           onClick={() => analytics.featuredArticleAccessed()}
+          onMouseEnter={() => prefetch(featured!.title)}
+          onFocus={() => prefetch(featured!.title)}
         >
           <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
             {featured!.thumbnail && (

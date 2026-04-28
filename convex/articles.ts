@@ -14,6 +14,7 @@ import {
   fetchArticleByTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
+  cleanContentForTts,
   titleToSlug,
   slugToTitle,
   WikiArticle,
@@ -28,6 +29,7 @@ import {
   BADGE_TOPIC_CACHE_VERSION,
   type BadgeKey,
 } from "../lib/badges";
+import { attachAudioSuitability } from "../lib/audio-suitability";
 
 const articleSectionAudioMode = v.union(
   v.literal("full"),
@@ -68,6 +70,26 @@ export const getByWikiPageId = query({
 });
 
 export const getBySlug = query({
+  args: { slug: v.string() },
+  async handler(ctx, args) {
+    return await ctx.db
+      .query("articles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+  },
+});
+
+export const getCachedArticleByWikiPageId = internalQuery({
+  args: { wikiPageId: v.string() },
+  async handler(ctx, args) {
+    return await ctx.db
+      .query("articles")
+      .withIndex("by_wikiPageId", (q) => q.eq("wikiPageId", args.wikiPageId))
+      .first();
+  },
+});
+
+export const getCachedArticleBySlug = internalQuery({
   args: { slug: v.string() },
   async handler(ctx, args) {
     return await ctx.db
@@ -158,6 +180,84 @@ export type FetchAndCacheResult = WikiArticle & {
   badgeKeys?: BadgeKey[];
 };
 
+export const ARTICLE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+type StoredArticle = {
+  _id: Id<"articles">;
+  wikiPageId: string;
+  title: string;
+  slug?: string;
+  language: string;
+  revisionId: string;
+  lastFetchedAt: number;
+  summary?: string;
+  thumbnailUrl?: string;
+  thumbnailWidth?: number;
+  thumbnailHeight?: number;
+  badgeKeys?: BadgeKey[];
+  sections?: Array<{
+    title: string;
+    level: number;
+    content: string;
+    audioMode?: WikiSection["audioMode"];
+    audioReason?: WikiSection["audioReason"];
+  }>;
+};
+
+export const isCachedArticleFresh = (
+  article: Pick<StoredArticle, "lastFetchedAt">,
+  now = Date.now(),
+): boolean => now - article.lastFetchedAt < ARTICLE_CACHE_TTL_MS;
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const normalizeCachedSections = (
+  sections: StoredArticle["sections"],
+): WikiSection[] =>
+  (sections ?? []).map((section) =>
+    section.audioMode && section.audioReason
+      ? (section as WikiSection)
+      : attachAudioSuitability({
+          title: section.title,
+          level: section.level,
+          content: section.content,
+        }),
+  );
+
+export const cachedArticleToFetchResult = (
+  article: StoredArticle,
+): FetchAndCacheResult => {
+  const sections = normalizeCachedSections(article.sections);
+  const summary = article.summary ?? "";
+  const contentText = cleanContentForTts(
+    [
+      summary,
+      ...sections.map((section) =>
+        `${"=".repeat(section.level)} ${section.title} ${"=".repeat(section.level)}\n${section.content}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  );
+
+  return {
+    _id: article._id,
+    wikiPageId: article.wikiPageId,
+    title: article.title,
+    language: article.language,
+    revisionId: article.revisionId,
+    lastEdited: new Date(article.lastFetchedAt).toISOString(),
+    summary,
+    contentText,
+    sections,
+    thumbnailUrl: article.thumbnailUrl,
+    thumbnailWidth: article.thumbnailWidth,
+    thumbnailHeight: article.thumbnailHeight,
+    badgeKeys: article.badgeKeys,
+  };
+};
+
 export const getExistingArticleForRefresh = internalQuery({
   args: { wikiPageId: v.string() },
   async handler(ctx, args) {
@@ -213,7 +313,29 @@ const resolveBadgeCacheUpdate = async (
 export const fetchAndCache = action({
   args: { wikiPageId: v.string() },
   async handler(ctx, args): Promise<FetchAndCacheResult> {
-    const data = await fetchArticleByPageId(args.wikiPageId);
+    const cached = await ctx.runQuery(
+      internal.articles.getCachedArticleByWikiPageId,
+      {
+        wikiPageId: args.wikiPageId,
+      },
+    );
+
+    if (cached && isCachedArticleFresh(cached)) {
+      return cachedArticleToFetchResult(cached);
+    }
+
+    let data: WikiArticle;
+    try {
+      data = await fetchArticleByPageId(args.wikiPageId);
+    } catch (error) {
+      if (cached) {
+        console.warn(
+          `Returning cached article ${args.wikiPageId} after Wikipedia fetch failed: ${getErrorMessage(error)}`,
+        );
+        return cachedArticleToFetchResult(cached);
+      }
+      throw error;
+    }
     const badgeCacheUpdate = await resolveBadgeCacheUpdate(ctx, data.wikiPageId);
 
     const articleId: Id<"articles"> = await ctx.runMutation(
@@ -247,8 +369,27 @@ export const fetchAndCache = action({
 export const fetchAndCacheBySlug = action({
   args: { slug: v.string() },
   async handler(ctx, args): Promise<FetchAndCacheResult> {
+    const cached = await ctx.runQuery(internal.articles.getCachedArticleBySlug, {
+      slug: args.slug,
+    });
+
+    if (cached && isCachedArticleFresh(cached)) {
+      return cachedArticleToFetchResult(cached);
+    }
+
     const title = slugToTitle(args.slug);
-    const data = await fetchArticleByTitle(title);
+    let data: WikiArticle;
+    try {
+      data = await fetchArticleByTitle(title);
+    } catch (error) {
+      if (cached) {
+        console.warn(
+          `Returning cached article "${args.slug}" after Wikipedia fetch failed: ${getErrorMessage(error)}`,
+        );
+        return cachedArticleToFetchResult(cached);
+      }
+      throw error;
+    }
     const badgeCacheUpdate = await resolveBadgeCacheUpdate(ctx, data.wikiPageId);
 
     const articleId: Id<"articles"> = await ctx.runMutation(
