@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: ".nvmrc"
           cache: "npm"
 
       - name: Install dependencies
@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: ".nvmrc"
           cache: "npm"
 
       - name: Install dependencies
@@ -49,7 +49,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: ".nvmrc"
           cache: "npm"
 
       - name: Install dependencies
@@ -69,10 +69,18 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install -r requirements.txt
 
       - name: Validate function imports
-        run: python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
+        run: |
+          . .venv/bin/activate
+          python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
 
       - name: Lint with ruff
-        run: pip install ruff && ruff check _python/
+        run: |
+          . .venv/bin/activate
+          python -m pip install ruff
+          python -m ruff check _python/
