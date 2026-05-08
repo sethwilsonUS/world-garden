@@ -664,7 +664,7 @@ const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
             alt={picture.altText || "Wikipedia picture of the day"}
             fill
             sizes="(min-width: 1024px) 38vw, 100vw"
-            className="object-cover"
+            className="object-contain"
             unoptimized
           />
         </div>
