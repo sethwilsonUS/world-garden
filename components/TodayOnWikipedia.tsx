@@ -180,39 +180,42 @@ const FeaturedArticleCard = ({
 
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
-      <Link href={toArticleHref(slug)} className="result-link block no-underline">
-        <div className={article.thumbnail ? "grid gap-0 sm:grid-cols-[150px_minmax(0,1fr)]" : ""}>
-          {article.thumbnail && (
-            <div className="relative aspect-[16/9] overflow-hidden bg-surface-3 sm:aspect-auto sm:min-h-[148px]">
-              <Image
-                src={article.thumbnail.source}
-                alt=""
-                fill
-                sizes="(min-width: 1024px) 150px, 100vw"
-                className="object-cover"
-                priority
-                unoptimized
-              />
-            </div>
-          )}
-          <div className="min-w-0 px-5 py-4">
-            <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-              Featured article
-            </p>
-            <h3 className="mt-2 font-display text-[1.05rem] font-bold leading-[1.3] text-foreground">
-              {article.title}
-            </h3>
-            <p className="mt-2 text-sm leading-[1.65] text-foreground-2">
-              {truncate(article.extract, 220)}
-            </p>
-            {dateLabel && (
-              <p className="mt-3 text-xs text-muted" aria-live="polite">
-                Last updated: {dateLabel}
-              </p>
-            )}
+      <div className={article.thumbnail ? "grid gap-0 sm:grid-cols-[150px_minmax(0,1fr)]" : ""}>
+        {article.thumbnail && (
+          <div className="relative aspect-[16/9] overflow-hidden bg-surface-3 sm:aspect-auto sm:min-h-[148px]">
+            <Image
+              src={article.thumbnail.source}
+              alt=""
+              fill
+              sizes="(min-width: 1024px) 150px, 100vw"
+              className="object-cover"
+              priority
+              unoptimized
+            />
           </div>
+        )}
+        <div className="min-w-0 px-5 py-4">
+          <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+            Featured article
+          </p>
+          <h3 className="mt-2 font-display text-[1.05rem] font-bold leading-[1.3]">
+            <Link
+              href={toArticleHref(slug)}
+              className="result-link text-foreground no-underline"
+            >
+              {article.title}
+            </Link>
+          </h3>
+          <p className="mt-2 text-sm leading-[1.65] text-foreground-2">
+            {truncate(article.extract, 220)}
+          </p>
+          {dateLabel && (
+            <p className="mt-3 text-xs text-muted" aria-live="polite">
+              Last updated: {dateLabel}
+            </p>
+          )}
         </div>
-      </Link>
+      </div>
     </article>
   );
 };

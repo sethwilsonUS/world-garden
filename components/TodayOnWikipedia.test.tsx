@@ -112,6 +112,9 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Today on Wikipedia");
     expect(markup).toContain("Featured article");
     expect(markup).toContain("First Treaty of London");
+    expect(
+      markup.match(/href="\/article\/First_Treaty_of_London"/g)?.length,
+    ).toBe(1);
     expect(markup).toContain("In the News");
     expect(markup).toContain("Ted Turner");
     expect(markup).toContain("Trending");
