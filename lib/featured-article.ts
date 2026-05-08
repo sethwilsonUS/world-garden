@@ -42,6 +42,8 @@ export type WikipediaDidYouKnowLink = {
   title: string;
   slug: string;
   text: string;
+  wikiPageId?: string;
+  thumbnail?: WikipediaFeaturedThumbnail;
 };
 
 export type WikipediaFeedArticleLink = {

@@ -4,11 +4,11 @@ import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@/convex/_generated/dataModel";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import {
-  fetchWikipediaFeaturedSnapshot,
   getWikipediaFeaturedFeedDate,
   type WikipediaPictureOfDay,
 } from "@/lib/featured-article";
 import { getPodcastSiteUrl } from "@/lib/podcast-feed";
+import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudio } from "@/lib/tts-client";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
 
@@ -82,9 +82,6 @@ const getStorageKey = ({
   pictureKey: string;
   scriptVersion: number;
 }): string => `${feedDate}|${pictureKey}|${scriptVersion}`;
-
-const getSnapshotDate = (feedDateIso: string): Date =>
-  new Date(`${feedDateIso}T12:00:00Z`);
 
 export const resolvePictureOfDayFeedDateIso = (feedDateIso?: string): string =>
   feedDateIso && FEED_DATE_RE.test(feedDateIso)
@@ -386,6 +383,36 @@ export const syncPictureOfDayAudio = async ({
   return generationPromise;
 };
 
+export const getPictureOfDayAudioState = async ({
+  feedDateIso,
+  picture,
+}: {
+  feedDateIso?: string;
+  picture: WikipediaPictureOfDay;
+}): Promise<WikipediaPictureOfDay["audio"]> => {
+  const resolvedFeedDate = resolvePictureOfDayFeedDateIso(feedDateIso);
+  const record = await getPictureOfDayAudio({
+    feedDate: resolvedFeedDate,
+    pictureKey: picture.pictureKey,
+  });
+
+  if (!record) {
+    return { status: "missing", audioUrl: null };
+  }
+
+  return {
+    status:
+      record.status === "ready"
+        ? record.audioUrl
+          ? "ready"
+          : "failed"
+        : record.status,
+    audioUrl: record.audioUrl,
+    durationSeconds: record.durationSeconds,
+    lastError: record.lastError,
+  };
+};
+
 export const syncCurrentPictureOfDayAudio = async ({
   baseUrl,
   feedDateIso,
@@ -395,11 +422,12 @@ export const syncCurrentPictureOfDayAudio = async ({
 }): Promise<PictureOfDayAudioSyncResult> => {
   const resolvedFeedDate = resolvePictureOfDayFeedDateIso(feedDateIso);
   const title = buildPictureOfDayAudioTitle(resolvedFeedDate);
-  const snapshot = await fetchWikipediaFeaturedSnapshot(
-    getSnapshotDate(resolvedFeedDate),
-  );
+  const snapshot = await getTodayWikipediaData({
+    allowLiveFallback: true,
+    feedDateIso: resolvedFeedDate,
+  });
 
-  if (!snapshot.pictureOfDay) {
+  if (!snapshot?.pictureOfDay) {
     return {
       status: "missing_source",
       audio: null,

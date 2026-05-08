@@ -8,11 +8,11 @@ import {
   buildDidYouKnowEditionTitle,
 } from "@/lib/did-you-know-edition";
 import {
-  fetchWikipediaFeaturedSnapshot,
   getWikipediaFeaturedFeedDate,
   type WikipediaDidYouKnowItem,
 } from "@/lib/featured-article";
 import { getPodcastSiteUrl } from "@/lib/podcast-feed";
+import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudio } from "@/lib/tts-client";
 
 const DID_YOU_KNOW_ALBUM = "Curio Garden Daily Curiosities";
@@ -94,9 +94,6 @@ const normalizeFactForSpeech = (text: string): string => {
   if (!cleaned) return "";
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 };
-
-const getSnapshotDate = (feedDateIso: string): Date =>
-  new Date(`${feedDateIso}T12:00:00Z`);
 
 export const buildDidYouKnowAudioTitle = (feedDateIso: string): string =>
   buildDidYouKnowEditionTitle(feedDateIso);
@@ -236,9 +233,15 @@ const generateDidYouKnowAudioRecord = async ({
 
   try {
     stage = "fetching_source";
-    const snapshot = await fetchWikipediaFeaturedSnapshot(
-      getSnapshotDate(resolvedFeedDate),
-    );
+    const snapshot = await getTodayWikipediaData({
+      allowLiveFallback: true,
+      feedDateIso: resolvedFeedDate,
+    });
+
+    if (!snapshot) {
+      throw new Error("Today on Wikipedia snapshot is not available");
+    }
+
     itemTexts = snapshot.didYouKnow.map((item) => item.text).filter(Boolean);
 
     if (snapshot.didYouKnow.length === 0) {

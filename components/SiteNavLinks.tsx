@@ -9,7 +9,6 @@ type SiteNavLinksProps = {
 const commonLinks = [
   { href: "/", label: "Home" },
   { href: "/trending", label: "Trending" },
-  { href: "/did-you-know", label: "Did you know?" },
   { href: "/podcasts", label: "Podcasts" },
 ];
 

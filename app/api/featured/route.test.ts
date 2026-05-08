@@ -1,138 +1,126 @@
-import { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const getTodayWikipediaData = vi.fn();
 const fetchWikipediaFeaturedSnapshot = vi.fn();
-const filterSafeTitles = vi.fn();
-const syncPictureOfDayAudio = vi.fn();
-const getPodcastSiteUrl = vi.fn();
+const getDidYouKnowAudioState = vi.fn();
+const getPictureOfDayAudioState = vi.fn();
+
+vi.mock("@/lib/today-snapshot", () => ({
+  getTodayWikipediaData,
+}));
 
 vi.mock("@/lib/featured-article", () => ({
   fetchWikipediaFeaturedSnapshot,
 }));
 
-vi.mock("@/lib/nsfw-filter", () => ({
-  filterSafeTitles,
+vi.mock("@/lib/did-you-know-audio", () => ({
+  getDidYouKnowAudioState,
 }));
 
 vi.mock("@/lib/picture-of-day-audio", () => ({
-  syncPictureOfDayAudio,
+  getPictureOfDayAudioState,
 }));
-
-vi.mock("@/lib/podcast-feed", () => ({
-  getPodcastSiteUrl,
-}));
-
-const snapshot = {
-  tfa: null,
-  trendingCandidates: [],
-  didYouKnow: [],
-  inTheNews: [],
-  onThisDay: [],
-  pictureOfDay: {
-    title: "File:Hoverfly May 2008-8.jpg",
-    pictureKey: "File:Hoverfly May 2008-8.jpg",
-    altText: "A Marmelade fly on flight.",
-    description: "A Marmelade fly on flight.",
-  },
-  trendingDate: null,
-  trendingSource: null,
-  trendingSourceType: null,
-  trendingIsStale: false,
-  feedDate: "2026/05/08",
-  feedDateIso: "2026-05-08",
-};
-
-const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
-const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 
 describe("GET /api/featured", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
-    process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
-    fetchWikipediaFeaturedSnapshot.mockResolvedValue(snapshot);
-    filterSafeTitles.mockResolvedValue(new Set<string>());
-    getPodcastSiteUrl.mockImplementation((origin?: string) => origin ?? "");
+    getDidYouKnowAudioState.mockResolvedValue(null);
+    getPictureOfDayAudioState.mockResolvedValue(null);
   });
 
-  afterEach(() => {
-    if (originalLocalMode === undefined) {
-      delete process.env.NEXT_PUBLIC_LOCAL_MODE;
-    } else {
-      process.env.NEXT_PUBLIC_LOCAL_MODE = originalLocalMode;
-    }
-
-    if (originalConvexUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_CONVEX_URL;
-    } else {
-      process.env.NEXT_PUBLIC_CONVEX_URL = originalConvexUrl;
-    }
-  });
-
-  it("syncs picture audio and includes the cached URL when ready", async () => {
-    syncPictureOfDayAudio.mockResolvedValue({
-      status: "created",
-      feedDate: "2026-05-08",
-      title: "Picture of the Day: May 8, 2026",
-      audio: {
-        audioUrl: "https://cdn.example.com/picture.mp3",
-        durationSeconds: 42,
-      },
+  it("returns the cached Today snapshot without fetching Wikipedia in production", async () => {
+    getTodayWikipediaData.mockResolvedValue({
+      tfa: null,
+      trending: [],
+      didYouKnow: [],
+      inTheNews: [],
+      pictureOfDay: null,
+      onThisDay: [],
+      trendingDate: null,
+      trendingSource: null,
+      trendingSourceType: null,
+      trendingIsStale: false,
+      feedDate: "2026-05-07",
+      snapshotFeedDate: "2026-05-07",
+      snapshotGeneratedAt: 1_778_200_000_000,
+      snapshotIsStale: true,
     });
 
     const { GET } = await import("./route");
-    const response = await GET(
-      new NextRequest("https://curiogarden.org/api/featured"),
-    );
+    const response = await GET();
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(syncPictureOfDayAudio).toHaveBeenCalledWith({
-      baseUrl: "https://curiogarden.org",
-      feedDateIso: "2026-05-08",
-      picture: snapshot.pictureOfDay,
+    expect(body.snapshotIsStale).toBe(true);
+    expect(body.snapshotFeedDate).toBe("2026-05-07");
+    expect(getTodayWikipediaData).toHaveBeenCalledWith({
+      allowLiveFallback: true,
     });
-    expect(body.pictureOfDay.audio).toMatchObject({
-      status: "ready",
-      audioUrl: "https://cdn.example.com/picture.mp3",
-      durationSeconds: 42,
-    });
-    expect(response.headers.get("cache-control")).toContain("s-maxage=900");
+    expect(fetchWikipediaFeaturedSnapshot).not.toHaveBeenCalled();
   });
 
-  it("uses no-store caching while picture audio is pending", async () => {
-    syncPictureOfDayAudio.mockResolvedValue({
+  it("returns a no-store 503 when production has no cached snapshot", async () => {
+    getTodayWikipediaData.mockResolvedValue(null);
+
+    const { GET } = await import("./route");
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body.error).toContain("No Today on Wikipedia snapshot");
+  });
+
+  it("does not cache per-request audio state with the featured payload", async () => {
+    getTodayWikipediaData.mockResolvedValue({
+      tfa: null,
+      trending: [],
+      didYouKnow: [],
+      inTheNews: [],
+      pictureOfDay: null,
+      onThisDay: [],
+      trendingDate: null,
+      trendingSource: null,
+      trendingSourceType: null,
+      trendingIsStale: false,
+      feedDate: "2026-05-07",
+      snapshotFeedDate: "2026-05-07",
+      snapshotGeneratedAt: 1_778_200_000_000,
+      snapshotIsStale: false,
+    });
+    getDidYouKnowAudioState.mockResolvedValue({
+      feedDate: "2026-05-07",
+      title: "Did You Know? May 7, 2026",
       status: "pending",
-      feedDate: "2026-05-08",
-      title: "Picture of the Day: May 8, 2026",
+      audioUrl: null,
       audio: null,
     });
 
     const { GET } = await import("./route");
-    const response = await GET(
-      new NextRequest("https://curiogarden.org/api/featured"),
-    );
+    const response = await GET();
     const body = await response.json();
 
-    expect(body.pictureOfDay.audio).toMatchObject({
-      status: "pending",
-      audioUrl: null,
-    });
+    expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(body.didYouKnowAudio.status).toBe("pending");
   });
 
-  it("skips picture audio sync in local mode", async () => {
-    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
+  it("logs details but returns a generic public error on unexpected failures", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    getTodayWikipediaData.mockRejectedValue(
+      new Error("upstream token leaked in message"),
+    );
 
     const { GET } = await import("./route");
-    const response = await GET(
-      new NextRequest("https://curiogarden.org/api/featured"),
-    );
+    const response = await GET();
     const body = await response.json();
 
-    expect(syncPictureOfDayAudio).not.toHaveBeenCalled();
-    expect(body.pictureOfDay.audio).toBeUndefined();
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.status).toBe(502);
+    expect(body.error).toBe("Unable to load Today on Wikipedia right now.");
+    expect(body.error).not.toContain("upstream token");
+    expect(consoleError).toHaveBeenCalled();
   });
 });

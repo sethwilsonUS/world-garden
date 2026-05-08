@@ -2,8 +2,8 @@ import { anyApi } from "convex/server";
 import { fetchQuery } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import type { Doc } from "@/convex/_generated/dataModel";
-import { fetchCurrentFeaturedArticle } from "@/lib/featured-article";
 import { getPodcastAdminAuthError } from "@/lib/podcast-admin-auth";
+import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import {
   getCurrentTrendingBriefSource,
   isTrendingBriefEnabled,
@@ -48,10 +48,15 @@ export const GET = async (req: NextRequest) => {
   }
 
   try {
-    const [{ tfa, feedDateIso }, trendingSource] = await Promise.all([
-      fetchCurrentFeaturedArticle(),
+    const [todaySnapshot, trendingSource] = await Promise.all([
+      getTodayWikipediaData({ allowLiveFallback: true }),
       getCurrentTrendingBriefSource(),
     ]);
+    if (!todaySnapshot?.feedDate) {
+      throw new Error("Today on Wikipedia snapshot is not available");
+    }
+    const tfa = todaySnapshot.tfa ?? null;
+    const feedDateIso = todaySnapshot.feedDate;
 
     const [featuredEpisode, featuredJob, trendingBrief, trendingJob] =
       await Promise.all([

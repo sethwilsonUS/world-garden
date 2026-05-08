@@ -23,6 +23,7 @@ import type * as pictureOfDay from "../pictureOfDay.js";
 import type * as podcast from "../podcast.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as search from "../search.js";
+import type * as today from "../today.js";
 import type * as trending from "../trending.js";
 
 import type {
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   podcast: typeof podcast;
   rateLimits: typeof rateLimits;
   search: typeof search;
+  today: typeof today;
   trending: typeof trending;
 }>;
 

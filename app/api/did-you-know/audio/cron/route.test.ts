@@ -69,7 +69,7 @@ describe("GET /api/did-you-know/audio/cron", () => {
     });
   });
 
-  it("returns 201 and revalidates the page when today's audio is created", async () => {
+  it("returns 201 and revalidates the home page when today's audio is created", async () => {
     syncDidYouKnowAudio.mockResolvedValue({
       status: "created",
       audio: null,
@@ -88,7 +88,7 @@ describe("GET /api/did-you-know/audio/cron", () => {
     expect(syncDidYouKnowAudio).toHaveBeenCalledWith({
       baseUrl: "https://curiogarden.org",
     });
-    expect(revalidatePath).toHaveBeenCalledWith("/did-you-know");
+    expect(revalidatePath).toHaveBeenCalledWith("/");
   });
 
   it("returns 200 for an already-existing daily audio edition", async () => {
@@ -107,7 +107,7 @@ describe("GET /api/did-you-know/audio/cron", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(revalidatePath).toHaveBeenCalledWith("/did-you-know");
+    expect(revalidatePath).toHaveBeenCalledWith("/");
   });
 
   it("returns 202 without revalidating when generation is already in flight", async () => {

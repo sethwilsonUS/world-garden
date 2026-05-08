@@ -9,12 +9,12 @@ import {
   addMp3MetadataToBlob,
   concatenateMp3Blobs,
 } from "@/lib/audio-metadata";
-import { fetchCurrentFeaturedArticle } from "@/lib/featured-article";
 import {
   FEATURED_EPISODE_ARTWORK_VERSION,
   renderFeaturedPodcastArtworkPng,
 } from "@/lib/featured-podcast-artwork";
 import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
+import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudio } from "@/lib/tts-client";
 import { hasFullAudio } from "@/lib/audio-suitability";
@@ -224,7 +224,12 @@ export const syncFeaturedPodcastEpisode = async ({
   force?: boolean;
   regenArt?: boolean;
 }): Promise<FeaturedPodcastSyncResult> => {
-  const { tfa, feedDateIso } = await fetchCurrentFeaturedArticle();
+  const today = await getTodayWikipediaData({ allowLiveFallback: true });
+  if (!today?.feedDate) {
+    throw new Error("Today on Wikipedia snapshot is not available");
+  }
+  const tfa = today.tfa ?? null;
+  const feedDateIso = today.feedDate;
   if (!tfa) {
     throw new Error("Wikipedia did not return a featured article");
   }
