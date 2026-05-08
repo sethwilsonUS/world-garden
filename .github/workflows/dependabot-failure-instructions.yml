@@ -1,0 +1,93 @@
+name: Dependabot Failure Instructions
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const prRef = run.pull_requests?.[0];
+            if (!prRef) {
+              core.info("No pull request found for this workflow run.");
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const { data: pr } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prRef.number,
+            });
+
+            if (pr.user?.login !== "dependabot[bot]") {
+              core.info(`Skipping PR authored by ${pr.user?.login}.`);
+              return;
+            }
+
+            const marker = "<!-- codex-dependabot-fix -->";
+            const body = `${marker}
+            CI failed on this Dependabot PR. Here is the Codex handoff runbook.
+
+            PR: ${pr.html_url}
+            Failed run: ${run.html_url}
+
+            Local checkout:
+
+            \`\`\`sh
+            cd /Users/sethwilson/dev/world-garden
+            gh pr checkout ${pr.number}
+            nvm install
+            nvm use
+            npm ci
+            npm run lint
+            npx tsc --noEmit
+            npm run test
+            python -m venv .venv
+            . .venv/bin/activate
+            python -m pip install -r requirements.txt
+            python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
+            python -m pip install ruff
+            python -m ruff check _python/
+            \`\`\`
+
+            Suggested Codex prompt:
+
+            > Help me fix this failed Dependabot PR in /Users/sethwilson/dev/world-garden. Start by inspecting the failing GitHub Actions run and local diff, then make the smallest compatibility fix needed. This repo has npm and Python dependencies. Run the commands above before summarizing what changed.
+            `;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+            const existing = comments.find((comment) => comment.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body,
+              });
+            }
