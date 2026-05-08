@@ -131,7 +131,12 @@ export const enrichDidYouKnowThumbnails = async (
 
   if (titleByKey.size === 0) return items;
 
-  const details = await fetchDidYouKnowPageDetails([...titleByKey.values()]);
+  let details: Map<string, DidYouKnowPageDetail>;
+  try {
+    details = await fetchDidYouKnowPageDetails([...titleByKey.values()]);
+  } catch {
+    return items;
+  }
   if (details.size === 0) return items;
 
   return items.map((item) => ({
@@ -272,7 +277,7 @@ export const getTodayWikipediaData = async ({
   const cached = await getCachedTodaySnapshot({ feedDateIso });
   if (cached) return cached;
 
-  if (!allowLiveFallback || shouldUseSnapshotCache()) {
+  if (!allowLiveFallback) {
     return null;
   }
 

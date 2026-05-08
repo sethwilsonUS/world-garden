@@ -4,12 +4,13 @@ import { getPictureOfDayAudioState } from "@/lib/picture-of-day-audio";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
+const PUBLIC_ERROR_MESSAGE = "Unable to load Today on Wikipedia right now.";
 const FEATURED_CACHE_HEADERS = {
   "Cache-Control":
     "public, max-age=900, s-maxage=900, stale-while-revalidate=3600",
 } as const;
 
-const withAudioState = async (
+const withPerRequestAudioState = async (
   data: NonNullable<Awaited<ReturnType<typeof getTodayWikipediaData>>>,
 ) => {
   const [didYouKnowAudio, pictureAudio] = await Promise.all([
@@ -23,15 +24,18 @@ const withAudioState = async (
   ]);
 
   return {
-    ...data,
-    ...(didYouKnowAudio ? { didYouKnowAudio } : {}),
-    pictureOfDay:
-      data.pictureOfDay && pictureAudio
-        ? {
-            ...data.pictureOfDay,
-            audio: pictureAudio,
-          }
-        : data.pictureOfDay,
+    body: {
+      ...data,
+      ...(didYouKnowAudio ? { didYouKnowAudio } : {}),
+      pictureOfDay:
+        data.pictureOfDay && pictureAudio
+          ? {
+              ...data.pictureOfDay,
+              audio: pictureAudio,
+            }
+          : data.pictureOfDay,
+    },
+    hasPerRequestAudioState: Boolean(didYouKnowAudio || pictureAudio),
   };
 };
 
@@ -54,16 +58,20 @@ export async function GET() {
       );
     }
 
-    const body = await withAudioState(data);
+    const { body, hasPerRequestAudioState } =
+      await withPerRequestAudioState(data);
 
     return NextResponse.json(body, {
-      headers: body.snapshotIsStale ? NO_CACHE_HEADERS : FEATURED_CACHE_HEADERS,
+      headers:
+        body.snapshotIsStale || hasPerRequestAudioState
+          ? NO_CACHE_HEADERS
+          : FEATURED_CACHE_HEADERS,
     });
   } catch (err) {
     const reason = `Unhandled error: ${
       err instanceof Error ? err.message : String(err)
     }`;
-    console.error(`[/api/featured] ${reason}`);
+    console.error(`[/api/featured] ${reason}`, err);
     return NextResponse.json(
       {
         tfa: null,
@@ -72,7 +80,7 @@ export async function GET() {
         inTheNews: [],
         pictureOfDay: null,
         onThisDay: [],
-        error: reason,
+        error: PUBLIC_ERROR_MESSAGE,
       },
       { status: 502, headers: NO_CACHE_HEADERS },
     );

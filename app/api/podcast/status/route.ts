@@ -48,12 +48,15 @@ export const GET = async (req: NextRequest) => {
   }
 
   try {
-    const [today, trendingSource] = await Promise.all([
+    const [todaySnapshot, trendingSource] = await Promise.all([
       getTodayWikipediaData({ allowLiveFallback: true }),
       getCurrentTrendingBriefSource(),
     ]);
-    const tfa = today?.tfa ?? null;
-    const feedDateIso = today?.feedDate ?? "";
+    if (!todaySnapshot?.feedDate) {
+      throw new Error("Today on Wikipedia snapshot is not available");
+    }
+    const tfa = todaySnapshot.tfa ?? null;
+    const feedDateIso = todaySnapshot.feedDate;
 
     const [featuredEpisode, featuredJob, trendingBrief, trendingJob] =
       await Promise.all([

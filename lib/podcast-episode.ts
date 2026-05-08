@@ -225,8 +225,11 @@ export const syncFeaturedPodcastEpisode = async ({
   regenArt?: boolean;
 }): Promise<FeaturedPodcastSyncResult> => {
   const today = await getTodayWikipediaData({ allowLiveFallback: true });
-  const tfa = today?.tfa ?? null;
-  const feedDateIso = today?.feedDate ?? "";
+  if (!today?.feedDate) {
+    throw new Error("Today on Wikipedia snapshot is not available");
+  }
+  const tfa = today.tfa ?? null;
+  const feedDateIso = today.feedDate;
   if (!tfa) {
     throw new Error("Wikipedia did not return a featured article");
   }

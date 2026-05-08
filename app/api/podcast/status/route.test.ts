@@ -184,4 +184,24 @@ describe("GET /api/podcast/status", () => {
     expect(body.trending.stored.status).toBe("pending");
     expect(body.trending.job.status).toBe("running");
   });
+
+  it("fails early when Today on Wikipedia data is unavailable", async () => {
+    getTodayWikipediaData.mockResolvedValue(null);
+    getCurrentTrendingBriefSource.mockResolvedValue({
+      trendingDateIso: "2026-03-10",
+      articles: [{ title: "One" }],
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest("https://curiogarden.org/api/podcast/status", {
+        headers: { authorization: "Bearer test-secret" },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe("Today on Wikipedia snapshot is not available");
+    expect(fetchQuery).not.toHaveBeenCalled();
+  });
 });

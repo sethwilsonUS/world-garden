@@ -3,10 +3,27 @@ import { enrichDidYouKnowThumbnails } from "./today-snapshot";
 import type { WikipediaDidYouKnowItem } from "./featured-article";
 
 const originalFetch = global.fetch;
+const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+const restoreEnvValue = (key: string, value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+};
 
 afterEach(() => {
   global.fetch = originalFetch;
   vi.restoreAllMocks();
+  vi.resetModules();
+  vi.unmock("convex/nextjs");
+  vi.unmock("convex/server");
+  vi.unmock("@/lib/featured-article");
+  vi.unmock("@/lib/nsfw-filter");
+  restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
+  restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
 });
 
 describe("enrichDidYouKnowThumbnails", () => {
@@ -118,5 +135,92 @@ describe("enrichDidYouKnowThumbnails", () => {
 
     await expect(enrichDidYouKnowThumbnails(items)).resolves.toEqual(items);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Did You Know items when thumbnail enrichment fails", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("Wikimedia timeout"));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const items: WikipediaDidYouKnowItem[] = [
+      {
+        text: "... that Lenox Lyceum still renders without thumbnails?",
+        links: [
+          {
+            title: "Lenox Lyceum",
+            slug: "Lenox_Lyceum",
+            text: "Lenox Lyceum",
+          },
+        ],
+        segments: [
+          {
+            type: "text",
+            text: "... that Lenox Lyceum still renders without thumbnails?",
+          },
+        ],
+      },
+    ];
+
+    await expect(enrichDidYouKnowThumbnails(items)).resolves.toBe(items);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getTodayWikipediaData", () => {
+  it("honors live fallback after a cache miss when caching is enabled", async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+
+    const fetchQuery = vi.fn().mockResolvedValue(null);
+    const fetchMutation = vi.fn();
+    const fetchWikipediaFeaturedSnapshot = vi.fn().mockResolvedValue({
+      tfa: null,
+      trendingCandidates: [],
+      didYouKnow: [],
+      inTheNews: [],
+      pictureOfDay: null,
+      onThisDay: [],
+      trendingDate: null,
+      trendingSource: null,
+      trendingSourceType: null,
+      trendingIsStale: false,
+      feedDate: "2026/05/07",
+      feedDateIso: "2026-05-07",
+    });
+
+    vi.doMock("convex/nextjs", () => ({
+      fetchMutation,
+      fetchQuery,
+    }));
+    vi.doMock("convex/server", () => ({
+      anyApi: {
+        today: {
+          getLatestTodaySnapshot: "getLatestTodaySnapshot",
+          getTodaySnapshotByDate: "getTodaySnapshotByDate",
+          saveTodaySnapshot: "saveTodaySnapshot",
+        },
+      },
+    }));
+    vi.doMock("@/lib/featured-article", () => ({
+      fetchWikipediaFeaturedSnapshot,
+      getWikipediaFeaturedFeedDate: () => "2026/05/07",
+    }));
+    vi.doMock("@/lib/nsfw-filter", () => ({
+      filterSafeTitles: async (titles: string[]) => new Set(titles),
+    }));
+
+    const { getTodayWikipediaData } = await import("./today-snapshot");
+
+    await expect(
+      getTodayWikipediaData({
+        allowLiveFallback: true,
+        feedDateIso: "2026-05-07",
+      }),
+    ).resolves.toMatchObject({
+      feedDate: "2026-05-07",
+      snapshotIsStale: false,
+    });
+    expect(fetchQuery).toHaveBeenCalled();
+    expect(fetchWikipediaFeaturedSnapshot).toHaveBeenCalled();
   });
 });
