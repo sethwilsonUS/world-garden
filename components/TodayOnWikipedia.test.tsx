@@ -85,7 +85,7 @@ describe("TodayOnWikipediaContent", () => {
                   thumbnail: {
                     source: "https://upload.wikimedia.org/on-this-day.jpg",
                     width: 330,
-                    height: 220,
+                    height: 440,
                   },
                 },
               ],
@@ -142,6 +142,9 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("1984");
     expect(markup).toContain("https://upload.wikimedia.org/on-this-day.jpg");
     expect(markup).toContain("Image for 1984 Summer Olympics boycott");
+    expect(markup).toContain('width="330"');
+    expect(markup).toContain('height="440"');
+    expect(markup).toContain("object-contain");
   });
 
   it("renders a polite pending status instead of an audio player", () => {

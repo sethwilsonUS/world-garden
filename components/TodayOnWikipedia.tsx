@@ -169,6 +169,24 @@ const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
 const getFirstLinkedImage = (links: FeedArticleLink[]) =>
   links.find((link) => link.thumbnail);
 
+const LinkedItemThumbnail = ({ link }: { link: FeedArticleLink }) => {
+  if (!link.thumbnail) return null;
+
+  return (
+    <div className="mt-1 flex h-20 w-24 shrink-0 items-center justify-center rounded-md bg-surface-3 p-1 sm:h-24">
+      <Image
+        src={link.thumbnail.source}
+        alt={`Image for ${link.title}`}
+        width={link.thumbnail.width}
+        height={link.thumbnail.height}
+        sizes="96px"
+        className="h-auto max-h-full w-auto max-w-full rounded object-contain"
+        unoptimized
+      />
+    </div>
+  );
+};
+
 const FeaturedArticleCard = ({
   article,
   feedDate,
@@ -247,18 +265,7 @@ const NewsCard = ({ news }: { news: InTheNewsItem[] }) => (
               key={`${index}-${item.story}`}
               className={image ? "flex gap-3" : undefined}
             >
-              {imageLink && image && (
-                <div className="relative mt-1 h-16 w-20 shrink-0 overflow-hidden rounded-md bg-surface-3 sm:h-[4.5rem] sm:w-24">
-                  <Image
-                    src={image.source}
-                    alt={`Image for ${imageLink.title}`}
-                    fill
-                    sizes="96px"
-                    className="object-cover"
-                    unoptimized
-                  />
-                </div>
-              )}
+              {imageLink && image && <LinkedItemThumbnail link={imageLink} />}
               <div className="min-w-0">
                 <p className="text-sm leading-[1.7] text-foreground-2">
                   {item.story}
@@ -288,18 +295,7 @@ const OnThisDayCard = ({ item }: { item?: OnThisDayItem }) => {
         On This Day
       </p>
       <div className={image ? "mt-2 flex gap-3" : undefined}>
-        {imageLink && image && (
-          <div className="relative mt-1 h-16 w-20 shrink-0 overflow-hidden rounded-md bg-surface-3 sm:h-[4.5rem] sm:w-24">
-            <Image
-              src={image.source}
-              alt={`Image for ${imageLink.title}`}
-              fill
-              sizes="96px"
-              className="object-cover"
-              unoptimized
-            />
-          </div>
-        )}
+        {imageLink && image && <LinkedItemThumbnail link={imageLink} />}
         <div className="min-w-0">
           <p className="text-sm leading-[1.7] text-foreground-2">
             {item.year ? (
