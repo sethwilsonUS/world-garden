@@ -442,13 +442,6 @@ const stripTags = (value: string): string => value.replace(/<[^>]+>/g, "");
 const normalizeHtmlText = (value: string): string =>
   decodeHtmlEntities(stripTags(value).replace(/\s+/g, " "));
 
-const removeUnrenderedPictureReferences = (value: string): string =>
-  value
-    .replace(/\s*\([^)]*\bpictured\b[^)]*\)/gi, "")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
 const normalizeMetadataText = (value?: { html?: string; text?: string }): string =>
   normalizeHtmlText(value?.text ?? value?.html ?? "").trim();
 
@@ -469,9 +462,7 @@ const toFeedArticleLink = (
 export const parseInTheNewsItem = (
   item: FeaturedFeedNewsPayload,
 ): WikipediaInTheNewsItem | null => {
-  const story = removeUnrenderedPictureReferences(
-    normalizeHtmlText(item.story ?? ""),
-  );
+  const story = normalizeHtmlText(item.story ?? "").trim();
   const links = (item.links ?? [])
     .map(toFeedArticleLink)
     .filter((link): link is WikipediaFeedArticleLink => link !== null);

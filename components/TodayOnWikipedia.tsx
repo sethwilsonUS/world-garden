@@ -11,6 +11,7 @@ type FeedArticleLink = {
   title: string;
   slug: string;
   wikiPageId?: string;
+  thumbnail?: { source: string; width: number; height: number };
 };
 
 type FeaturedArticle = {
@@ -165,6 +166,9 @@ const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
   );
 };
 
+const getFirstLinkedImage = (links: FeedArticleLink[]) =>
+  links.find((link) => link.thumbnail);
+
 const FeaturedArticleCard = ({
   article,
   feedDate,
@@ -234,14 +238,36 @@ const NewsCard = ({ news }: { news: InTheNewsItem[] }) => (
 
     {news.length > 0 ? (
       <ul className="m-0 mt-3 list-none space-y-4 p-0" role="list">
-        {news.slice(0, MAX_NEWS_ITEMS).map((item, index) => (
-          <li key={`${index}-${item.story}`}>
-            <p className="text-sm leading-[1.7] text-foreground-2">
-              {item.story}
-            </p>
-            <ArticleLinkList links={item.links} />
-          </li>
-        ))}
+        {news.slice(0, MAX_NEWS_ITEMS).map((item, index) => {
+          const imageLink = getFirstLinkedImage(item.links);
+          const image = imageLink?.thumbnail;
+
+          return (
+            <li
+              key={`${index}-${item.story}`}
+              className={image ? "flex gap-3" : undefined}
+            >
+              {imageLink && image && (
+                <div className="relative mt-1 h-16 w-20 shrink-0 overflow-hidden rounded-md bg-surface-3 sm:h-[4.5rem] sm:w-24">
+                  <Image
+                    src={image.source}
+                    alt={`Image for ${imageLink.title}`}
+                    fill
+                    sizes="96px"
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-sm leading-[1.7] text-foreground-2">
+                  {item.story}
+                </p>
+                <ArticleLinkList links={item.links} />
+              </div>
+            </li>
+          );
+        })}
       </ul>
     ) : (
       <p className="mt-3 text-sm text-muted" role="status">
@@ -253,19 +279,37 @@ const NewsCard = ({ news }: { news: InTheNewsItem[] }) => (
 
 const OnThisDayCard = ({ item }: { item?: OnThisDayItem }) => {
   if (!item) return null;
+  const imageLink = getFirstLinkedImage(item.pages);
+  const image = imageLink?.thumbnail;
 
   return (
     <aside className="rounded-2xl border border-border bg-surface-2 px-5 py-4">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
         On This Day
       </p>
-      <p className="mt-2 text-sm leading-[1.7] text-foreground-2">
-        {item.year ? (
-          <span className="font-semibold text-foreground">{item.year}: </span>
-        ) : null}
-        {item.text}
-      </p>
-      <ArticleLinkList links={item.pages} />
+      <div className={image ? "mt-2 flex gap-3" : undefined}>
+        {imageLink && image && (
+          <div className="relative mt-1 h-16 w-20 shrink-0 overflow-hidden rounded-md bg-surface-3 sm:h-[4.5rem] sm:w-24">
+            <Image
+              src={image.source}
+              alt={`Image for ${imageLink.title}`}
+              fill
+              sizes="96px"
+              className="object-cover"
+              unoptimized
+            />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="text-sm leading-[1.7] text-foreground-2">
+            {item.year ? (
+              <span className="font-semibold text-foreground">{item.year}: </span>
+            ) : null}
+            {item.text}
+          </p>
+          <ArticleLinkList links={item.pages} />
+        </div>
+      </div>
     </aside>
   );
 };
