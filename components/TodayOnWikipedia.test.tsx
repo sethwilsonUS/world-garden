@@ -50,6 +50,11 @@ describe("TodayOnWikipediaContent", () => {
                   title: "Ted Turner",
                   slug: "Ted_Turner",
                   wikiPageId: "30475",
+                  thumbnail: {
+                    source: "https://upload.wikimedia.org/ted.jpg",
+                    width: 330,
+                    height: 220,
+                  },
                 },
               ],
             },
@@ -77,6 +82,11 @@ describe("TodayOnWikipediaContent", () => {
                   title: "1984 Summer Olympics boycott",
                   slug: "1984_Summer_Olympics_boycott",
                   wikiPageId: "12813736",
+                  thumbnail: {
+                    source: "https://upload.wikimedia.org/on-this-day.jpg",
+                    width: 330,
+                    height: 220,
+                  },
                 },
               ],
             },
@@ -117,6 +127,8 @@ describe("TodayOnWikipediaContent", () => {
     ).toBe(1);
     expect(markup).toContain("In the News");
     expect(markup).toContain("Ted Turner");
+    expect(markup).toContain("https://upload.wikimedia.org/ted.jpg");
+    expect(markup).toContain("Image for Ted Turner");
     expect(markup).toContain("Trending");
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
@@ -128,6 +140,8 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Audio: Picture of the Day description @1");
     expect(markup).toContain('data-can-change-rate="true"');
     expect(markup).toContain("1984");
+    expect(markup).toContain("https://upload.wikimedia.org/on-this-day.jpg");
+    expect(markup).toContain("Image for 1984 Summer Olympics boycott");
   });
 
   it("renders a polite pending status instead of an audio player", () => {
