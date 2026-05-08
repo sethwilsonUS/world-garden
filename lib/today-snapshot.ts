@@ -57,6 +57,14 @@ type DidYouKnowPageDetail = {
 const normalizeTitleKey = (title: string): string =>
   title.replace(/_/g, " ").trim().toLowerCase();
 
+const getDidYouKnowLinkTitle = ({
+  slug,
+  title,
+}: {
+  slug: string;
+  title?: string;
+}): string => (title || slug.replace(/_/g, " ")).trim();
+
 const getSnapshotDate = (feedDateIso: string): Date =>
   new Date(`${feedDateIso}T12:00:00Z`);
 
@@ -124,7 +132,7 @@ export const enrichDidYouKnowThumbnails = async (
 
   for (const item of items) {
     for (const link of item.links) {
-      const title = (link.title || link.slug.replace(/_/g, " ")).trim();
+      const title = getDidYouKnowLinkTitle(link);
       if (title) titleByKey.set(normalizeTitleKey(title), title);
     }
   }
@@ -142,7 +150,8 @@ export const enrichDidYouKnowThumbnails = async (
   return items.map((item) => ({
     ...item,
     links: item.links.map((link) => {
-      const detail = details.get(normalizeTitleKey(link.title));
+      const title = getDidYouKnowLinkTitle(link);
+      const detail = title ? details.get(normalizeTitleKey(title)) : undefined;
       if (!detail) return link;
 
       return {
@@ -245,26 +254,37 @@ const hydrateCachedSnapshot = (
   };
 };
 
+const getLatestCachedTodaySnapshot = async (
+  currentFeedDate = resolveTodayFeedDateIso(),
+): Promise<TodayWikipediaData | null> => {
+  if (!shouldUseSnapshotCache()) return null;
+
+  const latestRecord = (await fetchQuery(
+    anyApi.today.getLatestTodaySnapshot,
+    {},
+  )) as TodaySnapshotRecord | null;
+  return latestRecord
+    ? hydrateCachedSnapshot(latestRecord, currentFeedDate)
+    : null;
+};
+
 const getCachedTodaySnapshot = async ({
+  includeLatestFallback = true,
   feedDateIso,
 }: {
+  includeLatestFallback?: boolean;
   feedDateIso?: string;
 } = {}): Promise<TodayWikipediaData | null> => {
   if (!shouldUseSnapshotCache()) return null;
 
   const currentFeedDate = resolveTodayFeedDateIso();
-  const record = feedDateIso
-    ? ((await fetchQuery(anyApi.today.getTodaySnapshotByDate, {
-        feedDate: feedDateIso,
-      })) as TodaySnapshotRecord | null)
-    : ((await fetchQuery(anyApi.today.getTodaySnapshotByDate, {
-        feedDate: currentFeedDate,
-      })) as TodaySnapshotRecord | null) ??
-      ((await fetchQuery(anyApi.today.getLatestTodaySnapshot, {})) as
-        | TodaySnapshotRecord
-        | null);
+  const record = (await fetchQuery(anyApi.today.getTodaySnapshotByDate, {
+    feedDate: feedDateIso ?? currentFeedDate,
+  })) as TodaySnapshotRecord | null;
+  if (record) return hydrateCachedSnapshot(record, currentFeedDate);
+  if (feedDateIso || !includeLatestFallback) return null;
 
-  return record ? hydrateCachedSnapshot(record, currentFeedDate) : null;
+  return getLatestCachedTodaySnapshot(currentFeedDate);
 };
 
 export const getTodayWikipediaData = async ({
@@ -274,12 +294,23 @@ export const getTodayWikipediaData = async ({
   allowLiveFallback?: boolean;
   feedDateIso?: string;
 } = {}): Promise<TodayWikipediaData | null> => {
-  const cached = await getCachedTodaySnapshot({ feedDateIso });
+  const currentFeedDate = feedDateIso ?? resolveTodayFeedDateIso();
+  const cached = await getCachedTodaySnapshot({
+    feedDateIso: currentFeedDate,
+    includeLatestFallback: false,
+  });
   if (cached) return cached;
 
   if (!allowLiveFallback) {
-    return null;
+    return feedDateIso ? null : getLatestCachedTodaySnapshot(currentFeedDate);
   }
 
-  return buildTodayWikipediaSnapshot({ feedDateIso });
+  try {
+    return await buildTodayWikipediaSnapshot({ feedDateIso: currentFeedDate });
+  } catch (err) {
+    if (feedDateIso) throw err;
+    const staleFallback = await getLatestCachedTodaySnapshot(currentFeedDate);
+    if (staleFallback) return staleFallback;
+    throw err;
+  }
 };
