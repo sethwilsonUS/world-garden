@@ -118,6 +118,7 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
     expect(markup).toContain("373 thousand");
+    expect(markup).toContain("Last updated: May 7, 2026");
     expect(markup).toContain("A Marmelade fly on flight.");
     expect(markup).toContain("Alvesgaspar");
     expect(markup).toContain("CC BY-SA 3.0");
@@ -144,6 +145,31 @@ describe("TodayOnWikipediaContent", () => {
     );
 
     expect(markup).toContain("Picture audio is being prepared");
+    expect(markup).not.toContain("Audio: Picture of the Day description");
+  });
+
+  it("renders a polite failed status instead of an audio player", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TodayOnWikipediaContent, {
+        data: {
+          inTheNews: [],
+          onThisDay: [],
+          pictureOfDay: {
+            title: "File:Hoverfly May 2008-8.jpg",
+            pictureKey: "File:Hoverfly May 2008-8.jpg",
+            altText: "A Marmelade fly on flight.",
+            description: "A Marmelade fly on flight.",
+            audio: {
+              status: "failed",
+              audioUrl: null,
+              lastError: "TTS timeout",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain("Picture audio is not available right now");
     expect(markup).not.toContain("Audio: Picture of the Day description");
   });
 });

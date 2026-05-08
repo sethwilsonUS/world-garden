@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchWikipediaFeaturedSnapshot = vi.fn();
 const filterSafeTitles = vi.fn();
@@ -42,6 +42,9 @@ const snapshot = {
   feedDateIso: "2026-05-08",
 };
 
+const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
 describe("GET /api/featured", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -51,6 +54,20 @@ describe("GET /api/featured", () => {
     fetchWikipediaFeaturedSnapshot.mockResolvedValue(snapshot);
     filterSafeTitles.mockResolvedValue(new Set<string>());
     getPodcastSiteUrl.mockImplementation((origin?: string) => origin ?? "");
+  });
+
+  afterEach(() => {
+    if (originalLocalMode === undefined) {
+      delete process.env.NEXT_PUBLIC_LOCAL_MODE;
+    } else {
+      process.env.NEXT_PUBLIC_LOCAL_MODE = originalLocalMode;
+    }
+
+    if (originalConvexUrl === undefined) {
+      delete process.env.NEXT_PUBLIC_CONVEX_URL;
+    } else {
+      process.env.NEXT_PUBLIC_CONVEX_URL = originalConvexUrl;
+    }
   });
 
   it("syncs picture audio and includes the cached URL when ready", async () => {

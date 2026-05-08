@@ -171,6 +171,7 @@ const generatePictureOfDayAudioRecord = async ({
   const runId = owner.slice(0, 8);
   let stage = "initializing";
   let spokenText: string | undefined;
+  let committedReady = false;
   const title = buildPictureOfDayAudioTitle(feedDateIso);
 
   const existing = await getPictureOfDayAudio({
@@ -275,6 +276,7 @@ const generatePictureOfDayAudioRecord = async ({
       byteLength: taggedAudioBlob.size,
       voiceId,
     });
+    committedReady = true;
 
     stage = "reloading_saved_audio";
     const saved = await getPictureOfDayAudio({
@@ -323,16 +325,18 @@ const generatePictureOfDayAudioRecord = async ({
       lastError: detailedMessage,
     });
 
-    await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
-      feedDate: feedDateIso,
-      pictureKey: picture.pictureKey,
-      scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-      status: "failed",
-      title,
-      spokenText,
-      voiceId,
-      lastError: detailedMessage,
-    });
+    if (!committedReady) {
+      await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
+        feedDate: feedDateIso,
+        pictureKey: picture.pictureKey,
+        scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+        status: "failed",
+        title,
+        spokenText,
+        voiceId,
+        lastError: detailedMessage,
+      });
+    }
 
     throw new Error(detailedMessage);
   }

@@ -125,8 +125,8 @@ function formatTrendingDate(isoDate: string | null | undefined): string {
   if (!isoDate) return "";
   try {
     const normalized =
-      /^\d{4}-\d{2}-\d{2}Z$/.test(isoDate) && !isoDate.includes("T")
-        ? `${isoDate.slice(0, 10)}T00:00:00Z`
+      /^\d{4}-\d{2}-\d{2}Z?$/.test(isoDate) && !isoDate.includes("T")
+        ? `${isoDate.slice(0, 10)}T12:00:00Z`
         : isoDate;
     const d = new Date(normalized);
     if (Number.isNaN(d.getTime())) return "";
