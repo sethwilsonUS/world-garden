@@ -255,6 +255,7 @@ describe("TodayOnWikipediaContent", () => {
     expect(trendingHeadingIndex).toBeGreaterThan(onThisDayIndex);
     expect(trendingAudioIndex).toBeGreaterThan(trendingHeadingIndex);
     expect(firstTrendIndex).toBeGreaterThan(trendingAudioIndex);
+    expect(markup).toContain("grid grid-cols-1 gap-4");
     expect(markup).toContain("lg:col-span-2");
   });
 
