@@ -26,6 +26,12 @@ const didYouKnowAudioStatus = v.union(
   v.literal("failed"),
 );
 
+const pictureOfDayAudioStatus = v.union(
+  v.literal("pending"),
+  v.literal("ready"),
+  v.literal("failed"),
+);
+
 const articleAudioExportStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -352,6 +358,47 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_feedDate", ["feedDate"])
+    .index("by_status", ["status"]),
+
+  pictureOfDayAudio: defineTable({
+    feedDate: v.string(),
+    pictureKey: v.string(),
+    scriptVersion: v.number(),
+    status: pictureOfDayAudioStatus,
+    title: v.optional(v.string()),
+    spokenText: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    durationSeconds: v.optional(v.number()),
+    byteLength: v.optional(v.number()),
+    voiceId: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate", ["feedDate"])
+    .index("by_feedDate_picture_script", [
+      "feedDate",
+      "pictureKey",
+      "scriptVersion",
+    ]),
+
+  pictureOfDayAudioJobs: defineTable({
+    feedDate: v.string(),
+    pictureKey: v.string(),
+    scriptVersion: v.number(),
+    status: featuredPodcastJobStatus,
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    leaseOwner: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate_picture_script", [
+      "feedDate",
+      "pictureKey",
+      "scriptVersion",
+    ])
     .index("by_status", ["status"]),
 
   routeQuotas: defineTable({

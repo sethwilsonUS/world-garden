@@ -17,6 +17,12 @@ export type WikipediaFeaturedThumbnail = {
   height: number;
 };
 
+export type WikipediaFeaturedImage = {
+  source: string;
+  width: number;
+  height: number;
+};
+
 export type WikipediaFeaturedArticle = {
   title: string;
   extract: string;
@@ -36,6 +42,49 @@ export type WikipediaDidYouKnowLink = {
   title: string;
   slug: string;
   text: string;
+};
+
+export type WikipediaFeedArticleLink = {
+  title: string;
+  slug: string;
+  wikiPageId?: string;
+  thumbnail?: WikipediaFeaturedThumbnail;
+};
+
+export type WikipediaInTheNewsItem = {
+  story: string;
+  links: WikipediaFeedArticleLink[];
+};
+
+export type WikipediaPictureOfDayAudio = {
+  status: "missing" | "pending" | "ready" | "failed";
+  audioUrl: string | null;
+  durationSeconds?: number;
+  lastError?: string;
+};
+
+export type WikipediaPictureOfDay = {
+  title: string;
+  pictureKey: string;
+  altText: string;
+  description: string;
+  thumbnail?: WikipediaFeaturedThumbnail;
+  image?: WikipediaFeaturedImage;
+  filePage?: string;
+  artist?: string;
+  credit?: string;
+  license?: {
+    type?: string;
+    code?: string;
+    url?: string;
+  };
+  audio?: WikipediaPictureOfDayAudio;
+};
+
+export type WikipediaOnThisDayItem = {
+  year?: number;
+  text: string;
+  pages: WikipediaFeedArticleLink[];
 };
 
 export type WikipediaDidYouKnowSegment =
@@ -71,6 +120,32 @@ type DidYouKnowPayload = {
   text?: string;
 };
 
+type FeaturedFeedNewsPayload = {
+  story?: string;
+  links?: FeaturedFeedArticlePayload[];
+};
+
+type FeaturedFeedPicturePayload = {
+  title?: string;
+  thumbnail?: WikipediaFeaturedThumbnail;
+  image?: WikipediaFeaturedImage;
+  file_page?: string;
+  artist?: { html?: string; text?: string };
+  credit?: { html?: string; text?: string };
+  license?: {
+    type?: string;
+    code?: string;
+    url?: string;
+  };
+  description?: { html?: string; text?: string };
+};
+
+type FeaturedFeedOnThisDayPayload = {
+  year?: number;
+  text?: string;
+  pages?: FeaturedFeedArticlePayload[];
+};
+
 type FeaturedFeedPayload = {
   tfa?: FeaturedFeedArticlePayload;
   mostread?: {
@@ -78,12 +153,18 @@ type FeaturedFeedPayload = {
     date?: string | null;
   };
   dyk?: DidYouKnowPayload[];
+  news?: FeaturedFeedNewsPayload[];
+  image?: FeaturedFeedPicturePayload;
+  onthisday?: FeaturedFeedOnThisDayPayload[];
 };
 
 export type WikipediaFeaturedSnapshot = {
   tfa: WikipediaFeaturedArticle | null;
   trendingCandidates: WikipediaTrendingArticle[];
   didYouKnow: WikipediaDidYouKnowItem[];
+  inTheNews: WikipediaInTheNewsItem[];
+  pictureOfDay: WikipediaPictureOfDay | null;
+  onThisDay: WikipediaOnThisDayItem[];
   trendingDate: string | null;
   trendingSource: string | null;
   trendingSourceType: "featured-feed" | "pageviews-top" | null;
@@ -361,6 +442,91 @@ const stripTags = (value: string): string => value.replace(/<[^>]+>/g, "");
 const normalizeHtmlText = (value: string): string =>
   decodeHtmlEntities(stripTags(value).replace(/\s+/g, " "));
 
+const normalizeMetadataText = (value?: { html?: string; text?: string }): string =>
+  normalizeHtmlText(value?.text ?? value?.html ?? "").trim();
+
+const toFeedArticleLink = (
+  article: FeaturedFeedArticlePayload,
+): WikipediaFeedArticleLink | null => {
+  const title = (article.titles?.normalized ?? article.title ?? "").trim();
+  if (!title) return null;
+
+  return {
+    title,
+    slug: title.replace(/ /g, "_"),
+    ...(article.pageid != null ? { wikiPageId: String(article.pageid) } : {}),
+    ...(article.thumbnail ? { thumbnail: article.thumbnail } : {}),
+  };
+};
+
+export const parseInTheNewsItem = (
+  item: FeaturedFeedNewsPayload,
+): WikipediaInTheNewsItem | null => {
+  const story = normalizeHtmlText(item.story ?? "").trim();
+  const links = (item.links ?? [])
+    .map(toFeedArticleLink)
+    .filter((link): link is WikipediaFeedArticleLink => link !== null);
+
+  if (!story && links.length === 0) return null;
+
+  return {
+    story,
+    links,
+  };
+};
+
+export const parsePictureOfDay = (
+  image?: FeaturedFeedPicturePayload,
+): WikipediaPictureOfDay | null => {
+  if (!image) return null;
+
+  const title = (image.title ?? "").trim();
+  const description = normalizeMetadataText(image.description);
+  const artist = normalizeMetadataText(image.artist);
+  const credit = normalizeMetadataText(image.credit);
+  const pictureKey = title || image.file_page || image.image?.source || image.thumbnail?.source;
+
+  if (!pictureKey || (!image.thumbnail && !image.image && !description)) {
+    return null;
+  }
+
+  return {
+    title: title || "Wikipedia picture of the day",
+    pictureKey,
+    altText: description || "Wikipedia picture of the day",
+    thumbnail: image.thumbnail,
+    image: image.image,
+    filePage: image.file_page,
+    description,
+    artist: artist || undefined,
+    credit: credit || undefined,
+    license: image.license
+      ? {
+          type: image.license.type,
+          code: image.license.code,
+          url: image.license.url,
+        }
+      : undefined,
+  };
+};
+
+export const parseOnThisDayItem = (
+  item: FeaturedFeedOnThisDayPayload,
+): WikipediaOnThisDayItem | null => {
+  const text = normalizeHtmlText(item.text ?? "").trim();
+  const pages = (item.pages ?? [])
+    .map(toFeedArticleLink)
+    .filter((link): link is WikipediaFeedArticleLink => link !== null);
+
+  if (!text && pages.length === 0) return null;
+
+  return {
+    ...(typeof item.year === "number" ? { year: item.year } : {}),
+    text,
+    pages,
+  };
+};
+
 const appendTextSegment = (
   segments: WikipediaDidYouKnowSegment[],
   text: string,
@@ -527,6 +693,13 @@ export const fetchWikipediaFeaturedSnapshot = async (
     didYouKnow: (todayData.dyk ?? [])
       .map(parseDidYouKnowItem)
       .filter((item): item is WikipediaDidYouKnowItem => item !== null),
+    inTheNews: (todayData.news ?? [])
+      .map(parseInTheNewsItem)
+      .filter((item): item is WikipediaInTheNewsItem => item !== null),
+    pictureOfDay: parsePictureOfDay(todayData.image),
+    onThisDay: (todayData.onthisday ?? [])
+      .map(parseOnThisDayItem)
+      .filter((item): item is WikipediaOnThisDayItem => item !== null),
     trendingDate,
     trendingSource,
     trendingSourceType,

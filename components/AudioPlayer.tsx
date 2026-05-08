@@ -15,6 +15,8 @@ type AudioPlayerProps = {
   onEnded?: () => void;
   playbackRate?: PlaybackRate;
   onPlaybackRateChange?: (rate: PlaybackRate) => void;
+  variant?: "default" | "compact";
+  className?: string;
 };
 
 import { formatTime } from "@/lib/formatTime";
@@ -28,6 +30,8 @@ export const AudioPlayer = ({
   onEnded,
   playbackRate = 1,
   onPlaybackRateChange,
+  variant = "default",
+  className = "",
 }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playBtnRef = useRef<HTMLButtonElement>(null);
@@ -129,12 +133,17 @@ export const AudioPlayer = ({
 
   const displayLabel = label ?? `Now playing: ${title}`;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const compact = variant === "compact";
 
   return (
-    <div role="group" aria-label={`Audio player for ${title}`} className="w-full md:w-[480px]">
+    <div
+      role="group"
+      aria-label={`Audio player for ${title}`}
+      className={`w-full max-w-[480px] ${className}`}
+    >
       {/* Now playing label */}
       <p
-        className="flex items-center gap-2 font-display font-semibold text-[0.8125rem] text-muted m-0 mb-2 tracking-[0.01em] overflow-hidden"
+        className="mb-2 flex items-center gap-2 overflow-hidden font-display text-[0.8125rem] font-semibold tracking-[0.01em] text-muted"
         aria-live="polite"
       >
         <span
@@ -145,9 +154,17 @@ export const AudioPlayer = ({
       </p>
 
       {/* Main player surface */}
-      <div className="bg-surface-3 border border-border rounded-2xl px-5 py-4">
+      <div
+        className={`border border-border bg-surface-3 ${
+          compact ? "rounded-xl px-3.5 py-3" : "rounded-2xl px-5 py-4"
+        }`}
+      >
         {/* Controls: skip-back, play/pause, skip-forward */}
-        <div className="flex items-center justify-center gap-5 mb-3.5">
+        <div
+          className={`mb-3.5 flex items-center justify-center ${
+            compact ? "gap-3" : "gap-5"
+          }`}
+        >
           <button
             onClick={() => skip(-10)}
             aria-label="Skip back 10 seconds"
@@ -164,7 +181,9 @@ export const AudioPlayer = ({
             ref={playBtnRef}
             onClick={togglePlay}
             aria-label={playing ? `Pause: ${title}` : `Play: ${title}`}
-            className="search-submit flex items-center justify-center w-[52px] h-[52px] bg-accent text-white border-0 rounded-full cursor-pointer shrink-0 transition-all duration-150"
+            className={`search-submit flex shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-accent text-white transition-all duration-150 ${
+              compact ? "h-11 w-11" : "h-[52px] w-[52px]"
+            }`}
             style={{
               boxShadow:
                 "0 4px 14px rgba(0,0,0,0.2), 0 0 0 4px var(--accent-glow)",
@@ -210,7 +229,7 @@ export const AudioPlayer = ({
         </div>
 
         {/* Progress: time — scrubber — time */}
-        <div className="flex items-center gap-3.5">
+        <div className={`flex items-center ${compact ? "gap-2.5" : "gap-3.5"}`}>
           <span
             className="font-mono text-xs font-medium text-muted min-w-[38px] select-none"
             aria-hidden="true"

@@ -2,10 +2,9 @@
 
 import { SearchForm } from "@/components/SearchForm";
 import { RecentlyListened } from "@/components/RecentlyListened";
-import { FeaturedArticle } from "@/components/FeaturedArticle";
-import { CuriousAbout } from "@/components/CuriousAbout";
 import { HomeAuthStatusCard } from "@/components/HomeAuthStatusCard";
 import { RandomArticleButton } from "@/components/RandomArticleButton";
+import { TodayOnWikipedia } from "@/components/TodayOnWikipedia";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
@@ -63,12 +62,8 @@ export default function Home() {
         </div>
       ) : null}
 
-      <div className="max-w-xl mx-auto animate-fade-in-up-delay-2">
-        <FeaturedArticle />
-      </div>
-
-      <div className="max-w-4xl mx-auto animate-fade-in-up-delay-3">
-        <CuriousAbout />
+      <div className="max-w-5xl mx-auto animate-fade-in-up-delay-3">
+        <TodayOnWikipedia />
       </div>
 
       <div className="max-w-xl mx-auto animate-fade-in-up-delay-4">
