@@ -224,6 +224,9 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("373 thousand");
     expect(markup).toContain("Last updated: May 7, 2026");
     expect(markup).toContain("A Marmelade fly on flight.");
+    expect(markup).toMatch(
+      /<img[^>]*(?=[^>]*class="[^"]*\bobject-contain\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/thumb\.jpg")[^>]*>/,
+    );
     expect(markup).toContain("Alvesgaspar");
     expect(markup).toContain("CC BY-SA 3.0");
     expect(markup).toContain("Audio: Picture of the Day description @1");
