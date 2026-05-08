@@ -790,7 +790,7 @@ export const TodayOnWikipediaContent = ({
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
         {hasPrimaryRail && (
           <div className={`space-y-4 ${hasTwoRails ? "" : "lg:col-span-2"}`}>
             <FeaturedArticleCard article={featured} feedDate={data.feedDate} />
@@ -879,7 +879,7 @@ export const TodayOnWikipedia = () => {
     return (
       <section aria-label="Loading today's Wikipedia feed" className="mt-12">
         <div className="skeleton mx-auto mb-4 h-[22px] w-[48%]" />
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
           <div className="space-y-4">
             <div className="rounded-2xl border border-border bg-surface-2 px-5 py-4">
               <div className="skeleton mb-4 h-[18px] w-[38%]" />
