@@ -459,6 +459,7 @@ const generateTrendingBriefRecord = async ({
   }
 
   const cachedBriefContent = getCachedTrendingBriefContent(existing);
+  let committedReady = false;
 
   try {
     console.info(
@@ -625,6 +626,7 @@ const generateTrendingBriefRecord = async ({
       byteLength: assetState.byteLength,
       model,
     });
+    committedReady = true;
 
     stage = "reloading_saved_brief";
     const saved = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
@@ -675,7 +677,7 @@ const generateTrendingBriefRecord = async ({
       lastError: detailedMessage,
     });
 
-    if (!existingReadyBrief) {
+    if (!existingReadyBrief && !committedReady) {
       await fetchMutation(anyApi.trending.saveTrendingBrief, {
         trendingDate: trendingDateIso,
         status: "failed",

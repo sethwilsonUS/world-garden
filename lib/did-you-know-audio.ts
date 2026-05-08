@@ -191,6 +191,7 @@ const generateDidYouKnowAudioRecord = async ({
   let spokenText: string | undefined;
   let itemTexts: string[] | undefined;
   let title = buildDidYouKnowAudioTitle(resolvedFeedDate);
+  let committedReady = false;
 
   const existing = (await fetchQuery(anyApi.didYouKnow.getDidYouKnowAudioByDate, {
     feedDate: resolvedFeedDate,
@@ -299,6 +300,7 @@ const generateDidYouKnowAudioRecord = async ({
       byteLength: taggedAudioBlob.size,
       voiceId,
     });
+    committedReady = true;
 
     stage = "reloading_saved_audio";
     const saved = (await fetchQuery(anyApi.didYouKnow.getDidYouKnowAudioByDate, {
@@ -342,15 +344,17 @@ const generateDidYouKnowAudioRecord = async ({
       lastError: detailedMessage,
     });
 
-    await fetchMutation(anyApi.didYouKnow.saveDidYouKnowAudio, {
-      feedDate: resolvedFeedDate,
-      status: "failed",
-      title,
-      spokenText,
-      itemTexts,
-      voiceId,
-      lastError: detailedMessage,
-    });
+    if (!committedReady) {
+      await fetchMutation(anyApi.didYouKnow.saveDidYouKnowAudio, {
+        feedDate: resolvedFeedDate,
+        status: "failed",
+        title,
+        spokenText,
+        itemTexts,
+        voiceId,
+        lastError: detailedMessage,
+      });
+    }
 
     throw new Error(detailedMessage);
   }
