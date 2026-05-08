@@ -10,9 +10,22 @@ import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 type FeedArticleLink = {
   title: string;
   slug: string;
+  text?: string;
   wikiPageId?: string;
   thumbnail?: { source: string; width: number; height: number };
 };
+
+type DidYouKnowSegment =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "link";
+      text: string;
+      title: string;
+      slug: string;
+    };
 
 type FeaturedArticle = {
   title: string;
@@ -35,6 +48,15 @@ type TrendingBrief = {
   durationSeconds?: number;
 };
 
+type DidYouKnowAudio = {
+  feedDate: string;
+  title: string;
+  status: "missing" | "pending" | "ready" | "failed";
+  audioUrl: string | null;
+  durationSeconds?: number;
+  lastError?: string;
+};
+
 type InTheNewsItem = {
   story: string;
   links: FeedArticleLink[];
@@ -44,6 +66,12 @@ type OnThisDayItem = {
   year?: number;
   text: string;
   pages: FeedArticleLink[];
+};
+
+type DidYouKnowItem = {
+  text: string;
+  links: FeedArticleLink[];
+  segments: DidYouKnowSegment[];
 };
 
 type PictureAudio = {
@@ -70,16 +98,21 @@ type PictureOfDay = {
 export type TodayOnWikipediaData = {
   tfa?: FeaturedArticle | null;
   feedDate?: string | null;
+  snapshotFeedDate?: string | null;
+  snapshotGeneratedAt?: number | null;
+  snapshotIsStale?: boolean;
   trending?: TrendingArticle[];
   trendingDate?: string | null;
   trendingBrief?: TrendingBrief | null;
+  didYouKnow?: DidYouKnowItem[];
+  didYouKnowAudio?: DidYouKnowAudio | null;
   inTheNews?: InTheNewsItem[];
   pictureOfDay?: PictureOfDay | null;
   onThisDay?: OnThisDayItem[];
 };
 
 const MAX_NEWS_ITEMS = 3;
-const MAX_TRENDING_ARTICLES = 8;
+const MAX_TRENDING_ARTICLES = 4;
 
 const toArticleSlug = (title: string) => title.replace(/ /g, "_");
 const toArticleHref = (titleOrSlug: string) =>
@@ -310,14 +343,146 @@ const OnThisDayCard = ({ item }: { item?: OnThisDayItem }) => {
   );
 };
 
+const SnapshotCallout = ({
+  snapshotFeedDate,
+  snapshotIsStale,
+}: {
+  snapshotFeedDate?: string | null;
+  snapshotIsStale?: boolean;
+}) => {
+  if (!snapshotIsStale || !snapshotFeedDate) return null;
+
+  const dateLabel = formatFeedDate(snapshotFeedDate);
+  if (!dateLabel) return null;
+
+  return (
+    <p
+      className="mx-auto mt-3 max-w-2xl rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-center text-xs leading-[1.6] text-foreground-2"
+      role="status"
+    >
+      Showing the latest cached edition from {dateLabel}. Today&apos;s update is
+      still catching up.
+    </p>
+  );
+};
+
+const DidYouKnowAudioCard = ({
+  audio,
+}: {
+  audio?: DidYouKnowAudio | null;
+}) => {
+  const { rate, setRate } = usePlaybackRate();
+
+  if (audio?.status !== "ready" || !audio.audioUrl) return null;
+
+  return (
+    <div className="mt-3 mb-4 rounded-xl border border-accent-border bg-accent-bg px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+        Daily audio
+      </p>
+      <AudioPlayer
+        audioUrl={audio.audioUrl}
+        title={audio.title}
+        label="Listen: today’s Did You Know list"
+        playbackRate={rate}
+        onPlaybackRateChange={setRate}
+        variant="compact"
+        className="mt-3 max-w-full"
+      />
+    </div>
+  );
+};
+
+const DidYouKnowSegmentText = ({
+  segment,
+}: {
+  segment: DidYouKnowSegment;
+}) => {
+  if (segment.type === "link") {
+    return (
+      <Link
+        href={toArticleHref(segment.slug)}
+        className="text-accent underline decoration-accent/50 underline-offset-[0.16em]"
+      >
+        {segment.text}
+      </Link>
+    );
+  }
+
+  return <>{segment.text}</>;
+};
+
+const DidYouKnowCard = ({
+  items,
+  audio,
+}: {
+  items: DidYouKnowItem[];
+  audio?: DidYouKnowAudio | null;
+}) => (
+  <section
+    aria-labelledby="today-dyk-heading"
+    className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
+  >
+    <h3
+      id="today-dyk-heading"
+      className="font-display text-base font-semibold text-foreground"
+    >
+      Did You Know?
+    </h3>
+
+    <DidYouKnowAudioCard audio={audio} />
+
+    {items.length > 0 ? (
+      <ol className="m-0 mt-3 list-none space-y-4 p-0" role="list">
+        {items.map((item, index) => {
+          const imageLink = getFirstLinkedImage(item.links);
+          const image = imageLink?.thumbnail;
+
+          return (
+            <li
+              key={`${index}-${item.text}`}
+              className={image ? "flex gap-3" : undefined}
+            >
+              {imageLink && image && <LinkedItemThumbnail link={imageLink} />}
+              <div className="min-w-0">
+                <p className="text-sm leading-[1.8] text-foreground-2">
+                  <span className="mr-2 font-semibold text-accent">
+                    {index + 1}.
+                  </span>
+                  {(item.segments.length > 0
+                    ? item.segments
+                    : [{ type: "text" as const, text: item.text }]
+                  ).map((segment, segmentIndex) => (
+                    <DidYouKnowSegmentText
+                      key={`${index}-${segmentIndex}`}
+                      segment={segment}
+                    />
+                  ))}
+                </p>
+                <ArticleLinkList links={item.links} />
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    ) : (
+      <p className="mt-3 text-sm text-muted" role="status">
+        No Did You Know items are available right now.
+      </p>
+    )}
+  </section>
+);
+
 const TrendingArticles = ({
   articles,
   trendingDate,
+  brief,
 }: {
   articles: TrendingArticle[];
   trendingDate?: string | null;
+  brief?: TrendingBrief | null;
 }) => {
-  if (articles.length === 0) return null;
+  if (articles.length === 0 && !brief) return null;
 
   const dateLabel = formatTrendingDate(trendingDate);
 
@@ -342,97 +507,109 @@ const TrendingArticles = ({
         )}
       </div>
 
-      <ol
-        className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4"
-        role="list"
-      >
-        {articles.slice(0, MAX_TRENDING_ARTICLES).map((article, index) => {
-          const slug = toArticleSlug(article.title);
-          return (
-            <li key={article.title}>
-              <Link
-                href={toArticleHref(slug)}
-                className="result-link flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2 no-underline transition-all duration-200"
-              >
-                {article.thumbnail ? (
-                  <span
-                    className="relative block aspect-[16/9] overflow-hidden bg-surface-3"
-                    aria-hidden="true"
-                  >
-                    <Image
-                      src={article.thumbnail.source}
-                      alt=""
-                      fill
-                      sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                      className="object-cover"
-                      unoptimized
-                    />
-                  </span>
-                ) : (
-                  <span
-                    className="flex aspect-[16/9] items-center justify-center bg-surface-3 text-muted opacity-40"
-                    aria-hidden="true"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={1}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      width={32}
-                      height={32}
-                    >
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                      <circle cx="8.5" cy="8.5" r="1.5" />
-                      <polyline points="21 15 16 10 5 21" />
-                    </svg>
-                  </span>
-                )}
-                <span className="flex flex-1 flex-col px-4 py-3">
-                  <span className="text-xs font-semibold text-accent">
-                    #{index + 1}
-                  </span>
-                  <span className="mt-2 font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground">
-                    {article.title}
-                  </span>
-                  <span className="mt-1 text-[0.8125rem] leading-[1.5] text-muted">
-                    {truncate(article.extract, 120)}
-                  </span>
-                  {article.views > 0 && (
-                    <span className="mt-2 text-[0.6875rem] text-muted opacity-75">
-                      {formatViews(article.views)} views yesterday
-                    </span>
-                  )}
-                </span>
-              </Link>
-            </li>
-          );
-        })}
-      </ol>
+      {brief && (
+        <DailyTrendingBriefPlayer
+          audioUrl={brief.audioUrl}
+          title={brief.headline || "Why these topics are trending today"}
+          durationSeconds={brief.durationSeconds}
+        />
+      )}
 
-      <div className="mt-3 text-center">
-        <Link
-          href="/trending"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-accent no-underline transition-colors duration-200"
-        >
-          See all trending articles
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            width={14}
-            height={14}
-            aria-hidden="true"
+      {articles.length > 0 && (
+        <>
+          <ol
+            className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4"
+            role="list"
           >
-            <path d="M5 12h14" />
-            <path d="M12 5l7 7-7 7" />
-          </svg>
-        </Link>
-      </div>
+            {articles.slice(0, MAX_TRENDING_ARTICLES).map((article, index) => {
+              const slug = toArticleSlug(article.title);
+              return (
+                <li key={article.title}>
+                  <Link
+                    href={toArticleHref(slug)}
+                    className="result-link flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2 no-underline transition-all duration-200"
+                  >
+                    {article.thumbnail ? (
+                      <span
+                        className="relative block aspect-[16/9] overflow-hidden bg-surface-3"
+                        aria-hidden="true"
+                      >
+                        <Image
+                          src={article.thumbnail.source}
+                          alt=""
+                          fill
+                          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                          className="object-cover"
+                          unoptimized
+                        />
+                      </span>
+                    ) : (
+                      <span
+                        className="flex aspect-[16/9] items-center justify-center bg-surface-3 text-muted opacity-40"
+                        aria-hidden="true"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          width={32}
+                          height={32}
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                          <circle cx="8.5" cy="8.5" r="1.5" />
+                          <polyline points="21 15 16 10 5 21" />
+                        </svg>
+                      </span>
+                    )}
+                    <span className="flex flex-1 flex-col px-4 py-3">
+                      <span className="text-xs font-semibold text-accent">
+                        #{index + 1}
+                      </span>
+                      <span className="mt-2 font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground">
+                        {article.title}
+                      </span>
+                      <span className="mt-1 text-[0.8125rem] leading-[1.5] text-muted">
+                        {truncate(article.extract, 120)}
+                      </span>
+                      {article.views > 0 && (
+                        <span className="mt-2 text-[0.6875rem] text-muted opacity-75">
+                          {formatViews(article.views)} views yesterday
+                        </span>
+                      )}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ol>
+
+          <div className="mt-3 text-center">
+            <Link
+              href="/trending"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent no-underline transition-colors duration-200"
+            >
+              See all trending articles
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                width={14}
+                height={14}
+                aria-hidden="true"
+              >
+                <path d="M5 12h14" />
+                <path d="M12 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        </>
+      )}
     </section>
   );
 };
@@ -568,6 +745,8 @@ export const TodayOnWikipediaContent = ({
   const featured = data.tfa ?? null;
   const news = data.inTheNews ?? [];
   const trending = data.trending ?? [];
+  const didYouKnow = data.didYouKnow ?? [];
+  const didYouKnowAudio = data.didYouKnowAudio ?? null;
   const onThisDay = data.onThisDay ?? [];
   const picture = data.pictureOfDay ?? null;
   const trendingBrief = data.trendingBrief ?? null;
@@ -575,6 +754,7 @@ export const TodayOnWikipediaContent = ({
   if (
     !featured &&
     news.length === 0 &&
+    didYouKnow.length === 0 &&
     trending.length === 0 &&
     !picture &&
     onThisDay.length === 0 &&
@@ -584,7 +764,13 @@ export const TodayOnWikipediaContent = ({
   }
 
   const firstOnThisDay = onThisDay[0];
-  const hasSideColumn = Boolean(picture || trendingBrief);
+  const hasPrimaryRail =
+    Boolean(featured) ||
+    didYouKnow.length > 0 ||
+    didYouKnowAudio?.status === "ready";
+  const hasSupportRail =
+    Boolean(picture) || news.length > 0 || Boolean(firstOnThisDay);
+  const hasTwoRails = hasPrimaryRail && hasSupportRail;
 
   return (
     <section aria-labelledby="today-wikipedia-heading" className="mt-12">
@@ -596,33 +782,39 @@ export const TodayOnWikipediaContent = ({
           Today on Wikipedia
         </h2>
         <p className="mt-1 text-xs text-muted">
-          In the News is editor-curated; Trending is pageview-driven and AI-briefed.
+          A structured digest of Wikipedia&apos;s daily featured feed.
         </p>
+        <SnapshotCallout
+          snapshotFeedDate={data.snapshotFeedDate ?? data.feedDate}
+          snapshotIsStale={data.snapshotIsStale}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.82fr)]">
-        <div className={`space-y-4 ${hasSideColumn ? "" : "lg:col-span-2"}`}>
-          <FeaturedArticleCard article={featured} feedDate={data.feedDate} />
-          <NewsCard news={news} />
-          <OnThisDayCard item={firstOnThisDay} />
-        </div>
-
-        {hasSideColumn && (
-          <div className="space-y-4">
-            {picture && <PictureOfDayFigure picture={picture} />}
-            {trendingBrief && (
-              <DailyTrendingBriefPlayer
-                audioUrl={trendingBrief.audioUrl}
-                title={trendingBrief.headline || "Why these topics are trending today"}
-                durationSeconds={trendingBrief.durationSeconds}
+        {hasPrimaryRail && (
+          <div className={`space-y-4 ${hasTwoRails ? "" : "lg:col-span-2"}`}>
+            <FeaturedArticleCard article={featured} feedDate={data.feedDate} />
+            {didYouKnow.length > 0 || didYouKnowAudio?.status === "ready" ? (
+              <DidYouKnowCard
+                items={didYouKnow}
+                audio={didYouKnowAudio}
               />
-            )}
+            ) : null}
+          </div>
+        )}
+
+        {hasSupportRail && (
+          <div className={`space-y-4 ${hasTwoRails ? "" : "lg:col-span-2"}`}>
+            {picture && <PictureOfDayFigure picture={picture} />}
+            <NewsCard news={news} />
+            <OnThisDayCard item={firstOnThisDay} />
           </div>
         )}
 
         <TrendingArticles
           articles={trending}
           trendingDate={data.trendingDate}
+          brief={trendingBrief}
         />
       </div>
     </section>

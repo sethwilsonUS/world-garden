@@ -45,4 +45,13 @@ describe("SiteNavLinks", () => {
 
     expect(markup).toContain("Library");
   });
+
+  it("does not expose Did You Know as a standalone navigation item", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SiteNavLinks, { variant: "desktop", authEnabled: false }),
+    );
+
+    expect(markup).not.toContain("Did you know?");
+    expect(markup).not.toContain("/did-you-know");
+  });
 });

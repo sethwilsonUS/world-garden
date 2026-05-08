@@ -18,7 +18,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
-**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "Today on Wikipedia" section highlights editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, and a small On This Day entry. A "What people are curious about" section highlights pageview-driven trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
+**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, a small On This Day entry, and a compact Trending teaser. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
 **Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief is generated once per trending date through Vercel AI Gateway, converted to speech, and cached in Convex.
 
@@ -212,10 +212,11 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Vercel will call `/api/podcast/featured/cron`, `/api/did-you-know/audio/cron`, `/api/picture-of-day/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+3. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/did-you-know/audio/cron`, `/api/picture-of-day/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
+- `5 0 * * *` and `35 0 * * *` for the Today on Wikipedia snapshot (`00:05 UTC` primary run, `00:35 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `15 0 * * *` and `45 0 * * *` for Did You Know audio (`00:15 UTC` primary run, `00:45 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `20 0 * * *` and `50 0 * * *` for Picture of the Day audio (`00:20 UTC` primary run, `00:50 UTC` retry)
@@ -327,8 +328,8 @@ components/
   BackButton.tsx          Navigation back button
   RecentlyListened.tsx    Recently listened articles grid (home page)
   FeaturedArticle.tsx     Today's Featured Article card with thumbnail (home page)
-  TodayOnWikipedia.tsx    In the News, accessible Picture of the Day, and On This Day module
-  CuriousAbout.tsx        Trending Wikipedia articles grid with thumbnails (home page)
+  TodayOnWikipedia.tsx    Featured, Did You Know, news, picture, On This Day, and trending digest
+  CuriousAbout.tsx        Legacy trending articles grid with thumbnails
   RandomArticleButton.tsx "Surprise me" button with NSFW category filter
   RelatedArticles.tsx     "Listen next" suggestions after playback
   LocalModeBanner.tsx     Dismissable banner shown in local mode

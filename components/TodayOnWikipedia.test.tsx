@@ -27,10 +27,13 @@ vi.mock("@/components/AudioPlayer", () => ({
 }));
 
 describe("TodayOnWikipediaContent", () => {
-  it("renders featured, news, trending, picture metadata, and ready picture audio", () => {
+  it("renders the daily digest with full Did You Know, thumbnails, stale callout, and compact trending", () => {
     const markup = renderToStaticMarkup(
       createElement(TodayOnWikipediaContent, {
         data: {
+          snapshotFeedDate: "2026-05-07",
+          snapshotGeneratedAt: 1_778_200_000_000,
+          snapshotIsStale: true,
           tfa: {
             title: "First Treaty of London",
             extract:
@@ -59,6 +62,54 @@ describe("TodayOnWikipediaContent", () => {
               ],
             },
           ],
+          didYouKnow: [
+            {
+              text: "... that the U.S. Supreme Court visited the Lenox Lyceum?",
+              links: [
+                {
+                  title: "Lenox Lyceum",
+                  slug: "Lenox_Lyceum",
+                  text: "Lenox Lyceum",
+                  wikiPageId: "123",
+                  thumbnail: {
+                    source: "https://upload.wikimedia.org/lenox.jpg",
+                    width: 320,
+                    height: 240,
+                  },
+                },
+              ],
+              segments: [
+                {
+                  type: "text",
+                  text: "... that the U.S. Supreme Court visited the ",
+                },
+                {
+                  type: "link",
+                  title: "Lenox Lyceum",
+                  slug: "Lenox_Lyceum",
+                  text: "Lenox Lyceum",
+                },
+                { type: "text", text: "?" },
+              ],
+            },
+            {
+              text: "... that a second fact keeps the full list visible?",
+              links: [],
+              segments: [
+                {
+                  type: "text",
+                  text: "... that a second fact keeps the full list visible?",
+                },
+              ],
+            },
+          ],
+          didYouKnowAudio: {
+            feedDate: "2026-05-07",
+            title: "Did You Know? May 7, 2026",
+            status: "ready",
+            audioUrl: "https://cdn.example.com/dyk.mp3",
+            durationSeconds: 180,
+          },
           trending: [
             {
               title: "Vijay (actor)",
@@ -71,8 +122,33 @@ describe("TodayOnWikipediaContent", () => {
                 height: 360,
               },
             },
+            {
+              title: "Second trend",
+              extract: "The second compact trending item.",
+              views: 200000,
+            },
+            {
+              title: "Third trend",
+              extract: "The third compact trending item.",
+              views: 100000,
+            },
+            {
+              title: "Fourth trend",
+              extract: "The fourth compact trending item.",
+              views: 50000,
+            },
+            {
+              title: "Fifth trend should be hidden",
+              extract: "This item belongs on the dedicated Trending page.",
+              views: 40000,
+            },
           ],
           trendingDate: "2026-05-07Z",
+          trendingBrief: {
+            audioUrl: "https://cdn.example.com/trending.mp3",
+            headline: "Why these topics are trending today",
+            durationSeconds: 210,
+          },
           onThisDay: [
             {
               year: 1984,
@@ -120,6 +196,7 @@ describe("TodayOnWikipediaContent", () => {
     );
 
     expect(markup).toContain("Today on Wikipedia");
+    expect(markup).toContain("Showing the latest cached edition from May 7, 2026");
     expect(markup).toContain("Featured article");
     expect(markup).toContain("First Treaty of London");
     expect(
@@ -129,9 +206,18 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Ted Turner");
     expect(markup).toContain("https://upload.wikimedia.org/ted.jpg");
     expect(markup).toContain("Image for Ted Turner");
+    expect(markup).toContain("Did You Know?");
+    expect(markup).toContain("Lenox Lyceum");
+    expect(markup).toContain("https://upload.wikimedia.org/lenox.jpg");
+    expect(markup).toContain("Image for Lenox Lyceum");
+    expect(markup).toContain("Audio: Did You Know? May 7, 2026 @1");
     expect(markup).toContain("Trending");
+    expect(markup).toContain("Daily audio briefing");
+    expect(markup).toContain("Why these topics are trending today");
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
+    expect(markup).toContain("Fourth trend");
+    expect(markup).not.toContain("Fifth trend should be hidden");
     expect(markup).toContain("373 thousand");
     expect(markup).toContain("Last updated: May 7, 2026");
     expect(markup).toContain("A Marmelade fly on flight.");
@@ -145,6 +231,25 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain('width="330"');
     expect(markup).toContain('height="440"');
     expect(markup).toContain("object-contain");
+
+    const featuredIndex = markup.indexOf("Featured article");
+    const didYouKnowIndex = markup.indexOf("Did You Know?");
+    const pictureIndex = markup.indexOf("Picture of the Day");
+    const newsIndex = markup.indexOf("In the News");
+    const onThisDayIndex = markup.indexOf("On This Day");
+    const trendingHeadingIndex = markup.indexOf("What people are curious about");
+    const trendingAudioIndex = markup.indexOf("Daily audio briefing");
+    const firstTrendIndex = markup.indexOf("Vijay (actor)");
+
+    expect(featuredIndex).toBeGreaterThan(-1);
+    expect(didYouKnowIndex).toBeGreaterThan(featuredIndex);
+    expect(pictureIndex).toBeGreaterThan(didYouKnowIndex);
+    expect(newsIndex).toBeGreaterThan(pictureIndex);
+    expect(onThisDayIndex).toBeGreaterThan(newsIndex);
+    expect(trendingHeadingIndex).toBeGreaterThan(onThisDayIndex);
+    expect(trendingAudioIndex).toBeGreaterThan(trendingHeadingIndex);
+    expect(firstTrendIndex).toBeGreaterThan(trendingAudioIndex);
+    expect(markup).toContain("lg:col-span-2");
   });
 
   it("renders a polite pending status instead of an audio player", () => {

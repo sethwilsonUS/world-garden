@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchQuery = vi.fn();
-const fetchCurrentFeaturedArticle = vi.fn();
+const getTodayWikipediaData = vi.fn();
 const getCurrentTrendingBriefSource = vi.fn();
 const isTrendingBriefEnabled = vi.fn();
 const getPodcastAdminAuthError = vi.fn();
@@ -11,8 +11,8 @@ vi.mock("convex/nextjs", () => ({
   fetchQuery,
 }));
 
-vi.mock("@/lib/featured-article", () => ({
-  fetchCurrentFeaturedArticle,
+vi.mock("@/lib/today-snapshot", () => ({
+  getTodayWikipediaData,
 }));
 
 vi.mock("@/lib/trending-brief", () => ({
@@ -32,8 +32,8 @@ describe("GET /api/podcast/status", () => {
   });
 
   it("reports ready featured and trending publications that match upstream", async () => {
-    fetchCurrentFeaturedArticle.mockResolvedValue({
-      feedDateIso: "2026-03-11",
+    getTodayWikipediaData.mockResolvedValue({
+      feedDate: "2026-03-11",
       tfa: {
         title: "Example Article",
         wikiPageId: "123",
@@ -88,8 +88,8 @@ describe("GET /api/podcast/status", () => {
   });
 
   it("reports mismatched and failed stored publications", async () => {
-    fetchCurrentFeaturedArticle.mockResolvedValue({
-      feedDateIso: "2026-03-11",
+    getTodayWikipediaData.mockResolvedValue({
+      feedDate: "2026-03-11",
       tfa: {
         title: "New Article",
         wikiPageId: "999",
@@ -146,8 +146,8 @@ describe("GET /api/podcast/status", () => {
   });
 
   it("reports pending trending publication separately from missing content", async () => {
-    fetchCurrentFeaturedArticle.mockResolvedValue({
-      feedDateIso: "2026-03-11",
+    getTodayWikipediaData.mockResolvedValue({
+      feedDate: "2026-03-11",
       tfa: null,
     });
     getCurrentTrendingBriefSource.mockResolvedValue({

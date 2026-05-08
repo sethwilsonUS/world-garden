@@ -5,9 +5,8 @@ import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import type { Id } from "@/convex/_generated/dataModel";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
-import { fetchWikipediaFeaturedSnapshot } from "@/lib/featured-article";
-import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
+import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudio } from "@/lib/tts-client";
 import {
   TRENDING_EPISODE_ARTWORK_VERSION,
@@ -308,15 +307,12 @@ export const getCurrentTrendingBriefSource = async (): Promise<{
   articles: TrendingArticle[];
   artworkItems: TrendingArtworkItem[];
 }> => {
-  const snapshot = await fetchWikipediaFeaturedSnapshot();
-  const candidateTitles = snapshot.trendingCandidates.map((candidate) => candidate.title);
-  const safeTitles = await filterSafeTitles(candidateTitles);
-  const filteredArticles = snapshot.trendingCandidates.filter((candidate) =>
-    safeTitles.has(candidate.title),
-  );
-  const articles = (filteredArticles.length > 0
-    ? filteredArticles
-    : snapshot.trendingCandidates)
+  const snapshot = await getTodayWikipediaData({ allowLiveFallback: true });
+  if (!snapshot) {
+    throw new Error("Today on Wikipedia snapshot is not available");
+  }
+
+  const articles = snapshot.trending
     .slice(0, MAX_ARTICLES_IN_PROMPT)
     .map((candidate) => ({
       title: candidate.title,
@@ -329,8 +325,8 @@ export const getCurrentTrendingBriefSource = async (): Promise<{
 
   return {
     trendingDateIso:
-      snapshot.trendingDate?.replace(/Z$/, "") || snapshot.feedDateIso,
-    sourceIsStale: snapshot.trendingIsStale,
+      snapshot.trendingDate?.replace(/Z$/, "") || snapshot.feedDate,
+    sourceIsStale: snapshot.trendingIsStale || snapshot.snapshotIsStale,
     articles,
     artworkItems,
   };

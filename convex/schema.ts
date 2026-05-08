@@ -330,6 +330,16 @@ export default defineSchema({
     .index("by_trendingDate", ["trendingDate"])
     .index("by_status", ["status"]),
 
+  todaySnapshots: defineTable({
+    feedDate: v.string(),
+    data: v.any(),
+    generatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate", ["feedDate"])
+    .index("by_updatedAt", ["updatedAt"]),
+
   didYouKnowAudio: defineTable({
     feedDate: v.string(),
     status: didYouKnowAudioStatus,
