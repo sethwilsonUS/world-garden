@@ -216,6 +216,9 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Why these topics are trending today");
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
+    expect(markup).toMatch(
+      /object-contain[\s\S]*https:\/\/upload\.wikimedia\.org\/trending-vijay\.jpg/,
+    );
     expect(markup).toContain("Fourth trend");
     expect(markup).not.toContain("Fifth trend should be hidden");
     expect(markup).toContain("373 thousand");
