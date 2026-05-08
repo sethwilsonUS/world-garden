@@ -137,7 +137,7 @@ describe("featured feed extras", () => {
     });
   });
 
-  it("removes Wikipedia picture callouts from In the News stories", () => {
+  it("preserves Wikipedia picture callouts and thumbnail metadata for In the News", () => {
     const item = parseInTheNewsItem({
       story:
         "A hantavirus outbreak on the cruise ship <i>MV Hondius</i> (pictured) forces most of the remaining passengers to quarantine on board.",
@@ -146,12 +146,20 @@ describe("featured feed extras", () => {
           pageid: 123,
           title: "MV Hondius",
           titles: { normalized: "MV Hondius" },
+          thumbnail: {
+            source: "https://upload.wikimedia.org/hondius.jpg",
+            width: 330,
+            height: 220,
+          },
         },
       ],
     });
 
     expect(item?.story).toBe(
-      "A hantavirus outbreak on the cruise ship MV Hondius forces most of the remaining passengers to quarantine on board.",
+      "A hantavirus outbreak on the cruise ship MV Hondius (pictured) forces most of the remaining passengers to quarantine on board.",
+    );
+    expect(item?.links[0]?.thumbnail?.source).toBe(
+      "https://upload.wikimedia.org/hondius.jpg",
     );
   });
 
@@ -217,6 +225,11 @@ describe("featured feed extras", () => {
           pageid: 12813736,
           title: "1984 Summer Olympics boycott",
           titles: { normalized: "1984 Summer Olympics boycott" },
+          thumbnail: {
+            source: "https://upload.wikimedia.org/olympics.jpg",
+            width: 330,
+            height: 220,
+          },
         },
       ],
     });
@@ -229,6 +242,11 @@ describe("featured feed extras", () => {
           title: "1984 Summer Olympics boycott",
           slug: "1984_Summer_Olympics_boycott",
           wikiPageId: "12813736",
+          thumbnail: {
+            source: "https://upload.wikimedia.org/olympics.jpg",
+            width: 330,
+            height: 220,
+          },
         },
       ],
     });
