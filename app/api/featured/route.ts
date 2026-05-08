@@ -1,23 +1,45 @@
 import { NextResponse } from "next/server";
 import { fetchWikipediaFeaturedSnapshot } from "@/lib/featured-article";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
+import { syncPictureOfDayAudio } from "@/lib/picture-of-day-audio";
+import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
+const FEATURED_CACHE_HEADERS = {
+  "Cache-Control":
+    "public, max-age=900, s-maxage=900, stale-while-revalidate=3600",
+} as const;
+export const maxDuration = 300;
+
+const shouldSyncPictureAudio = (): boolean =>
+  process.env.NEXT_PUBLIC_LOCAL_MODE !== "true" &&
+  Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
 
 function errorResponse(reason: string, status = 502) {
   console.error(`[/api/featured] ${reason}`);
   return NextResponse.json(
-    { tfa: null, trending: [], didYouKnow: [], error: reason },
+    {
+      tfa: null,
+      trending: [],
+      didYouKnow: [],
+      inTheNews: [],
+      pictureOfDay: null,
+      onThisDay: [],
+      error: reason,
+    },
     { status, headers: NO_CACHE_HEADERS },
   );
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const {
       tfa,
       trendingCandidates,
       didYouKnow,
+      inTheNews,
+      pictureOfDay: sourcePictureOfDay,
+      onThisDay,
       trendingDate,
       trendingSource,
       trendingSourceType,
@@ -54,11 +76,61 @@ export async function GET() {
       }
     }
 
+    let pictureOfDay = sourcePictureOfDay;
+    let pictureAudioBlocksLongCache = Boolean(
+      pictureOfDay && !shouldSyncPictureAudio(),
+    );
+    if (pictureOfDay && shouldSyncPictureAudio()) {
+      try {
+        const requestOrigin = new URL(req.url).origin;
+        const audioResult = await syncPictureOfDayAudio({
+          baseUrl: getPodcastSiteUrl(requestOrigin),
+          feedDateIso,
+          picture: pictureOfDay,
+        });
+        const audioUrl = audioResult.audio?.audioUrl ?? null;
+        const audioStatus =
+          audioResult.status === "created" ||
+          audioResult.status === "already_exists"
+            ? audioUrl
+              ? "ready"
+              : "failed"
+            : audioResult.status;
+
+        pictureOfDay = {
+          ...pictureOfDay,
+          audio: {
+            status: audioStatus === "missing_source" ? "missing" : audioStatus,
+            audioUrl,
+            durationSeconds: audioResult.audio?.durationSeconds,
+            lastError: audioResult.audio?.lastError,
+          },
+        };
+        pictureAudioBlocksLongCache = audioStatus !== "ready";
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Picture audio sync failed";
+        console.warn(`[/api/featured] picture audio sync failed: ${message}`);
+        pictureOfDay = {
+          ...pictureOfDay,
+          audio: {
+            status: "failed",
+            audioUrl: null,
+            lastError: message,
+          },
+        };
+        pictureAudioBlocksLongCache = true;
+      }
+    }
+
     return NextResponse.json(
       {
         tfa,
         trending,
         didYouKnow,
+        inTheNews,
+        pictureOfDay,
+        onThisDay,
         trendingDate,
         trendingSource,
         trendingSourceType,
@@ -66,10 +138,9 @@ export async function GET() {
         feedDate: feedDateIso,
       },
       {
-        headers: {
-          "Cache-Control":
-            "public, max-age=900, s-maxage=900, stale-while-revalidate=3600",
-        },
+        headers: pictureAudioBlocksLongCache
+          ? NO_CACHE_HEADERS
+          : FEATURED_CACHE_HEADERS,
       },
     );
   } catch (err) {

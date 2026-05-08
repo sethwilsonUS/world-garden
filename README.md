@@ -18,7 +18,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
-**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "What people are curious about" section highlights trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
+**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A "Today on Wikipedia" section highlights editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, and a small On This Day entry. A "What people are curious about" section highlights pageview-driven trending Wikipedia articles with thumbnails, so there's always something to explore. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
 **Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief is generated once per trending date through Vercel AI Gateway, converted to speech, and cached in Convex.
 
@@ -53,7 +53,7 @@ Text is normalized before synthesis — stripping citation markers and expanding
 
 Generated audio is cached per-section in Convex file storage so each section is only synthesized once. Subsequent plays (by any user) are served directly from the cache.
 
-Featured podcast episodes and personal playlist episodes both reuse that same section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Vercel cron routes can generate the public feeds on a schedule.
+Featured podcast episodes and personal playlist episodes both reuse that same section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Picture of the Day descriptions are generated once per featured-feed date and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
 
 > **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
@@ -212,12 +212,13 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Vercel will call `/api/podcast/featured/cron`, `/api/did-you-know/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+3. Vercel will call `/api/podcast/featured/cron`, `/api/did-you-know/audio/cron`, `/api/picture-of-day/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
 - `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `15 0 * * *` and `45 0 * * *` for Did You Know audio (`00:15 UTC` primary run, `00:45 UTC` retry shortly after Wikipedia's daily UTC rollover)
+- `20 0 * * *` and `50 0 * * *` for Picture of the Day audio (`00:20 UTC` primary run, `00:50 UTC` retry)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
 
 ### Local podcast testing
@@ -272,6 +273,7 @@ app/
   globals.css             Design system tokens, utilities, and component styles
   api/tts/route.ts        Edge TTS API route (local dev — shells out to Python)
   api/featured/route.ts   Featured article API route
+  api/picture-of-day/audio/cron/route.ts  Scheduled Picture of the Day audio prewarm
   api/trending/brief/route.ts  Daily AI-generated trending briefing API route
   api/podcast/featured.xml/route.ts  RSS feed for featured podcast episodes
   api/podcast/featured/sync/route.ts Manual featured-episode generation trigger
@@ -325,6 +327,7 @@ components/
   BackButton.tsx          Navigation back button
   RecentlyListened.tsx    Recently listened articles grid (home page)
   FeaturedArticle.tsx     Today's Featured Article card with thumbnail (home page)
+  TodayOnWikipedia.tsx    In the News, accessible Picture of the Day, and On This Day module
   CuriousAbout.tsx        Trending Wikipedia articles grid with thumbnails (home page)
   RandomArticleButton.tsx "Surprise me" button with NSFW category filter
   RelatedArticles.tsx     "Listen next" suggestions after playback
@@ -380,6 +383,7 @@ Primary Convex tables:
 - `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
 - `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
 - `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date, including the podcast audio asset and the image URLs used to generate trending collage artwork.
+- `pictureOfDayAudio` and `pictureOfDayAudioJobs` store the cached daily Picture of the Day spoken description and its generation lease state.
 
 ## Accessibility
 

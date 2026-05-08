@@ -19,6 +19,7 @@ import type * as lib_articleAudioPipeline from "../lib/articleAudioPipeline.js";
 import type * as lib_storageUpload from "../lib/storageUpload.js";
 import type * as lib_wikipedia from "../lib/wikipedia.js";
 import type * as personalPlaylist from "../personalPlaylist.js";
+import type * as pictureOfDay from "../pictureOfDay.js";
 import type * as podcast from "../podcast.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as search from "../search.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   "lib/storageUpload": typeof lib_storageUpload;
   "lib/wikipedia": typeof lib_wikipedia;
   personalPlaylist: typeof personalPlaylist;
+  pictureOfDay: typeof pictureOfDay;
   podcast: typeof podcast;
   rateLimits: typeof rateLimits;
   search: typeof search;

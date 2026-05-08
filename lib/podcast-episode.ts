@@ -309,6 +309,7 @@ export const syncFeaturedPodcastEpisode = async ({
   const publishedAt = getPublishedAt(feedDateIso, tfa.featuredDate);
   const sections = getPodcastSectionSources(article);
   const description = getPodcastDescription(article.summary || tfa.extract);
+  let committedReadyEpisode = false;
 
   if (sections.length === 0) {
     await finalizeJob({
@@ -392,6 +393,7 @@ export const syncFeaturedPodcastEpisode = async ({
         status: "ready",
         publishedAt,
       });
+      committedReadyEpisode = true;
 
       stage = "finalizing_job";
       await finalizeJob({
@@ -528,6 +530,7 @@ export const syncFeaturedPodcastEpisode = async ({
       status: "ready",
       publishedAt,
     })) as Id<"featuredPodcastEpisodes">;
+    committedReadyEpisode = true;
 
     stage = "finalizing_job";
     await finalizeJob({
@@ -577,7 +580,7 @@ export const syncFeaturedPodcastEpisode = async ({
       lastError: detailedMessage,
     });
 
-    if (!existingReadyEpisode) {
+    if (!existingReadyEpisode && !committedReadyEpisode) {
       await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
         featuredDate: feedDateIso,
         articleId,

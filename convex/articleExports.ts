@@ -306,6 +306,9 @@ export const failArticleAudioExport = internalMutation({
     lastError: v.string(),
   },
   async handler(ctx, args) {
+    const record = await ctx.db.get(args.exportId);
+    if (!record || record.status === "ready") return;
+
     await ctx.db.patch(args.exportId, {
       status: "failed",
       stage: undefined,
