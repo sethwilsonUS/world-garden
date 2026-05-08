@@ -137,6 +137,24 @@ describe("featured feed extras", () => {
     });
   });
 
+  it("removes Wikipedia picture callouts from In the News stories", () => {
+    const item = parseInTheNewsItem({
+      story:
+        "A hantavirus outbreak on the cruise ship <i>MV Hondius</i> (pictured) forces most of the remaining passengers to quarantine on board.",
+      links: [
+        {
+          pageid: 123,
+          title: "MV Hondius",
+          titles: { normalized: "MV Hondius" },
+        },
+      ],
+    });
+
+    expect(item?.story).toBe(
+      "A hantavirus outbreak on the cruise ship MV Hondius forces most of the remaining passengers to quarantine on board.",
+    );
+  });
+
   it("normalizes Picture of the Day metadata for accessible display", () => {
     const picture = parsePictureOfDay({
       title: "File:Hoverfly May 2008-8.jpg",
