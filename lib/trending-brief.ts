@@ -8,6 +8,7 @@ import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
+import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 import {
   getActiveTtsCacheKey,
   getActiveTtsProfile,
@@ -596,7 +597,7 @@ const generateTrendingBriefRecord = async ({
             : await (async () => {
                 const generatedAudio = await generateTtsAudioWithMetadata(
                   { text: brief.spokenSummary },
-                  { apiBaseUrl: baseUrl },
+                  { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
                 );
                 ttsMetadata = generatedAudio.metadata;
                 return generatedAudio.blob;

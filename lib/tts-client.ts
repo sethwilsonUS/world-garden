@@ -11,6 +11,7 @@ import {
   getTtsProfile,
   parseTtsMetadataFromHeaders,
   type TtsMetadata,
+  type TtsFallbackReason,
   type TtsProvider,
 } from "./tts-profile";
 
@@ -20,22 +21,26 @@ type TtsErrorBody = {
 
 type TtsClientOptions = {
   apiBaseUrl?: string;
+  headers?: Record<string, string>;
 };
 
 type SingleTtsAudioResult = {
   blob: Blob;
   metadata: TtsMetadata;
   usedFallback: boolean;
+  fallbackReason?: TtsFallbackReason;
 };
 
 export type TtsAudioResult = {
   blob: Blob;
   metadata: TtsMetadata;
+  fallbackReason?: TtsFallbackReason;
 };
 
 export type TtsAudioUrlResult = {
   url: string;
   metadata: TtsMetadata;
+  fallbackReason?: TtsFallbackReason;
 };
 
 const getErrorMessage = (error: unknown): string =>
@@ -46,6 +51,11 @@ const countWords = (text: string): number =>
 
 const resolveTtsApiRoute = (apiBaseUrl?: string): string =>
   apiBaseUrl ? new URL(TTS_API_ROUTE, apiBaseUrl).toString() : TTS_API_ROUTE;
+
+const parseFallbackReason = (
+  value: string | null,
+): TtsFallbackReason | undefined =>
+  value === "openai_quota" || value === "openai_error" ? value : undefined;
 
 const splitIntoParagraphs = (text: string): string[] =>
   text
@@ -150,9 +160,12 @@ const fetchSingleTtsAudioWithMetadata = async ({
   voiceId,
   provider,
 }: TtsRequest, options?: TtsClientOptions): Promise<SingleTtsAudioResult> => {
+  const requestHeaders = new Headers(options?.headers);
+  requestHeaders.set("Content-Type", "application/json");
+
   const resp = await fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders,
     body: JSON.stringify({
       text,
       ...(voiceId ? { voiceId } : {}),
@@ -195,8 +208,11 @@ const fetchSingleTtsAudioWithMetadata = async ({
     parseTtsMetadataFromHeaders(headers) ??
     getTtsMetadata(getTtsProfile(provider, voiceId));
   const usedFallback = headers.get("X-Curio-TTS-Fallback") === "true";
+  const fallbackReason = parseFallbackReason(
+    headers.get("X-Curio-TTS-Fallback-Reason"),
+  );
 
-  return { blob, metadata, usedFallback };
+  return { blob, metadata, usedFallback, fallbackReason };
 };
 
 const generateTtsAudioForChunks = async ({
@@ -204,14 +220,17 @@ const generateTtsAudioForChunks = async ({
   voiceId,
   provider,
   options,
+  fallbackReason,
 }: {
   chunks: string[];
   voiceId?: string;
   provider?: TtsProvider;
   options?: TtsClientOptions;
+  fallbackReason?: TtsFallbackReason;
 }): Promise<TtsAudioResult> => {
   const audioChunks: Blob[] = [];
   let metadata: TtsMetadata | null = null;
+  let activeFallbackReason = fallbackReason;
 
   for (const [index, chunk] of chunks.entries()) {
     try {
@@ -219,6 +238,7 @@ const generateTtsAudioForChunks = async ({
         { text: chunk, voiceId, provider },
         options,
       );
+      activeFallbackReason ??= result.fallbackReason;
 
       if (
         chunks.length > 1 &&
@@ -231,6 +251,7 @@ const generateTtsAudioForChunks = async ({
           voiceId,
           provider: result.metadata.provider,
           options,
+          fallbackReason: activeFallbackReason,
         });
       }
 
@@ -248,7 +269,11 @@ const generateTtsAudioForChunks = async ({
   }
 
   if (audioChunks.length === 1) {
-    return { blob: audioChunks[0], metadata };
+    return {
+      blob: audioChunks[0],
+      metadata,
+      ...(activeFallbackReason ? { fallbackReason: activeFallbackReason } : {}),
+    };
   }
 
   return {
@@ -256,6 +281,7 @@ const generateTtsAudioForChunks = async ({
       stripId3Tags: "leading",
     }),
     metadata,
+    ...(activeFallbackReason ? { fallbackReason: activeFallbackReason } : {}),
   };
 };
 
@@ -304,5 +330,6 @@ export const generateTtsAudioUrlWithMetadata = async (
   return {
     url: URL.createObjectURL(result.blob),
     metadata: result.metadata,
+    ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {}),
   };
 };

@@ -49,15 +49,6 @@ type TrendingBrief = {
   durationSeconds?: number;
 };
 
-type DidYouKnowAudio = {
-  feedDate: string;
-  title: string;
-  status: "missing" | "pending" | "ready" | "failed";
-  audioUrl: string | null;
-  durationSeconds?: number;
-  lastError?: string;
-};
-
 type InTheNewsItem = {
   story: string;
   links: FeedArticleLink[];
@@ -106,7 +97,6 @@ export type TodayOnWikipediaData = {
   trendingDate?: string | null;
   trendingBrief?: TrendingBrief | null;
   didYouKnow?: DidYouKnowItem[];
-  didYouKnowAudio?: DidYouKnowAudio | null;
   inTheNews?: InTheNewsItem[];
   pictureOfDay?: PictureOfDay | null;
   onThisDay?: OnThisDayItem[];
@@ -369,33 +359,6 @@ const SnapshotCallout = ({
   );
 };
 
-const DidYouKnowAudioCard = ({
-  audio,
-}: {
-  audio?: DidYouKnowAudio | null;
-}) => {
-  const { rate, setRate } = usePlaybackRate();
-
-  if (audio?.status !== "ready" || !audio.audioUrl) return null;
-
-  return (
-    <div className="mt-3 mb-4 rounded-xl border border-accent-border bg-accent-bg px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-        Daily audio
-      </p>
-      <AudioPlayer
-        audioUrl={audio.audioUrl}
-        title={audio.title}
-        label="Listen: today’s Did You Know list"
-        playbackRate={rate}
-        onPlaybackRateChange={setRate}
-        variant="compact"
-        className="mt-3 max-w-full"
-      />
-    </div>
-  );
-};
-
 const DidYouKnowSegmentText = ({
   segment,
 }: {
@@ -416,13 +379,7 @@ const DidYouKnowSegmentText = ({
   return <>{segment.text}</>;
 };
 
-const DidYouKnowCard = ({
-  items,
-  audio,
-}: {
-  items: DidYouKnowItem[];
-  audio?: DidYouKnowAudio | null;
-}) => (
+const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => (
   <section
     aria-labelledby="today-dyk-heading"
     className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
@@ -433,8 +390,6 @@ const DidYouKnowCard = ({
     >
       Did You Know?
     </h3>
-
-    <DidYouKnowAudioCard audio={audio} />
 
     {items.length > 0 ? (
       <ol className="m-0 mt-3 list-none space-y-4 p-0" role="list">
@@ -751,7 +706,6 @@ export const TodayOnWikipediaContent = ({
   const news = data.inTheNews ?? [];
   const trending = data.trending ?? [];
   const didYouKnow = data.didYouKnow ?? [];
-  const didYouKnowAudio = data.didYouKnowAudio ?? null;
   const onThisDay = data.onThisDay ?? [];
   const picture = data.pictureOfDay ?? null;
   const trendingBrief = data.trendingBrief ?? null;
@@ -770,9 +724,7 @@ export const TodayOnWikipediaContent = ({
 
   const firstOnThisDay = onThisDay[0];
   const hasPrimaryRail =
-    Boolean(featured) ||
-    didYouKnow.length > 0 ||
-    didYouKnowAudio?.status === "ready";
+    Boolean(featured) || didYouKnow.length > 0;
   const hasSupportRail =
     Boolean(picture) || news.length > 0 || Boolean(firstOnThisDay);
   const hasTwoRails = hasPrimaryRail && hasSupportRail;
@@ -799,11 +751,8 @@ export const TodayOnWikipediaContent = ({
         {hasPrimaryRail && (
           <div className={`space-y-4 ${hasTwoRails ? "" : "lg:col-span-2"}`}>
             <FeaturedArticleCard article={featured} feedDate={data.feedDate} />
-            {didYouKnow.length > 0 || didYouKnowAudio?.status === "ready" ? (
-              <DidYouKnowCard
-                items={didYouKnow}
-                audio={didYouKnowAudio}
-              />
+            {didYouKnow.length > 0 ? (
+              <DidYouKnowCard items={didYouKnow} />
             ) : null}
           </div>
         )}

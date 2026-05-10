@@ -1,7 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { TodayOnWikipediaContent } from "./TodayOnWikipedia";
+import {
+  TodayOnWikipediaContent,
+  type TodayOnWikipediaData,
+} from "./TodayOnWikipedia";
 
 vi.mock("@/components/AudioPlayer", () => ({
   AudioPlayer: ({
@@ -191,7 +194,7 @@ describe("TodayOnWikipediaContent", () => {
               durationSeconds: 42,
             },
           },
-        },
+        } as TodayOnWikipediaData & { didYouKnowAudio: unknown },
       }),
     );
 
@@ -210,7 +213,8 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Lenox Lyceum");
     expect(markup).toContain("https://upload.wikimedia.org/lenox.jpg");
     expect(markup).toContain("Image for Lenox Lyceum");
-    expect(markup).toContain("Audio: Did You Know? May 7, 2026 @1");
+    expect(markup).not.toContain(">Daily audio</p>");
+    expect(markup).not.toContain("Audio: Did You Know? May 7, 2026 @1");
     expect(markup).toContain("Trending");
     expect(markup).toContain("Daily audio briefing");
     expect(markup).toContain("Why these topics are trending today");

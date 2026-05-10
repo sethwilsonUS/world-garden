@@ -58,6 +58,7 @@ type TableOfContentsProps = {
   audioProgress?: { currentTime: number; duration: number };
   onSeek?: (time: number) => void;
   playAllRef?: RefObject<HTMLButtonElement | null>;
+  fallbackVoiceNotice?: string | null;
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -241,6 +242,7 @@ export const TableOfContents = ({
   audioProgress,
   onSeek,
   playAllRef,
+  fallbackVoiceNotice,
 }: TableOfContentsProps) => {
   const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(
     null,
@@ -557,6 +559,15 @@ export const TableOfContents = ({
       <p className="mb-3 text-[0.6875rem] leading-normal text-muted">
         Audio is generated with synthetic speech.
       </p>
+      {fallbackVoiceNotice ? (
+        <p
+          className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
+          role="status"
+          aria-live="polite"
+        >
+          {fallbackVoiceNotice}
+        </p>
+      ) : null}
 
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">

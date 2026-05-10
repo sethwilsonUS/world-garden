@@ -2,6 +2,7 @@ import { type Id } from "../_generated/dataModel";
 import { titleToSlug } from "./wikipedia";
 import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
 import { generateTtsAudioWithMetadata } from "../../lib/tts-client";
+import { getTtsQuotaBypassHeaders } from "../../lib/tts-quota-bypass";
 import { hasFullAudio, type AudioMode, type AudioReason } from "../../lib/audio-suitability";
 import {
   getTtsMetadata,
@@ -270,7 +271,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
         try {
           const generatedAudio = await generateTtsAudioWithMetadata(
             { text: section.text, provider: passMetadata.provider },
-            { apiBaseUrl: baseUrl },
+            { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
           );
           blob = generatedAudio.blob;
           metadata = generatedAudio.metadata;

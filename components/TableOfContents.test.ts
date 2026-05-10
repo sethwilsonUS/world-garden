@@ -256,4 +256,34 @@ describe("TableOfContents audio eligibility", () => {
     expect(markup).toContain("Listen to History");
     expect(markup).toContain(">Listen<");
   });
+
+  it("renders the high-demand fallback voice notice as polite status text", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [],
+          activeSectionIndex: null,
+          isPlayingAll: false,
+          fallbackVoiceNotice:
+            "High demand is using Curio Garden’s fallback voice for this article. Audio will keep playing.",
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain("role=\"status\"");
+    expect(markup).toContain("aria-live=\"polite\"");
+    expect(markup).toContain(
+      "High demand is using Curio Garden’s fallback voice for this article. Audio will keep playing.",
+    );
+  });
 });
