@@ -1,6 +1,7 @@
 import { TTS_NORM_VERSION } from "./tts-normalize";
 
 export type TtsProvider = "openai" | "edge";
+export type TtsFallbackReason = "openai_quota" | "openai_error";
 
 export type TtsProfile = {
   provider: TtsProvider;
@@ -182,7 +183,7 @@ export const parseTtsMetadataFromHeaders = (
 
 export const buildTtsMetadataHeaders = (
   metadata: TtsMetadata,
-  options?: { fallback?: boolean },
+  options?: { fallback?: boolean; fallbackReason?: TtsFallbackReason },
 ): Record<string, string> => ({
   "X-Curio-TTS-Provider": metadata.provider,
   "X-Curio-TTS-Model": metadata.model,
@@ -191,6 +192,9 @@ export const buildTtsMetadataHeaders = (
   "X-Curio-TTS-Norm-Version": metadata.ttsNormVersion,
   "X-Curio-TTS-Cache-Key": metadata.ttsCacheKey,
   "X-Curio-TTS-Fallback": options?.fallback ? "true" : "false",
+  ...(options?.fallbackReason
+    ? { "X-Curio-TTS-Fallback-Reason": options.fallbackReason }
+    : {}),
 });
 
 export const isTtsFallbackEnabled = (): boolean =>

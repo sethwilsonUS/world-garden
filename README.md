@@ -176,6 +176,11 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `OPENAI_TTS_INSTRUCTIONS` | No | Optional narration instructions sent with OpenAI speech requests |
 | `TTS_EDGE_FALLBACK` | No | Set to `"false"` to disable automatic Edge fallback after OpenAI failures |
 | `EDGE_TTS_VOICE_ID` | No | Edge fallback voice; defaults to `en-US-AriaNeural` |
+| `TTS_PUBLIC_OPENAI_BURST_LIMIT` | No | Public OpenAI TTS burst quota per IP; defaults to `120` requests |
+| `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS` | No | Public OpenAI TTS burst window; defaults to `600000` ms |
+| `TTS_PUBLIC_OPENAI_DAILY_LIMIT` | No | Public OpenAI TTS daily quota per IP; defaults to `800` requests |
+| `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS` | No | Public OpenAI TTS daily window; defaults to `86400000` ms |
+| `TTS_QUOTA_BYPASS_SECRET` | No | Shared secret for trusted server TTS generation to bypass public visitor quotas; set in both Vercel and Convex |
 | `USE_PYTHON_TTS` | No | Route `/api/tts/edge` to the standalone Python TTS server (used by `npm run dev:python`) |
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
@@ -187,6 +192,31 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
+
+## Traffic Spike Runbook
+
+Curio Garden is designed to keep browsing cheap and cacheable; the main spike risk is first-time OpenAI TTS generation. Public OpenAI TTS requests are protected by generous per-IP quotas, and over-quota requests automatically use the Edge fallback voice so playback keeps working.
+
+Before a boost or public post:
+
+1. Top up OpenAI credits and confirm project budget alerts.
+2. Confirm `OPENAI_API_KEY`, `TTS_EDGE_FALLBACK=true`, and `EDGE_TTS_VOICE_ID` are set in Vercel.
+3. Confirm `TTS_QUOTA_BYPASS_SECRET` is set to the same value in Vercel and Convex so trusted server generation bypasses public quotas.
+4. Confirm the quota defaults are acceptable: `120` requests per `10` minutes and `800` requests per `24` hours per IP.
+
+During the spike:
+
+1. Watch OpenAI usage and rate-limit dashboards.
+2. Watch Vercel logs and Analytics for `TTS Route` events, especially `fallbackReason=openai_quota`.
+3. Watch Convex storage, egress, function calls, and quota mutation health.
+4. Check user reports for fallback-voice notices near article audio controls.
+
+Emergency switch:
+
+1. Set `TTS_PRIMARY_PROVIDER=edge`.
+2. Keep `TTS_EDGE_FALLBACK=true`.
+3. Redeploy or restart the environment if the platform requires it for env changes.
+4. Switch `TTS_PRIMARY_PROVIDER=openai` again when OpenAI spend and rate pressure settle.
 
 ## Podcasts
 
@@ -222,13 +252,12 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/did-you-know/audio/cron`, `/api/picture-of-day/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+3. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
 - `5 0 * * *` and `35 0 * * *` for the Today on Wikipedia snapshot (`00:05 UTC` primary run, `00:35 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
-- `15 0 * * *` and `45 0 * * *` for Did You Know audio (`00:15 UTC` primary run, `00:45 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `20 0 * * *` and `50 0 * * *` for Picture of the Day audio (`00:20 UTC` primary run, `00:50 UTC` retry)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
 

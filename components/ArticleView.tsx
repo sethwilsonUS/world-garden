@@ -43,6 +43,7 @@ import {
   type AudioStartupScope,
   type AudioStartupSource,
 } from "@/lib/audio-startup";
+import { getQuotaFallbackNoticeForPlayback } from "@/lib/audio-fallback-notice";
 import { buildAwardedBadgeProgress } from "@/lib/badges";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import {
@@ -329,6 +330,9 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const [heroLightbox, setHeroLightbox] = useState<LightboxState>(null);
   const [heroImageAnalysis, setHeroImageAnalysis] = useState<HeroImageAnalysis | null>(null);
   const [trackingSectionKey, setTrackingSectionKey] = useState<string | null>(null);
+  const [fallbackVoiceNotice, setFallbackVoiceNotice] = useState<string | null>(
+    null,
+  );
 
   const wikiPageId = displayArticle?.wikiPageId ?? "";
 
@@ -340,6 +344,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const fetchTriggered = useRef(false);
   const pendingAutoPlay = useRef(false);
   const playAllRef = useRef<HTMLButtonElement>(null);
+  const fallbackNoticeArticleKey = useRef<string | null>(null);
 
   const currentArticleExport =
     articleAudioExports.find((job) => job.articleId === articleId) ?? null;
@@ -513,6 +518,24 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       seedAudioResult("summary", result);
     },
     [seedAudioResult],
+  );
+
+  useEffect(() => {
+    setFallbackVoiceNotice(null);
+  }, [slug]);
+
+  const showFallbackNoticeForPlayback = useCallback(
+    (result: TtsAudioUrlResult) => {
+      const notice = getQuotaFallbackNoticeForPlayback({
+        articleKey: slug,
+        announcedArticleKey: fallbackNoticeArticleKey.current,
+        fallbackReason: result.fallbackReason,
+      });
+      if (!notice) return;
+      fallbackNoticeArticleKey.current = notice.articleKey;
+      setFallbackVoiceNotice(notice.message);
+    },
+    [slug],
   );
 
   const trackAudioStartup = useCallback(
@@ -715,6 +738,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         const startupPath =
           seededStartupPath.current.get(sectionKey) ?? "memory";
         seededStartupPath.current.delete(sectionKey);
+        showFallbackNoticeForPlayback(memCached);
         setAudioUrl(memCached.url);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
@@ -734,6 +758,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       const convexCached = getCachedAudioResult(sectionKey);
       if (convexCached) {
         seedAudioResult(sectionKey, convexCached);
+        showFallbackNoticeForPlayback(convexCached);
         setAudioUrl(convexCached.url);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
@@ -764,6 +789,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         if (requestId.current !== currentRequest) return;
         seedAudioResult(sectionKey, result);
         seededStartupPath.current.delete(sectionKey);
+        showFallbackNoticeForPlayback(result);
         setAudioUrl(result.url);
         setAudioLoading(false);
         trackAudioStartup(scope, source, path, result, startupStartedAt);
@@ -811,6 +837,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       getTextForSection,
       generateTtsFromApi,
       seedAudioResult,
+      showFallbackNoticeForPlayback,
       trackAudioStartup,
     ],
   );
@@ -1470,6 +1497,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           }
           onSeek={audioElSeek}
           playAllRef={playAllRef}
+          fallbackVoiceNotice={fallbackVoiceNotice}
         />
       </div>
 

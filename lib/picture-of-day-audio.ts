@@ -10,6 +10,7 @@ import {
 import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
+import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
 import { getActiveTtsCacheKey } from "@/lib/tts-profile";
 
@@ -249,7 +250,10 @@ const generatePictureOfDayAudioRecord = async ({
     stage = "generating_tts_audio";
     const generatedAudio = await generateTtsAudioWithMetadata(
       { text: spokenText },
-      { apiBaseUrl: getPodcastSiteUrl(baseUrl) },
+      {
+        apiBaseUrl: getPodcastSiteUrl(baseUrl),
+        headers: getTtsQuotaBypassHeaders(),
+      },
     );
     const sourceAudioBlob = generatedAudio.blob;
     const ttsMetadata = generatedAudio.metadata;

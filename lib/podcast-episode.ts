@@ -16,6 +16,7 @@ import {
 import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
+import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 import { hasFullAudio } from "@/lib/audio-suitability";
 import {
   getActiveTtsNormVersion,
@@ -522,7 +523,7 @@ export const syncFeaturedPodcastEpisode = async ({
           try {
             const generatedAudio = await generateTtsAudioWithMetadata(
               { text: section.text, provider: passMetadata.provider },
-              { apiBaseUrl: baseUrl },
+              { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
             );
             blob = generatedAudio.blob;
             metadata = generatedAudio.metadata;

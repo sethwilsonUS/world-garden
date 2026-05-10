@@ -198,6 +198,66 @@ describe("tts-client", () => {
     });
   });
 
+  it("parses fallback reason response headers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("audio", {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "X-Curio-TTS-Provider": "edge",
+            "X-Curio-TTS-Model": "edge-tts",
+            "X-Curio-TTS-Voice": "en-US-AriaNeural",
+            "X-Curio-TTS-Prompt-Version": "edge-default",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Cache-Key":
+              "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+            "X-Curio-TTS-Fallback": "true",
+            "X-Curio-TTS-Fallback-Reason": "openai_quota",
+          },
+        }),
+      ),
+    );
+
+    const result = await generateTtsAudioWithMetadata({
+      text: "This article summary is comfortably under the configured request limit.",
+    });
+
+    expect(result.metadata.provider).toBe("edge");
+    expect(result.fallbackReason).toBe("openai_quota");
+  });
+
+  it("forwards extra request headers when provided", async () => {
+    const headersSeen: HeadersInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        headersSeen.push(init?.headers ?? {});
+        return new Response("audio", {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }),
+    );
+
+    await generateTtsAudioWithMetadata(
+      {
+        text: "This article summary is comfortably under the configured request limit.",
+      },
+      {
+        headers: {
+          "X-Curio-TTS-Quota-Bypass": "internal-secret",
+        },
+      },
+    );
+
+    expect(headersSeen[0]).toEqual({
+      "Content-Type": "application/json",
+      "X-Curio-TTS-Quota-Bypass": "internal-secret",
+    });
+  });
+
   it("retries all chunks with Edge when any OpenAI chunk falls back", async () => {
     process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "3";
     const calls: Array<{ text: string; provider?: string }> = [];
@@ -243,6 +303,9 @@ describe("tts-client", () => {
               ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
               : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
             "X-Curio-TTS-Fallback": fallback ? "true" : "false",
+            ...(fallback
+              ? { "X-Curio-TTS-Fallback-Reason": "openai_quota" }
+              : {}),
           },
         });
       }),
@@ -259,6 +322,7 @@ describe("tts-client", () => {
       { text: "four five six", provider: "edge" },
     ]);
     expect(result.metadata.provider).toBe("edge");
+    expect(result.fallbackReason).toBe("openai_quota");
     expect(await result.blob.text()).toBe(
       "edge:one two threeedge:four five six",
     );

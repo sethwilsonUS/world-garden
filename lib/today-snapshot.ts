@@ -22,15 +22,6 @@ type TodaySnapshotRecord = {
   updatedAt: number;
 };
 
-export type TodayDidYouKnowAudio = {
-  feedDate: string;
-  title: string;
-  status: "missing" | "pending" | "ready" | "failed";
-  audioUrl: string | null;
-  durationSeconds?: number;
-  lastError?: string;
-};
-
 export type TodayWikipediaData = {
   tfa: WikipediaFeaturedSnapshot["tfa"];
   trending: WikipediaFeaturedSnapshot["trendingCandidates"];
@@ -46,7 +37,6 @@ export type TodayWikipediaData = {
   snapshotFeedDate: string;
   snapshotGeneratedAt: number;
   snapshotIsStale: boolean;
-  didYouKnowAudio?: TodayDidYouKnowAudio;
 };
 
 type DidYouKnowPageDetail = {
