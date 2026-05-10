@@ -547,6 +547,10 @@ export const TableOfContents = ({
         )}
       </div>
 
+      <p className="mb-3 text-[0.6875rem] leading-normal text-muted">
+        Audio is generated with synthetic speech.
+      </p>
+
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">
           {/* Summary entry */}

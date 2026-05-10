@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
+import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
 
 const featuredPodcastEpisodeStatus = v.union(
   v.literal("pending"),
@@ -240,6 +241,11 @@ export const saveFeaturedEpisode = mutation({
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     ttsNormVersion: v.string(),
+    ttsCacheKey: v.optional(v.string()),
+    provider: v.optional(v.string()),
+    model: v.optional(v.string()),
+    voiceId: v.optional(v.string()),
+    promptVersion: v.optional(v.string()),
     status: featuredPodcastEpisodeStatus,
     publishedAt: v.number(),
   },
@@ -250,6 +256,21 @@ export const saveFeaturedEpisode = mutation({
       .first();
 
     const now = Date.now();
+    const audioVariants = upsertTtsAudioVariant(
+      existing?.audioVariants,
+      {
+        storageId: args.storageId,
+        durationSeconds: args.durationSeconds,
+        byteLength: args.byteLength,
+        ttsCacheKey: args.ttsCacheKey,
+        provider: args.provider,
+        model: args.model,
+        voiceId: args.voiceId,
+        promptVersion: args.promptVersion,
+        ttsNormVersion: args.ttsNormVersion,
+      },
+      now,
+    );
     if (existing) {
       await ctx.db.patch(existing._id, {
         articleId: args.articleId,
@@ -264,6 +285,12 @@ export const saveFeaturedEpisode = mutation({
         durationSeconds: args.durationSeconds,
         byteLength: args.byteLength,
         ttsNormVersion: args.ttsNormVersion,
+        ttsCacheKey: args.ttsCacheKey,
+        provider: args.provider,
+        model: args.model,
+        voiceId: args.voiceId,
+        promptVersion: args.promptVersion,
+        audioVariants,
         status: args.status,
         publishedAt: args.publishedAt,
         updatedAt: now,
@@ -285,6 +312,12 @@ export const saveFeaturedEpisode = mutation({
       durationSeconds: args.durationSeconds,
       byteLength: args.byteLength,
       ttsNormVersion: args.ttsNormVersion,
+      ttsCacheKey: args.ttsCacheKey,
+      provider: args.provider,
+      model: args.model,
+      voiceId: args.voiceId,
+      promptVersion: args.promptVersion,
+      audioVariants,
       status: args.status,
       publishedAt: args.publishedAt,
       createdAt: now,

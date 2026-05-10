@@ -1,47 +1,26 @@
-import { EventEmitter } from "events";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const spawnMock = vi.fn();
-
-vi.mock("child_process", () => ({
-  spawn: spawnMock,
-}));
-
-type MockChildProcess = EventEmitter & {
-  stdout: EventEmitter;
-  stderr: EventEmitter;
-  stdin: {
-    end: ReturnType<typeof vi.fn>;
-    write: ReturnType<typeof vi.fn>;
-  };
-  kill: ReturnType<typeof vi.fn>;
-};
-
-const createMockProcess = (): MockChildProcess => {
-  const proc = new EventEmitter() as MockChildProcess;
-  proc.stdout = new EventEmitter();
-  proc.stderr = new EventEmitter();
-  proc.stdin = {
-    write: vi.fn(),
-    end: vi.fn(),
-  };
-  proc.kill = vi.fn();
-  return proc;
-};
 
 describe("POST /api/tts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
-  it("returns a complete mp3 payload assembled from child process chunks", async () => {
-    const proc = createMockProcess();
-    spawnMock.mockReturnValue(proc);
+  it("generates OpenAI speech by default and returns provider metadata headers", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      })),
+    );
 
     const { POST } = await import("./route");
-    const responsePromise = POST(
+    const response = await POST(
       new NextRequest("https://curiogarden.org/api/tts", {
         method: "POST",
         body: JSON.stringify({
@@ -50,34 +29,65 @@ describe("POST /api/tts", () => {
       }),
     );
 
-    process.nextTick(() => {
-      proc.stdout.emit("data", Buffer.from([0xff, 0xfb, 0x90]));
-      proc.stdout.emit("data", Buffer.from([0x64, 0x01, 0x02]));
-      proc.emit("close", 0);
-    });
-
-    const response = await responsePromise;
     const bytes = new Uint8Array(await response.arrayBuffer());
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
-    expect(response.headers.get("Content-Length")).toBe("6");
-    expect(Array.from(bytes)).toEqual([0xff, 0xfb, 0x90, 0x64, 0x01, 0x02]);
-    expect(proc.stdin.write).toHaveBeenCalledWith(
-      JSON.stringify({
-        text: "This article section text is comfortably long enough.",
-        voice: "en-US-AriaNeural",
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("openai");
+    expect(response.headers.get("X-Curio-TTS-Model")).toBe("gpt-4o-mini-tts");
+    expect(response.headers.get("X-Curio-TTS-Voice")).toBe("marin");
+    expect(response.headers.get("X-Curio-TTS-Prompt-Version")).toBe(
+      "curio-warm-narrator-v1",
+    );
+    expect(response.headers.get("X-Curio-TTS-Cache-Key")).toBe(
+      "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+    );
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("false");
+    expect(Array.from(bytes)).toEqual([0xff, 0xfb, 0x90]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/audio/speech",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-openai-key",
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          model: "gpt-4o-mini-tts",
+          voice: "marin",
+          input: "This article section text is comfortably long enough.",
+          instructions:
+            "Narrate clearly and calmly for an accessibility-first Wikipedia listening app. Use a warm, natural tone, steady pacing, and crisp pronunciation. Avoid theatrics, impressions, whispers, and exaggerated emotion.",
+          response_format: "mp3",
+        }),
       }),
     );
-    expect(proc.stdin.end).toHaveBeenCalledTimes(1);
   });
 
-  it("returns a 500 when edge-tts produces no audio bytes", async () => {
-    const proc = createMockProcess();
-    spawnMock.mockReturnValue(proc);
+  it("falls back to Edge when OpenAI speech generation fails", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "https://api.openai.com/v1/audio/speech") {
+          return Response.json({ error: { message: "OpenAI unavailable" } }, { status: 503 });
+        }
+
+        if (url === "https://curiogarden.org/api/tts/edge") {
+          return new Response(new Uint8Array([0xff, 0xfb, 0x91, 0x64]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
 
     const { POST } = await import("./route");
-    const responsePromise = POST(
+    const response = await POST(
       new NextRequest("https://curiogarden.org/api/tts", {
         method: "POST",
         body: JSON.stringify({
@@ -86,15 +96,56 @@ describe("POST /api/tts", () => {
       }),
     );
 
-    process.nextTick(() => {
-      proc.emit("close", 0);
-    });
+    const bytes = new Uint8Array(await response.arrayBuffer());
 
-    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(Array.from(bytes)).toEqual([0xff, 0xfb, 0x91, 0x64]);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Model")).toBe("edge-tts");
+    expect(response.headers.get("X-Curio-TTS-Voice")).toBe("en-US-AriaNeural");
+    expect(response.headers.get("X-Curio-TTS-Cache-Key")).toBe(
+      "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+    );
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+  });
+
+  it("returns a configuration error when OpenAI is forced without a key or fallback", async () => {
+    vi.stubEnv("TTS_EDGE_FALLBACK", "false");
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "openai",
+        }),
+      }),
+    );
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "No audio was generated",
+      error: "OPENAI_API_KEY is required for OpenAI TTS",
+    });
+  });
+
+  it("rejects an invalid explicit OpenAI voice", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          voiceId: "en-US-AriaNeural",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unsupported OpenAI TTS voice: en-US-AriaNeural",
     });
   });
 });

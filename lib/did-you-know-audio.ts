@@ -13,7 +13,8 @@ import {
 } from "@/lib/featured-article";
 import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
-import { generateTtsAudio } from "@/lib/tts-client";
+import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
+import { getActiveTtsCacheKey } from "@/lib/tts-profile";
 
 const DID_YOU_KNOW_ALBUM = "Curio Garden Daily Curiosities";
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -35,6 +36,11 @@ export type DidYouKnowAudioRecord = {
   durationSeconds?: number;
   byteLength?: number;
   voiceId?: string;
+  ttsCacheKey?: string;
+  provider?: string;
+  model?: string;
+  promptVersion?: string;
+  ttsNormVersion?: string;
   lastError?: string;
   audioUrl: string | null;
   createdAt: number;
@@ -129,7 +135,11 @@ export const buildDidYouKnowSpeechScript = ({
 export const shouldReuseExistingDidYouKnowAudio = (
   record: DidYouKnowAudioRecord | null,
 ): record is DidYouKnowAudioRecord =>
-  Boolean(record?.status === "ready" && record.audioUrl);
+  Boolean(
+    record?.status === "ready" &&
+      record.audioUrl &&
+      record.ttsCacheKey === getActiveTtsCacheKey(),
+  );
 
 export const getDidYouKnowAudioState = async ({
   feedDateIso,
@@ -181,7 +191,6 @@ const generateDidYouKnowAudioRecord = async ({
   feedDateIso?: string;
 }): Promise<DidYouKnowAudioSyncResult> => {
   const resolvedFeedDate = resolveDidYouKnowFeedDateIso(feedDateIso);
-  const voiceId = process.env.DID_YOU_KNOW_VOICE_ID?.trim() || undefined;
   const owner = randomUUID();
   const runId = owner.slice(0, 8);
   let stage = "initializing";
@@ -265,7 +274,6 @@ const generateDidYouKnowAudioRecord = async ({
       title,
       spokenText,
       itemTexts,
-      voiceId,
     });
 
     console.info(
@@ -273,10 +281,12 @@ const generateDidYouKnowAudioRecord = async ({
     );
 
     stage = "generating_tts_audio";
-    const sourceAudioBlob = await generateTtsAudio(
-      { text: spokenText, voiceId },
+    const generatedAudio = await generateTtsAudioWithMetadata(
+      { text: spokenText },
       { apiBaseUrl: baseUrl },
     );
+    const sourceAudioBlob = generatedAudio.blob;
+    const ttsMetadata = generatedAudio.metadata;
 
     stage = "tagging_audio";
     const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
@@ -301,7 +311,12 @@ const generateDidYouKnowAudioRecord = async ({
       storageId,
       durationSeconds: estimateDurationSeconds(spokenText),
       byteLength: taggedAudioBlob.size,
-      voiceId,
+      voiceId: ttsMetadata.voiceId,
+      ttsCacheKey: ttsMetadata.ttsCacheKey,
+      provider: ttsMetadata.provider,
+      model: ttsMetadata.model,
+      promptVersion: ttsMetadata.promptVersion,
+      ttsNormVersion: ttsMetadata.ttsNormVersion,
     });
     committedReady = true;
 
@@ -354,7 +369,6 @@ const generateDidYouKnowAudioRecord = async ({
         title,
         spokenText,
         itemTexts,
-        voiceId,
         lastError: detailedMessage,
       });
     }

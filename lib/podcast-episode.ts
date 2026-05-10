@@ -16,8 +16,15 @@ import {
 import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
-import { generateTtsAudio } from "@/lib/tts-client";
+import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { hasFullAudio } from "@/lib/audio-suitability";
+import {
+  getActiveTtsCacheKey,
+  getTtsMetadata,
+  getTtsProfile,
+  type TtsMetadata,
+  type TtsProvider,
+} from "@/lib/tts-profile";
 
 const MIN_TTS_TEXT_LENGTH = 10;
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -184,12 +191,13 @@ export const shouldReuseExistingFeaturedEpisode = ({
   regenArt: boolean;
   existingEpisode: Pick<
     FeaturedPodcastEpisodeWithUrl,
-    "status" | "wikiPageId" | "title" | "artworkVersion"
+    "status" | "wikiPageId" | "title" | "artworkVersion" | "ttsCacheKey"
   > | null;
   article: Pick<FetchAndCacheResult, "wikiPageId" | "title">;
 }): boolean =>
   !force &&
   existingEpisode?.status === "ready" &&
+  existingEpisode.ttsCacheKey === getActiveTtsCacheKey() &&
   (!regenArt || hasCurrentFeaturedArtworkVersion(existingEpisode)) &&
   doesFeaturedEpisodeMatchArticle(existingEpisode, article);
 
@@ -290,8 +298,13 @@ export const syncFeaturedPodcastEpisode = async ({
   if (!claim.claimed) {
     const latestEpisode = await getExistingEpisode(feedDateIso);
     if (
-      latestEpisode?.status === "ready" &&
-      doesFeaturedEpisodeMatchArticle(latestEpisode, article)
+      latestEpisode &&
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt,
+        existingEpisode: latestEpisode.status === "ready" ? latestEpisode : null,
+        article,
+      })
     ) {
       return {
         status: "already_exists",
@@ -351,7 +364,8 @@ export const syncFeaturedPodcastEpisode = async ({
       regenArt &&
       existingReadyEpisode &&
       existingEpisodeMatchesArticle &&
-      existingReadyEpisode.audioUrl
+      existingReadyEpisode.audioUrl &&
+      existingReadyEpisode.ttsCacheKey === getActiveTtsCacheKey()
     ) {
       stage = "reusing_existing_audio";
       const audioBlob = await fetchBlobFromUrl(existingReadyEpisode.audioUrl);
@@ -394,7 +408,12 @@ export const syncFeaturedPodcastEpisode = async ({
         artworkVersion: FEATURED_EPISODE_ARTWORK_VERSION,
         durationSeconds: existingReadyEpisode.durationSeconds,
         byteLength: taggedBlob.size,
-        ttsNormVersion: TTS_NORM_VERSION,
+        ttsNormVersion: existingReadyEpisode.ttsNormVersion,
+        ttsCacheKey: existingReadyEpisode.ttsCacheKey,
+        provider: existingReadyEpisode.provider,
+        model: existingReadyEpisode.model,
+        voiceId: existingReadyEpisode.voiceId,
+        promptVersion: existingReadyEpisode.promptVersion,
         status: "ready",
         publishedAt,
       });
@@ -429,64 +448,100 @@ export const syncFeaturedPodcastEpisode = async ({
       };
     }
 
-    const cachedAudio = await fetchQuery(api.audio.getAllSectionAudio, {
-      articleId,
-      ttsNormVersion: TTS_NORM_VERSION,
-    });
+    const loadSectionAudio = async (
+      forcedProvider?: TtsProvider,
+    ): Promise<{
+      audioChunks: Blob[];
+      generatedSectionCount: number;
+      reusedSectionCount: number;
+      metadata: TtsMetadata;
+    }> => {
+      const passMetadata = getTtsMetadata(getTtsProfile(forcedProvider));
+      const cachedAudio = await fetchQuery(api.audio.getAllSectionAudio, {
+        articleId,
+        ttsNormVersion: passMetadata.ttsNormVersion,
+        ttsCacheKey: passMetadata.ttsCacheKey,
+      });
 
-    let generatedSectionCount = 0;
-    let reusedSectionCount = 0;
-    const audioChunks: Blob[] = [];
+      let generatedSectionCount = 0;
+      let reusedSectionCount = 0;
+      let producedMetadata: TtsMetadata | null = null;
+      const audioChunks: Blob[] = [];
 
-    for (const section of sections) {
-      let blob: Blob | null = null;
-      const cachedUrl = cachedAudio.urls[section.sectionKey];
+      for (const section of sections) {
+        let blob: Blob | null = null;
+        const cachedUrl = cachedAudio.urls[section.sectionKey];
 
-      if (cachedUrl) {
-        try {
-          blob = await fetchBlobFromUrl(cachedUrl);
-          reusedSectionCount += 1;
-        } catch {
-          blob = null;
+        if (cachedUrl) {
+          try {
+            blob = await fetchBlobFromUrl(cachedUrl);
+            reusedSectionCount += 1;
+          } catch {
+            blob = null;
+          }
         }
+
+        if (!blob) {
+          let metadata: TtsMetadata;
+          stage = `generating_section_audio:${section.sectionKey}`;
+          try {
+            const generatedAudio = await generateTtsAudioWithMetadata(
+              { text: section.text, provider: passMetadata.provider },
+              { apiBaseUrl: baseUrl },
+            );
+            blob = generatedAudio.blob;
+            metadata = generatedAudio.metadata;
+          } catch (error) {
+            throw new Error(
+              `Section ${section.sectionKey} audio failed: ${getErrorMessage(error)}`,
+            );
+          }
+
+          if (!forcedProvider && metadata.provider !== passMetadata.provider) {
+            return loadSectionAudio(metadata.provider);
+          }
+
+          producedMetadata = metadata;
+          generatedSectionCount += 1;
+
+          stage = `uploading_section_audio:${section.sectionKey}`;
+          const sectionUploadUrl = await fetchMutation(api.audio.generateUploadUrl, {});
+          const sectionStorageId = await uploadBlobToConvexStorage(
+            sectionUploadUrl,
+            blob,
+          );
+
+          stage = `saving_section_audio:${section.sectionKey}`;
+          await fetchMutation(api.audio.saveSectionAudioRecord, {
+            articleId,
+            sectionKey: section.sectionKey,
+            storageId: sectionStorageId,
+            ttsNormVersion: metadata.ttsNormVersion,
+            ttsCacheKey: metadata.ttsCacheKey,
+            provider: metadata.provider,
+            model: metadata.model,
+            voiceId: metadata.voiceId,
+            promptVersion: metadata.promptVersion,
+            durationSeconds: Math.round(
+              section.text.split(/\s+/).filter(Boolean).length /
+                TTS_WORDS_PER_SECOND,
+            ),
+          });
+        }
+
+        audioChunks.push(blob);
       }
 
-      if (!blob) {
-        stage = `generating_section_audio:${section.sectionKey}`;
-        try {
-          blob = await generateTtsAudio(
-            { text: section.text },
-            { apiBaseUrl: baseUrl },
-          );
-        } catch (error) {
-          throw new Error(
-            `Section ${section.sectionKey} audio failed: ${getErrorMessage(error)}`,
-          );
-        }
-        generatedSectionCount += 1;
+      return {
+        audioChunks,
+        generatedSectionCount,
+        reusedSectionCount,
+        metadata: producedMetadata ?? passMetadata,
+      };
+    };
 
-        stage = `uploading_section_audio:${section.sectionKey}`;
-        const sectionUploadUrl = await fetchMutation(api.audio.generateUploadUrl, {});
-        const sectionStorageId = await uploadBlobToConvexStorage(
-          sectionUploadUrl,
-          blob,
-        );
-
-        stage = `saving_section_audio:${section.sectionKey}`;
-        await fetchMutation(api.audio.saveSectionAudioRecord, {
-          articleId,
-          sectionKey: section.sectionKey,
-          storageId: sectionStorageId,
-          ttsNormVersion: TTS_NORM_VERSION,
-          durationSeconds: Math.round(
-            section.text.split(/\s+/).filter(Boolean).length /
-              TTS_WORDS_PER_SECOND,
-          ),
-        });
-      }
-
-      audioChunks.push(blob);
-    }
+    const sectionAudio = await loadSectionAudio();
+    const { audioChunks, generatedSectionCount, reusedSectionCount } = sectionAudio;
 
     const combinedBlob = await concatenateMp3Blobs(audioChunks, {
       stripId3Tags: "none",
@@ -531,7 +586,12 @@ export const syncFeaturedPodcastEpisode = async ({
       artworkVersion: FEATURED_EPISODE_ARTWORK_VERSION,
       durationSeconds: estimateDurationSeconds(sections.map((s) => s.text)),
       byteLength: taggedBlob.size,
-      ttsNormVersion: TTS_NORM_VERSION,
+      ttsNormVersion: sectionAudio.metadata.ttsNormVersion,
+      ttsCacheKey: sectionAudio.metadata.ttsCacheKey,
+      provider: sectionAudio.metadata.provider,
+      model: sectionAudio.metadata.model,
+      voiceId: sectionAudio.metadata.voiceId,
+      promptVersion: sectionAudio.metadata.promptVersion,
       status: "ready",
       publishedAt,
     })) as Id<"featuredPodcastEpisodes">;

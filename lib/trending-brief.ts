@@ -7,7 +7,13 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
 import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
-import { generateTtsAudio } from "@/lib/tts-client";
+import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
+import {
+  getActiveTtsCacheKey,
+  getActiveTtsProfile,
+  getTtsMetadata,
+  type TtsMetadata,
+} from "@/lib/tts-profile";
 import {
   TRENDING_EPISODE_ARTWORK_VERSION,
   renderTrendingPodcastArtworkPng,
@@ -65,6 +71,12 @@ export type TrendingBriefRecord = {
   durationSeconds?: number;
   byteLength?: number;
   model?: string;
+  ttsModel?: string;
+  ttsCacheKey?: string;
+  provider?: string;
+  voiceId?: string;
+  promptVersion?: string;
+  ttsNormVersion?: string;
   lastError?: string;
   updatedAt: number;
 };
@@ -130,8 +142,9 @@ export const shouldReuseExistingTrendingBrief = (
   options?: { force?: boolean; regenArt?: boolean },
 ): record is TrendingBriefRecord =>
   Boolean(
-    record?.status === "ready" &&
+      record?.status === "ready" &&
       record.audioUrl &&
+      record.ttsCacheKey === getActiveTtsCacheKey() &&
       !(options?.force && options?.regenArt) &&
       (!options?.regenArt || hasCurrentTrendingArtworkVersion(record)),
   );
@@ -544,7 +557,13 @@ const generateTrendingBriefRecord = async ({
       existing?.storageId &&
         existing?.artworkStorageId &&
         existing?.durationSeconds != null &&
-        existing?.byteLength != null,
+        existing?.byteLength != null &&
+        existing?.ttsCacheKey === getActiveTtsCacheKey(),
+    );
+    const canReuseExistingAudioForArtwork = Boolean(
+      regenArt &&
+        existing?.audioUrl &&
+        existing.ttsCacheKey === getActiveTtsCacheKey(),
     );
 
     const assetState = canReuseStoredAssets
@@ -553,6 +572,7 @@ const generateTrendingBriefRecord = async ({
           artworkStorageId: existing?.artworkStorageId as Id<"_storage">,
           durationSeconds: existing?.durationSeconds as number,
           byteLength: existing?.byteLength as number,
+          metadata: getTtsMetadata(getActiveTtsProfile()),
         }
       : await (async () => {
           stage = "rendering_artwork";
@@ -563,16 +583,25 @@ const generateTrendingBriefRecord = async ({
             articleTitles,
             imageUrls,
           });
-          stage = regenArt && existing?.audioUrl
+          stage = canReuseExistingAudioForArtwork
             ? "reusing_existing_audio"
             : "generating_tts_audio";
-          const sourceAudioBlob =
-            regenArt && existing?.audioUrl
-              ? await fetchBlobFromUrl(existing.audioUrl)
-              : await generateTtsAudio(
+          let ttsMetadata: TtsMetadata | null = null;
+          const existingAudioUrl =
+            canReuseExistingAudioForArtwork && existing?.audioUrl
+              ? existing.audioUrl
+              : null;
+          const sourceAudioBlob = existingAudioUrl
+            ? await fetchBlobFromUrl(existingAudioUrl)
+            : await (async () => {
+                const generatedAudio = await generateTtsAudioWithMetadata(
                   { text: brief.spokenSummary },
                   { apiBaseUrl: baseUrl },
                 );
+                ttsMetadata = generatedAudio.metadata;
+                return generatedAudio.blob;
+              })();
+          const metadata = ttsMetadata ?? getTtsMetadata(getActiveTtsProfile());
           const artworkBlob = new Blob([Buffer.from(artwork.data)], {
             type: artwork.mimeType,
           });
@@ -599,6 +628,7 @@ const generateTrendingBriefRecord = async ({
             artworkStorageId: newArtworkStorageId,
             durationSeconds: estimateDurationSeconds(brief.spokenSummary),
             byteLength: taggedAudioBlob.size,
+            metadata,
           };
         })();
 
@@ -621,6 +651,12 @@ const generateTrendingBriefRecord = async ({
       durationSeconds: assetState.durationSeconds,
       byteLength: assetState.byteLength,
       model,
+      ttsModel: assetState.metadata.model,
+      ttsCacheKey: assetState.metadata.ttsCacheKey,
+      provider: assetState.metadata.provider,
+      voiceId: assetState.metadata.voiceId,
+      promptVersion: assetState.metadata.promptVersion,
+      ttsNormVersion: assetState.metadata.ttsNormVersion,
     });
     committedReady = true;
 

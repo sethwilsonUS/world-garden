@@ -1,0 +1,128 @@
+/**
+ * Edge TTS route.
+ *
+ * In local development this shells out to the Python edge-tts package. On
+ * Vercel, /api/tts/edge is mapped to the Python function at _python/tts.py.
+ */
+
+import { spawn } from "child_process";
+import path from "path";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  TTS_MIN_TEXT_LENGTH,
+  getServerTtsMaxWordsPerRequest,
+} from "@/lib/tts-contract";
+import { getEdgeTtsProfile, isEdgeTtsVoice } from "@/lib/tts-profile";
+
+const PYTHON_PATH =
+  process.env.EDGE_TTS_PYTHON_PATH ??
+  path.join(process.cwd(), ".edge-tts-venv", "bin", "python3");
+
+const PYTHON_SCRIPT = `
+import asyncio, json, sys, edge_tts
+
+async def main():
+    req = json.loads(sys.stdin.read())
+    communicate = edge_tts.Communicate(req["text"], req["voice"])
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            sys.stdout.buffer.write(chunk["data"])
+
+asyncio.run(main())
+`;
+
+const countWords = (text: string): number =>
+  text.split(/\s+/).filter(Boolean).length;
+
+const generateWithEdgeTts = (
+  text: string,
+  voice: string,
+): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON_PATH, ["-c", PYTHON_SCRIPT], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    if (!proc.stdout || !proc.stderr || !proc.stdin) {
+      proc.kill();
+      reject(new Error("edge-tts process streams were unavailable"));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let stderr = "";
+
+    proc.stdout.on("data", (data: Buffer) => {
+      chunks.push(data);
+    });
+    proc.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `edge-tts exited with code ${code}`));
+        return;
+      }
+
+      resolve(Buffer.concat(chunks));
+    });
+
+    proc.on("error", reject);
+
+    proc.stdin.write(JSON.stringify({ text, voice }));
+    proc.stdin.end();
+  });
+
+export const POST = async (req: NextRequest) => {
+  try {
+    const { text, voiceId } = (await req.json()) as {
+      text: string;
+      voiceId?: string;
+    };
+
+    if (!text || text.length < TTS_MIN_TEXT_LENGTH) {
+      return NextResponse.json(
+        { error: "Text is too short to generate audio" },
+        { status: 400 },
+      );
+    }
+
+    const maxWordsPerRequest = getServerTtsMaxWordsPerRequest();
+
+    if (countWords(text) > maxWordsPerRequest) {
+      return NextResponse.json(
+        {
+          error: `Text exceeds ${maxWordsPerRequest} words; split it into smaller chunks before requesting TTS`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const profile = getEdgeTtsProfile(
+      isEdgeTtsVoice(voiceId) ? voiceId : undefined,
+    );
+    const audioBuffer = await generateWithEdgeTts(text, profile.voiceId);
+
+    if (audioBuffer.length === 0) {
+      return NextResponse.json(
+        { error: "No audio was generated" },
+        { status: 500 },
+      );
+    }
+
+    return new NextResponse(new Uint8Array(audioBuffer), {
+      status: 200,
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Content-Length": String(audioBuffer.length),
+      },
+    });
+  } catch (err) {
+    console.error("Edge TTS generation failed:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Audio generation failed" },
+      { status: 500 },
+    );
+  }
+};

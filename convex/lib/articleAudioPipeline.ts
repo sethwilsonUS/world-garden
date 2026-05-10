@@ -1,8 +1,14 @@
 import { type Id } from "../_generated/dataModel";
 import { titleToSlug } from "./wikipedia";
 import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
-import { generateTtsAudio } from "../../lib/tts-client";
+import { generateTtsAudioWithMetadata } from "../../lib/tts-client";
 import { hasFullAudio, type AudioMode, type AudioReason } from "../../lib/audio-suitability";
+import {
+  getTtsMetadata,
+  getTtsProfile,
+  type TtsMetadata,
+  type TtsProvider,
+} from "../../lib/tts-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
 
@@ -30,11 +36,14 @@ export type AssembleArticleAudioArgs<TStorageId = string> = {
   article: ArticleAudioSource;
   albumTitle: string;
   baseUrl: string;
-  getCachedSectionAudioUrls: () => Promise<Record<string, string | null | undefined>>;
+  getCachedSectionAudioUrls: (args: {
+    ttsCacheKey: string;
+  }) => Promise<Record<string, string | null | undefined>>;
   saveSectionAudio: (args: {
     sectionKey: string;
     blob: Blob;
     durationSeconds: number;
+    metadata: TtsMetadata;
   }) => Promise<string>;
   saveCombinedAudio: (args: {
     stream: ReadableStream<Uint8Array>;
@@ -57,6 +66,7 @@ export type AssembleArticleAudioResult<TStorageId = string> = {
   sectionCount: number;
   generatedSectionCount: number;
   reusedSectionCount: number;
+  metadata: TtsMetadata;
 };
 
 const countWords = (text: string): number =>
@@ -227,101 +237,124 @@ export const assembleArticleAudio = async <TStorageId = string>({
     throw new Error("Article does not contain any audio-suitable sections.");
   }
 
-  const cachedUrls = await getCachedSectionAudioUrls();
-  const sectionAudioUrls: string[] = [];
-  let generatedSectionCount = 0;
-  let reusedSectionCount = 0;
+  const assembleWithProvider = async (
+    forcedProvider?: TtsProvider,
+  ): Promise<AssembleArticleAudioResult<TStorageId>> => {
+    const passMetadata = getTtsMetadata(getTtsProfile(forcedProvider));
+    const cachedUrls = await getCachedSectionAudioUrls({
+      ttsCacheKey: passMetadata.ttsCacheKey,
+    });
+    const sectionAudioUrls: string[] = [];
+    let generatedSectionCount = 0;
+    let reusedSectionCount = 0;
+    let producedMetadata: TtsMetadata | null = null;
 
-  for (let index = 0; index < sections.length; index += 1) {
-    const section = sections[index];
-    let sectionAudioUrl: string | null = null;
-    const cachedUrl = cachedUrls[section.sectionKey]?.trim() || null;
+    for (let index = 0; index < sections.length; index += 1) {
+      const section = sections[index];
+      let sectionAudioUrl: string | null = null;
+      const cachedUrl = cachedUrls[section.sectionKey]?.trim() || null;
 
-    if (cachedUrl) {
-      try {
-        await verifyBlobUrlAccessible(cachedUrl);
-        sectionAudioUrl = cachedUrl;
-        reusedSectionCount += 1;
-      } catch {
-        sectionAudioUrl = null;
+      if (cachedUrl) {
+        try {
+          await verifyBlobUrlAccessible(cachedUrl);
+          sectionAudioUrl = cachedUrl;
+          reusedSectionCount += 1;
+        } catch {
+          sectionAudioUrl = null;
+        }
       }
+
+      if (!sectionAudioUrl) {
+        let blob: Blob;
+        let metadata: TtsMetadata;
+        try {
+          const generatedAudio = await generateTtsAudioWithMetadata(
+            { text: section.text, provider: passMetadata.provider },
+            { apiBaseUrl: baseUrl },
+          );
+          blob = generatedAudio.blob;
+          metadata = generatedAudio.metadata;
+        } catch (error) {
+          throw new Error(
+            `Generating audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
+          );
+        }
+
+        if (!forcedProvider && metadata.provider !== passMetadata.provider) {
+          return assembleWithProvider(metadata.provider);
+        }
+
+        producedMetadata = metadata;
+        generatedSectionCount += 1;
+
+        try {
+          sectionAudioUrl = await saveSectionAudio({
+            sectionKey: section.sectionKey,
+            blob,
+            durationSeconds: estimateDurationSeconds(section.text),
+            metadata,
+          });
+        } catch (error) {
+          throw new Error(
+            `Saving audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
+          );
+        }
+      }
+
+      sectionAudioUrls.push(sectionAudioUrl);
+
+      await onProgress?.({
+        completedSectionCount: index + 1,
+        sectionCount: sections.length,
+        stage: "rendering_audio",
+      });
     }
-
-    if (!sectionAudioUrl) {
-      let blob: Blob;
-      try {
-        blob = await generateTtsAudio(
-          { text: section.text },
-          { apiBaseUrl: baseUrl },
-        );
-      } catch (error) {
-        throw new Error(
-          `Generating audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
-        );
-      }
-      generatedSectionCount += 1;
-
-      try {
-        sectionAudioUrl = await saveSectionAudio({
-          sectionKey: section.sectionKey,
-          blob,
-          durationSeconds: estimateDurationSeconds(section.text),
-        });
-      } catch (error) {
-        throw new Error(
-          `Saving audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
-        );
-      }
-    }
-
-    sectionAudioUrls.push(sectionAudioUrl);
 
     await onProgress?.({
-      completedSectionCount: index + 1,
+      completedSectionCount: sections.length,
       sectionCount: sections.length,
-      stage: "rendering_audio",
+      stage: "packaging",
     });
-  }
 
-  await onProgress?.({
-    completedSectionCount: sections.length,
-    sectionCount: sections.length,
-    stage: "packaging",
-  });
+    const artwork = await fetchArticleArtwork({
+      baseUrl,
+      slug: article.slug,
+      title: article.title,
+    });
+    let combinedAudio: {
+      storageId: TStorageId;
+      byteLength: number;
+    };
+    try {
+      const stream = await createArticleAudioStream({
+        sectionAudioUrls,
+        metadata: {
+          title: article.title,
+          artist: "Curio Garden",
+          album: albumTitle,
+          artwork,
+        },
+      });
+      combinedAudio = await saveCombinedAudio({
+        stream,
+        contentType: "audio/mpeg",
+      });
+    } catch (error) {
+      throw new Error(`Packaging combined audio failed: ${getErrorMessage(error)}`);
+    }
 
-  const artwork = await fetchArticleArtwork({
-    baseUrl,
-    slug: article.slug,
-    title: article.title,
-  });
-  let combinedAudio: {
-    storageId: TStorageId;
-    byteLength: number;
+    return {
+      storageId: combinedAudio.storageId,
+      byteLength: combinedAudio.byteLength,
+      durationSeconds: estimateDurationSeconds(
+        sections.map((section) => section.text),
+      ),
+      sectionCount: sections.length,
+      generatedSectionCount,
+      reusedSectionCount,
+      metadata: producedMetadata ?? passMetadata,
+    };
   };
-  try {
-    const stream = await createArticleAudioStream({
-      sectionAudioUrls,
-      metadata: {
-        title: article.title,
-        artist: "Curio Garden",
-        album: albumTitle,
-        artwork,
-      },
-    });
-    combinedAudio = await saveCombinedAudio({
-      stream,
-      contentType: "audio/mpeg",
-    });
-  } catch (error) {
-    throw new Error(`Packaging combined audio failed: ${getErrorMessage(error)}`);
-  }
 
-  return {
-    storageId: combinedAudio.storageId,
-    byteLength: combinedAudio.byteLength,
-    durationSeconds: estimateDurationSeconds(sections.map((section) => section.text)),
-    sectionCount: sections.length,
-    generatedSectionCount,
-    reusedSectionCount,
-  };
+  return assembleWithProvider();
 };

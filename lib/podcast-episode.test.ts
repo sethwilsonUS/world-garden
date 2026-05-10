@@ -4,6 +4,7 @@ import {
   hasCurrentFeaturedArtworkVersion,
   shouldReuseExistingFeaturedEpisode,
 } from "./podcast-episode";
+import { getActiveTtsCacheKey } from "./tts-profile";
 
 describe("getPodcastSectionSources", () => {
   it("uses only full-audio sections for the featured podcast", () => {
@@ -69,6 +70,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
@@ -85,6 +87,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "999",
           title: "Older featured article",
           artworkVersion: 2,
+          ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
@@ -101,6 +104,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
@@ -117,6 +121,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 1,
+          ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
@@ -133,10 +138,28 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
     ).toBe(true);
+  });
+
+  it("does not reuse ready audio from a different TTS cache key", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+          ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
   });
 });
 

@@ -14,13 +14,13 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Audio playback** — Listen to any Wikipedia article section by section. Play a single section, or hit Play All for the full lean-back experience with automatic progression. Adjustable speed from 0.5× to 3×, with your preference saved between sessions. Resume from where you left off when you return to an article. Download full articles as MP3 for offline listening.
 
-**Audio** — Powered by Edge TTS with Microsoft's neural voices — free, high-quality audio with full seek, scrub, and download support. Generated audio is cached in Convex so each section only needs to be synthesized once. Long sections are chunked before synthesis to stay within Edge TTS limits while keeping startup latency low.
+**Audio** — Powered by OpenAI `gpt-4o-mini-tts` with Microsoft Edge TTS fallback. Generated synthetic speech is cached in Convex by provider, model, voice, prompt version, and normalization version so narration changes can regenerate cleanly without breaking existing audio.
 
 **Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, a small On This Day entry, and a compact Trending teaser. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
-**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief is generated once per trending date through Vercel AI Gateway, converted to speech, and cached in Convex.
+**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through Vercel AI Gateway, converted to synthetic speech, and cached in Convex.
 
 **Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display. A Gallery section below the table of contents shows all images from the article with their captions in a card grid, with a keyboard-navigable lightbox for full-size viewing.
 
@@ -39,7 +39,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
 - **Auth:** Clerk for sign-in and account sessions, bridged into Convex auth for viewer-scoped data
-- **TTS:** Edge TTS (free neural voices via Python `edge-tts`) with Convex-backed caching
+- **TTS:** OpenAI `gpt-4o-mini-tts` primary with Edge TTS fallback and Convex-backed variant caching
 - **AI:** Vercel AI Gateway via the AI SDK for daily trend brief generation and web search
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
@@ -49,9 +49,11 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 Text is normalized before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-**Edge TTS** provides free, high-quality neural voices from Microsoft via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Runs as a local Python process during development and as a Vercel Python serverless function in production. Default voice is `en-US-AriaNeural`. Produces MP3s with full seek, scrub, and download support. On Vercel, this works out of the box. For local development, see [Local Audio Setup](#local-audio-setup) below.
+**OpenAI TTS** is the canonical provider for `/api/tts`, using direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. The Vercel AI Gateway remains the text-generation path, but the current Gateway probe did not expose `/v1/audio/speech` or `gpt-4o-mini-tts` speech models, so speech generation calls OpenAI directly.
 
-Generated audio is cached per-section in Convex file storage so each section is only synthesized once. Subsequent plays (by any user) are served directly from the cache.
+**Edge TTS fallback** remains available through `/api/tts/edge` using Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Default fallback voice is `en-US-AriaNeural`. If OpenAI fails and fallback is enabled, generation retries with Edge and records the resulting Edge provider metadata.
+
+Generated audio is cached per-section in Convex file storage by `tts:${provider}:${model}:${voice}:${promptVersion}:${TTS_NORM_VERSION}`. Changing normalization or narration prompt versions should change the cache key and regenerate audio on demand.
 
 Featured podcast episodes and personal playlist episodes both reuse that same section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Picture of the Day descriptions are generated once per featured-feed date and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
 
@@ -70,7 +72,7 @@ Open [http://localhost:3000](http://localhost:3000). You can browse, search, and
 
 Local mode skips Clerk and Convex entirely, so account-only features such as the synced dashboard, personal playlist, and personal RSS feed are intentionally unavailable there.
 
-Audio requires a one-time Python setup (takes 30 seconds) — see [Local Audio Setup](#local-audio-setup) below.
+Audio requires `OPENAI_API_KEY` for the primary provider. Edge fallback local testing uses a one-time Python setup — see [Local Audio Setup](#local-audio-setup) below.
 
 ## Full Setup (with Convex)
 
@@ -135,7 +137,7 @@ This starts both the Next.js frontend and the Convex backend in parallel.
 
 ## Local Audio Setup
 
-Edge TTS uses Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically — no setup needed.
+Edge fallback uses Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically behind `/api/tts/edge`.
 
 For local development, you just need Python 3 installed. The venv is created automatically the first time you run `npm run dev:python` — no manual setup required. The venv lives at `.edge-tts-venv/` in the project root (gitignored) so it survives reboots.
 
@@ -145,7 +147,7 @@ If you want to run the standalone Python TTS server (useful for testing the Verc
 npm run dev:python
 ```
 
-This starts Next.js, Convex, and a dedicated Python TTS server in parallel. Audio requests are rewritten to the Python server on port 3001.
+This starts Next.js, Convex, and a dedicated Python TTS server in parallel. Edge fallback requests at `/api/tts/edge` are rewritten to the Python server on port 3001.
 
 ### Customizing the Python path
 
@@ -166,7 +168,15 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot |
 | `CLERK_SECRET_KEY` | No | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments |
 | `NEXT_PUBLIC_LOCAL_MODE` | No | Set to `"true"` to run without Convex |
-| `USE_PYTHON_TTS` | No | Route `/api/tts` to the standalone Python TTS server (used by `npm run dev:python`) |
+| `TTS_PRIMARY_PROVIDER` | No | Primary speech provider for `/api/tts`; defaults to `openai` |
+| `OPENAI_API_KEY` | Yes for OpenAI TTS | Direct OpenAI API key for `/v1/audio/speech` |
+| `OPENAI_TTS_MODEL` | No | OpenAI speech model; defaults to `gpt-4o-mini-tts` |
+| `OPENAI_TTS_VOICE` | No | OpenAI voice; defaults to `marin` |
+| `OPENAI_TTS_PROMPT_VERSION` | No | Cache-busting narration prompt version; defaults to `curio-warm-narrator-v1` |
+| `OPENAI_TTS_INSTRUCTIONS` | No | Optional narration instructions sent with OpenAI speech requests |
+| `TTS_EDGE_FALLBACK` | No | Set to `"false"` to disable automatic Edge fallback after OpenAI failures |
+| `EDGE_TTS_VOICE_ID` | No | Edge fallback voice; defaults to `en-US-AriaNeural` |
+| `USE_PYTHON_TTS` | No | Route `/api/tts/edge` to the standalone Python TTS server (used by `npm run dev:python`) |
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
@@ -177,6 +187,16 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
+
+### TTS worktree workflow
+
+For the OpenAI TTS migration, implementation was intentionally isolated from the original working copy:
+
+```bash
+git fetch origin
+git worktree add ../world-garden-openai-tts -b codex/openai-tts origin/main
+cd ../world-garden-openai-tts
+```
 
 ## Podcasts
 
@@ -250,7 +270,7 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 |---|---|
 | `npm run dev` | Start Next.js + Convex backend |
 | `npm run dev:python` | Start Next.js + Convex + Python TTS server |
-| `npm run local` | Local mode — no Convex, audio via local Python edge-tts |
+| `npm run local` | Local mode — no Convex, audio through the canonical TTS route with Edge fallback available locally |
 | `npm run build` | Production build (handles Vercel environments) |
 | `npm test` | Run Vitest unit tests |
 | `npm run test:watch` | Watch mode tests |
@@ -272,7 +292,8 @@ app/
   podcasts/page.tsx       Public podcast index page for both feeds
   podcasts/[slug]/page.tsx Dedicated archive page for each podcast feed
   globals.css             Design system tokens, utilities, and component styles
-  api/tts/route.ts        Edge TTS API route (local dev — shells out to Python)
+  api/tts/route.ts        Canonical OpenAI-first TTS API route
+  api/tts/edge/route.ts   Edge TTS fallback route (local dev shells out to Python)
   api/featured/route.ts   Featured article API route
   api/picture-of-day/audio/cron/route.ts  Scheduled Picture of the Day audio prewarm
   api/trending/brief/route.ts  Daily AI-generated trending briefing API route
@@ -379,11 +400,11 @@ Primary Convex tables:
 - `bookmarks` stores saved Library articles keyed by viewer identity, with guest imports merged into signed-in accounts on the same device.
 - `personalPodcastFeeds` stores one opaque feed token per signed-in viewer for the tokenized Personal Playlist RSS feed.
 - `personalPlaylistEpisodes` stores the ordered personal queue plus generation state, progress, and stored MP3 metadata for each playlist episode.
-- `sectionAudio` stores per-section audio blobs keyed by article, section key, and TTS normalization version.
+- `sectionAudio` stores per-section audio blobs keyed by article, section key, provider, model, voice, prompt version, and TTS normalization version.
 - `podcastShowAssets` stores cached show artwork for featured, trending, and personal feeds.
 - `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
 - `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
-- `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date, including the podcast audio asset and the image URLs used to generate trending collage artwork.
+- `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date, including provider-versioned audio variants and the image URLs used to generate trending collage artwork.
 - `pictureOfDayAudio` and `pictureOfDayAudioJobs` store the cached daily Picture of the Day spoken description and its generation lease state.
 
 ## Accessibility

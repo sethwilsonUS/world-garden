@@ -23,10 +23,14 @@ import { useHistory } from "@/hooks/useHistory";
 import { useAudioElement } from "@/hooks/useAudioElement";
 import { useBadgeListenTracking } from "@/hooks/useBadgeListenTracking";
 import { useMediaSession } from "@/hooks/useMediaSession";
-import { awaitSummaryAudio } from "@/lib/audio-prefetch";
+import { awaitSummaryAudioWithMetadata } from "@/lib/audio-prefetch";
 import { buildAwardedBadgeProgress } from "@/lib/badges";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
-import { generateTtsAudioUrl } from "@/lib/tts-client";
+import {
+  generateTtsAudioUrlWithMetadata,
+  type TtsAudioUrlResult,
+} from "@/lib/tts-client";
+import { getActiveTtsCacheKey, type TtsMetadata } from "@/lib/tts-profile";
 import { hasFullAudio } from "@/lib/audio-suitability";
 import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
 
@@ -215,9 +219,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     useArticleAudioExports();
 
   const articleId = displayArticle?._id as Id<"articles"> | undefined;
+  const activeTtsCacheKey = getActiveTtsCacheKey();
   const cachedAudio = useQuery(
     api.audio.getAllSectionAudio,
-    articleId ? { articleId, ttsNormVersion: TTS_NORM_VERSION } : "skip",
+    articleId
+      ? {
+          articleId,
+          ttsNormVersion: TTS_NORM_VERSION,
+          ttsCacheKey: activeTtsCacheKey,
+        }
+      : "skip",
   );
   const getUploadUrl = useMutation(api.audio.generateUploadUrl);
   const saveAudioRecord = useMutation(api.audio.saveSectionAudioRecord);
@@ -305,16 +316,16 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     };
   }, [displayArticle?.thumbnailUrl]);
 
-  const edgeTtsCache = useRef<Map<string, string>>(new Map());
+  const ttsCache = useRef<Map<string, TtsAudioUrlResult>>(new Map());
 
-  const generateEdgeTtsFromApi = useCallback(
-    async (text: string, cacheKey?: string): Promise<string> => {
-      if (cacheKey && edgeTtsCache.current.has(cacheKey)) {
-        return edgeTtsCache.current.get(cacheKey)!;
+  const generateTtsFromApi = useCallback(
+    async (text: string, cacheKey?: string): Promise<TtsAudioUrlResult> => {
+      if (cacheKey && ttsCache.current.has(cacheKey)) {
+        return ttsCache.current.get(cacheKey)!;
       }
-      const url = await generateTtsAudioUrl({ text });
-      if (cacheKey) edgeTtsCache.current.set(cacheKey, url);
-      return url;
+      const result = await generateTtsAudioUrlWithMetadata({ text });
+      if (cacheKey) ttsCache.current.set(cacheKey, result);
+      return result;
     },
     [],
   );
@@ -329,7 +340,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   }, []);
 
   const cacheAudioInConvex = useCallback(
-    async (sectionKey: string, blobUrl: string) => {
+    async (sectionKey: string, blobUrl: string, metadata: TtsMetadata) => {
       if (!articleId) return;
       try {
         const [blob, durationSeconds] = await Promise.all([
@@ -357,7 +368,12 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           articleId,
           sectionKey,
           storageId,
-          ttsNormVersion: TTS_NORM_VERSION,
+          ttsNormVersion: metadata.ttsNormVersion,
+          ttsCacheKey: metadata.ttsCacheKey,
+          provider: metadata.provider,
+          model: metadata.model,
+          voiceId: metadata.voiceId,
+          promptVersion: metadata.promptVersion,
           durationSeconds,
         });
       } catch (err) {
@@ -372,41 +388,41 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     if (!displayArticle || prefetchTriggered.current) return;
     prefetchTriggered.current = true;
 
-    const cacheSummary = (url: string) => {
-      edgeTtsCache.current.set("summary", url);
+    const cacheSummary = (result: TtsAudioUrlResult) => {
+      ttsCache.current.set("summary", result);
       if (!cachedAudio?.urls["summary"]) {
-        cacheAudioInConvex("summary", url);
+        cacheAudioInConvex("summary", result.url, result.metadata);
       }
     };
 
-    const inflight = awaitSummaryAudio(slug);
+    const inflight = awaitSummaryAudioWithMetadata(slug);
     if (inflight) {
-      inflight.then((url) => {
-        if (url) cacheSummary(url);
+      inflight.then((result) => {
+        if (result) cacheSummary(result);
       }).catch(() => {});
       return;
     }
 
     const summaryText = displayArticle.summary ?? "";
     if (summaryText.length < 10) return;
-    generateEdgeTtsFromApi(summaryText, "summary")
+    generateTtsFromApi(summaryText, "summary")
       .then(cacheSummary)
       .catch(() => {});
-  }, [displayArticle, generateEdgeTtsFromApi, slug, cachedAudio, cacheAudioInConvex]);
+  }, [displayArticle, generateTtsFromApi, slug, cachedAudio, cacheAudioInConvex]);
 
   const prefetchAudio = useCallback(
     (sectionKey: string) => {
       const text = getTextForSection(sectionKey);
       if (!text || text.length < 10) return;
-      generateEdgeTtsFromApi(text, sectionKey)
-        .then((url) => {
+      generateTtsFromApi(text, sectionKey)
+        .then((result) => {
           if (!cachedAudio?.urls[sectionKey]) {
-            cacheAudioInConvex(sectionKey, url);
+            cacheAudioInConvex(sectionKey, result.url, result.metadata);
           }
         })
         .catch(() => {});
     },
-    [generateEdgeTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
+    [generateTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
   );
 
   const audioEndedRef = useRef<() => void>(() => {});
@@ -477,13 +493,13 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       updateProgress(slug, sectionKey, sectionIdx);
 
-      const memCached = edgeTtsCache.current.get(sectionKey);
+      const memCached = ttsCache.current.get(sectionKey);
       if (memCached) {
-        setAudioUrl(memCached);
+        setAudioUrl(memCached.url);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
         if (!cachedAudio?.urls[sectionKey]) {
-          cacheAudioInConvex(sectionKey, memCached);
+          cacheAudioInConvex(sectionKey, memCached.url, memCached.metadata);
         }
         return;
       }
@@ -506,12 +522,12 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       setAudioLoading(true);
       pendingAutoPlay.current = true;
 
-      generateEdgeTtsFromApi(textContent, sectionKey)
-        .then((url) => {
+      generateTtsFromApi(textContent, sectionKey)
+        .then((result) => {
           if (requestId.current !== currentRequest) return;
-          setAudioUrl(url);
+          setAudioUrl(result.url);
           setAudioLoading(false);
-          cacheAudioInConvex(sectionKey, url);
+          cacheAudioInConvex(sectionKey, result.url, result.metadata);
         })
         .catch((err) => {
           if (requestId.current !== currentRequest) return;
@@ -520,7 +536,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           pendingAutoPlay.current = false;
         });
     },
-    [slug, updateProgress, generateEdgeTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
+    [slug, updateProgress, generateTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
   );
 
   const handleAudioEnded = useCallback(() => {
