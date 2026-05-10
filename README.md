@@ -61,7 +61,7 @@ Featured podcast episodes and personal playlist episodes both reuse that same se
 
 ## Quick Start (Local Mode)
 
-Try Curio Garden with zero setup — no accounts, no API keys, no backend:
+Try Curio Garden with zero setup for browsing and discovery — no accounts or backend required:
 
 ```bash
 npm install
@@ -72,7 +72,7 @@ Open [http://localhost:3000](http://localhost:3000). You can browse, search, and
 
 Local mode skips Clerk and Convex entirely, so account-only features such as the synced dashboard, personal playlist, and personal RSS feed are intentionally unavailable there.
 
-Audio requires `OPENAI_API_KEY` for the primary provider. Edge fallback local testing uses a one-time Python setup — see [Local Audio Setup](#local-audio-setup) below.
+Audio features require `OPENAI_API_KEY` for the primary provider, or the one-time Python setup for local Edge fallback testing — see [Local Audio Setup](#local-audio-setup) below.
 
 ## Full Setup (with Convex)
 

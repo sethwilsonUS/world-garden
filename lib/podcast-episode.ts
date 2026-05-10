@@ -19,6 +19,7 @@ import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { hasFullAudio } from "@/lib/audio-suitability";
 import {
+  getActiveTtsNormVersion,
   getActiveTtsCacheKey,
   getTtsMetadata,
   getTtsProfile,
@@ -30,6 +31,8 @@ const MIN_TTS_TEXT_LENGTH = 10;
 const TTS_WORDS_PER_SECOND = 2.5;
 const JOB_LEASE_MS = 8 * 60 * 1000;
 const MAX_TTS_PROVIDER_RETRIES = 1;
+
+type TtsMetadataLike = Partial<Record<keyof TtsMetadata, string>>;
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
@@ -182,6 +185,17 @@ export const hasCurrentFeaturedArtworkVersion = (
   episode: Pick<FeaturedPodcastEpisodeWithUrl, "artworkVersion"> | null,
 ): boolean => episode?.artworkVersion === FEATURED_EPISODE_ARTWORK_VERSION;
 
+export const doesTtsMetadataMatch = (
+  actual: TtsMetadataLike | null | undefined,
+  expected: TtsMetadata,
+): boolean =>
+  actual?.provider === expected.provider &&
+  actual.model === expected.model &&
+  actual.voiceId === expected.voiceId &&
+  actual.promptVersion === expected.promptVersion &&
+  actual.ttsNormVersion === expected.ttsNormVersion &&
+  actual.ttsCacheKey === expected.ttsCacheKey;
+
 export const shouldReuseExistingFeaturedEpisode = ({
   force,
   regenArt,
@@ -192,12 +206,18 @@ export const shouldReuseExistingFeaturedEpisode = ({
   regenArt: boolean;
   existingEpisode: Pick<
     FeaturedPodcastEpisodeWithUrl,
-    "status" | "wikiPageId" | "title" | "artworkVersion" | "ttsCacheKey"
+    | "status"
+    | "wikiPageId"
+    | "title"
+    | "artworkVersion"
+    | "ttsNormVersion"
+    | "ttsCacheKey"
   > | null;
   article: Pick<FetchAndCacheResult, "wikiPageId" | "title">;
 }): boolean =>
   !force &&
   existingEpisode?.status === "ready" &&
+  existingEpisode.ttsNormVersion === getActiveTtsNormVersion() &&
   existingEpisode.ttsCacheKey === getActiveTtsCacheKey() &&
   (!regenArt || hasCurrentFeaturedArtworkVersion(existingEpisode)) &&
   doesFeaturedEpisodeMatchArticle(existingEpisode, article);
@@ -366,6 +386,7 @@ export const syncFeaturedPodcastEpisode = async ({
       existingReadyEpisode &&
       existingEpisodeMatchesArticle &&
       existingReadyEpisode.audioUrl &&
+      existingReadyEpisode.ttsNormVersion === getActiveTtsNormVersion() &&
       existingReadyEpisode.ttsCacheKey === getActiveTtsCacheKey()
     ) {
       stage = "reusing_existing_audio";
@@ -474,7 +495,13 @@ export const syncFeaturedPodcastEpisode = async ({
         let blob: Blob | null = null;
         const cachedUrl = cachedAudio.urls[section.sectionKey];
 
-        if (cachedUrl) {
+        if (
+          cachedUrl &&
+          doesTtsMetadataMatch(
+            cachedAudio.metadata?.[section.sectionKey],
+            passMetadata,
+          )
+        ) {
           try {
             blob = await fetchBlobFromUrl(cachedUrl);
             reusedSectionCount += 1;
@@ -499,11 +526,17 @@ export const syncFeaturedPodcastEpisode = async ({
             );
           }
 
-          if (!forcedProvider && metadata.provider !== passMetadata.provider) {
-            if (retryDepth >= MAX_TTS_PROVIDER_RETRIES) {
-              throw new Error("TTS provider mismatch exceeded retry limit");
+          if (!doesTtsMetadataMatch(metadata, passMetadata)) {
+            if (
+              !forcedProvider &&
+              metadata.provider !== passMetadata.provider &&
+              retryDepth < MAX_TTS_PROVIDER_RETRIES
+            ) {
+              return loadSectionAudio(metadata.provider, retryDepth + 1);
             }
-            return loadSectionAudio(metadata.provider, retryDepth + 1);
+            throw new Error(
+              `TTS profile mismatch: expected ${passMetadata.ttsCacheKey}, got ${metadata.ttsCacheKey}`,
+            );
           }
 
           producedMetadata = metadata;

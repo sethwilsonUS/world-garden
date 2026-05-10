@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  doesTtsMetadataMatch,
   getPodcastSectionSources,
   hasCurrentFeaturedArtworkVersion,
   shouldReuseExistingFeaturedEpisode,
 } from "./podcast-episode";
-import { getActiveTtsCacheKey } from "./tts-profile";
+import {
+  getActiveTtsCacheKey,
+  getActiveTtsNormVersion,
+  getTtsMetadata,
+  getTtsProfile,
+} from "./tts-profile";
 
 describe("getPodcastSectionSources", () => {
   it("uses only full-audio sections for the featured podcast", () => {
@@ -70,6 +76,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
@@ -87,6 +94,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "999",
           title: "Older featured article",
           artworkVersion: 2,
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
@@ -104,6 +112,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
@@ -121,6 +130,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 1,
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
@@ -138,6 +148,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
@@ -155,10 +166,49 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,
       }),
+    ).toBe(false);
+  });
+
+  it("does not reuse ready audio from an older normalization version", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+          ttsNormVersion: "ttsNorm:1",
+          ttsCacheKey: getActiveTtsCacheKey(),
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("doesTtsMetadataMatch", () => {
+  it("requires the full TTS profile to match", () => {
+    const expected = getTtsMetadata(getTtsProfile("openai"));
+
+    expect(doesTtsMetadataMatch({ ...expected }, expected)).toBe(true);
+    expect(
+      doesTtsMetadataMatch(
+        { ...expected, voiceId: "alloy", ttsCacheKey: expected.ttsCacheKey },
+        expected,
+      ),
+    ).toBe(false);
+    expect(
+      doesTtsMetadataMatch(
+        { ...expected, ttsNormVersion: "ttsNorm:1" },
+        expected,
+      ),
     ).toBe(false);
   });
 });

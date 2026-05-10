@@ -6,6 +6,10 @@ type SectionAudioVariantRecord = {
   storageId: unknown;
   ttsNormVersion?: string;
   ttsCacheKey?: string;
+  provider?: string;
+  model?: string;
+  voiceId?: string;
+  promptVersion?: string;
 };
 
 export const selectSectionAudioVariant = <
@@ -51,6 +55,7 @@ export const getAllSectionAudio = query({
 
     const urls: Record<string, string> = {};
     const durations: Record<string, number> = {};
+    const metadata: Record<string, Record<string, string>> = {};
     const sectionKeys = new Set(records.map((record) => record.sectionKey));
 
     for (const sectionKey of sectionKeys) {
@@ -63,12 +68,21 @@ export const getAllSectionAudio = query({
       const url = await ctx.storage.getUrl(r.storageId);
       if (url) {
         urls[r.sectionKey] = url;
+        metadata[r.sectionKey] = {};
+        if (r.ttsNormVersion) {
+          metadata[r.sectionKey].ttsNormVersion = r.ttsNormVersion;
+        }
+        if (r.ttsCacheKey) metadata[r.sectionKey].ttsCacheKey = r.ttsCacheKey;
+        if (r.provider) metadata[r.sectionKey].provider = r.provider;
+        if (r.model) metadata[r.sectionKey].model = r.model;
+        if (r.voiceId) metadata[r.sectionKey].voiceId = r.voiceId;
+        if (r.promptVersion) metadata[r.sectionKey].promptVersion = r.promptVersion;
         if (r.durationSeconds != null) {
           durations[r.sectionKey] = r.durationSeconds;
         }
       }
     }
-    return { urls, durations };
+    return { urls, durations, metadata };
   },
 });
 

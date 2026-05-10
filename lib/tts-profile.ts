@@ -149,6 +149,9 @@ export const getTtsProfile = (
 export const getActiveTtsProfile = (): TtsProfile =>
   getTtsProfile(getConfiguredPrimaryTtsProvider());
 
+export const getActiveTtsNormVersion = (): string =>
+  getActiveTtsProfile().ttsNormVersion;
+
 export const getActiveTtsCacheKey = (): string => getActiveTtsProfile().ttsCacheKey;
 
 export const getTtsMetadata = (profile: TtsProfile): TtsMetadata => ({
