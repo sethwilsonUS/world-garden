@@ -24,6 +24,7 @@
 
 # test artifacts
 test.mp3
+.reports/
 
 # debug
 npm-debug.log*

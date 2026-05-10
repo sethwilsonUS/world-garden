@@ -470,6 +470,21 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
 
+  analyticsRollups: defineTable({
+    key: v.string(),
+    bucketStart: v.number(),
+    source: v.string(),
+    eventType: v.string(),
+    eventName: v.optional(v.string()),
+    path: v.optional(v.string()),
+    dimensionsJson: v.string(),
+    count: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_bucketStart", ["bucketStart"]),
+
   podcastShowAssets: defineTable({
     slug: podcastShowAssetSlug,
     storageId: v.id("_storage"),

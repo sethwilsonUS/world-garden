@@ -187,6 +187,9 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
 | `CRON_SECRET` | No | Bearer token expected by the scheduled podcast cron routes and manual sync routes |
 | `AI_GATEWAY_API_KEY` | No | Vercel AI Gateway API key used for the daily AI-generated trending brief |
+| `VERCEL_ANALYTICS_DRAIN_SECRET` | No | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain` |
+| `ANALYTICS_REPORT_SECRET` | No | Bearer token used by the local analytics report command to read compact rollups from `/api/analytics/report-data` |
+| `VERCEL_PROJECT` | No | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees |
 | `TRENDING_BRIEF_MODEL` | No | Optional primary AI Gateway model override for the daily trending brief |
 | `TRENDING_BRIEF_FALLBACK_MODEL` | No | Optional fallback AI Gateway model override for the daily trending brief |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
@@ -217,6 +220,54 @@ Emergency switch:
 2. Keep `TTS_EDGE_FALLBACK=true`.
 3. Redeploy or restart the environment if the platform requires it for env changes.
 4. Switch `TTS_PRIMARY_PROVIDER=openai` again when OpenAI spend and rate pressure settle.
+
+## Accessible Analytics Reports
+
+For local owner-facing monitoring, run:
+
+```bash
+npm run analytics:site
+```
+
+The command pulls the last 24 hours of production Vercel logs in hourly chunks, prints a plain-English report to Terminal, and saves the same accessible Markdown to `.reports/analytics/<timestamp>.md`. The `.reports/` folder is gitignored.
+
+Useful variants:
+
+```bash
+npm run analytics:site -- --hours 1
+npm run analytics:site -- --project world-garden
+npm run analytics:site -- --since 2026-05-09T12:00:00Z --until 2026-05-10T12:00:00Z
+npm run analytics:site -- --hours 1 --json
+npm run analytics:site -- --output .reports/analytics/linkedin-boost.md
+```
+
+The report avoids Markdown tables so screen readers can move cleanly through headings and short bullets. It redacts query strings, podcast feed tokens, bearer tokens, auth-like values, and raw multi-line stack traces. It does not include article text, search terms, user IDs, API keys, session IDs, or device IDs.
+
+What is available immediately from Vercel logs:
+
+- request totals and success/error counts
+- status-code groups
+- top routes, API routes, and article routes
+- cache buckets such as `HIT`, `MISS`, and `PRERENDER` when Vercel includes them
+- source type, deployment, and domain coverage
+- notable short error summaries
+- TTS structured logs, including provider mix, fallback reasons, quota fallback count, word-count buckets, duration buckets, and slow generation buckets
+
+What requires the Vercel Analytics Drain:
+
+- Vercel Web Analytics pageviews
+- custom analytics events, such as frontend audio-startup events
+- longer-term compact rollups stored in Convex for future local reports
+
+To enable the drain path:
+
+1. Generate a random `VERCEL_ANALYTICS_DRAIN_SECRET` and set it in Vercel.
+2. Configure a Vercel Analytics Drain to send events to `https://your-domain/api/analytics/vercel-drain` with that secret.
+3. Set `ANALYTICS_REPORT_SECRET` in Vercel.
+4. Put the same `ANALYTICS_REPORT_SECRET` in local `.env.local` along with `NEXT_PUBLIC_SITE_URL=https://your-domain`.
+5. Run `npm run analytics:site` after new traffic arrives.
+
+If the local Vercel CLI is too old for `vercel logs --json --environment`, the report command falls back to `npx --yes vercel@latest`. In a fresh worktree without an ignored `.vercel/` link, pass `--project world-garden` or set `VERCEL_PROJECT`. Set `VERCEL_ANALYTICS_CLI` to a custom command if you want to pin the CLI used by the report script.
 
 ## Podcasts
 
@@ -290,6 +341,7 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run dev` | Start Next.js + Convex backend |
 | `npm run dev:python` | Start Next.js + Convex + Python TTS server |
 | `npm run local` | Local mode — no Convex, audio through the canonical TTS route with Edge fallback available locally |
+| `npm run analytics:site` | Generate a local accessible analytics report from Vercel logs and optional drain rollups |
 | `npm run build` | Production build (handles Vercel environments) |
 | `npm test` | Run Vitest unit tests |
 | `npm run test:watch` | Watch mode tests |
@@ -313,6 +365,8 @@ app/
   globals.css             Design system tokens, utilities, and component styles
   api/tts/route.ts        Canonical OpenAI-first TTS API route
   api/tts/edge/route.ts   Edge TTS fallback route (local dev shells out to Python)
+  api/analytics/vercel-drain/route.ts  Signed Vercel Analytics Drain ingestion
+  api/analytics/report-data/route.ts   Protected local-report rollup data endpoint
   api/featured/route.ts   Featured article API route
   api/picture-of-day/audio/cron/route.ts  Scheduled Picture of the Day audio prewarm
   api/trending/brief/route.ts  Daily AI-generated trending briefing API route
@@ -334,6 +388,9 @@ _python/
   tts.py                 Edge TTS serverless function (Vercel production)
 
 requirements.txt         Python dependencies (edge-tts)
+
+scripts/
+  site-analytics-report.mjs  Local accessible analytics report command
 
 lib/
   data-context.tsx        DataContext type and useData() hook
