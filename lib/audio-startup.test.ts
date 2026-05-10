@@ -70,6 +70,21 @@ describe("resolveSummaryAudioStartup", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it("generates audio when an in-flight prefetch resolves empty", async () => {
+    const generate = vi.fn(async () => audio("generated"));
+
+    const result = await resolveSummaryAudioStartup({
+      memory: null,
+      convex: null,
+      prefetched: null,
+      inflight: Promise.resolve(null),
+      generate,
+    });
+
+    expect(result).toEqual({ path: "generated", result: audio("generated") });
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
   it("generates audio when no cached or in-flight summary exists", async () => {
     const generate = vi.fn(async () => audio("generated"));
 
