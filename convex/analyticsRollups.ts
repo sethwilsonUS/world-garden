@@ -13,9 +13,26 @@ const analyticsRollupInput = v.object({
   count: v.number(),
 });
 
+const MAX_DELIVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const assertValidRollupCount = (count: number) => {
   if (!Number.isSafeInteger(count) || count <= 0) {
     throw new Error("Rollup counts must be positive integers");
+  }
+};
+
+export const assertValidDeliveryExpiry = (
+  deliveryExpiresAt: number,
+  now = Date.now(),
+) => {
+  if (
+    !Number.isSafeInteger(deliveryExpiresAt) ||
+    deliveryExpiresAt <= now ||
+    deliveryExpiresAt > now + MAX_DELIVERY_TTL_MS
+  ) {
+    throw new Error(
+      "deliveryExpiresAt must be a future Unix ms timestamp within 7 days",
+    );
   }
 };
 
@@ -69,6 +86,8 @@ export const upsertAnalyticsRollups = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    assertValidDeliveryExpiry(args.deliveryExpiresAt, now);
+
     let inserted = 0;
     let updated = 0;
 
