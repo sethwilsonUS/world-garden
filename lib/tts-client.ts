@@ -6,6 +6,13 @@ import {
   getClientTtsMaxWordsPerRequest,
   type TtsRequest,
 } from "./tts-contract";
+import {
+  getTtsMetadata,
+  getTtsProfile,
+  parseTtsMetadataFromHeaders,
+  type TtsMetadata,
+  type TtsProvider,
+} from "./tts-profile";
 
 type TtsErrorBody = {
   error?: string;
@@ -13,6 +20,22 @@ type TtsErrorBody = {
 
 type TtsClientOptions = {
   apiBaseUrl?: string;
+};
+
+type SingleTtsAudioResult = {
+  blob: Blob;
+  metadata: TtsMetadata;
+  usedFallback: boolean;
+};
+
+export type TtsAudioResult = {
+  blob: Blob;
+  metadata: TtsMetadata;
+};
+
+export type TtsAudioUrlResult = {
+  url: string;
+  metadata: TtsMetadata;
 };
 
 const getErrorMessage = (error: unknown): string =>
@@ -122,16 +145,18 @@ export const splitTtsTextIntoChunks = (
   return splitLongParagraph(normalized, maxWords);
 };
 
-const fetchSingleTtsAudio = async ({
+const fetchSingleTtsAudioWithMetadata = async ({
   text,
   voiceId,
-}: TtsRequest, options?: TtsClientOptions): Promise<Blob> => {
+  provider,
+}: TtsRequest, options?: TtsClientOptions): Promise<SingleTtsAudioResult> => {
   const resp = await fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text,
       ...(voiceId ? { voiceId } : {}),
+      ...(provider ? { provider } : {}),
     }),
   });
 
@@ -165,26 +190,52 @@ const fetchSingleTtsAudio = async ({
     throw new Error("TTS returned an empty audio payload");
   }
 
-  return blob;
+  const headers = resp.headers ?? new Headers();
+  const metadata =
+    parseTtsMetadataFromHeaders(headers) ??
+    getTtsMetadata(getTtsProfile(provider, voiceId));
+  const usedFallback = headers.get("X-Curio-TTS-Fallback") === "true";
+
+  return { blob, metadata, usedFallback };
 };
 
-export const generateTtsAudio = async ({
-  text,
+const generateTtsAudioForChunks = async ({
+  chunks,
   voiceId,
-}: TtsRequest, options?: TtsClientOptions): Promise<Blob> => {
-  const chunks = splitTtsTextIntoChunks(text);
-  const joinedText = chunks.join(" ");
-
-  if (!joinedText || joinedText.length < TTS_MIN_TEXT_LENGTH) {
-    throw new Error("Text is too short to generate audio");
-  }
-
+  provider,
+  options,
+}: {
+  chunks: string[];
+  voiceId?: string;
+  provider?: TtsProvider;
+  options?: TtsClientOptions;
+}): Promise<TtsAudioResult> => {
   const audioChunks: Blob[] = [];
+  let metadata: TtsMetadata | null = null;
+
   for (const [index, chunk] of chunks.entries()) {
     try {
-      audioChunks.push(
-        await fetchSingleTtsAudio({ text: chunk, voiceId }, options),
+      const result = await fetchSingleTtsAudioWithMetadata(
+        { text: chunk, voiceId, provider },
+        options,
       );
+
+      if (
+        chunks.length > 1 &&
+        (result.usedFallback ||
+          (metadata && metadata.provider !== result.metadata.provider) ||
+          (provider && provider !== result.metadata.provider))
+      ) {
+        return generateTtsAudioForChunks({
+          chunks,
+          voiceId,
+          provider: result.metadata.provider,
+          options,
+        });
+      }
+
+      metadata = result.metadata;
+      audioChunks.push(result.blob);
     } catch (error) {
       throw new Error(
         `TTS chunk ${index + 1}/${chunks.length} failed (${countWords(chunk)} words): ${getErrorMessage(error)}`,
@@ -192,12 +243,51 @@ export const generateTtsAudio = async ({
     }
   }
 
-  if (audioChunks.length === 1) {
-    return audioChunks[0];
+  if (!metadata) {
+    throw new Error("No audio was generated");
   }
 
-  return await concatenateMp3Blobs(audioChunks, {
-    stripId3Tags: "leading",
+  if (audioChunks.length === 1) {
+    return { blob: audioChunks[0], metadata };
+  }
+
+  return {
+    blob: await concatenateMp3Blobs(audioChunks, {
+      stripId3Tags: "leading",
+    }),
+    metadata,
+  };
+};
+
+export const generateTtsAudio = async ({
+  text,
+  voiceId,
+  provider,
+}: TtsRequest, options?: TtsClientOptions): Promise<Blob> => {
+  const result = await generateTtsAudioWithMetadata(
+    { text, voiceId, provider },
+    options,
+  );
+  return result.blob;
+};
+
+export const generateTtsAudioWithMetadata = async ({
+  text,
+  voiceId,
+  provider,
+}: TtsRequest, options?: TtsClientOptions): Promise<TtsAudioResult> => {
+  const chunks = splitTtsTextIntoChunks(text);
+  const joinedText = chunks.join(" ");
+
+  if (!joinedText || joinedText.length < TTS_MIN_TEXT_LENGTH) {
+    throw new Error("Text is too short to generate audio");
+  }
+
+  return generateTtsAudioForChunks({
+    chunks,
+    voiceId,
+    provider,
+    options,
   });
 };
 
@@ -205,3 +295,14 @@ export const generateTtsAudioUrl = async (
   request: TtsRequest,
   options?: TtsClientOptions,
 ): Promise<string> => URL.createObjectURL(await generateTtsAudio(request, options));
+
+export const generateTtsAudioUrlWithMetadata = async (
+  request: TtsRequest,
+  options?: TtsClientOptions,
+): Promise<TtsAudioUrlResult> => {
+  const result = await generateTtsAudioWithMetadata(request, options);
+  return {
+    url: URL.createObjectURL(result.blob),
+    metadata: result.metadata,
+  };
+};

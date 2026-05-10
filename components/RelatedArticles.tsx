@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { useData } from "@/lib/data-context";
+import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 type LinkedArticle = {
@@ -88,7 +88,8 @@ export const RelatedArticles = ({
           return (
             <li key={article.wikiPageId}>
               <div className="flex items-center gap-3 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 transition-all duration-200">
-                <Link
+                <ArticleLink
+                  articleTitle={article.title}
                   href={`/article/${slug}`}
                   className="result-link min-w-0 flex-1 no-underline"
                 >
@@ -100,7 +101,7 @@ export const RelatedArticles = ({
                       {article.description}
                     </span>
                   )}
-                </Link>
+                </ArticleLink>
                 <PlaylistActionButton
                   slug={article.title.replace(/ /g, "_")}
                   title={article.title}

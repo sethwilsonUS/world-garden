@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useConvexAuth, useQuery } from "convex/react";
 import { createPortal } from "react-dom";
+import { ArticleLink } from "@/components/ArticleLink";
 import { BadgeArtwork } from "@/components/BadgeArtwork";
 import { api } from "@/convex/_generated/api";
 import {
@@ -327,7 +327,8 @@ const BadgeDetailsDialog = ({
                 <ul className="mt-3 space-y-2 pb-6 sm:pb-7">
                   {resolvedCredits.map((credit) => (
                     <li key={`${credit.slug}-${credit.earnedAt}`}>
-                      <Link
+                      <ArticleLink
+                        articleTitle={credit.title}
                         href={`/article/${credit.slug}`}
                         onClick={onClose}
                         className="group flex min-h-11 items-start justify-between gap-3 rounded-[1rem] border border-border bg-surface-2 px-3.5 py-3 text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -343,7 +344,7 @@ const BadgeDetailsDialog = ({
                         <span className="mt-0.5 shrink-0 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted transition-colors duration-200 group-hover:text-accent">
                           View
                         </span>
-                      </Link>
+                      </ArticleLink>
                     </li>
                   ))}
                 </ul>

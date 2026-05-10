@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { analytics } from "@/lib/analytics";
-import { usePrefetch } from "@/hooks/usePrefetch";
+import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 type FeaturedData = {
@@ -47,7 +46,6 @@ function formatFeedDate(isoDate: string | null | undefined): string {
 }
 
 export const FeaturedArticle = () => {
-  const prefetch = usePrefetch();
   const [featured, setFeatured] = useState<FeaturedData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -112,12 +110,11 @@ export const FeaturedArticle = () => {
         </p>
       )}
       <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
-        <Link
+        <ArticleLink
+          articleTitle={featured!.title}
           href={`/article/${slug}`}
           className="result-link block no-underline"
           onClick={() => analytics.featuredArticleAccessed()}
-          onMouseEnter={() => prefetch(featured!.title)}
-          onFocus={() => prefetch(featured!.title)}
         >
           <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
             {featured!.thumbnail && (
@@ -155,7 +152,7 @@ export const FeaturedArticle = () => {
               </span>
             </div>
           </div>
-        </Link>
+        </ArticleLink>
         <div className="flex items-center justify-end border-t border-border px-5 py-3">
           <PlaylistActionButton
             slug={featured!.title.replace(/ /g, "_")}

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "March 16, 2026";
+const LAST_UPDATED = "May 10, 2026";
 
 export const metadata: Metadata = {
   title: "Terms of Use — Curio Garden",
@@ -48,6 +48,12 @@ export default function TermsPage() {
           Curio Garden uses content from Wikipedia. That content remains subject
           to Wikipedia&rsquo;s own licenses, terms, and attribution requirements,
           including CC BY-SA where applicable.
+        </p>
+        <p>
+          Audio playback and downloads may use AI-generated synthetic speech to
+          read Wikipedia-derived text, generated summaries, or briefings aloud.
+          Synthetic speech is a transformed presentation of the underlying
+          content, not a human narration.
         </p>
         <p>
           Wikipedia and related names are trademarks of the Wikimedia Foundation.

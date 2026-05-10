@@ -5,6 +5,7 @@ import { type Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { getAuthenticatedViewerTokenIdentifier } from "./bookmarks";
 import { assembleArticleAudio, getArticleAudioSections, type ArticleAudioSource } from "./lib/articleAudioPipeline";
+import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
 import { uploadBlobToConvexStorage, uploadStreamToConvexStorage } from "./lib/storageUpload";
 import { TTS_NORM_VERSION } from "../lib/tts-normalize";
 
@@ -33,6 +34,13 @@ type PersonalPlaylistEpisodeDoc = {
   storageId?: Id<"_storage">;
   durationSeconds?: number;
   byteLength?: number;
+  ttsCacheKey?: string;
+  provider?: string;
+  model?: string;
+  voiceId?: string;
+  promptVersion?: string;
+  ttsNormVersion?: string;
+  audioVariants?: ReturnType<typeof upsertTtsAudioVariant>;
   lastError?: string;
   leaseOwner?: string;
   leaseExpiresAt?: number;
@@ -727,6 +735,12 @@ export const completeViewerPlaylistEpisodeInternal = internalMutation({
     storageId: v.id("_storage"),
     durationSeconds: v.number(),
     byteLength: v.number(),
+    ttsCacheKey: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    voiceId: v.string(),
+    promptVersion: v.string(),
+    ttsNormVersion: v.string(),
   },
   async handler(ctx, args) {
     const episode = (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
@@ -734,18 +748,42 @@ export const completeViewerPlaylistEpisodeInternal = internalMutation({
       return { completed: false };
     }
 
+    const now = Date.now();
+    const audioVariants = upsertTtsAudioVariant(
+      episode.audioVariants,
+      {
+        storageId: args.storageId,
+        durationSeconds: args.durationSeconds,
+        byteLength: args.byteLength,
+        ttsCacheKey: args.ttsCacheKey,
+        provider: args.provider,
+        model: args.model,
+        voiceId: args.voiceId,
+        promptVersion: args.promptVersion,
+        ttsNormVersion: args.ttsNormVersion,
+      },
+      now,
+    );
+
     await ctx.db.patch(args.episodeId, {
       status: "ready",
       stage: undefined,
       storageId: args.storageId,
       durationSeconds: args.durationSeconds,
       byteLength: args.byteLength,
+      ttsCacheKey: args.ttsCacheKey,
+      provider: args.provider,
+      model: args.model,
+      voiceId: args.voiceId,
+      promptVersion: args.promptVersion,
+      ttsNormVersion: args.ttsNormVersion,
+      audioVariants,
       lastError: undefined,
       completedSectionCount:
         episode.sectionCount ?? episode.completedSectionCount ?? 0,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
 
     return { completed: true };
@@ -906,21 +944,27 @@ export const processViewerPlaylistEpisode = internalAction({
         },
         albumTitle: PERSONAL_PODCAST_ALBUM_TITLE,
         baseUrl: args.baseUrl,
-        getCachedSectionAudioUrls: async () => {
+        getCachedSectionAudioUrls: async ({ ttsCacheKey }) => {
           const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
             articleId: article._id,
             ttsNormVersion: TTS_NORM_VERSION,
+            ttsCacheKey,
           });
           return cachedAudio.urls;
         },
-        saveSectionAudio: async ({ sectionKey, blob, durationSeconds }) => {
+        saveSectionAudio: async ({ sectionKey, blob, durationSeconds, metadata }) => {
           const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
           const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
             articleId: article._id,
             sectionKey,
             storageId,
-            ttsNormVersion: TTS_NORM_VERSION,
+            ttsNormVersion: metadata.ttsNormVersion,
+            ttsCacheKey: metadata.ttsCacheKey,
+            provider: metadata.provider,
+            model: metadata.model,
+            voiceId: metadata.voiceId,
+            promptVersion: metadata.promptVersion,
             durationSeconds,
           });
           const storageUrl = await ctx.storage.getUrl(storageId);
@@ -954,6 +998,12 @@ export const processViewerPlaylistEpisode = internalAction({
           storageId: result.storageId,
           durationSeconds: result.durationSeconds,
           byteLength: result.byteLength,
+          ttsCacheKey: result.metadata.ttsCacheKey,
+          provider: result.metadata.provider,
+          model: result.metadata.model,
+          voiceId: result.metadata.voiceId,
+          promptVersion: result.metadata.promptVersion,
+          ttsNormVersion: result.metadata.ttsNormVersion,
         },
       );
     } catch (error) {

@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
+import { ArticleLink } from "@/components/ArticleLink";
 import { DashboardBadgeCard } from "@/components/DashboardBadgeCard";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { useBadges } from "@/hooks/useBadges";
@@ -392,12 +393,13 @@ const DashboardPlaylistCard = ({
                         {playlistStageLabel(entry)}
                       </span>
                     </div>
-                    <Link
+                    <ArticleLink
+                      articleTitle={entry.title}
                       href={`/article/${encodeURIComponent(entry.slug)}`}
                       className="mt-3 block font-display text-[1.05rem] font-semibold leading-[1.3] text-foreground no-underline"
                     >
                       {entry.title}
-                    </Link>
+                    </ArticleLink>
                     <p className="mt-2 text-sm leading-[1.6] text-muted">
                       {playlistProgressLabel(entry)}
                     </p>

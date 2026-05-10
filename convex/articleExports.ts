@@ -16,12 +16,36 @@ import {
   type ArticleAudioSource,
 } from "./lib/articleAudioPipeline";
 import { uploadBlobToConvexStorage, uploadStreamToConvexStorage } from "./lib/storageUpload";
+import { getActiveTtsCacheKey } from "../lib/tts-profile";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
 type ArticleExportSource = ArticleAudioSource;
 
 export const getArticleExportSections = getArticleAudioSections;
+
+type ReusableArticleAudioExport = {
+  status: string;
+  updatedAt: number;
+  dismissedAt?: number;
+  ttsCacheKey?: string;
+};
+
+export const findReusableArticleAudioExport = <
+  TRecord extends ReusableArticleAudioExport,
+>(
+  records: TRecord[],
+  ttsCacheKey: string,
+): TRecord | undefined =>
+  records
+    .filter(
+      (record) =>
+        record.dismissedAt == null &&
+        (record.status === "queued" ||
+          record.status === "running" ||
+          (record.status === "ready" && record.ttsCacheKey === ttsCacheKey)),
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
 
 const withStorageUrl = async <
   T extends {
@@ -84,23 +108,18 @@ export const startArticleAudioExport = mutation({
       throw new Error("Article not found");
     }
 
-    const existing = (
+    const activeTtsCacheKey = getActiveTtsCacheKey();
+    const existing = findReusableArticleAudioExport(
       await ctx.db
         .query("articleAudioExports")
         .withIndex("by_clientId_articleId", (q) =>
           q.eq("clientId", args.clientId).eq("articleId", args.articleId),
         )
-        .collect()
-    )
-      .filter((record) => record.dismissedAt == null)
-      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        .collect(),
+      activeTtsCacheKey,
+    );
 
-    if (
-      existing &&
-      (existing.status === "queued" ||
-        existing.status === "running" ||
-        existing.status === "ready")
-    ) {
+    if (existing) {
       return {
         exportId: existing._id,
         status: existing.status,
@@ -127,6 +146,7 @@ export const startArticleAudioExport = mutation({
       stage: sectionCount > 0 ? "queued" : undefined,
       sectionCount,
       completedSectionCount: 0,
+      ttsCacheKey: activeTtsCacheKey,
       lastError:
         sectionCount > 0
           ? undefined
@@ -284,6 +304,7 @@ export const completeArticleAudioExport = internalMutation({
     exportId: v.id("articleAudioExports"),
     storageId: v.id("_storage"),
     byteLength: v.number(),
+    ttsCacheKey: v.string(),
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
@@ -294,6 +315,7 @@ export const completeArticleAudioExport = internalMutation({
       stage: undefined,
       storageId: args.storageId,
       byteLength: args.byteLength,
+      ttsCacheKey: args.ttsCacheKey,
       completedSectionCount: record.sectionCount,
       updatedAt: Date.now(),
     });
@@ -391,14 +413,15 @@ export const processArticleAudioExport = internalAction({
         },
         albumTitle: "Curio Garden Article Audio",
         baseUrl: args.baseUrl,
-        getCachedSectionAudioUrls: async () => {
+        getCachedSectionAudioUrls: async ({ ttsCacheKey }) => {
           const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
             articleId: article._id,
             ttsNormVersion: TTS_NORM_VERSION,
+            ttsCacheKey,
           });
           return cachedAudio.urls;
         },
-        saveSectionAudio: async ({ sectionKey, blob, durationSeconds }) => {
+        saveSectionAudio: async ({ sectionKey, blob, durationSeconds, metadata }) => {
           const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
           const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
@@ -406,6 +429,11 @@ export const processArticleAudioExport = internalAction({
             sectionKey,
             storageId,
             ttsNormVersion: TTS_NORM_VERSION,
+            ttsCacheKey: metadata.ttsCacheKey,
+            provider: metadata.provider,
+            model: metadata.model,
+            voiceId: metadata.voiceId,
+            promptVersion: metadata.promptVersion,
             durationSeconds,
           });
           const storageUrl = await ctx.storage.getUrl(storageId);
@@ -434,6 +462,7 @@ export const processArticleAudioExport = internalAction({
         exportId: args.exportId,
         storageId: result.storageId,
         byteLength: result.byteLength,
+        ttsCacheKey: result.metadata.ttsCacheKey,
       });
       await scheduleNextQueuedExport(record.clientId);
     } catch (error) {

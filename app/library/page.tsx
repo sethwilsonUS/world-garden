@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { analytics } from "@/lib/analytics";
+import { ArticleLink } from "@/components/ArticleLink";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { getBookmarkListViewState } from "@/lib/bookmarks";
 
@@ -104,7 +105,8 @@ export default function LibraryPage() {
                   className="mb-2"
                 >
                   <div className="result-link flex items-center justify-between gap-3 py-3.5 px-4 bg-surface-2 border border-border rounded-xl transition-all duration-200">
-                    <Link
+                    <ArticleLink
+                      articleTitle={entry.title}
                       href={`/article/${encodeURIComponent(entry.slug)}`}
                       className="flex-1 min-w-0 no-underline"
                     >
@@ -121,7 +123,7 @@ export default function LibraryPage() {
                           year: "numeric",
                         })}
                       </time>
-                    </Link>
+                    </ArticleLink>
                     <button
                       onClick={() => remove(entry.slug)}
                       aria-label={`Remove ${entry.title} from reading list`}

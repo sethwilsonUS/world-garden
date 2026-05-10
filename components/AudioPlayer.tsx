@@ -324,6 +324,10 @@ export const AudioPlayer = ({
         </div>
       </div>
 
+      <p className="mt-2 text-center text-[0.6875rem] leading-normal text-muted">
+        Synthetic speech audio.
+      </p>
+
       {/* Download */}
       <div className="text-center mt-2">
         <a

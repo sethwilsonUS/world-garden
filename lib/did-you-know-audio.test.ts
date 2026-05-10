@@ -5,6 +5,7 @@ import {
   resolveDidYouKnowFeedDateIso,
   shouldReuseExistingDidYouKnowAudio,
 } from "./did-you-know-audio";
+import { getActiveTtsCacheKey } from "./tts-profile";
 
 describe("buildDidYouKnowAudioTitle", () => {
   it("formats the feed date into a readable title", () => {
@@ -57,6 +58,7 @@ describe("shouldReuseExistingDidYouKnowAudio", () => {
         feedDate: "2026-03-16",
         status: "ready",
         audioUrl: "https://cdn.example.com/dyk.mp3",
+        ttsCacheKey: getActiveTtsCacheKey(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingDidYouKnowAudio>[0]),
@@ -68,6 +70,20 @@ describe("shouldReuseExistingDidYouKnowAudio", () => {
         feedDate: "2026-03-16",
         status: "ready",
         audioUrl: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as Parameters<typeof shouldReuseExistingDidYouKnowAudio>[0]),
+    ).toBe(false);
+  });
+
+  it("requires the active TTS cache key", () => {
+    expect(
+      shouldReuseExistingDidYouKnowAudio({
+        _id: "dyk-3",
+        feedDate: "2026-03-16",
+        status: "ready",
+        audioUrl: "https://cdn.example.com/dyk.mp3",
+        ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingDidYouKnowAudio>[0]),

@@ -2,9 +2,9 @@
 
 Deployed via vercel.json builds+routes config. Lives outside api/ to avoid
 a known Vercel bug (vercel/vercel#12676) where Python files in api/ break
-dynamic Next.js app routes. The /api/tts route is mapped here by vercel.json.
-For local development, the Next.js route at app/api/tts/route.ts handles
-the same endpoint via child_process.spawn.
+dynamic Next.js app routes. The /api/tts/edge route is mapped here by
+vercel.json. The canonical /api/tts route handles provider selection and
+OpenAI-first fallback orchestration in Next.js.
 """
 
 import asyncio

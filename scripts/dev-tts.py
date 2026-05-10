@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Local dev server for testing the Vercel Python TTS function.
+"""Local dev server for testing the Vercel Python Edge TTS function.
 
 Starts a simple HTTP server on port 3001 that mirrors what Vercel will run
-in production. Use this to verify the Python edge-tts path works before
-deploying.
+in production behind /api/tts/edge. The local Python server itself still serves
+/api/tts, which is the upstream endpoint behind that route.
 
 Usage:
   npm run dev:tts-python
@@ -11,6 +11,7 @@ Usage:
   python3 scripts/dev-tts.py
 
 Test with curl:
+  # Direct Python server endpoint (upstream of /api/tts/edge rewrite):
   curl -X POST http://localhost:3001/api/tts \
     -H 'Content-Type: application/json' \
     -d '{"text":"Hello world, this is a test of the edge text to speech system."}' \

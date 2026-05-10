@@ -6,7 +6,6 @@ import { analytics } from "@/lib/analytics";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
-import { usePrefetch } from "@/hooks/usePrefetch";
 
 function formatTrendingDate(isoDate: string | null): string {
   if (!isoDate) return "";
@@ -29,7 +28,6 @@ function formatTrendingDate(isoDate: string | null): string {
 }
 
 export default function TrendingPage() {
-  const prefetch = usePrefetch();
   const { rate, setRate } = usePlaybackRate();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [trendingDate, setTrendingDate] = useState<string | null>(null);
@@ -363,7 +361,6 @@ export default function TrendingPage() {
                     article={article}
                     source="trending_page"
                     imageLoading={i < 8 ? "eager" : "lazy"}
-                    onHover={() => prefetch(article.title)}
                   />
                 ))}
               </ul>

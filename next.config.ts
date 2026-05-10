@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   rewrites: process.env.USE_PYTHON_TTS
     ? async () => [
         {
-          source: "/api/tts",
+          source: "/api/tts/edge",
           destination: `http://localhost:${ttsPort}/api/tts`,
         },
       ]

@@ -9,7 +9,6 @@ import {
   getSoftAudioTooltip,
   hasFullAudio,
 } from "@/lib/audio-suitability";
-import Link from "next/link";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
@@ -21,6 +20,7 @@ import {
   DownloadSpinnerIcon,
 } from "@/components/AudioDownloadButton";
 import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadButton";
+import { ArticleLink } from "@/components/ArticleLink";
 
 type LinkedArticle = {
   wikiPageId: string;
@@ -46,6 +46,8 @@ type TableOfContentsProps = {
   onListenSection: (index: number) => void;
   onListenSummary: () => void;
   onPlayAll: () => void;
+  onWarmPlayAll?: () => void;
+  onWarmSummary?: () => void;
   onStopPlayAll: () => void;
   onTogglePlayAll?: () => void;
   onSkipSection?: () => void;
@@ -227,6 +229,8 @@ export const TableOfContents = ({
   onListenSection,
   onListenSummary,
   onPlayAll,
+  onWarmPlayAll,
+  onWarmSummary,
   onStopPlayAll,
   onTogglePlayAll,
   onSkipSection,
@@ -365,6 +369,9 @@ export const TableOfContents = ({
       <div className="flex flex-wrap gap-2 mb-4">
         <button
           ref={playAllRef}
+          onMouseEnter={onWarmPlayAll}
+          onFocus={onWarmPlayAll}
+          onPointerDown={onWarmPlayAll}
           onClick={(e) => {
             if (!isPlayingAll && (isGenerating || downloading)) return;
             if (isPlayingAll) {
@@ -547,6 +554,10 @@ export const TableOfContents = ({
         )}
       </div>
 
+      <p className="mb-3 text-[0.6875rem] leading-normal text-muted">
+        Audio is generated with synthetic speech.
+      </p>
+
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">
           {/* Summary entry */}
@@ -576,6 +587,9 @@ export const TableOfContents = ({
                 />
               </span>
               <button
+                onMouseEnter={onWarmSummary}
+                onFocus={onWarmSummary}
+                onPointerDown={onWarmSummary}
                 onClick={(e) => { onListenSummary(); e.currentTarget.focus(); }}
                 aria-label={`Listen to summary of ${articleTitle}`}
                 className={`${pillClass} border cursor-pointer pointer-events-auto ${
@@ -901,13 +915,13 @@ const SectionDetailsPanel = ({
           <ul className="list-none m-0 p-0" style={{ columnWidth: "180px", columnGap: "8px" }}>
             {links.map((article) => (
               <li key={article.wikiPageId} className="break-inside-avoid">
-                <Link
-                  href={`/article/${encodeURIComponent(article.title.replace(/ /g, "_"))}`}
+                <ArticleLink
+                  articleTitle={article.title}
                   title={article.description ?? article.title}
                   className="linked-article-link block px-1.5 py-0.5 rounded text-[0.8125rem] sm:text-xs text-foreground-2 no-underline transition-colors duration-100"
                 >
                   {article.title}
-                </Link>
+                </ArticleLink>
               </li>
             ))}
           </ul>

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ArticleLink } from "@/components/ArticleLink";
 import { useHistory, type HistoryEntry } from "@/hooks/useHistory";
 
 export const formatTimeAgo = (timestamp: number): string => {
@@ -23,7 +23,8 @@ const HistoryItem = ({ entry }: { entry: HistoryEntry }) => {
   const hasProgress = entry.lastSectionKey && entry.lastSectionKey !== "summary";
   return (
     <li>
-      <Link
+      <ArticleLink
+        articleTitle={entry.title}
         href={`/article/${encodeURIComponent(entry.slug)}`}
         className="result-link block py-3 px-4 bg-surface-2 border border-border rounded-xl no-underline transition-all duration-200"
       >
@@ -39,7 +40,7 @@ const HistoryItem = ({ entry }: { entry: HistoryEntry }) => {
             </>
           )}
         </span>
-      </Link>
+      </ArticleLink>
     </li>
   );
 };

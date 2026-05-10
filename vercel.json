@@ -16,6 +16,6 @@
     { "path": "/api/podcast/trending/cron", "schedule": "15 5 * * *" }
   ],
   "routes": [
-    { "src": "/api/tts", "dest": "_python/tts.py" }
+    { "src": "/api/tts/edge", "dest": "_python/tts.py" }
   ]
 }
