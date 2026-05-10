@@ -82,6 +82,22 @@ describe("GET /api/analytics/report-data", () => {
     expect(mocks.fetchAction).not.toHaveBeenCalled();
   });
 
+  it("rejects missing range parameters", async () => {
+    vi.stubEnv("ANALYTICS_REPORT_SECRET", "report-secret");
+    const { GET } = await import("./route");
+    const response = await GET(
+      makeRequest(
+        "https://curiogarden.com/api/analytics/report-data?until=2",
+        "report-secret",
+      ),
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(json.error).toBe("since and until are required millisecond timestamps");
+    expect(mocks.fetchAction).not.toHaveBeenCalled();
+  });
+
   it("returns authorized rollups for a valid range", async () => {
     vi.stubEnv("ANALYTICS_REPORT_SECRET", "report-secret");
     mocks.fetchAction.mockResolvedValue([

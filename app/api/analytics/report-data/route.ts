@@ -18,8 +18,14 @@ const isAuthorized = (req: NextRequest, secret: string): boolean =>
 const parseRange = (
   req: NextRequest,
 ): { since: number; until: number } | { error: string } => {
-  const since = Number(req.nextUrl.searchParams.get("since"));
-  const until = Number(req.nextUrl.searchParams.get("until"));
+  const sinceParam = req.nextUrl.searchParams.get("since");
+  const untilParam = req.nextUrl.searchParams.get("until");
+  if (!sinceParam || !untilParam) {
+    return { error: "since and until are required millisecond timestamps" };
+  }
+
+  const since = Number(sinceParam);
+  const until = Number(untilParam);
 
   if (!Number.isFinite(since) || !Number.isFinite(until)) {
     return { error: "since and until must be millisecond timestamps" };

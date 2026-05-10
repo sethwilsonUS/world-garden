@@ -13,6 +13,12 @@ const analyticsRollupInput = v.object({
   count: v.number(),
 });
 
+export const assertValidRollupCount = (count: number) => {
+  if (!Number.isSafeInteger(count) || count <= 0) {
+    throw new Error("Rollup counts must be positive integers");
+  }
+};
+
 const requireAnalyticsSecret = (providedSecret: string) => {
   const expectedSecret = process.env.ANALYTICS_REPORT_SECRET?.trim();
   if (!expectedSecret) {
@@ -81,6 +87,8 @@ export const upsertAnalyticsRollups = internalMutation({
     }
 
     for (const rollup of args.rollups) {
+      assertValidRollupCount(rollup.count);
+
       const existing = await ctx.db
         .query("analyticsRollups")
         .withIndex("by_key", (q) => q.eq("key", rollup.key))

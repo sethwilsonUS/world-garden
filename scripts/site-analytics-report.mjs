@@ -546,7 +546,11 @@ const parseFlagValue = (argv, index) => {
   const current = argv[index];
   const equalsIndex = current.indexOf("=");
   if (equalsIndex >= 0) return { value: current.slice(equalsIndex + 1), consumed: 0 };
-  return { value: argv[index + 1], consumed: 1 };
+  const next = argv[index + 1];
+  if (next == null || next.startsWith("-")) {
+    throw new Error(`${current} requires a value.`);
+  }
+  return { value: next, consumed: 1 };
 };
 
 const parseRelativeTime = (value, now) => {
@@ -765,7 +769,7 @@ const fetchAllLogs = async ({ since, until, environment, project, cwd }) => {
   return logs;
 };
 
-const fetchDrainData = async ({ since, until, includeDrain }) => {
+export const fetchDrainData = async ({ since, until, includeDrain }) => {
   if (!includeDrain) {
     return { included: false, reason: "Skipped because --no-drain was provided." };
   }
@@ -780,11 +784,11 @@ const fetchDrainData = async ({ since, until, includeDrain }) => {
     };
   }
 
-  const url = new URL("/api/analytics/report-data", siteUrl);
-  url.searchParams.set("since", String(since.getTime()));
-  url.searchParams.set("until", String(until.getTime()));
-
   try {
+    const url = new URL("/api/analytics/report-data", siteUrl);
+    url.searchParams.set("since", String(since.getTime()));
+    url.searchParams.set("until", String(until.getTime()));
+
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${secret}` },
     });

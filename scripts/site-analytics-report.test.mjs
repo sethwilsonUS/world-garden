@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildLogRanges,
+  fetchDrainData,
   loadLocalEnvFile,
+  parseArgs,
   parseVercelLogLines,
   redactPath,
   renderAccessibleReport,
@@ -166,6 +168,45 @@ describe("site analytics report helpers", () => {
         until: new Date("2026-05-10T02:30:00.000Z"),
       },
     ]);
+  });
+
+  it("rejects flags that are missing values", () => {
+    expect(() => parseArgs(["--output", "--json"])).toThrow(
+      "--output requires a value.",
+    );
+    expect(() => parseArgs(["--hours"])).toThrow(
+      "--hours requires a value.",
+    );
+  });
+
+  it("treats drain fetch URL failures as optional data unavailability", async () => {
+    const previousReportSecret = process.env.ANALYTICS_REPORT_SECRET;
+    const previousSiteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+
+    try {
+      process.env.ANALYTICS_REPORT_SECRET = "report-secret";
+      process.env.NEXT_PUBLIC_SITE_URL = "not a url";
+
+      const drain = await fetchDrainData({
+        since: new Date("2026-05-10T00:00:00.000Z"),
+        until: new Date("2026-05-10T01:00:00.000Z"),
+        includeDrain: true,
+      });
+
+      expect(drain).toMatchObject({ included: false });
+      expect(drain.reason).toMatch(/Invalid URL/);
+    } finally {
+      if (previousReportSecret == null) {
+        delete process.env.ANALYTICS_REPORT_SECRET;
+      } else {
+        process.env.ANALYTICS_REPORT_SECRET = previousReportSecret;
+      }
+      if (previousSiteUrl == null) {
+        delete process.env.NEXT_PUBLIC_SITE_URL;
+      } else {
+        process.env.NEXT_PUBLIC_SITE_URL = previousSiteUrl;
+      }
+    }
   });
 
   it("warns when a Vercel log chunk reaches the CLI result limit", () => {
