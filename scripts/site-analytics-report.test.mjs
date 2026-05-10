@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   buildLogRanges,
+  loadLocalEnvFile,
   parseVercelLogLines,
   redactPath,
   renderAccessibleReport,
@@ -123,5 +127,41 @@ describe("site analytics report helpers", () => {
         until: new Date("2026-05-10T02:30:00.000Z"),
       },
     ]);
+  });
+
+  it("loads .env.local without overriding already-exported values", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "curio-env-"));
+    const previousReportSecret = process.env.ANALYTICS_REPORT_SECRET;
+    const previousProject = process.env.VERCEL_PROJECT;
+
+    try {
+      process.env.ANALYTICS_REPORT_SECRET = "from-shell";
+      delete process.env.VERCEL_PROJECT;
+      await writeFile(
+        path.join(dir, ".env.local"),
+        [
+          "ANALYTICS_REPORT_SECRET=from-file",
+          'VERCEL_PROJECT="world-garden"',
+          "",
+        ].join("\n"),
+      );
+
+      await expect(loadLocalEnvFile(dir)).resolves.toBe(true);
+
+      expect(process.env.ANALYTICS_REPORT_SECRET).toBe("from-shell");
+      expect(process.env.VERCEL_PROJECT).toBe("world-garden");
+    } finally {
+      if (previousReportSecret == null) {
+        delete process.env.ANALYTICS_REPORT_SECRET;
+      } else {
+        process.env.ANALYTICS_REPORT_SECRET = previousReportSecret;
+      }
+      if (previousProject == null) {
+        delete process.env.VERCEL_PROJECT;
+      } else {
+        process.env.VERCEL_PROJECT = previousProject;
+      }
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

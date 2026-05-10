@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -11,6 +11,41 @@ const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_HOURS = 24;
 const DEFAULT_LIMIT = 1000;
 const DEFAULT_OUTPUT_DIR = ".reports/analytics";
+
+const parseEnvValue = (rawValue) => {
+  const value = rawValue.trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+};
+
+export const loadLocalEnvFile = async (cwd = process.cwd()) => {
+  const envPath = path.join(cwd, ".env.local");
+  let contents = "";
+  try {
+    contents = await readFile(envPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key] == null) {
+      process.env[key] = parseEnvValue(rawValue);
+    }
+  }
+
+  return true;
+};
 
 const sortRecord = (record) =>
   Object.fromEntries(
@@ -730,6 +765,7 @@ export const buildReportPayload = async (options, cwd = process.cwd()) => {
 };
 
 export const main = async (argv = process.argv.slice(2), cwd = process.cwd()) => {
+  await loadLocalEnvFile(cwd);
   const options = parseArgs(argv);
   const payload = await buildReportPayload(options, cwd);
   const outputPath = options.output ?? defaultOutputPath(payload.generatedAt, options.json);
