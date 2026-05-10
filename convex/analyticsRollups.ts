@@ -21,6 +21,21 @@ export const assertValidRollupCount = (count: number) => {
   }
 };
 
+export const addRollupCounts = (
+  existingCount: number,
+  incomingCount: number,
+) => {
+  const nextCount = existingCount + incomingCount;
+  if (
+    !Number.isSafeInteger(existingCount) ||
+    existingCount < 0 ||
+    !Number.isSafeInteger(nextCount)
+  ) {
+    throw new Error("Rollup count overflow");
+  }
+  return nextCount;
+};
+
 export const assertValidDeliveryExpiry = (
   deliveryExpiresAt: number,
   now = Date.now(),
@@ -114,8 +129,10 @@ export const upsertAnalyticsRollups = internalMutation({
         .unique();
 
       if (existing) {
+        const nextCount = addRollupCounts(existing.count, rollup.count);
+
         await ctx.db.patch(existing._id, {
-          count: existing.count + rollup.count,
+          count: nextCount,
           updatedAt: now,
         });
         updated += 1;
