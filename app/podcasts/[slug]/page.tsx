@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AudioDownloadButton } from "@/components/AudioDownloadButton";
+import { ArticleLink } from "@/components/ArticleLink";
 import { PodcastFeedPanel } from "@/components/PodcastFeedPanel";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
@@ -140,13 +141,14 @@ export default async function PodcastDetailPage({
                         summary={description}
                         actions={
                           <>
-                            <Link
+                            <ArticleLink
+                              articleTitle={featuredEpisode.title}
                               href={`/article/${encodeURIComponent(featuredEpisode.slug)}`}
                               className="btn-secondary text-sm no-underline"
                               aria-label={`View the Wikipedia article for ${featuredEpisode.title}`}
                             >
                               View article
-                            </Link>
+                            </ArticleLink>
                             <AudioDownloadButton
                               href={`/api/podcast/media/${featuredEpisode._id}?download=1`}
                               ariaLabel={`Download the podcast audio for ${featuredEpisode.title}`}

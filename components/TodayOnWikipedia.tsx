@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
@@ -187,12 +188,13 @@ const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
     <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0" role="list">
       {links.slice(0, 3).map((link) => (
         <li key={`${link.wikiPageId ?? link.slug}-${link.title}`}>
-          <Link
+          <ArticleLink
+            articleTitle={link.title}
             href={toArticleHref(link.slug)}
             className="inline-flex items-center rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-xs font-medium text-accent no-underline"
           >
             {link.title}
-          </Link>
+          </ArticleLink>
         </li>
       ))}
     </ul>
@@ -254,12 +256,13 @@ const FeaturedArticleCard = ({
             Featured article
           </p>
           <h3 className="mt-2 font-display text-[1.05rem] font-bold leading-[1.3]">
-            <Link
+            <ArticleLink
+              articleTitle={article.title}
               href={toArticleHref(slug)}
               className="result-link text-foreground no-underline"
             >
               {article.title}
-            </Link>
+            </ArticleLink>
           </h3>
           <p className="mt-2 text-sm leading-[1.65] text-foreground-2">
             {truncate(article.extract, 220)}
@@ -400,12 +403,13 @@ const DidYouKnowSegmentText = ({
 }) => {
   if (segment.type === "link") {
     return (
-      <Link
+      <ArticleLink
+        articleTitle={segment.title}
         href={toArticleHref(segment.slug)}
         className="text-accent underline decoration-accent/50 underline-offset-[0.16em]"
       >
         {segment.text}
-      </Link>
+      </ArticleLink>
     );
   }
 
@@ -525,7 +529,8 @@ const TrendingArticles = ({
               const slug = toArticleSlug(article.title);
               return (
                 <li key={article.title}>
-                  <Link
+                  <ArticleLink
+                    articleTitle={article.title}
                     href={toArticleHref(slug)}
                     className="result-link flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2 no-underline transition-all duration-200"
                   >
@@ -580,7 +585,7 @@ const TrendingArticles = ({
                         </span>
                       )}
                     </span>
-                  </Link>
+                  </ArticleLink>
                 </li>
               );
             })}

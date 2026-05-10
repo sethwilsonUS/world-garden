@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { analytics } from "@/lib/analytics";
 import { useData } from "@/lib/data-context";
-import { usePrefetch } from "@/hooks/usePrefetch";
+import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 type SearchResult = {
@@ -110,8 +109,6 @@ export const SearchResultsList = ({ term }: { term: string }) => {
     [results.length],
   );
 
-  const handleWarmAudio = usePrefetch();
-
   if (loading) {
     return (
       <div role="status" aria-label="Loading search results">
@@ -215,16 +212,14 @@ export const SearchResultsList = ({ term }: { term: string }) => {
             }}
           >
             <div className="flex items-center gap-3 rounded-[14px] border border-border bg-surface-2 py-3.5 pl-[18px] pr-3 transition-all duration-150">
-              <Link
+              <ArticleLink
                 ref={(el) => {
                   linkRefs.current[index] = el;
                 }}
-                href={`/article/${encodeURIComponent(result.title.replace(/ /g, "_"))}`}
+                articleTitle={result.title}
                 className="result-link flex min-w-0 flex-1 items-center gap-4 no-underline"
                 aria-label={`${index + 1}. ${result.title}: ${result.description}`}
                 onClick={() => analytics.searchResultClicked()}
-                onMouseEnter={() => handleWarmAudio(result.title)}
-                onFocus={() => handleWarmAudio(result.title)}
               >
                 <span
                   className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-bg font-mono text-xs font-bold text-accent"
@@ -258,7 +253,7 @@ export const SearchResultsList = ({ term }: { term: string }) => {
                 >
                   <path d="M9 5l7 7-7 7" />
                 </svg>
-              </Link>
+              </ArticleLink>
               <PlaylistActionButton
                 slug={result.title.replace(/ /g, "_")}
                 title={result.title}
