@@ -46,6 +46,7 @@ type TableOfContentsProps = {
   onListenSection: (index: number) => void;
   onListenSummary: () => void;
   onPlayAll: () => void;
+  onWarmPlayAll?: () => void;
   onWarmSummary?: () => void;
   onStopPlayAll: () => void;
   onTogglePlayAll?: () => void;
@@ -228,6 +229,7 @@ export const TableOfContents = ({
   onListenSection,
   onListenSummary,
   onPlayAll,
+  onWarmPlayAll,
   onWarmSummary,
   onStopPlayAll,
   onTogglePlayAll,
@@ -367,9 +369,9 @@ export const TableOfContents = ({
       <div className="flex flex-wrap gap-2 mb-4">
         <button
           ref={playAllRef}
-          onMouseEnter={onWarmSummary}
-          onFocus={onWarmSummary}
-          onPointerDown={onWarmSummary}
+          onMouseEnter={onWarmPlayAll}
+          onFocus={onWarmPlayAll}
+          onPointerDown={onWarmPlayAll}
           onClick={(e) => {
             if (!isPlayingAll && (isGenerating || downloading)) return;
             if (isPlayingAll) {

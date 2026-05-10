@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  awaitAudioRequest,
   bucketAudioStartupMs,
+  createAudioRequestCache,
+  getAudioRequestResult,
+  primeAudioRequest,
   resolveSummaryAudioStartup,
+  selectNextWarmQueueItems,
+  startAudioRequest,
+  warmAudioRequest,
 } from "./audio-startup";
 import type { TtsAudioUrlResult } from "./tts-client";
 
@@ -76,6 +83,66 @@ describe("resolveSummaryAudioStartup", () => {
 
     expect(result).toEqual({ path: "generated", result: audio("generated") });
     expect(generate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("audio request cache", () => {
+  it("shares an in-flight section request across warm and playback callers", async () => {
+    const cache = createAudioRequestCache();
+    const generate = vi.fn(async () => audio("section"));
+
+    const warmPromise = warmAudioRequest(cache, "section-0", generate);
+    const playbackPromise = startAudioRequest(cache, "section-0", generate);
+
+    await expect(warmPromise).resolves.toEqual(audio("section"));
+    await expect(playbackPromise).resolves.toEqual(audio("section"));
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(getAudioRequestResult(cache, "section-0")).toEqual(audio("section"));
+  });
+
+  it("clears failed warm attempts so playback can retry", async () => {
+    const cache = createAudioRequestCache();
+    const generate = vi
+      .fn<() => Promise<TtsAudioUrlResult>>()
+      .mockRejectedValueOnce(new Error("TTS failed"))
+      .mockResolvedValueOnce(audio("retry"));
+
+    await expect(warmAudioRequest(cache, "section-0", generate)).resolves.toBeNull();
+    expect(awaitAudioRequest(cache, "section-0")).toBeNull();
+
+    await expect(startAudioRequest(cache, "section-0", generate)).resolves.toEqual(
+      audio("retry"),
+    );
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a primed result without generating again", async () => {
+    const cache = createAudioRequestCache();
+    const generate = vi.fn(async () => audio("generated"));
+
+    primeAudioRequest(cache, "section-0", audio("convex"));
+    await expect(startAudioRequest(cache, "section-0", generate)).resolves.toEqual(
+      audio("convex"),
+    );
+
+    expect(generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("selectNextWarmQueueItems", () => {
+  it("selects only the next two playable non-summary items", () => {
+    expect(
+      selectNextWarmQueueItems([
+        { sectionKey: "summary", sectionIdx: null },
+        { sectionKey: "section-0", sectionIdx: 0 },
+        { sectionKey: "section-1", sectionIdx: 1, canWarm: false },
+        { sectionKey: "section-2", sectionIdx: 2 },
+        { sectionKey: "section-3", sectionIdx: 3 },
+      ]),
+    ).toEqual([
+      { sectionKey: "section-0", sectionIdx: 0 },
+      { sectionKey: "section-2", sectionIdx: 2 },
+    ]);
   });
 });
 

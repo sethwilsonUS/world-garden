@@ -31,8 +31,14 @@ import {
   warmSummaryAudioFromText,
 } from "@/lib/audio-prefetch";
 import {
+  awaitAudioRequest,
   bucketAudioStartupMs,
-  resolveSummaryAudioStartup,
+  createAudioRequestCache,
+  getAudioRequestResult,
+  primeAudioRequest,
+  resolveAudioStartup,
+  selectNextWarmQueueItems,
+  startAudioRequest,
   type AudioStartupPath,
   type AudioStartupScope,
   type AudioStartupSource,
@@ -63,6 +69,27 @@ type QueueItem = {
   label: string;
   sectionIdx: number | null;
 };
+
+const PLAY_ALL_WARM_WINDOW = 2;
+
+const buildPlayAllQueue = (
+  sections: Section[],
+  articleTitle: string,
+): QueueItem[] => [
+  {
+    sectionKey: "summary",
+    label: `${articleTitle} \u2014 Summary`,
+    sectionIdx: null,
+  },
+  ...sections
+    .map((section, index) => ({ section, index }))
+    .filter(({ section }) => hasFullAudio(section))
+    .map(({ section, index }) => ({
+      sectionKey: `section-${index}`,
+      label: `${section.title} \u2014 ${articleTitle}`,
+      sectionIdx: index,
+    })),
+];
 
 type CachedTtsMetadata = Record<string, string> | undefined;
 
@@ -377,14 +404,24 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   }, [displayArticle?.thumbnailUrl]);
 
   const ttsCache = useRef<Map<string, TtsAudioUrlResult>>(new Map());
+  const ttsRequestCache = useRef(createAudioRequestCache());
+  const seededStartupPath = useRef<Map<string, AudioStartupPath>>(new Map());
 
   const generateTtsFromApi = useCallback(
     async (text: string, cacheKey?: string): Promise<TtsAudioUrlResult> => {
       if (cacheKey && ttsCache.current.has(cacheKey)) {
         return ttsCache.current.get(cacheKey)!;
       }
-      const result = await generateTtsAudioUrlWithMetadata({ text });
-      if (cacheKey) ttsCache.current.set(cacheKey, result);
+
+      const result = cacheKey
+        ? await startAudioRequest(ttsRequestCache.current, cacheKey, () =>
+            generateTtsAudioUrlWithMetadata({ text }),
+          )
+        : await generateTtsAudioUrlWithMetadata({ text });
+
+      if (cacheKey) {
+        ttsCache.current.set(cacheKey, result);
+      }
       return result;
     },
     [],
@@ -452,13 +489,30 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     [cachedAudio],
   );
 
-  const seedSummaryAudio = useCallback(
-    (result: TtsAudioUrlResult) => {
-      ttsCache.current.set("summary", result);
-      primeSummaryAudio(slug, result);
+  const seedAudioResult = useCallback(
+    (
+      sectionKey: string,
+      result: TtsAudioUrlResult,
+      startupPath?: AudioStartupPath,
+    ) => {
+      ttsCache.current.set(sectionKey, result);
+      primeAudioRequest(ttsRequestCache.current, sectionKey, result);
+      if (sectionKey === "summary") {
+        primeSummaryAudio(slug, result);
+      }
       preloadAudioUrl(result.url);
+      if (startupPath) {
+        seededStartupPath.current.set(sectionKey, startupPath);
+      }
     },
     [slug],
+  );
+
+  const seedSummaryAudio = useCallback(
+    (result: TtsAudioUrlResult) => {
+      seedAudioResult("summary", result);
+    },
+    [seedAudioResult],
   );
 
   const trackAudioStartup = useCallback(
@@ -517,20 +571,71 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       .catch(() => {});
   }, [displayArticle?.summary, getCachedAudioResult, seedSummaryAudio, slug]);
 
-  const prefetchAudio = useCallback(
-    (sectionKey: string) => {
+  const warmAudioForSection = useCallback(
+    async (sectionKey: string): Promise<TtsAudioUrlResult | null> => {
+      const memoryAudio = ttsCache.current.get(sectionKey);
+      if (memoryAudio) {
+        primeAudioRequest(ttsRequestCache.current, sectionKey, memoryAudio);
+        preloadAudioUrl(memoryAudio.url);
+        return memoryAudio;
+      }
+
+      const convexAudio = getCachedAudioResult(sectionKey);
+      if (convexAudio) {
+        seedAudioResult(sectionKey, convexAudio, "convex");
+        return convexAudio;
+      }
+
+      const requestResult = getAudioRequestResult(
+        ttsRequestCache.current,
+        sectionKey,
+      );
+      if (requestResult) return requestResult;
+
       const text = getTextForSection(sectionKey);
-      if (!text || text.length < 10) return;
-      generateTtsFromApi(text, sectionKey)
-        .then((result) => {
-          if (!cachedAudio?.urls[sectionKey]) {
-            cacheAudioInConvex(sectionKey, result.url, result.metadata);
-          }
-        })
-        .catch(() => {});
+      if (!text || text.length < 10) return null;
+
+      try {
+        const result = await generateTtsFromApi(text, sectionKey);
+        seedAudioResult(sectionKey, result, "prefetch");
+        if (!cachedAudio?.urls[sectionKey]) {
+          cacheAudioInConvex(sectionKey, result.url, result.metadata);
+        }
+        return result;
+      } catch {
+        seededStartupPath.current.delete(sectionKey);
+        return null;
+      }
     },
-    [generateTtsFromApi, getTextForSection, cachedAudio, cacheAudioInConvex],
+    [
+      cachedAudio,
+      cacheAudioInConvex,
+      generateTtsFromApi,
+      getCachedAudioResult,
+      getTextForSection,
+      seedAudioResult,
+    ],
   );
+
+  const warmPlayAllQueue = useCallback(
+    (queue: QueueItem[]) => {
+      for (const item of selectNextWarmQueueItems(
+        queue,
+        PLAY_ALL_WARM_WINDOW,
+      )) {
+        void warmAudioForSection(item.sectionKey);
+      }
+    },
+    [warmAudioForSection],
+  );
+
+  const warmPlayAllForIntent = useCallback(() => {
+    warmSummaryForIntent();
+    if (!displayArticle) return;
+    warmPlayAllQueue(
+      buildPlayAllQueue(displayArticle.sections ?? [], displayArticle.title),
+    );
+  }, [displayArticle, warmPlayAllQueue, warmSummaryForIntent]);
 
   const audioEndedRef = useRef<() => void>(() => {});
 
@@ -567,10 +672,10 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       }
 
       if (isPlayingAll && playAllQueue.current.length > 0) {
-        prefetchAudio(playAllQueue.current[0].sectionKey);
+        warmPlayAllQueue(playAllQueue.current);
       }
     }
-  }, [audioUrl, audioLoading, audioRef, isPlayingAll, prefetchAudio]);
+  }, [audioUrl, audioLoading, audioRef, isPlayingAll, warmPlayAllQueue]);
 
   useEffect(() => {
     sectionsRef.current = displayArticle?.sections ?? [];
@@ -607,10 +712,19 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       const memCached = ttsCache.current.get(sectionKey);
       if (memCached) {
+        const startupPath =
+          seededStartupPath.current.get(sectionKey) ?? "memory";
+        seededStartupPath.current.delete(sectionKey);
         setAudioUrl(memCached.url);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
-        trackAudioStartup(scope, source, "memory", memCached, startupStartedAt);
+        trackAudioStartup(
+          scope,
+          source,
+          startupPath,
+          memCached,
+          startupStartedAt,
+        );
         if (!cachedAudio?.urls[sectionKey]) {
           cacheAudioInConvex(sectionKey, memCached.url, memCached.metadata);
         }
@@ -619,10 +733,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
       const convexCached = getCachedAudioResult(sectionKey);
       if (convexCached) {
-        ttsCache.current.set(sectionKey, convexCached);
-        if (sectionKey === "summary") {
-          seedSummaryAudio(convexCached);
-        }
+        seedAudioResult(sectionKey, convexCached);
         setAudioUrl(convexCached.url);
         pendingAutoPlay.current = true;
         setAudioLoading(false);
@@ -651,10 +762,8 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         result: TtsAudioUrlResult,
       ) => {
         if (requestId.current !== currentRequest) return;
-        ttsCache.current.set(sectionKey, result);
-        if (sectionKey === "summary") {
-          seedSummaryAudio(result);
-        }
+        seedAudioResult(sectionKey, result);
+        seededStartupPath.current.delete(sectionKey);
         setAudioUrl(result.url);
         setAudioLoading(false);
         trackAudioStartup(scope, source, path, result, startupStartedAt);
@@ -663,33 +772,32 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         }
       };
 
-      if (sectionKey === "summary") {
-        resolveSummaryAudioStartup({
-          memory: null,
-          convex: null,
-          prefetched: getCachedSummaryAudio(slug),
-          inflight: awaitSummaryAudioWithMetadata(slug),
-          generate: () => generateTtsFromApi(textContent, sectionKey),
-        })
-          .then(({ path, result }) => finishWithAudio(path, result))
-          .catch((err) => {
-            if (requestId.current !== currentRequest) return;
-            setAudioError(
-              err instanceof Error ? err.message : "Audio generation failed",
-            );
-            setAudioLoading(false);
-            pendingAutoPlay.current = false;
-          });
-        return;
-      }
+      const prefetchedAudio =
+        sectionKey === "summary"
+          ? (getCachedSummaryAudio(slug) ??
+            getAudioRequestResult(ttsRequestCache.current, sectionKey))
+          : getAudioRequestResult(ttsRequestCache.current, sectionKey);
+      const inflightAudio =
+        sectionKey === "summary"
+          ? (awaitSummaryAudioWithMetadata(slug) ??
+            awaitAudioRequest(ttsRequestCache.current, sectionKey))
+          : awaitAudioRequest(ttsRequestCache.current, sectionKey);
 
-      generateTtsFromApi(textContent, sectionKey)
-        .then((result) => {
-          finishWithAudio("generated", result);
+      resolveAudioStartup({
+        memory: null,
+        convex: null,
+        prefetched: prefetchedAudio,
+        inflight: inflightAudio,
+        generate: () => generateTtsFromApi(textContent, sectionKey),
+      })
+        .then(({ path, result }) => {
+          finishWithAudio(path, result);
         })
         .catch((err) => {
           if (requestId.current !== currentRequest) return;
-          setAudioError(err instanceof Error ? err.message : "Audio generation failed");
+          setAudioError(
+            err instanceof Error ? err.message : "Audio generation failed",
+          );
           setAudioLoading(false);
           pendingAutoPlay.current = false;
         });
@@ -702,7 +810,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       getCachedAudioResult,
       getTextForSection,
       generateTtsFromApi,
-      seedSummaryAudio,
+      seedAudioResult,
       trackAudioStartup,
     ],
   );
@@ -734,28 +842,15 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       warmSummaryForIntent();
       const summaryOnly = sections.filter(hasFullAudio).length === 0;
       analytics.playAll(summaryOnly ? "summary" : "full");
-      const queue: QueueItem[] = [
-        {
-          sectionKey: "summary",
-          label: `${articleTitle} \u2014 Summary`,
-          sectionIdx: null,
-        },
-        ...sections
-          .map((s, i) => ({ section: s, index: i }))
-          .filter(({ section }) => hasFullAudio(section))
-          .map(({ section, index }) => ({
-            sectionKey: `section-${index}`,
-            label: `${section.title} \u2014 ${articleTitle}`,
-            sectionIdx: index,
-          })),
-      ];
+      const queue = buildPlayAllQueue(sections, articleTitle);
+      warmPlayAllQueue(queue);
 
       const first = queue.shift()!;
       playAllQueue.current = queue;
       setIsPlayingAll(true);
       generateAudio(first.sectionKey, first.label, first.sectionIdx, "play_all");
     },
-    [generateAudio, warmSummaryForIntent],
+    [generateAudio, warmPlayAllQueue, warmSummaryForIntent],
   );
 
   const handleStopPlayAll = useCallback(() => {
@@ -1355,6 +1450,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           onPlayAll={() =>
             handlePlayAll(sections, displayArticle.title)
           }
+          onWarmPlayAll={warmPlayAllForIntent}
           onWarmSummary={warmSummaryForIntent}
           onStopPlayAll={handleStopPlayAll}
           onTogglePlayAll={handleTogglePlayAll}
