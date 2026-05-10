@@ -29,6 +29,7 @@ import {
 const MIN_TTS_TEXT_LENGTH = 10;
 const TTS_WORDS_PER_SECOND = 2.5;
 const JOB_LEASE_MS = 8 * 60 * 1000;
+const MAX_TTS_PROVIDER_RETRIES = 1;
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
@@ -450,6 +451,7 @@ export const syncFeaturedPodcastEpisode = async ({
 
     const loadSectionAudio = async (
       forcedProvider?: TtsProvider,
+      retryDepth = 0,
     ): Promise<{
       audioChunks: Blob[];
       generatedSectionCount: number;
@@ -498,7 +500,10 @@ export const syncFeaturedPodcastEpisode = async ({
           }
 
           if (!forcedProvider && metadata.provider !== passMetadata.provider) {
-            return loadSectionAudio(metadata.provider);
+            if (retryDepth >= MAX_TTS_PROVIDER_RETRIES) {
+              throw new Error("TTS provider mismatch exceeded retry limit");
+            }
+            return loadSectionAudio(metadata.provider, retryDepth + 1);
           }
 
           producedMetadata = metadata;

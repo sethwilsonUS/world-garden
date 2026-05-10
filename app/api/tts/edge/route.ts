@@ -18,12 +18,15 @@ const PYTHON_PATH =
   process.env.EDGE_TTS_PYTHON_PATH ??
   path.join(process.cwd(), ".edge-tts-venv", "bin", "python3");
 
+const DEFAULT_EDGE_TTS_TIMEOUT_MS = 60_000;
+
 const PYTHON_SCRIPT = `
 import asyncio, json, sys, edge_tts
 
 async def main():
     req = json.loads(sys.stdin.read())
-    communicate = edge_tts.Communicate(req["text"], req["voice"])
+    voice = req.get("voiceId") or req.get("voice")
+    communicate = edge_tts.Communicate(req["text"], voice)
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
             sys.stdout.buffer.write(chunk["data"])
@@ -34,18 +37,41 @@ asyncio.run(main())
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
 
+const getEdgeTtsTimeoutMs = (): number => {
+  const parsed = Number.parseInt(process.env.EDGE_TTS_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_EDGE_TTS_TIMEOUT_MS;
+};
+
 const generateWithEdgeTts = (
   text: string,
   voice: string,
+  timeoutMs = getEdgeTtsTimeoutMs(),
 ): Promise<Buffer> =>
   new Promise((resolve, reject) => {
     const proc = spawn(PYTHON_PATH, ["-c", PYTHON_SCRIPT], {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
+    let settled = false;
+    const timeout = setTimeout(() => {
+      proc.kill();
+      finish(() => reject(new Error("edge-tts generation timed out")));
+    }, timeoutMs);
+
+    function finish(callback: () => void) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    }
+
     if (!proc.stdout || !proc.stderr || !proc.stdin) {
       proc.kill();
-      reject(new Error("edge-tts process streams were unavailable"));
+      finish(() =>
+        reject(new Error("edge-tts process streams were unavailable")),
+      );
       return;
     }
 
@@ -61,16 +87,20 @@ const generateWithEdgeTts = (
 
     proc.on("close", (code) => {
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `edge-tts exited with code ${code}`));
+        finish(() =>
+          reject(new Error(stderr.trim() || `edge-tts exited with code ${code}`)),
+        );
         return;
       }
 
-      resolve(Buffer.concat(chunks));
+      finish(() => resolve(Buffer.concat(chunks)));
     });
 
-    proc.on("error", reject);
+    proc.on("error", (error) => {
+      finish(() => reject(error));
+    });
 
-    proc.stdin.write(JSON.stringify({ text, voice }));
+    proc.stdin.write(JSON.stringify({ text, voiceId: voice }));
     proc.stdin.end();
   });
 

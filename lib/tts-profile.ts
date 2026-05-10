@@ -40,7 +40,8 @@ const OPENAI_TTS_VOICES = new Set([
   "verse",
 ]);
 
-const EDGE_VOICE_RE = /^[a-z]{2,3}-[A-Z]{2}(-[A-Za-z]+)*Neural$/;
+const EDGE_VOICE_RE =
+  /^[a-z]{2,3}-[A-Z]{2}(?:-[A-Za-z]+)+(?:Neural|:DragonHD(?:Omni)?(?:Latest)?Neural)$/;
 
 const readEnv = (...names: string[]): string | undefined => {
   for (const name of names) {

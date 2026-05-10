@@ -44,6 +44,17 @@ npm test
 npm run lint
 ```
 
+### TTS worktree workflow
+
+For larger audio/TTS changes, use a separate worktree so generated assets,
+local caches, and branch changes stay isolated from your primary checkout:
+
+```bash
+git fetch origin
+git worktree add ../world-garden-openai-tts -b codex/openai-tts origin/main
+cd ../world-garden-openai-tts
+```
+
 3. Commit with a clear message describing _what_ and _why_:
 
 ```bash

@@ -34,6 +34,7 @@ describe("POST /api/tts/edge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    vi.useRealTimers();
   });
 
   it("returns a complete mp3 payload assembled from child process chunks", async () => {
@@ -66,10 +67,35 @@ describe("POST /api/tts/edge", () => {
     expect(proc.stdin.write).toHaveBeenCalledWith(
       JSON.stringify({
         text: "This article section text is comfortably long enough.",
-        voice: "en-US-AriaNeural",
+        voiceId: "en-US-AriaNeural",
       }),
     );
     expect(proc.stdin.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("kills a hung edge-tts subprocess after the timeout", async () => {
+    vi.useFakeTimers();
+    const proc = createMockProcess();
+    spawnMock.mockReturnValue(proc);
+
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts/edge", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    const response = await responsePromise;
+
+    expect(proc.kill).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "edge-tts generation timed out",
+    });
   });
 
   it("returns a 500 when edge-tts produces no audio bytes", async () => {

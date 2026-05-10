@@ -188,16 +188,6 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 
-### TTS worktree workflow
-
-For the OpenAI TTS migration, implementation was intentionally isolated from the original working copy:
-
-```bash
-git fetch origin
-git worktree add ../world-garden-openai-tts -b codex/openai-tts origin/main
-cd ../world-garden-openai-tts
-```
-
 ## Podcasts
 
 Curio Garden can publish multiple RSS feeds:
