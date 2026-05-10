@@ -141,11 +141,13 @@ export const resolveOpenAiTtsQuota = async ({
 
     return { mode: "public", exceeded: false };
   } catch (error) {
-    // Fail open by design: quota storage issues should not block public audio.
-    // The route logs quotaError and continues through the primary provider.
+    console.error("[tts-quota] quota check failed; using Edge fallback", error);
+    // Fail to Edge by design: quota storage issues should not block audio, but
+    // they should protect the OpenAI path until quota state is healthy again.
     return {
       mode: "public",
-      exceeded: false,
+      exceeded: true,
+      fallbackReason: "openai_quota",
       quotaError: getErrorMessage(error),
     };
   }

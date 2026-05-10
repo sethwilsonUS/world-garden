@@ -121,7 +121,7 @@ describe("resolveOpenAiTtsQuota", () => {
     delete process.env.TTS_QUOTA_BYPASS_SECRET;
   });
 
-  it("fails open when quota storage cannot be checked", async () => {
+  it("routes to quota fallback when quota storage cannot be checked", async () => {
     const consumeQuota = vi.fn(async () => {
       throw new Error("Convex unavailable");
     });
@@ -134,7 +134,8 @@ describe("resolveOpenAiTtsQuota", () => {
 
     expect(decision).toEqual({
       mode: "public",
-      exceeded: false,
+      exceeded: true,
+      fallbackReason: "openai_quota",
       quotaError: "Convex unavailable",
     });
   });

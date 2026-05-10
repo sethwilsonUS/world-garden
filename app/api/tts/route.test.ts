@@ -318,6 +318,48 @@ describe("POST /api/tts", () => {
     expect(fetchMutation).toHaveBeenCalledTimes(2);
   });
 
+  it("uses Edge instead of OpenAI when the quota check fails", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    fetchMutation.mockRejectedValueOnce(new Error("Convex unavailable"));
+    const fetchCalls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        fetchCalls.push(url);
+        if (url === "https://api.openai.com/v1/audio/speech") {
+          throw new Error("OpenAI should not be called after quota check failure");
+        }
+        if (url === "https://curiogarden.org/api/tts/edge") {
+          return new Response(new Uint8Array([0xff, 0xfb, 0x97]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers: { "x-forwarded-for": "203.0.113.10" },
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toEqual(["https://curiogarden.org/api/tts/edge"]);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
+      "openai_quota",
+    );
+    expect(response.headers.get("X-Curio-TTS-Quota-Exceeded")).toBe("true");
+  });
+
   it("skips public quota when the trusted bypass header matches", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");

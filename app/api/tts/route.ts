@@ -273,7 +273,7 @@ export const POST = async (req: NextRequest) => {
     });
 
     if (quotaDecision.quotaError) {
-      console.warn("[/api/tts] quota check failed open", {
+      console.warn("[/api/tts] quota check failed; using Edge fallback", {
         quotaMode: quotaDecision.mode,
         quotaError: quotaDecision.quotaError,
       });
