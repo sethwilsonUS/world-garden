@@ -15,7 +15,6 @@ import {
 } from "@/lib/featured-podcast-artwork";
 import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
-import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { hasFullAudio } from "@/lib/audio-suitability";
 import {
@@ -348,6 +347,7 @@ export const syncFeaturedPodcastEpisode = async ({
   const publishedAt = getPublishedAt(feedDateIso, tfa.featuredDate);
   const sections = getPodcastSectionSources(article);
   const description = getPodcastDescription(article.summary || tfa.extract);
+  let currentTtsMetadata = getTtsMetadata(getTtsProfile());
   let committedReadyEpisode = false;
 
   if (sections.length === 0) {
@@ -370,7 +370,12 @@ export const syncFeaturedPodcastEpisode = async ({
       title: article.title,
       description,
       imageUrl: article.thumbnailUrl,
-      ttsNormVersion: TTS_NORM_VERSION,
+      ttsNormVersion: currentTtsMetadata.ttsNormVersion,
+      ttsCacheKey: currentTtsMetadata.ttsCacheKey,
+      provider: currentTtsMetadata.provider,
+      model: currentTtsMetadata.model,
+      voiceId: currentTtsMetadata.voiceId,
+      promptVersion: currentTtsMetadata.promptVersion,
       status: "pending",
       publishedAt,
     });
@@ -480,6 +485,7 @@ export const syncFeaturedPodcastEpisode = async ({
       metadata: TtsMetadata;
     }> => {
       const passMetadata = getTtsMetadata(getTtsProfile(forcedProvider));
+      currentTtsMetadata = passMetadata;
       const cachedAudio = await fetchQuery(api.audio.getAllSectionAudio, {
         articleId,
         ttsNormVersion: passMetadata.ttsNormVersion,
@@ -692,7 +698,12 @@ export const syncFeaturedPodcastEpisode = async ({
         title: article.title,
         description,
         imageUrl: article.thumbnailUrl,
-        ttsNormVersion: TTS_NORM_VERSION,
+        ttsNormVersion: currentTtsMetadata.ttsNormVersion,
+        ttsCacheKey: currentTtsMetadata.ttsCacheKey,
+        provider: currentTtsMetadata.provider,
+        model: currentTtsMetadata.model,
+        voiceId: currentTtsMetadata.voiceId,
+        promptVersion: currentTtsMetadata.promptVersion,
         status: "failed",
         publishedAt,
       });
