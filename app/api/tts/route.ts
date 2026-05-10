@@ -181,7 +181,6 @@ const bucketDurationMs = (durationMs: number): string => {
 };
 
 const emitTtsRouteTelemetry = ({
-  req,
   startedAt,
   requestedProvider,
   provider,
@@ -193,7 +192,6 @@ const emitTtsRouteTelemetry = ({
   quotaExceeded,
   wordCount,
 }: {
-  req: NextRequest;
   startedAt: number;
   requestedProvider: TtsProvider;
   provider: TtsProvider;
@@ -222,15 +220,18 @@ const emitTtsRouteTelemetry = ({
 
   try {
     after(() => {
-      void track("TTS Route", event, { request: { headers: req.headers } });
+      void track("TTS Route", event);
     });
   } catch {
-    void track("TTS Route", event, { request: { headers: req.headers } });
+    void track("TTS Route", event);
   }
 };
 
 export const POST = async (req: NextRequest) => {
   let provider: TtsProvider = "openai";
+  let effectiveProvider: TtsProvider = "openai";
+  let usedFallback = false;
+  let effectiveFallbackReason: TtsFallbackReason | undefined;
   const startedAt = Date.now();
   let wordCount = 0;
   let quotaDecision: TtsQuotaDecision | undefined;
@@ -259,6 +260,7 @@ export const POST = async (req: NextRequest) => {
     }
 
     provider = resolveRequestedProvider(body);
+    effectiveProvider = provider;
     const voiceValidationError = getVoiceValidationError(provider, voiceId);
     if (voiceValidationError) {
       return NextResponse.json({ error: voiceValidationError }, { status: 400 });
@@ -278,13 +280,13 @@ export const POST = async (req: NextRequest) => {
     }
 
     if (primaryProfile.provider === "edge") {
+      effectiveProvider = "edge";
       const audioBuffer = await generateEdgeSpeech(req, text, primaryProfile);
       const response = audioResponse(audioBuffer, getTtsMetadata(primaryProfile), {
         quotaMode: quotaDecision.mode,
         quotaExceeded: quotaDecision.exceeded,
       });
       emitTtsRouteTelemetry({
-        req,
         startedAt,
         requestedProvider: provider,
         provider: "edge",
@@ -300,21 +302,22 @@ export const POST = async (req: NextRequest) => {
 
     if (quotaDecision.exceeded) {
       const edgeProfile = getTtsProfile("edge", voiceId);
+      effectiveProvider = "edge";
+      usedFallback = true;
+      effectiveFallbackReason = quotaDecision.fallbackReason ?? "openai_quota";
       const audioBuffer = await generateEdgeSpeech(req, text, edgeProfile);
-      const fallbackReason = quotaDecision.fallbackReason ?? "openai_quota";
       const response = audioResponse(audioBuffer, getTtsMetadata(edgeProfile), {
         fallback: true,
-        fallbackReason,
+        fallbackReason: effectiveFallbackReason,
         quotaMode: quotaDecision.mode,
         quotaExceeded: true,
       });
       emitTtsRouteTelemetry({
-        req,
         startedAt,
         requestedProvider: provider,
         provider: "edge",
         fallback: true,
-        fallbackReason,
+        fallbackReason: effectiveFallbackReason,
         status: "success",
         statusCode: 200,
         quotaMode: quotaDecision.mode,
@@ -331,7 +334,6 @@ export const POST = async (req: NextRequest) => {
         quotaExceeded: quotaDecision.exceeded,
       });
       emitTtsRouteTelemetry({
-        req,
         startedAt,
         requestedProvider: provider,
         provider: "openai",
@@ -349,20 +351,22 @@ export const POST = async (req: NextRequest) => {
       }
 
       const edgeProfile = getTtsProfile("edge", voiceId);
+      effectiveProvider = "edge";
+      usedFallback = true;
+      effectiveFallbackReason = "openai_error";
       const audioBuffer = await generateEdgeSpeech(req, text, edgeProfile);
       const response = audioResponse(audioBuffer, getTtsMetadata(edgeProfile), {
         fallback: true,
-        fallbackReason: "openai_error",
+        fallbackReason: effectiveFallbackReason,
         quotaMode: quotaDecision.mode,
         quotaExceeded: quotaDecision.exceeded,
       });
       emitTtsRouteTelemetry({
-        req,
         startedAt,
         requestedProvider: provider,
         provider: "edge",
         fallback: true,
-        fallbackReason: "openai_error",
+        fallbackReason: effectiveFallbackReason,
         status: "success",
         statusCode: 200,
         quotaMode: quotaDecision.mode,
@@ -372,13 +376,16 @@ export const POST = async (req: NextRequest) => {
       return response;
     }
   } catch (err) {
-    console.error(`${provider === "edge" ? "Edge" : "OpenAI"} TTS generation failed:`, err);
+    console.error(
+      `${effectiveProvider === "edge" ? "Edge" : "OpenAI"} TTS generation failed:`,
+      err,
+    );
     emitTtsRouteTelemetry({
-      req,
       startedAt,
       requestedProvider: provider,
-      provider,
-      fallback: false,
+      provider: effectiveProvider,
+      fallback: usedFallback,
+      fallbackReason: effectiveFallbackReason,
       status: "error",
       statusCode: 500,
       quotaMode: quotaDecision?.mode,

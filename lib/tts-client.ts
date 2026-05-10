@@ -160,9 +160,12 @@ const fetchSingleTtsAudioWithMetadata = async ({
   voiceId,
   provider,
 }: TtsRequest, options?: TtsClientOptions): Promise<SingleTtsAudioResult> => {
+  const requestHeaders = new Headers(options?.headers);
+  requestHeaders.set("Content-Type", "application/json");
+
   const resp = await fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: requestHeaders,
     body: JSON.stringify({
       text,
       ...(voiceId ? { voiceId } : {}),

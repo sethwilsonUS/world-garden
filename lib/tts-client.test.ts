@@ -229,11 +229,11 @@ describe("tts-client", () => {
   });
 
   it("forwards extra request headers when provided", async () => {
-    const headersSeen: HeadersInit[] = [];
+    const headersSeen: Headers[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        headersSeen.push(init?.headers ?? {});
+        headersSeen.push(new Headers(init?.headers));
         return new Response("audio", {
           status: 200,
           headers: { "Content-Type": "audio/mpeg" },
@@ -252,10 +252,41 @@ describe("tts-client", () => {
       },
     );
 
-    expect(headersSeen[0]).toEqual({
-      "Content-Type": "application/json",
-      "X-Curio-TTS-Quota-Bypass": "internal-secret",
-    });
+    expect(headersSeen[0]?.get("Content-Type")).toBe("application/json");
+    expect(headersSeen[0]?.get("X-Curio-TTS-Quota-Bypass")).toBe(
+      "internal-secret",
+    );
+  });
+
+  it("keeps the JSON content type authoritative when forwarding headers", async () => {
+    const headersSeen: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        headersSeen.push(new Headers(init?.headers));
+        return new Response("audio", {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }),
+    );
+
+    await generateTtsAudioWithMetadata(
+      {
+        text: "This article summary is comfortably under the configured request limit.",
+      },
+      {
+        headers: {
+          "Content-Type": "text/plain",
+          "X-Curio-TTS-Quota-Bypass": "internal-secret",
+        },
+      },
+    );
+
+    expect(headersSeen[0]?.get("Content-Type")).toBe("application/json");
+    expect(headersSeen[0]?.get("X-Curio-TTS-Quota-Bypass")).toBe(
+      "internal-secret",
+    );
   });
 
   it("retries all chunks with Edge when any OpenAI chunk falls back", async () => {

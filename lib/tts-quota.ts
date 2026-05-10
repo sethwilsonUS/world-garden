@@ -141,6 +141,8 @@ export const resolveOpenAiTtsQuota = async ({
 
     return { mode: "public", exceeded: false };
   } catch (error) {
+    // Fail open by design: quota storage issues should not block public audio.
+    // The route logs quotaError and continues through the primary provider.
     return {
       mode: "public",
       exceeded: false,
