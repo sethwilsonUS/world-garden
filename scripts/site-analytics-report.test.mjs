@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import {
   redactPath,
   renderAccessibleReport,
   summarizeLogs,
+  warnIfLogLimitReached,
 } from "./site-analytics-report.mjs";
 
 describe("site analytics report helpers", () => {
@@ -80,6 +81,44 @@ describe("site analytics report helpers", () => {
     );
   });
 
+  it("redacts JSON and object-style secrets from notable error summaries", () => {
+    const jsonSummary = summarizeLogs([
+      {
+        id: "err-json",
+        requestPath: "/api/report",
+        statusCode: 500,
+        message: JSON.stringify({
+          message: "failed",
+          sessionId: "session-secret",
+          nested: { apiKey: "api-secret" },
+        }),
+      },
+    ]);
+    const objectSummary = summarizeLogs([
+      {
+        id: "err-object",
+        requestPath: "/api/report",
+        statusCode: 500,
+        message: 'Error: failed apiKey: "api-secret" sessionId: "session-secret"',
+      },
+    ]);
+
+    expect(jsonSummary.notableErrors[0].message).toContain(
+      '"sessionId":"[redacted]"',
+    );
+    expect(jsonSummary.notableErrors[0].message).toContain(
+      '"apiKey":"[redacted]"',
+    );
+    expect(jsonSummary.notableErrors[0].message).not.toContain("session-secret");
+    expect(jsonSummary.notableErrors[0].message).not.toContain("api-secret");
+    expect(objectSummary.notableErrors[0].message).toContain(
+      'apiKey: "[redacted]"',
+    );
+    expect(objectSummary.notableErrors[0].message).toContain(
+      'sessionId: "[redacted]"',
+    );
+  });
+
   it("renders screen-reader-friendly Markdown without tables", () => {
     const summary = summarizeLogs([
       {
@@ -127,6 +166,21 @@ describe("site analytics report helpers", () => {
         until: new Date("2026-05-10T02:30:00.000Z"),
       },
     ]);
+  });
+
+  it("warns when a Vercel log chunk reaches the CLI result limit", () => {
+    const warn = vi.fn();
+    const range = {
+      since: new Date("2026-05-10T00:00:00.000Z"),
+      until: new Date("2026-05-10T01:00:00.000Z"),
+    };
+    const logs = Array.from({ length: 1000 }, (_, index) => ({ id: String(index) }));
+
+    expect(warnIfLogLimitReached(logs, range, warn)).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("1000 entry limit"));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("2026-05-10T00:00:00.000Z"),
+    );
   });
 
   it("loads .env.local without overriding already-exported values", async () => {

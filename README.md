@@ -188,7 +188,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `CRON_SECRET` | No | Bearer token expected by the scheduled podcast cron routes and manual sync routes |
 | `AI_GATEWAY_API_KEY` | No | Vercel AI Gateway API key used for the daily AI-generated trending brief |
 | `VERCEL_ANALYTICS_DRAIN_SECRET` | No | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain` |
-| `ANALYTICS_REPORT_SECRET` | No | Bearer token used by the local analytics report command to read compact rollups from `/api/analytics/report-data` |
+| `ANALYTICS_REPORT_SECRET` | No | Bearer token used by the local analytics report command and server routes to read/write compact Convex rollups; set the same value in Vercel and Convex |
 | `VERCEL_PROJECT` | No | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees |
 | `TRENDING_BRIEF_MODEL` | No | Optional primary AI Gateway model override for the daily trending brief |
 | `TRENDING_BRIEF_FALLBACK_MODEL` | No | Optional fallback AI Gateway model override for the daily trending brief |
@@ -263,7 +263,7 @@ To enable the drain path:
 
 1. Generate a random `VERCEL_ANALYTICS_DRAIN_SECRET` and set it in Vercel.
 2. Configure a Vercel Analytics Drain to send events to `https://your-domain/api/analytics/vercel-drain` with that secret.
-3. Set `ANALYTICS_REPORT_SECRET` in Vercel.
+3. Set `ANALYTICS_REPORT_SECRET` to the same value in Vercel and Convex.
 4. Put the same `ANALYTICS_REPORT_SECRET` in local `.env.local` along with `NEXT_PUBLIC_SITE_URL=https://your-domain`.
 5. Run `npm run analytics:site` after new traffic arrives.
 

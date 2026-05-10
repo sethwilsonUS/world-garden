@@ -1,4 +1,4 @@
-import { fetchQuery } from "convex/nextjs";
+import { fetchAction } from "convex/nextjs";
 import { anyApi } from "convex/server";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -56,7 +56,8 @@ export const GET = async (req: NextRequest) => {
     );
   }
 
-  const rollups = await fetchQuery(anyApi.analyticsRollups.getAnalyticsRollups, {
+  const rollups = await fetchAction(anyApi.analyticsRollups.readAnalyticsRollups, {
+    adminSecret: secret,
     since: range.since,
     until: range.until,
   });

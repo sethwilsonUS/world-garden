@@ -485,6 +485,15 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_bucketStart", ["bucketStart"]),
 
+  analyticsDrainDeliveries: defineTable({
+    key: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   podcastShowAssets: defineTable({
     slug: podcastShowAssetSlug,
     storageId: v.id("_storage"),

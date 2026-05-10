@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  fetchMutation: vi.fn(),
+  fetchAction: vi.fn(),
 }));
 
 vi.mock("convex/nextjs", () => ({
-  fetchMutation: mocks.fetchMutation,
+  fetchAction: mocks.fetchAction,
 }));
 
 vi.mock("convex/server", async (importOriginal) => {
@@ -15,7 +15,7 @@ vi.mock("convex/server", async (importOriginal) => {
     ...actual,
     anyApi: {
       analyticsRollups: {
-        upsertAnalyticsRollups: "analyticsRollups:upsertAnalyticsRollups",
+        ingestAnalyticsRollups: "analyticsRollups:ingestAnalyticsRollups",
       },
     },
   };
@@ -37,7 +37,7 @@ describe("POST /api/analytics/vercel-drain", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.unstubAllEnvs();
-    mocks.fetchMutation.mockReset();
+    mocks.fetchAction.mockReset();
   });
 
   it("rejects requests when the drain secret is not configured", async () => {
@@ -45,21 +45,40 @@ describe("POST /api/analytics/vercel-drain", () => {
     const response = await POST(await makeRequest("[]", "sha1=anything"));
 
     expect(response.status).toBe(500);
-    expect(mocks.fetchMutation).not.toHaveBeenCalled();
+    expect(mocks.fetchAction).not.toHaveBeenCalled();
+  });
+
+  it("rejects requests when the Convex report secret is not configured", async () => {
+    vi.stubEnv("VERCEL_ANALYTICS_DRAIN_SECRET", "secret");
+    const body = "[]";
+    const { POST } = await import("./route");
+    const response = await POST(await makeRequest(body, await signBody(body, "secret")));
+
+    expect(response.status).toBe(500);
+    expect(mocks.fetchAction).not.toHaveBeenCalled();
   });
 
   it("rejects missing or invalid signatures", async () => {
     vi.stubEnv("VERCEL_ANALYTICS_DRAIN_SECRET", "secret");
+    vi.stubEnv("ANALYTICS_REPORT_SECRET", "report-secret");
     const { POST } = await import("./route");
-    const response = await POST(await makeRequest("[]", "sha1=bad"));
+    const invalidResponse = await POST(await makeRequest("[]", "sha1=bad"));
+    const missingResponse = await POST(await makeRequest("[]"));
 
-    expect(response.status).toBe(403);
-    expect(mocks.fetchMutation).not.toHaveBeenCalled();
+    expect(invalidResponse.status).toBe(403);
+    expect(missingResponse.status).toBe(403);
+    expect(mocks.fetchAction).not.toHaveBeenCalled();
   });
 
   it("accepts signed NDJSON payloads and stores compact rollups", async () => {
     vi.stubEnv("VERCEL_ANALYTICS_DRAIN_SECRET", "secret");
-    mocks.fetchMutation.mockResolvedValue({ inserted: 1, updated: 0, upserted: 1 });
+    vi.stubEnv("ANALYTICS_REPORT_SECRET", "report-secret");
+    mocks.fetchAction.mockResolvedValue({
+      duplicate: false,
+      inserted: 1,
+      updated: 0,
+      upserted: 1,
+    });
     const { POST } = await import("./route");
     const body = [
       {
@@ -88,10 +107,13 @@ describe("POST /api/analytics/vercel-drain", () => {
     const json = await response.json();
 
     expect(response.status).toBe(200);
-    expect(json).toMatchObject({ accepted: 2, rollups: 1 });
-    expect(mocks.fetchMutation).toHaveBeenCalledWith(
-      "analyticsRollups:upsertAnalyticsRollups",
+    expect(json).toMatchObject({ accepted: 2, rollups: 1, duplicate: false });
+    expect(mocks.fetchAction).toHaveBeenCalledWith(
+      "analyticsRollups:ingestAnalyticsRollups",
       {
+        adminSecret: "report-secret",
+        deliveryKey: expect.any(String),
+        deliveryExpiresAt: expect.any(Number),
         rollups: [
           expect.objectContaining({
             path: "/article/Fangorn",
@@ -103,9 +125,35 @@ describe("POST /api/analytics/vercel-drain", () => {
     );
   });
 
+  it("reports duplicate deliveries without inserting again", async () => {
+    vi.stubEnv("VERCEL_ANALYTICS_DRAIN_SECRET", "secret");
+    vi.stubEnv("ANALYTICS_REPORT_SECRET", "report-secret");
+    mocks.fetchAction.mockResolvedValue({ duplicate: true, inserted: 0, updated: 0, upserted: 0 });
+    const { POST } = await import("./route");
+    const body = JSON.stringify([
+      {
+        eventType: "pageview",
+        path: "/",
+        timestamp: 1_767_873_600_000,
+      },
+    ]);
+
+    const response = await POST(await makeRequest(body, await signBody(body, "secret")));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toMatchObject({ duplicate: true });
+  });
+
   it("accepts signed JSON-array payloads", async () => {
     vi.stubEnv("VERCEL_ANALYTICS_DRAIN_SECRET", "secret");
-    mocks.fetchMutation.mockResolvedValue({ inserted: 1, updated: 0, upserted: 1 });
+    vi.stubEnv("ANALYTICS_REPORT_SECRET", "report-secret");
+    mocks.fetchAction.mockResolvedValue({
+      duplicate: false,
+      inserted: 1,
+      updated: 0,
+      upserted: 1,
+    });
     const { POST } = await import("./route");
     const body = JSON.stringify([
       {
@@ -118,6 +166,6 @@ describe("POST /api/analytics/vercel-drain", () => {
     const response = await POST(await makeRequest(body, await signBody(body, "secret")));
 
     expect(response.status).toBe(200);
-    expect(mocks.fetchMutation).toHaveBeenCalledOnce();
+    expect(mocks.fetchAction).toHaveBeenCalledOnce();
   });
 });

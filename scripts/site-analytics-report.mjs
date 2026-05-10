@@ -11,6 +11,27 @@ const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_HOURS = 24;
 const DEFAULT_LIMIT = 1000;
 const DEFAULT_OUTPUT_DIR = ".reports/analytics";
+const SENSITIVE_TEXT_KEYS = [
+  "apiKey",
+  "api_key",
+  "auth",
+  "authorization",
+  "cookie",
+  "device",
+  "deviceId",
+  "device_id",
+  "key",
+  "password",
+  "secret",
+  "session",
+  "sessionId",
+  "session_id",
+  "token",
+  "user",
+  "userId",
+  "user_id",
+];
+const SENSITIVE_TEXT_KEY_PATTERN = SENSITIVE_TEXT_KEYS.join("|");
 
 const parseEnvValue = (rawValue) => {
   const value = rawValue.trim();
@@ -82,12 +103,60 @@ export const redactPath = (rawPath) => {
   }
 };
 
+const isSensitiveTextKey = (key) => {
+  const lower = String(key).toLowerCase();
+  return SENSITIVE_TEXT_KEYS.some((sensitiveKey) =>
+    lower.includes(sensitiveKey.toLowerCase()),
+  );
+};
+
+const redactJsonValue = (value) => {
+  if (Array.isArray(value)) return value.map(redactJsonValue);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      isSensitiveTextKey(key) ? "[redacted]" : redactJsonValue(child),
+    ]),
+  );
+};
+
+const redactJsonLikeText = (text) =>
+  text
+    .replace(
+      new RegExp(
+        `(["']?\\b(?:${SENSITIVE_TEXT_KEY_PATTERN})\\b["']?\\s*:\\s*)(["'])[^"']*\\2`,
+        "gi",
+      ),
+      "$1$2[redacted]$2",
+    )
+    .replace(
+      new RegExp(
+        `(\\b(?:${SENSITIVE_TEXT_KEY_PATTERN})\\b\\s*:\\s*)(?!["'])([^,\\s}\\]]+)`,
+        "gi",
+      ),
+      "$1[redacted]",
+    );
+
 const redactSensitiveText = (rawText) => {
   if (!rawText || typeof rawText !== "string") return "No message provided.";
 
-  const firstLine = rawText.split(/\r?\n/, 1)[0] ?? rawText;
+  let firstLine = rawText.split(/\r?\n/, 1)[0] ?? rawText;
+  try {
+    firstLine = JSON.stringify(redactJsonValue(JSON.parse(firstLine)));
+  } catch {
+    firstLine = redactJsonLikeText(firstLine);
+  }
+
   return firstLine
-    .replace(/\b(token|secret|key|authorization|auth|password|session|cookie)=([^&\s]+)/gi, "$1=[redacted]")
+    .replace(
+      new RegExp(
+        `\\b(${SENSITIVE_TEXT_KEY_PATTERN})=([^&\\s]+)`,
+        "gi",
+      ),
+      "$1=[redacted]",
+    )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .slice(0, 260)
     .trim();
@@ -663,6 +732,15 @@ const runVercelLogs = async ({
   return `${stdout}\n${stderr}`;
 };
 
+export const warnIfLogLimitReached = (parsedLogs, range, warn = console.warn) => {
+  if (parsedLogs.length < DEFAULT_LIMIT) return false;
+
+  warn(
+    `[analytics:site] Vercel logs hit the ${DEFAULT_LIMIT} entry limit for ${range.since.toISOString()} to ${range.until.toISOString()}; this report may be incomplete. Re-run with a narrower --since/--until window if you need full fidelity.`,
+  );
+  return true;
+};
+
 const fetchAllLogs = async ({ since, until, environment, project, cwd }) => {
   const command = await resolveVercelCommand();
   const ranges = buildLogRanges(since.getTime(), until.getTime());
@@ -679,7 +757,9 @@ const fetchAllLogs = async ({ since, until, environment, project, cwd }) => {
       project,
       cwd,
     });
-    logs.push(...parseVercelLogLines(output));
+    const parsed = parseVercelLogLines(output);
+    warnIfLogLimitReached(parsed, range);
+    logs.push(...parsed);
   }
 
   return logs;

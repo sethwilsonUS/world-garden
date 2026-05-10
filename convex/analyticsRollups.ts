@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { anyApi } from "convex/server";
+import { action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 const analyticsRollupInput = v.object({
@@ -12,14 +13,72 @@ const analyticsRollupInput = v.object({
   count: v.number(),
 });
 
-export const upsertAnalyticsRollups = mutation({
+const requireAnalyticsSecret = (providedSecret: string) => {
+  const expectedSecret = process.env.ANALYTICS_REPORT_SECRET?.trim();
+  if (!expectedSecret) {
+    throw new Error("ANALYTICS_REPORT_SECRET is not configured in Convex");
+  }
+  if (providedSecret !== expectedSecret) {
+    throw new Error("Unauthorized");
+  }
+};
+
+export const ingestAnalyticsRollups = action({
   args: {
+    adminSecret: v.string(),
+    deliveryKey: v.string(),
+    deliveryExpiresAt: v.number(),
+    rollups: v.array(analyticsRollupInput),
+  },
+  handler: async (ctx, args) => {
+    requireAnalyticsSecret(args.adminSecret);
+    return ctx.runMutation(anyApi.analyticsRollups.upsertAnalyticsRollups, {
+      deliveryKey: args.deliveryKey,
+      deliveryExpiresAt: args.deliveryExpiresAt,
+      rollups: args.rollups,
+    });
+  },
+});
+
+export const readAnalyticsRollups = action({
+  args: {
+    adminSecret: v.string(),
+    since: v.number(),
+    until: v.number(),
+  },
+  handler: async (ctx, args) => {
+    requireAnalyticsSecret(args.adminSecret);
+    return ctx.runQuery(anyApi.analyticsRollups.getAnalyticsRollups, {
+      since: args.since,
+      until: args.until,
+    });
+  },
+});
+
+export const upsertAnalyticsRollups = internalMutation({
+  args: {
+    deliveryKey: v.string(),
+    deliveryExpiresAt: v.number(),
     rollups: v.array(analyticsRollupInput),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     let inserted = 0;
     let updated = 0;
+
+    const existingDelivery = await ctx.db
+      .query("analyticsDrainDeliveries")
+      .withIndex("by_key", (q) => q.eq("key", args.deliveryKey))
+      .unique();
+
+    if (existingDelivery && existingDelivery.expiresAt > now) {
+      return {
+        duplicate: true,
+        inserted,
+        updated,
+        upserted: 0,
+      };
+    }
 
     for (const rollup of args.rollups) {
       const existing = await ctx.db
@@ -44,7 +103,22 @@ export const upsertAnalyticsRollups = mutation({
       inserted += 1;
     }
 
+    if (existingDelivery) {
+      await ctx.db.patch(existingDelivery._id, {
+        expiresAt: args.deliveryExpiresAt,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("analyticsDrainDeliveries", {
+        key: args.deliveryKey,
+        expiresAt: args.deliveryExpiresAt,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
     return {
+      duplicate: false,
       inserted,
       updated,
       upserted: inserted + updated,
@@ -52,7 +126,7 @@ export const upsertAnalyticsRollups = mutation({
   },
 });
 
-export const getAnalyticsRollups = query({
+export const getAnalyticsRollups = internalQuery({
   args: {
     since: v.number(),
     until: v.number(),
