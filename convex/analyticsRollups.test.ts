@@ -36,6 +36,10 @@ describe("analytics rollups", () => {
       [0.5, 1],
       [-1, 1],
       [Number.NaN, 1],
+      [1, 0],
+      [1, 0.5],
+      [1, -1],
+      [1, Number.NaN],
     ] satisfies Array<[number, number]>) {
       expect(() => addRollupCounts(existingCount, incomingCount)).toThrow(
         "Rollup count overflow",

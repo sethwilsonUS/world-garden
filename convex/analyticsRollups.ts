@@ -29,6 +29,8 @@ export const addRollupCounts = (
   if (
     !Number.isSafeInteger(existingCount) ||
     existingCount < 0 ||
+    !Number.isSafeInteger(incomingCount) ||
+    incomingCount <= 0 ||
     !Number.isSafeInteger(nextCount)
   ) {
     throw new Error("Rollup count overflow");
