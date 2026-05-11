@@ -15,6 +15,7 @@ type HarnessProps = {
   trackingSectionKey: string | null;
   isPlaying: boolean;
   reportProgress: (args: unknown) => Promise<unknown>;
+  enabled?: boolean;
   onBadgesAwarded?: (args: {
     articleTitle: string;
     badges: AwardedBadgeProgress[];
@@ -31,10 +32,12 @@ const Harness = ({
   trackingSectionKey,
   isPlaying,
   reportProgress,
+  enabled,
   onBadgesAwarded,
   resolveAwardedBadges,
 }: HarnessProps) => {
   useBadgeListenTracking({
+    enabled,
     articleId,
     wikiPageId: "wiki-1",
     slug: "Roman_roads",
@@ -240,6 +243,154 @@ describe("useBadgeListenTracking", () => {
     expect(reportProgress).toHaveBeenCalledWith(
       expect.objectContaining({
         sectionKey: "summary",
+      }),
+    );
+  });
+
+  it("does not sample or flush progress while tracking is disabled", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          enabled={false}
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      audio.currentTime = 2.1;
+      vi.advanceTimersByTime(1_000);
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-0"
+          isPlaying
+          enabled={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      window.dispatchEvent(new Event("pagehide"));
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-0"
+          isPlaying={false}
+          enabled={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      root.unmount();
+      await Promise.resolve();
+    });
+
+    expect(reportProgress).not.toHaveBeenCalled();
+  });
+
+  it("drops pending ranges when tracking becomes disabled", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          enabled={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying={false}
+          enabled={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(reportProgress).not.toHaveBeenCalled();
+  });
+
+  it("reports later playback after tracking is enabled", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          enabled={false}
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          enabled
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      audio.currentTime = 2.1;
+      vi.advanceTimersByTime(1_000);
+      audio.currentTime = 3.1;
+      vi.advanceTimersByTime(1_000);
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying={false}
+          enabled
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(reportProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sectionKey: "summary",
+        heardRanges: [{ startSecond: 1, endSecond: 4 }],
       }),
     );
   });
