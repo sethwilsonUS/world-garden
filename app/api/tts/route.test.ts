@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchMutation = vi.hoisted(() => vi.fn());
 const track = vi.hoisted(() => vi.fn(async () => {}));
@@ -25,6 +25,7 @@ vi.mock("next/server", async () => {
 
 describe("POST /api/tts", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     vi.resetModules();
     vi.unstubAllEnvs();
@@ -34,6 +35,10 @@ describe("POST /api/tts", () => {
       remaining: 119,
       resetAt: Date.now() + 60_000,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("generates OpenAI speech by default and returns provider metadata headers", async () => {
@@ -174,6 +179,277 @@ describe("POST /api/tts", () => {
     expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
       "openai_error",
     );
+  });
+
+  it("falls back to Edge when OpenAI speech generation times out", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_UPSTREAM_TIMEOUT_MS", "25");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://api.openai.com/v1/audio/speech") {
+          const signal = init?.signal as AbortSignal | undefined;
+          return new Promise<Response>((resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+            setTimeout(() => {
+              resolve(new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                status: 200,
+                headers: { "Content-Type": "audio/mpeg" },
+              }));
+            }, 100);
+          });
+        }
+
+        if (url === "https://curiogarden.org/api/tts/edge") {
+          return new Response(new Uint8Array([0xff, 0xfb, 0x91, 0x64]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+    const response = await responsePromise;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+
+    expect(response.status).toBe(200);
+    expect(Array.from(bytes)).toEqual([0xff, 0xfb, 0x91, 0x64]);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
+      "openai_error",
+    );
+  });
+
+  it("falls back to Edge at the OpenAI interactive soft timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_UPSTREAM_TIMEOUT_MS", "1000");
+    vi.stubEnv("TTS_OPENAI_INTERACTIVE_FALLBACK_MS", "25");
+    let openAiAborted = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://api.openai.com/v1/audio/speech") {
+          const signal = init?.signal as AbortSignal | undefined;
+          return new Promise<Response>((resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              openAiAborted = true;
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+            setTimeout(() => {
+              resolve(new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                status: 200,
+                headers: { "Content-Type": "audio/mpeg" },
+              }));
+            }, 500);
+          });
+        }
+
+        if (url === "https://curiogarden.org/api/tts/edge") {
+          return new Response(new Uint8Array([0xff, 0xfb, 0x91, 0x64]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(25);
+    const sentinel = Symbol("pending");
+    const resultPromise = Promise.race([
+      responsePromise,
+      new Promise<typeof sentinel>((resolve) => setTimeout(() => resolve(sentinel), 1)),
+    ]);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await resultPromise;
+
+    expect(result).not.toBe(sentinel);
+    const response = result as Response;
+    expect(response.status).toBe(200);
+    expect(openAiAborted).toBe(true);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
+      "openai_error",
+    );
+    expect(track).toHaveBeenCalledWith(
+      "TTS Route",
+      expect.objectContaining({
+        provider: "edge",
+        requestedProvider: "openai",
+        fallback: true,
+        fallbackReason: "openai_error",
+        status: "success",
+        statusCode: 200,
+      }),
+    );
+  });
+
+  it("returns a clean OpenAI timeout error when fallback is disabled", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_EDGE_FALLBACK", "false");
+    vi.stubEnv("TTS_UPSTREAM_TIMEOUT_MS", "1000");
+    vi.stubEnv("TTS_OPENAI_INTERACTIVE_FALLBACK_MS", "25");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://api.openai.com/v1/audio/speech") {
+          const signal = init?.signal as AbortSignal | undefined;
+          return new Promise<Response>((resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+            setTimeout(() => {
+              resolve(new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                status: 200,
+                headers: { "Content-Type": "audio/mpeg" },
+              }));
+            }, 500);
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(25);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "OpenAI TTS request timed out after 25ms",
+    });
+    expect(track).toHaveBeenCalledWith(
+      "TTS Route",
+      expect.objectContaining({
+        provider: "openai",
+        requestedProvider: "openai",
+        fallback: false,
+        fallbackReason: "none",
+        status: "error",
+        statusCode: 500,
+      }),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it("returns an error when both OpenAI and Edge fallback time out", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_UPSTREAM_TIMEOUT_MS", "25");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url === "https://api.openai.com/v1/audio/speech" ||
+          url === "https://curiogarden.org/api/tts/edge"
+        ) {
+          const signal = init?.signal as AbortSignal | undefined;
+          return new Promise<Response>((resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+            setTimeout(() => {
+              if (url === "https://api.openai.com/v1/audio/speech") {
+                reject(new Error("OpenAI eventually failed"));
+              } else {
+                resolve(new Response(new Uint8Array([0xff, 0xfb, 0x91]), {
+                  status: 200,
+                  headers: { "Content-Type": "audio/mpeg" },
+                }));
+              }
+            }, 100);
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "TTS upstream request timed out after 25ms",
+    });
+    expect(consoleError.mock.calls[0]?.[0]).toBe("Edge TTS generation failed:");
+    expect(track).toHaveBeenCalledWith(
+      "TTS Route",
+      expect.objectContaining({
+        provider: "edge",
+        requestedProvider: "openai",
+        fallback: true,
+        fallbackReason: "openai_error",
+        status: "error",
+        statusCode: 500,
+      }),
+    );
+
+    consoleError.mockRestore();
   });
 
   it("attributes Edge fallback failures to the effective provider", async () => {

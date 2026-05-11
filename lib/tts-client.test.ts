@@ -27,7 +27,10 @@ const toBlobBuffer = (bytes: Uint8Array): ArrayBuffer => {
 describe("tts-client", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     delete process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST;
+    delete process.env.NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS;
+    delete process.env.NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY;
 
     vi.stubGlobal(
       "fetch",
@@ -98,6 +101,60 @@ describe("tts-client", () => {
     }
 
     expect(await blob.text()).toBe(requestBodies.map((body) => body.text).join(""));
+  });
+
+  it("fetches chunks with concurrency 2 while preserving output order", async () => {
+    process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "2";
+    process.env.NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY = "2";
+
+    const releases: Array<{ text: string; resolve: () => void }> = [];
+    const calls: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body)) as { text: string };
+        calls.push(request.text);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+
+        await new Promise<void>((resolve) => {
+          releases.push({ text: request.text, resolve });
+        });
+
+        active -= 1;
+        return new Response(`audio:${request.text}|`, {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }),
+    );
+
+    const pending = generateTtsAudio({
+      text: "one two three four five six seven eight",
+    });
+
+    const waitForReleases = async (count: number) => {
+      await vi.waitFor(() => expect(releases).toHaveLength(count));
+    };
+
+    await waitForReleases(2);
+    releases[1]?.resolve();
+    await waitForReleases(3);
+    releases[2]?.resolve();
+    await waitForReleases(4);
+    releases[3]?.resolve();
+    releases[0]?.resolve();
+
+    const blob = await pending;
+
+    expect(maxActive).toBe(2);
+    expect(calls).toEqual(["one two", "three four", "five six", "seven eight"]);
+    expect(await blob.text()).toBe(
+      "audio:one two|audio:three four|audio:five six|audio:seven eight|",
+    );
   });
 
   it("strips embedded ID3 tags when combining multiple TTS chunks", async () => {
@@ -256,6 +313,42 @@ describe("tts-client", () => {
     expect(headersSeen[0]?.get("X-Curio-TTS-Quota-Bypass")).toBe(
       "internal-secret",
     );
+  });
+
+  it("aborts slow client-side TTS requests after the configured timeout", async () => {
+    vi.useFakeTimers();
+    process.env.NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS = "25";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        return new Promise<Response>((resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+          setTimeout(() => {
+            resolve(
+              new Response("audio", {
+                status: 200,
+                headers: { "Content-Type": "audio/mpeg" },
+              }),
+            );
+          }, 100);
+        });
+      }),
+    );
+
+    const pending = generateTtsAudioWithMetadata({
+      text: "This article summary is comfortably under the configured request limit.",
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      "TTS chunk 1/1 failed (10 words): TTS request timed out after 25ms",
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    vi.useRealTimers();
   });
 
   it("keeps the JSON content type authoritative when forwarding headers", async () => {

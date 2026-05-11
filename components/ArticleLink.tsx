@@ -20,6 +20,7 @@ export const ArticleLink = forwardRef<HTMLAnchorElement, ArticleLinkProps>(({
   onMouseEnter,
   onFocus,
   onPointerDown,
+  onTouchStart,
   ...props
 }, ref) => {
   const prefetch = usePrefetch();
@@ -41,6 +42,10 @@ export const ArticleLink = forwardRef<HTMLAnchorElement, ArticleLinkProps>(({
       onPointerDown={(event) => {
         warm();
         onPointerDown?.(event);
+      }}
+      onTouchStart={(event) => {
+        warm();
+        onTouchStart?.(event);
       }}
     />
   );
