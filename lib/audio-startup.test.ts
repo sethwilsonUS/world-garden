@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   awaitAudioRequest,
   bucketAudioStartupMs,
+  clearAudioRequest,
   createAudioRequestCache,
   getAudioRequestResult,
   primeAudioRequest,
@@ -102,6 +103,133 @@ describe("resolveSummaryAudioStartup", () => {
 });
 
 describe("audio request cache", () => {
+  it("times out and clears a stale in-flight request so playback can retry", async () => {
+    vi.useFakeTimers();
+    const cache = createAudioRequestCache();
+    const generate = vi.fn(
+      () =>
+        new Promise<TtsAudioUrlResult>((resolve) => {
+          setTimeout(() => resolve(audio("stale")), 50);
+        }),
+    );
+
+    startAudioRequest(cache, "section-0", generate);
+    const wait = awaitAudioRequest(cache, "section-0", {
+      timeoutMs: 10,
+      clearOnTimeout: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(wait).resolves.toBeNull();
+    expect(awaitAudioRequest(cache, "section-0")).toBeNull();
+    await expect(startAudioRequest(cache, "section-0", async () => audio("retry"))).resolves.toEqual(
+      audio("retry"),
+    );
+    expect(generate).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it("times stale waits from the original warm request start", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    const cache = createAudioRequestCache();
+    const generate = vi.fn(
+      () =>
+        new Promise<TtsAudioUrlResult>((resolve) => {
+          setTimeout(() => resolve(audio("warm")), 10_000);
+        }),
+    );
+
+    startAudioRequest(cache, "section-0", generate, { owner: "warm" });
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    const wait = awaitAudioRequest(cache, "section-0", {
+      staleAfterMs: 5_000,
+      clearOnTimeout: true,
+    });
+
+    expect(wait).not.toBeNull();
+
+    const resolved = vi.fn();
+    wait?.then(resolved);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(resolved).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(wait).resolves.toBeNull();
+    expect(cache.has("section-0")).toBe(false);
+
+    vi.useRealTimers();
+  });
+
+  it("reuses a fresh warm request when it resolves before becoming stale", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+
+    const cache = createAudioRequestCache();
+    const generate = vi.fn(
+      () =>
+        new Promise<TtsAudioUrlResult>((resolve) => {
+          setTimeout(() => resolve(audio("fresh")), 4_000);
+        }),
+    );
+
+    startAudioRequest(cache, "section-0", generate, { owner: "warm" });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const wait = awaitAudioRequest(cache, "section-0", {
+      staleAfterMs: 5_000,
+      clearOnTimeout: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(wait).resolves.toEqual(audio("fresh"));
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(getAudioRequestResult(cache, "section-0")).toEqual(audio("fresh"));
+
+    vi.useRealTimers();
+  });
+
+  it("can force a playback-owned request to replace stale warm work", async () => {
+    vi.useFakeTimers();
+    const cache = createAudioRequestCache();
+    const warmGenerate = vi.fn(
+      () =>
+        new Promise<TtsAudioUrlResult>((resolve) => {
+          setTimeout(() => resolve(audio("warm")), 50);
+        }),
+    );
+    const playbackGenerate = vi.fn(async () => audio("playback"));
+
+    startAudioRequest(cache, "section-0", warmGenerate);
+    const playback = startAudioRequest(cache, "section-0", playbackGenerate, {
+      force: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(playback).resolves.toEqual(audio("playback"));
+    expect(getAudioRequestResult(cache, "section-0")).toEqual(audio("playback"));
+    expect(warmGenerate).toHaveBeenCalledTimes(1);
+    expect(playbackGenerate).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it("clears a request cache entry explicitly", () => {
+    const cache = createAudioRequestCache();
+    primeAudioRequest(cache, "section-0", audio("primed"));
+
+    clearAudioRequest(cache, "section-0");
+
+    expect(getAudioRequestResult(cache, "section-0")).toBeNull();
+  });
+
   it("shares an in-flight section request across warm and playback callers", async () => {
     const cache = createAudioRequestCache();
     const generate = vi.fn(async () => audio("section"));

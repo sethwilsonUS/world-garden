@@ -25,12 +25,71 @@ import {
 } from "@/lib/tts-quota";
 
 const OPENAI_SPEECH_ENDPOINT = "https://api.openai.com/v1/audio/speech";
+const DEFAULT_TTS_UPSTREAM_TIMEOUT_MS = 45_000;
+const DEFAULT_TTS_OPENAI_INTERACTIVE_FALLBACK_MS = 25_000;
 
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Audio generation failed";
+
+const parsePositiveInt = (value: string | undefined): number | null => {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const getTtsUpstreamTimeoutMs = (): number =>
+  parsePositiveInt(process.env.TTS_UPSTREAM_TIMEOUT_MS) ??
+  DEFAULT_TTS_UPSTREAM_TIMEOUT_MS;
+
+const getOpenAiInteractiveFallbackMs = (): number =>
+  parsePositiveInt(process.env.TTS_OPENAI_INTERACTIVE_FALLBACK_MS) ??
+  DEFAULT_TTS_OPENAI_INTERACTIVE_FALLBACK_MS;
+
+const fetchWithTimeout = async (
+  input: RequestInfo | URL,
+  init: RequestInit,
+  options: { timeoutMs?: number; timeoutMessage?: string } = {},
+): Promise<Response> => {
+  const timeoutMs = options.timeoutMs ?? getTtsUpstreamTimeoutMs();
+  const timeoutMessage =
+    options.timeoutMessage ?? `TTS upstream request timed out after ${timeoutMs}ms`;
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
+  let didTimeout = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const fetchPromise = fetch(input, {
+    ...init,
+    ...(controller ? { signal: controller.signal } : {}),
+  });
+  const timeoutPromise =
+    timeoutMs > 0
+      ? new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            didTimeout = true;
+            controller?.abort();
+            reject(new Error(timeoutMessage));
+          }, timeoutMs);
+        })
+      : null;
+
+  try {
+    return await (timeoutPromise
+      ? Promise.race([fetchPromise, timeoutPromise])
+      : fetchPromise);
+  } catch (error) {
+    if (didTimeout) {
+      throw new Error(timeoutMessage);
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    fetchPromise.catch(() => {});
+  }
+};
 
 const readErrorBody = async (response: Response): Promise<string> => {
   const contentType = response.headers.get("content-type") ?? "";
@@ -88,26 +147,35 @@ const audioResponse = (
 const generateOpenAiSpeech = async (
   text: string,
   profile: TtsProfile,
+  options: { timeoutMs?: number } = {},
 ): Promise<Buffer> => {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is required for OpenAI TTS");
   }
 
-  const response = await fetch(OPENAI_SPEECH_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const timeoutMs = options.timeoutMs ?? getTtsUpstreamTimeoutMs();
+  const response = await fetchWithTimeout(
+    OPENAI_SPEECH_ENDPOINT,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: profile.model,
+        voice: profile.voiceId,
+        input: text,
+        instructions: profile.instructions,
+        response_format: "mp3",
+      }),
     },
-    body: JSON.stringify({
-      model: profile.model,
-      voice: profile.voiceId,
-      input: text,
-      instructions: profile.instructions,
-      response_format: "mp3",
-    }),
-  });
+    {
+      timeoutMs,
+      timeoutMessage: `OpenAI TTS request timed out after ${timeoutMs}ms`,
+    },
+  );
 
   if (!response.ok) {
     throw new Error(await readErrorBody(response));
@@ -126,7 +194,7 @@ const generateEdgeSpeech = async (
   text: string,
   profile: TtsProfile,
 ): Promise<Buffer> => {
-  const response = await fetch(new URL("/api/tts/edge", req.url), {
+  const response = await fetchWithTimeout(new URL("/api/tts/edge", req.url), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -328,7 +396,13 @@ export const POST = async (req: NextRequest) => {
     }
 
     try {
-      const audioBuffer = await generateOpenAiSpeech(text, primaryProfile);
+      const openAiTimeoutMs = Math.min(
+        getOpenAiInteractiveFallbackMs(),
+        getTtsUpstreamTimeoutMs(),
+      );
+      const audioBuffer = await generateOpenAiSpeech(text, primaryProfile, {
+        timeoutMs: openAiTimeoutMs,
+      });
       const response = audioResponse(audioBuffer, getTtsMetadata(primaryProfile), {
         quotaMode: quotaDecision.mode,
         quotaExceeded: quotaDecision.exceeded,

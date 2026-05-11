@@ -28,15 +28,28 @@ type LinkedArticle = {
   description?: string;
 };
 
+export type AudioPlaybackStatus = "idle" | "loading" | "playing" | "paused" | "error";
+export type AudioPlaybackMode = "single" | "play_all";
+
+export type AudioPlaybackState = {
+  status: AudioPlaybackStatus;
+  sectionKey: string | null;
+  sectionIdx: number | null;
+  label: string | null;
+  mode: AudioPlaybackMode;
+  slowLoading: boolean;
+};
+
 type TableOfContentsProps = {
   articleTitle: string;
   wikiPageId: string;
   summaryText?: string;
   sections: Section[];
   sectionDurations?: Record<string, number>;
-  activeSectionIndex: number | null;
+  playback?: AudioPlaybackState;
+  activeSectionIndex?: number | null;
   isGenerating?: boolean;
-  isPlayingAll: boolean;
+  isPlayingAll?: boolean;
   isPaused?: boolean;
   isSpeaking?: boolean;
   downloading?: boolean;
@@ -218,11 +231,12 @@ export const TableOfContents = ({
   summaryText,
   sections,
   sectionDurations,
-  activeSectionIndex,
-  isGenerating = false,
-  isPlayingAll,
-  isPaused = false,
-  isSpeaking = false,
+  playback,
+  activeSectionIndex: legacyActiveSectionIndex = null,
+  isGenerating: legacyIsGenerating = false,
+  isPlayingAll: legacyIsPlayingAll = false,
+  isPaused: legacyIsPaused = false,
+  isSpeaking: legacyIsSpeaking = false,
   downloading = false,
   downloadProgress,
   downloadStatus = null,
@@ -285,6 +299,37 @@ export const TableOfContents = ({
     setRateAnnouncement(`Playback speed ${formatRate(next)}`);
   };
 
+  const effectivePlayback: AudioPlaybackState = playback ?? {
+    status: legacyIsGenerating
+      ? "loading"
+      : legacyIsSpeaking
+        ? legacyIsPaused
+          ? "paused"
+          : "playing"
+        : "idle",
+    sectionKey:
+      legacyActiveSectionIndex === null
+        ? "summary"
+        : `section-${legacyActiveSectionIndex}`,
+    sectionIdx: legacyActiveSectionIndex,
+    label:
+      legacyActiveSectionIndex === null
+        ? "Summary"
+        : sections[legacyActiveSectionIndex]?.title ?? null,
+    mode: legacyIsPlayingAll ? "play_all" : "single",
+    slowLoading: false,
+  };
+
+  const activeSectionIndex = effectivePlayback.sectionIdx;
+  const isGenerating = effectivePlayback.status === "loading";
+  const isPaused = effectivePlayback.status === "paused";
+  const isSpeaking =
+    effectivePlayback.status === "playing" || effectivePlayback.status === "paused";
+  const isPlayingAll =
+    effectivePlayback.mode === "play_all" &&
+    effectivePlayback.status !== "idle" &&
+    effectivePlayback.status !== "error";
+
   const isSummarySelected = activeSectionIndex === null;
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
@@ -294,6 +339,8 @@ export const TableOfContents = ({
   const hasNonAudioSections = audioSections.length < sections.length;
   const playableCount = audioSections.length + 1;
   const summaryOnly = sections.length === 0 || audioSections.length === 0;
+  const isPlayAllLoading = isPlayingAll && isGenerating;
+  const canSkipSection = isPlayingAll && (isSpeaking || isGenerating);
 
   const { totalPlaytime, totalPlaytimeAccessible, allActual } = (() => {
     let total = 0;
@@ -374,16 +421,23 @@ export const TableOfContents = ({
           onMouseEnter={onWarmPlayAll}
           onFocus={onWarmPlayAll}
           onPointerDown={onWarmPlayAll}
+          onTouchStart={onWarmPlayAll}
           onClick={(e) => {
             if (!isPlayingAll && (isGenerating || downloading)) return;
             if (isPlayingAll) {
-              (onTogglePlayAll ?? onStopPlayAll)();
+              if (isPlayAllLoading) {
+                onStopPlayAll();
+              } else {
+                (onTogglePlayAll ?? onStopPlayAll)();
+              }
             } else {
               onPlayAll();
             }
             e.currentTarget.focus();
           }}
-          aria-disabled={!isPlayingAll && (isGenerating || downloading) || undefined}
+          aria-disabled={
+            (!isPlayingAll && (isGenerating || downloading)) || undefined
+          }
           className={`inline-flex items-center gap-2 py-2.5 px-5 rounded-xl font-semibold text-sm transition-all duration-200 ${
             isPlayingAll
               ? "bg-surface-3 text-foreground border border-border cursor-pointer"
@@ -393,11 +447,19 @@ export const TableOfContents = ({
           }`}
           aria-label={
             isPlayingAll
-              ? (isPaused
-                  ? summaryOnly ? "Resume playing summary" : "Resume playing all sections"
+              ? isPlayAllLoading
+                ? summaryOnly
+                  ? "Stop summary"
+                  : "Stop playing all sections"
+                : isPaused
+                  ? summaryOnly
+                    ? "Resume playing summary"
+                    : "Resume playing all sections"
                   : !isSpeaking
                     ? "Generating audio, please wait"
-                    : summaryOnly ? "Pause summary" : "Pause playing all sections")
+                    : summaryOnly
+                      ? "Pause summary"
+                      : "Pause playing all sections"
               : isGenerating
                 ? "Generating audio, please wait"
                 : summaryOnly
@@ -406,7 +468,12 @@ export const TableOfContents = ({
           }
         >
           {isPlayingAll ? (
-            isPaused ? (
+            isPlayAllLoading ? (
+              <>
+                <SpinnerIcon />
+                <span aria-live="polite">Loading</span>
+              </>
+            ) : isPaused ? (
               <>
                 <svg
                   viewBox="0 0 24 24"
@@ -479,9 +546,9 @@ export const TableOfContents = ({
         {isPlayingAll && !summaryOnly && onSkipSection && (
           <button
             onClick={onSkipSection}
-            disabled={!isSpeaking}
+            disabled={!canSkipSection}
             className={`inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 ${
-              !isSpeaking ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+              !canSkipSection ? "cursor-not-allowed opacity-70" : "cursor-pointer"
             }`}
             aria-label="Skip to next section"
           >
@@ -568,6 +635,15 @@ export const TableOfContents = ({
           {fallbackVoiceNotice}
         </p>
       ) : null}
+      {effectivePlayback.status === "loading" && effectivePlayback.slowLoading ? (
+        <p
+          className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
+          role="status"
+          aria-live="polite"
+        >
+          Still generating audio. OpenAI is taking a little longer.
+        </p>
+      ) : null}
 
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">
@@ -601,6 +677,7 @@ export const TableOfContents = ({
                 onMouseEnter={onWarmSummary}
                 onFocus={onWarmSummary}
                 onPointerDown={onWarmSummary}
+                onTouchStart={onWarmSummary}
                 onClick={(e) => { onListenSummary(); e.currentTarget.focus(); }}
                 aria-label={`Listen to summary of ${articleTitle}`}
                 className={`${pillClass} border cursor-pointer pointer-events-auto ${
@@ -730,6 +807,7 @@ export const TableOfContents = ({
                   </span>
 
                   <button
+                    onTouchStart={onWarmPlayAll}
                     onClick={(e) => { if (!isLoading) { onListenSection(index); e.currentTarget.focus(); } }}
                     aria-disabled={isLoading || undefined}
                     aria-label={
