@@ -239,7 +239,12 @@ describe("audio request cache", () => {
     const generate = vi.fn(async () => audio("section"));
 
     const warmPromise = warmAudioRequest(cache, "section-0", generate);
+    const warmStartedAt = cache.get("section-0")?.startedAt;
+    expect(cache.get("section-0")?.owner).toBe("warm");
+
     const playbackPromise = startAudioRequest(cache, "section-0", generate);
+    expect(cache.get("section-0")?.owner).toBe("playback");
+    expect(cache.get("section-0")?.startedAt).toBe(warmStartedAt);
 
     await expect(warmPromise).resolves.toEqual(audio("section"));
     await expect(playbackPromise).resolves.toEqual(audio("section"));

@@ -115,7 +115,12 @@ export const startAudioRequest = (
   options: { force?: boolean; owner?: AudioRequestOwner } = {},
 ): Promise<TtsAudioUrlResult> => {
   const existing = cache.get(sectionKey);
-  if (existing && !options.force) return existing.promise;
+  if (existing && !options.force) {
+    if ((options.owner ?? "playback") === "playback") {
+      existing.owner = "playback";
+    }
+    return existing.promise;
+  }
 
   const entry: AudioRequestCacheEntry = {
     promise: Promise.resolve().then(generate),
