@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useData, type Article, type Section } from "@/lib/data-context";
 import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider";
 import {
@@ -80,6 +81,7 @@ type QueueItem = {
 const PLAY_ALL_WARM_WINDOW = 2;
 const PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS = 5_000;
 const SLOW_TTS_LOADING_NUDGE_MS = 8_000;
+const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 const createIdleAudioPlayback = (): AudioPlaybackState => ({
   status: "idle",
@@ -338,7 +340,32 @@ const analyzeHeroImage = async (url: string): Promise<HeroImageAnalysis> => {
   };
 };
 
+const AuthenticatedArticleView = ({ slug }: { slug: string }) => {
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+
+  return (
+    <ArticleViewContent
+      slug={slug}
+      badgeTrackingEnabled={isAuthLoaded && isSignedIn === true}
+    />
+  );
+};
+
 export const ArticleView = ({ slug }: { slug: string }) => {
+  if (isLocal) {
+    return <ArticleViewContent slug={slug} badgeTrackingEnabled={false} />;
+  }
+
+  return <AuthenticatedArticleView slug={slug} />;
+};
+
+const ArticleViewContent = ({
+  slug,
+  badgeTrackingEnabled,
+}: {
+  slug: string;
+  badgeTrackingEnabled: boolean;
+}) => {
   const bypassAudioCacheForStress = shouldBypassAudioCacheForStress();
   const { fetchArticle } = useData();
   const convex = useConvex();
@@ -1258,6 +1285,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   });
 
   useBadgeListenTracking({
+    enabled: badgeTrackingEnabled,
     articleId,
     wikiPageId: displayArticle?.wikiPageId,
     slug,

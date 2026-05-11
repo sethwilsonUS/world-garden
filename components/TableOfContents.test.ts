@@ -294,6 +294,7 @@ describe("TableOfContents audio eligibility", () => {
 
     expect(markup).toContain('aria-label="Stop playing all sections"');
     expect(markup).toContain(">Loading<");
+    expect(markup).not.toContain(">Stop<");
   });
 
   it("allows skipping a section while Play All is loading", () => {
@@ -420,7 +421,13 @@ describe("TableOfContents audio eligibility", () => {
       ),
     );
 
+    const stopButton = markup.match(
+      /<button[^>]*aria-label="Stop playing all sections"[^>]*>/,
+    )?.[0];
+
     expect(markup).toContain("Pause");
+    expect(markup).toContain(">Stop<");
+    expect(stopButton).toContain('type="button"');
     expect(markup).toContain(">Playing<");
     expect(markup).toContain("toc-progress-range");
   });
@@ -464,7 +471,13 @@ describe("TableOfContents audio eligibility", () => {
       ),
     );
 
+    const stopButton = markup.match(
+      /<button[^>]*aria-label="Stop playing all sections"[^>]*>/,
+    )?.[0];
+
     expect(markup).toContain("Resume");
+    expect(markup).toContain(">Stop<");
+    expect(stopButton).toContain('type="button"');
     expect(markup).toContain(">Paused<");
     expect(markup).toContain("toc-progress-range");
   });

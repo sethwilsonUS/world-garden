@@ -262,8 +262,8 @@ export const AccessibleLayout = ({
               .
             </p>
             <p className="mt-1">
-              Audio powered by Edge TTS. Wikipedia&reg; is a registered
-              trademark of the Wikimedia Foundation.
+              Audio powered by OpenAI with Edge TTS fallback. Wikipedia&reg; is
+              a registered trademark of the Wikimedia Foundation.
             </p>
             <p className="mt-3 font-display italic">
               Tended with care.

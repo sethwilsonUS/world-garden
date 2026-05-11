@@ -545,6 +545,27 @@ export const TableOfContents = ({
           )}
         </button>
 
+        {isPlayingAll && !isPlayAllLoading && (
+          <button
+            type="button"
+            onClick={onStopPlayAll}
+            className="inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 cursor-pointer"
+            aria-label={summaryOnly ? "Stop summary" : "Stop playing all sections"}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              width={16}
+              height={16}
+              aria-hidden="true"
+              className="shrink-0"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            <span>Stop</span>
+          </button>
+        )}
+
         {isPlayingAll && !summaryOnly && onSkipSection && (
           <button
             onClick={onSkipSection}
