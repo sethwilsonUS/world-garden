@@ -137,10 +137,7 @@ describe("tts-client", () => {
     });
 
     const waitForReleases = async (count: number) => {
-      for (let attempt = 0; attempt < 20 && releases.length < count; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-      expect(releases).toHaveLength(count);
+      await vi.waitFor(() => expect(releases).toHaveLength(count));
     };
 
     await waitForReleases(2);

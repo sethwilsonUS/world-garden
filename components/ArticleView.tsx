@@ -440,6 +440,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
 
   const resetAudioPlayback = useCallback(() => {
     clearSlowLoadingTimer();
+    setAudioUrl(null);
     setAudioPlayback(createIdleAudioPlayback());
   }, [clearSlowLoadingTimer]);
 
@@ -510,12 +511,27 @@ export const ArticleView = ({ slug }: { slug: string }) => {
   const seededStartupPath = useRef<Map<string, AudioStartupPath>>(new Map());
 
   useEffect(() => {
-    const requestCache = ttsRequestCache.current;
+    requestId.current += 1;
+    clearSlowLoadingTimer();
+    if (activeAudioRequestKey.current) {
+      clearAudioRequest(ttsRequestCache.current, activeAudioRequestKey.current);
+    }
+    activeAudioRequestKey.current = null;
+    pendingAutoPlay.current = false;
+    isPlayingAllRef.current = false;
+    playAllQueue.current = [];
+    setTrackingSectionKey(null);
+    setAudioUrl(null);
+    setAudioPlayback(createIdleAudioPlayback());
+    ttsCache.current = new Map();
+    ttsRequestCache.current = createAudioRequestCache();
+    seededStartupPath.current = new Map();
+
     return () => {
       requestId.current += 1;
       clearSlowLoadingTimer();
       if (activeAudioRequestKey.current) {
-        clearAudioRequest(requestCache, activeAudioRequestKey.current);
+        clearAudioRequest(ttsRequestCache.current, activeAudioRequestKey.current);
       }
       activeAudioRequestKey.current = null;
       pendingAutoPlay.current = false;
@@ -533,9 +549,11 @@ export const ArticleView = ({ slug }: { slug: string }) => {
         return ttsCache.current.get(cacheKey)!;
       }
 
+      const generationRequestId = requestId.current;
+      const requestCache = ttsRequestCache.current;
       const result = cacheKey
         ? await startAudioRequest(
-            ttsRequestCache.current,
+            requestCache,
             cacheKey,
             () => generateTtsAudioUrlWithMetadata({ text }),
             {
@@ -545,7 +563,11 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           )
         : await generateTtsAudioUrlWithMetadata({ text });
 
-      if (cacheKey) {
+      if (
+        cacheKey &&
+        requestId.current === generationRequestId &&
+        ttsRequestCache.current === requestCache
+      ) {
         ttsCache.current.set(cacheKey, result);
       }
       return result;
@@ -710,9 +732,12 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     const summaryText = summaryTextRef.current || displayArticle?.summary || "";
     if (summaryText.length < 10) return;
 
+    const warmRequestId = requestId.current;
     warmSummaryAudioFromText(slug, summaryText)
       .then((result) => {
-        if (result) seedSummaryAudio(result);
+        if (result && requestId.current === warmRequestId) {
+          seedSummaryAudio(result);
+        }
       })
       .catch(() => {});
   }, [displayArticle?.summary, getCachedAudioResult, seedSummaryAudio, slug]);
@@ -742,9 +767,11 @@ export const ArticleView = ({ slug }: { slug: string }) => {
       if (!text || text.length < 10) return null;
 
       try {
+        const warmRequestId = requestId.current;
         const result = await generateTtsFromApi(text, sectionKey, {
           owner: "warm",
         });
+        if (requestId.current !== warmRequestId) return null;
         seedAudioResult(sectionKey, result, "prefetch");
         if (!cachedAudio?.urls[sectionKey]) {
           cacheAudioInConvex(sectionKey, result.url, result.metadata);
@@ -1371,6 +1398,13 @@ export const ArticleView = ({ slug }: { slug: string }) => {
     ],
   );
 
+  const handleWarmSection = useCallback(
+    (index: number) => {
+      void warmAudioForSection(`section-${index}`);
+    },
+    [warmAudioForSection],
+  );
+
   const handleDownloadAll = useCallback(async () => {
     if (!displayArticle || !articleId || downloading) return;
     const allSections = displayArticle.sections ?? [];
@@ -1819,6 +1853,7 @@ export const ArticleView = ({ slug }: { slug: string }) => {
           }
           onWarmPlayAll={warmPlayAllForIntent}
           onWarmSummary={warmSummaryForIntent}
+          onWarmSection={handleWarmSection}
           onStopPlayAll={handleStopPlayAll}
           onTogglePlayAll={handleTogglePlayAll}
           onSkipSection={handleSkipSection}

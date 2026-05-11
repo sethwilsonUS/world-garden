@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   awaitAudioRequest,
   bucketAudioStartupMs,
@@ -24,6 +24,10 @@ const metadata = {
 };
 
 const audio = (url: string): TtsAudioUrlResult => ({ url, metadata });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("resolveSummaryAudioStartup", () => {
   it("uses memory audio before Convex, prefetch, or generation", async () => {
@@ -206,7 +210,7 @@ describe("audio request cache", () => {
     );
     const playbackGenerate = vi.fn(async () => audio("playback"));
 
-    startAudioRequest(cache, "section-0", warmGenerate);
+    startAudioRequest(cache, "section-0", warmGenerate, { owner: "warm" });
     const playback = startAudioRequest(cache, "section-0", playbackGenerate, {
       force: true,
     });

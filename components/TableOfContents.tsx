@@ -61,6 +61,7 @@ type TableOfContentsProps = {
   onPlayAll: () => void;
   onWarmPlayAll?: () => void;
   onWarmSummary?: () => void;
+  onWarmSection?: (index: number) => void;
   onStopPlayAll: () => void;
   onTogglePlayAll?: () => void;
   onSkipSection?: () => void;
@@ -246,6 +247,7 @@ export const TableOfContents = ({
   onPlayAll,
   onWarmPlayAll,
   onWarmSummary,
+  onWarmSection,
   onStopPlayAll,
   onTogglePlayAll,
   onSkipSection,
@@ -807,7 +809,10 @@ export const TableOfContents = ({
                   </span>
 
                   <button
-                    onTouchStart={onWarmPlayAll}
+                    onMouseEnter={() => onWarmSection?.(index)}
+                    onFocus={() => onWarmSection?.(index)}
+                    onPointerDown={() => onWarmSection?.(index)}
+                    onTouchStart={() => onWarmSection?.(index)}
                     onClick={(e) => { if (!isLoading) { onListenSection(index); e.currentTarget.focus(); } }}
                     aria-disabled={isLoading || undefined}
                     aria-label={
