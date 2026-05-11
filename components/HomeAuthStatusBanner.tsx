@@ -66,13 +66,13 @@ const BannerShell = ({
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {actions}
+        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
+          <div className="flex min-w-0 items-center gap-2">{actions}</div>
           <button
             type="button"
             onClick={onDismiss}
             aria-label="Dismiss account notice"
-            className="flex size-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted transition-colors duration-200 hover:border-border hover:bg-surface-2 hover:text-foreground"
+            className="ml-auto flex size-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted transition-colors duration-200 hover:border-border hover:bg-surface-2 hover:text-foreground sm:ml-0"
           >
             <CloseIcon />
           </button>
