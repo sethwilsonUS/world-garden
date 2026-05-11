@@ -8,6 +8,7 @@ import {
   selectTrendingArtworkItems,
   shouldReuseExistingTrendingBrief,
 } from "./trending-brief";
+import { getActiveTtsCacheKey } from "./tts-profile";
 
 describe("normalizeTrendingBrief", () => {
   it("dedupes sources, trims fields, and strips URLs from spoken text", () => {
@@ -121,6 +122,7 @@ describe("cached trending brief reuse", () => {
         status: "ready",
         audioUrl: "https://cdn.example.com/brief.mp3",
         artworkVersion: 2,
+        ttsCacheKey: getActiveTtsCacheKey(),
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(true);
@@ -135,6 +137,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 1,
+          ttsCacheKey: getActiveTtsCacheKey(),
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { regenArt: true },
@@ -151,6 +154,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 2,
+          ttsCacheKey: getActiveTtsCacheKey(),
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { regenArt: true },
@@ -167,10 +171,25 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 2,
+          ttsCacheKey: getActiveTtsCacheKey(),
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { force: true, regenArt: true },
       ),
+    ).toBe(false);
+  });
+
+  it("does not reuse ready audio from a different TTS cache key", () => {
+    expect(
+      shouldReuseExistingTrendingBrief({
+        _id: "brief-1",
+        trendingDate: "2026-03-11",
+        status: "ready",
+        audioUrl: "https://cdn.example.com/brief.mp3",
+        artworkVersion: 2,
+        ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+        updatedAt: Date.now(),
+      } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(false);
   });
 });

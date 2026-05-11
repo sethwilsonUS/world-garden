@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { useData } from "@/lib/data-context";
+import { useCallback, useContext } from "react";
+import { DataContext } from "@/lib/data-context";
 import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 
 /**
@@ -8,10 +8,12 @@ import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
  * multiple times for the same title.
  */
 export const usePrefetch = () => {
-  const { fetchArticle } = useData();
+  const data = useContext(DataContext);
+  const fetchArticle = data?.fetchArticle;
 
   return useCallback(
     (title: string) => {
+      if (!fetchArticle) return;
       const slug = title.replace(/ /g, "_");
       warmSummaryAudio(slug, fetchArticle);
       warmArticleImage(slug, fetchArticle);

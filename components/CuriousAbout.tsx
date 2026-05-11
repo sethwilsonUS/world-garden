@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
-import { usePrefetch } from "@/hooks/usePrefetch";
 
 const MAX_ARTICLES = 8;
 
@@ -29,7 +28,6 @@ function formatTrendingDate(isoDate: string | null): string {
 }
 
 export const CuriousAbout = () => {
-  const prefetch = usePrefetch();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
   const [trendingDate, setTrendingDate] = useState<string | null>(null);
   const [brief, setBrief] = useState<{
@@ -156,7 +154,6 @@ export const CuriousAbout = () => {
             key={article.title}
             article={article}
             source="curious"
-            onHover={() => prefetch(article.title)}
           />
         ))}
         <li className="col-span-2 lg:col-span-4 mt-1 text-center">

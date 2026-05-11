@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { addMp3Metadata } from "./audio-metadata";
 import {
   generateTtsAudio,
+  generateTtsAudioWithMetadata,
   generateTtsAudioUrl,
+  generateTtsAudioUrlWithMetadata,
   splitTtsTextIntoChunks,
 } from "./tts-client";
 import {
@@ -155,6 +157,298 @@ describe("tts-client", () => {
 
     expect(url).toBe("blob:tts-audio");
     expect(URL.createObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it("returns TTS metadata from response headers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body)) as { text: string };
+        return new Response(request.text, {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "X-Curio-TTS-Provider": "openai",
+            "X-Curio-TTS-Model": "gpt-4o-mini-tts",
+            "X-Curio-TTS-Voice": "marin",
+            "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Cache-Key":
+              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          },
+        });
+      }),
+    );
+
+    const result = await generateTtsAudioWithMetadata({
+      text: "This article summary is comfortably under the configured request limit.",
+    });
+
+    expect(await result.blob.text()).toBe(
+      "This article summary is comfortably under the configured request limit.",
+    );
+    expect(result.metadata).toEqual({
+      provider: "openai",
+      model: "gpt-4o-mini-tts",
+      voiceId: "marin",
+      promptVersion: "curio-warm-narrator-v1",
+      ttsNormVersion: "ttsNorm:2",
+      ttsCacheKey:
+        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+    });
+  });
+
+  it("parses fallback reason response headers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("audio", {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "X-Curio-TTS-Provider": "edge",
+            "X-Curio-TTS-Model": "edge-tts",
+            "X-Curio-TTS-Voice": "en-US-AriaNeural",
+            "X-Curio-TTS-Prompt-Version": "edge-default",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Cache-Key":
+              "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+            "X-Curio-TTS-Fallback": "true",
+            "X-Curio-TTS-Fallback-Reason": "openai_quota",
+          },
+        }),
+      ),
+    );
+
+    const result = await generateTtsAudioWithMetadata({
+      text: "This article summary is comfortably under the configured request limit.",
+    });
+
+    expect(result.metadata.provider).toBe("edge");
+    expect(result.fallbackReason).toBe("openai_quota");
+  });
+
+  it("forwards extra request headers when provided", async () => {
+    const headersSeen: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        headersSeen.push(new Headers(init?.headers));
+        return new Response("audio", {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }),
+    );
+
+    await generateTtsAudioWithMetadata(
+      {
+        text: "This article summary is comfortably under the configured request limit.",
+      },
+      {
+        headers: {
+          "X-Curio-TTS-Quota-Bypass": "internal-secret",
+        },
+      },
+    );
+
+    expect(headersSeen[0]?.get("Content-Type")).toBe("application/json");
+    expect(headersSeen[0]?.get("X-Curio-TTS-Quota-Bypass")).toBe(
+      "internal-secret",
+    );
+  });
+
+  it("keeps the JSON content type authoritative when forwarding headers", async () => {
+    const headersSeen: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        headersSeen.push(new Headers(init?.headers));
+        return new Response("audio", {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }),
+    );
+
+    await generateTtsAudioWithMetadata(
+      {
+        text: "This article summary is comfortably under the configured request limit.",
+      },
+      {
+        headers: {
+          "Content-Type": "text/plain",
+          "X-Curio-TTS-Quota-Bypass": "internal-secret",
+        },
+      },
+    );
+
+    expect(headersSeen[0]?.get("Content-Type")).toBe("application/json");
+    expect(headersSeen[0]?.get("X-Curio-TTS-Quota-Bypass")).toBe(
+      "internal-secret",
+    );
+  });
+
+  it("retries all chunks with Edge when any OpenAI chunk falls back", async () => {
+    process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "3";
+    const calls: Array<{ text: string; provider?: string }> = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body)) as {
+          text: string;
+          provider?: string;
+        };
+        calls.push(request);
+
+        if (request.provider === "edge") {
+          return new Response(`edge:${request.text}`, {
+            status: 200,
+            headers: {
+              "Content-Type": "audio/mpeg",
+              "X-Curio-TTS-Provider": "edge",
+              "X-Curio-TTS-Model": "edge-tts",
+              "X-Curio-TTS-Voice": "en-US-AriaNeural",
+              "X-Curio-TTS-Prompt-Version": "edge-default",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Cache-Key":
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+            },
+          });
+        }
+
+        const fallback = calls.length === 2;
+        return new Response(`${fallback ? "edge" : "openai"}:${request.text}`, {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "X-Curio-TTS-Provider": fallback ? "edge" : "openai",
+            "X-Curio-TTS-Model": fallback ? "edge-tts" : "gpt-4o-mini-tts",
+            "X-Curio-TTS-Voice": fallback ? "en-US-AriaNeural" : "marin",
+            "X-Curio-TTS-Prompt-Version": fallback
+              ? "edge-default"
+              : "curio-warm-narrator-v1",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Cache-Key": fallback
+              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
+              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+            "X-Curio-TTS-Fallback": fallback ? "true" : "false",
+            ...(fallback
+              ? { "X-Curio-TTS-Fallback-Reason": "openai_quota" }
+              : {}),
+          },
+        });
+      }),
+    );
+
+    const result = await generateTtsAudioWithMetadata({
+      text: "one two three four five six",
+    });
+
+    expect(calls).toEqual([
+      { text: "one two three" },
+      { text: "four five six" },
+      { text: "one two three", provider: "edge" },
+      { text: "four five six", provider: "edge" },
+    ]);
+    expect(result.metadata.provider).toBe("edge");
+    expect(result.fallbackReason).toBe("openai_quota");
+    expect(await result.blob.text()).toBe(
+      "edge:one two threeedge:four five six",
+    );
+  });
+
+  it("retries all chunks with Edge even when OpenAI was explicitly requested", async () => {
+    process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "3";
+    const calls: Array<{ text: string; provider?: string }> = [];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const request = JSON.parse(String(init?.body)) as {
+          text: string;
+          provider?: string;
+        };
+        calls.push(request);
+
+        if (request.provider === "edge") {
+          return new Response(`edge:${request.text}`, {
+            status: 200,
+            headers: {
+              "Content-Type": "audio/mpeg",
+              "X-Curio-TTS-Provider": "edge",
+              "X-Curio-TTS-Model": "edge-tts",
+              "X-Curio-TTS-Voice": "en-US-AriaNeural",
+              "X-Curio-TTS-Prompt-Version": "edge-default",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Cache-Key":
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+            },
+          });
+        }
+
+        const fallback = calls.length === 2;
+        return new Response(`${fallback ? "edge" : "openai"}:${request.text}`, {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "X-Curio-TTS-Provider": fallback ? "edge" : "openai",
+            "X-Curio-TTS-Model": fallback ? "edge-tts" : "gpt-4o-mini-tts",
+            "X-Curio-TTS-Voice": fallback ? "en-US-AriaNeural" : "marin",
+            "X-Curio-TTS-Prompt-Version": fallback
+              ? "edge-default"
+              : "curio-warm-narrator-v1",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Cache-Key": fallback
+              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
+              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+            "X-Curio-TTS-Fallback": fallback ? "true" : "false",
+          },
+        });
+      }),
+    );
+
+    const result = await generateTtsAudioWithMetadata({
+      text: "one two three four five six",
+      provider: "openai",
+    });
+
+    expect(calls).toEqual([
+      { text: "one two three", provider: "openai" },
+      { text: "four five six", provider: "openai" },
+      { text: "one two three", provider: "edge" },
+      { text: "four five six", provider: "edge" },
+    ]);
+    expect(result.metadata.provider).toBe("edge");
+  });
+
+  it("creates an object URL with metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("audio", {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            "X-Curio-TTS-Provider": "openai",
+            "X-Curio-TTS-Model": "gpt-4o-mini-tts",
+            "X-Curio-TTS-Voice": "marin",
+            "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Cache-Key":
+              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          },
+        }),
+      ),
+    );
+
+    const result = await generateTtsAudioUrlWithMetadata({
+      text: "This article summary is comfortably under the configured request limit.",
+    });
+
+    expect(result.url).toBe("blob:tts-audio");
+    expect(result.metadata.provider).toBe("openai");
   });
 
   it("includes HTTP details when the TTS endpoint returns a non-JSON error", async () => {

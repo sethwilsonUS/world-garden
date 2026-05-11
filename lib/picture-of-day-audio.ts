@@ -9,8 +9,10 @@ import {
 } from "@/lib/featured-article";
 import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
-import { generateTtsAudio } from "@/lib/tts-client";
+import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
+import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
+import { getActiveTtsCacheKey } from "@/lib/tts-profile";
 
 const PICTURE_OF_DAY_ALBUM = "Curio Garden Picture of the Day";
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -36,6 +38,11 @@ export type PictureOfDayAudioRecord = {
   durationSeconds?: number;
   byteLength?: number;
   voiceId?: string;
+  ttsCacheKey?: string;
+  provider?: string;
+  model?: string;
+  promptVersion?: string;
+  ttsNormVersion?: string;
   lastError?: string;
   audioUrl: string | null;
   createdAt: number;
@@ -139,7 +146,11 @@ export const buildPictureOfDaySpeechScript = ({
 const shouldReuseExistingPictureAudio = (
   record: PictureOfDayAudioRecord | null,
 ): record is PictureOfDayAudioRecord =>
-  Boolean(record?.status === "ready" && record.audioUrl);
+  Boolean(
+    record?.status === "ready" &&
+      record.audioUrl &&
+      record.ttsCacheKey === getActiveTtsCacheKey(),
+  );
 
 const getPictureOfDayAudio = async ({
   feedDate,
@@ -163,7 +174,6 @@ const generatePictureOfDayAudioRecord = async ({
   feedDateIso: string;
   picture: WikipediaPictureOfDay;
 }): Promise<PictureOfDayAudioSyncResult> => {
-  const voiceId = process.env.PICTURE_OF_DAY_VOICE_ID?.trim() || undefined;
   const owner = randomUUID();
   const runId = owner.slice(0, 8);
   let stage = "initializing";
@@ -231,7 +241,6 @@ const generatePictureOfDayAudioRecord = async ({
       status: "pending",
       title,
       spokenText,
-      voiceId,
     });
 
     console.info(
@@ -239,10 +248,15 @@ const generatePictureOfDayAudioRecord = async ({
     );
 
     stage = "generating_tts_audio";
-    const sourceAudioBlob = await generateTtsAudio(
-      { text: spokenText, voiceId },
-      { apiBaseUrl: getPodcastSiteUrl(baseUrl) },
+    const generatedAudio = await generateTtsAudioWithMetadata(
+      { text: spokenText },
+      {
+        apiBaseUrl: getPodcastSiteUrl(baseUrl),
+        headers: getTtsQuotaBypassHeaders(),
+      },
     );
+    const sourceAudioBlob = generatedAudio.blob;
+    const ttsMetadata = generatedAudio.metadata;
 
     stage = "tagging_audio";
     const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
@@ -271,7 +285,12 @@ const generatePictureOfDayAudioRecord = async ({
       storageId,
       durationSeconds: estimateDurationSeconds(spokenText),
       byteLength: taggedAudioBlob.size,
-      voiceId,
+      voiceId: ttsMetadata.voiceId,
+      ttsCacheKey: ttsMetadata.ttsCacheKey,
+      provider: ttsMetadata.provider,
+      model: ttsMetadata.model,
+      promptVersion: ttsMetadata.promptVersion,
+      ttsNormVersion: ttsMetadata.ttsNormVersion,
     });
     committedReady = true;
 
@@ -330,7 +349,6 @@ const generatePictureOfDayAudioRecord = async ({
         status: "failed",
         title,
         spokenText,
-        voiceId,
         lastError: detailedMessage,
       });
     }

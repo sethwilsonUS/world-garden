@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getDidYouKnowAudioState } from "@/lib/did-you-know-audio";
 import { getPictureOfDayAudioState } from "@/lib/picture-of-day-audio";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 
@@ -13,20 +12,21 @@ const FEATURED_CACHE_HEADERS = {
 const withPerRequestAudioState = async (
   data: NonNullable<Awaited<ReturnType<typeof getTodayWikipediaData>>>,
 ) => {
-  const [didYouKnowAudio, pictureAudio] = await Promise.all([
-    getDidYouKnowAudioState({ feedDateIso: data.feedDate }).catch(() => null),
-    data.pictureOfDay
-      ? getPictureOfDayAudioState({
-          feedDateIso: data.feedDate,
-          picture: data.pictureOfDay,
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const dataWithoutDykAudio = {
+    ...data,
+  } as typeof data & { didYouKnowAudio?: unknown };
+  delete dataWithoutDykAudio.didYouKnowAudio;
+
+  const pictureAudio = data.pictureOfDay
+    ? await getPictureOfDayAudioState({
+        feedDateIso: data.feedDate,
+        picture: data.pictureOfDay,
+      }).catch(() => null)
+    : null;
 
   return {
     body: {
-      ...data,
-      ...(didYouKnowAudio ? { didYouKnowAudio } : {}),
+      ...dataWithoutDykAudio,
       pictureOfDay:
         data.pictureOfDay && pictureAudio
           ? {
@@ -35,7 +35,7 @@ const withPerRequestAudioState = async (
             }
           : data.pictureOfDay,
     },
-    hasPerRequestAudioState: Boolean(didYouKnowAudio || pictureAudio),
+    hasPerRequestAudioState: Boolean(pictureAudio),
   };
 };
 

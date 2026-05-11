@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
@@ -46,15 +47,6 @@ type TrendingBrief = {
   audioUrl: string;
   headline?: string;
   durationSeconds?: number;
-};
-
-type DidYouKnowAudio = {
-  feedDate: string;
-  title: string;
-  status: "missing" | "pending" | "ready" | "failed";
-  audioUrl: string | null;
-  durationSeconds?: number;
-  lastError?: string;
 };
 
 type InTheNewsItem = {
@@ -105,7 +97,6 @@ export type TodayOnWikipediaData = {
   trendingDate?: string | null;
   trendingBrief?: TrendingBrief | null;
   didYouKnow?: DidYouKnowItem[];
-  didYouKnowAudio?: DidYouKnowAudio | null;
   inTheNews?: InTheNewsItem[];
   pictureOfDay?: PictureOfDay | null;
   onThisDay?: OnThisDayItem[];
@@ -187,12 +178,13 @@ const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
     <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0" role="list">
       {links.slice(0, 3).map((link) => (
         <li key={`${link.wikiPageId ?? link.slug}-${link.title}`}>
-          <Link
+          <ArticleLink
+            articleTitle={link.title}
             href={toArticleHref(link.slug)}
             className="inline-flex items-center rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-xs font-medium text-accent no-underline"
           >
             {link.title}
-          </Link>
+          </ArticleLink>
         </li>
       ))}
     </ul>
@@ -254,12 +246,13 @@ const FeaturedArticleCard = ({
             Featured article
           </p>
           <h3 className="mt-2 font-display text-[1.05rem] font-bold leading-[1.3]">
-            <Link
+            <ArticleLink
+              articleTitle={article.title}
               href={toArticleHref(slug)}
               className="result-link text-foreground no-underline"
             >
               {article.title}
-            </Link>
+            </ArticleLink>
           </h3>
           <p className="mt-2 text-sm leading-[1.65] text-foreground-2">
             {truncate(article.extract, 220)}
@@ -366,33 +359,6 @@ const SnapshotCallout = ({
   );
 };
 
-const DidYouKnowAudioCard = ({
-  audio,
-}: {
-  audio?: DidYouKnowAudio | null;
-}) => {
-  const { rate, setRate } = usePlaybackRate();
-
-  if (audio?.status !== "ready" || !audio.audioUrl) return null;
-
-  return (
-    <div className="mt-3 mb-4 rounded-xl border border-accent-border bg-accent-bg px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-        Daily audio
-      </p>
-      <AudioPlayer
-        audioUrl={audio.audioUrl}
-        title={audio.title}
-        label="Listen: today’s Did You Know list"
-        playbackRate={rate}
-        onPlaybackRateChange={setRate}
-        variant="compact"
-        className="mt-3 max-w-full"
-      />
-    </div>
-  );
-};
-
 const DidYouKnowSegmentText = ({
   segment,
 }: {
@@ -400,25 +366,20 @@ const DidYouKnowSegmentText = ({
 }) => {
   if (segment.type === "link") {
     return (
-      <Link
+      <ArticleLink
+        articleTitle={segment.title}
         href={toArticleHref(segment.slug)}
         className="text-accent underline decoration-accent/50 underline-offset-[0.16em]"
       >
         {segment.text}
-      </Link>
+      </ArticleLink>
     );
   }
 
   return <>{segment.text}</>;
 };
 
-const DidYouKnowCard = ({
-  items,
-  audio,
-}: {
-  items: DidYouKnowItem[];
-  audio?: DidYouKnowAudio | null;
-}) => (
+const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => (
   <section
     aria-labelledby="today-dyk-heading"
     className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
@@ -429,8 +390,6 @@ const DidYouKnowCard = ({
     >
       Did You Know?
     </h3>
-
-    <DidYouKnowAudioCard audio={audio} />
 
     {items.length > 0 ? (
       <ol className="m-0 mt-3 list-none space-y-4 p-0" role="list">
@@ -525,7 +484,8 @@ const TrendingArticles = ({
               const slug = toArticleSlug(article.title);
               return (
                 <li key={article.title}>
-                  <Link
+                  <ArticleLink
+                    articleTitle={article.title}
                     href={toArticleHref(slug)}
                     className="result-link flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2 no-underline transition-all duration-200"
                   >
@@ -580,7 +540,7 @@ const TrendingArticles = ({
                         </span>
                       )}
                     </span>
-                  </Link>
+                  </ArticleLink>
                 </li>
               );
             })}
@@ -746,7 +706,6 @@ export const TodayOnWikipediaContent = ({
   const news = data.inTheNews ?? [];
   const trending = data.trending ?? [];
   const didYouKnow = data.didYouKnow ?? [];
-  const didYouKnowAudio = data.didYouKnowAudio ?? null;
   const onThisDay = data.onThisDay ?? [];
   const picture = data.pictureOfDay ?? null;
   const trendingBrief = data.trendingBrief ?? null;
@@ -765,9 +724,7 @@ export const TodayOnWikipediaContent = ({
 
   const firstOnThisDay = onThisDay[0];
   const hasPrimaryRail =
-    Boolean(featured) ||
-    didYouKnow.length > 0 ||
-    didYouKnowAudio?.status === "ready";
+    Boolean(featured) || didYouKnow.length > 0;
   const hasSupportRail =
     Boolean(picture) || news.length > 0 || Boolean(firstOnThisDay);
   const hasTwoRails = hasPrimaryRail && hasSupportRail;
@@ -794,11 +751,8 @@ export const TodayOnWikipediaContent = ({
         {hasPrimaryRail && (
           <div className={`space-y-4 ${hasTwoRails ? "" : "lg:col-span-2"}`}>
             <FeaturedArticleCard article={featured} feedDate={data.feedDate} />
-            {didYouKnow.length > 0 || didYouKnowAudio?.status === "ready" ? (
-              <DidYouKnowCard
-                items={didYouKnow}
-                audio={didYouKnowAudio}
-              />
+            {didYouKnow.length > 0 ? (
+              <DidYouKnowCard items={didYouKnow} />
             ) : null}
           </div>
         )}

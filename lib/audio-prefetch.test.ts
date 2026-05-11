@@ -2,10 +2,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 let warmSummaryAudio: typeof import("./audio-prefetch").warmSummaryAudio;
 let getCachedSummaryUrl: typeof import("./audio-prefetch").getCachedSummaryUrl;
+let getCachedSummaryAudio: typeof import("./audio-prefetch").getCachedSummaryAudio;
 let awaitSummaryAudio: typeof import("./audio-prefetch").awaitSummaryAudio;
+let primeSummaryAudio: typeof import("./audio-prefetch").primeSummaryAudio;
 
 const mockFetchArticle = vi.fn();
 const audioBlobUrl = "blob:http://localhost/fake-audio-url";
+const primedAudioUrl = "https://storage.example/summary.mp3";
+const metadata = {
+  provider: "openai" as const,
+  model: "gpt-4o-mini-tts",
+  voiceId: "marin",
+  promptVersion: "curio-warm-narrator-v1",
+  ttsNormVersion: "ttsNorm:2",
+  ttsCacheKey:
+    "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+};
 
 beforeEach(async () => {
   vi.resetModules();
@@ -33,7 +45,9 @@ beforeEach(async () => {
   const mod = await import("./audio-prefetch");
   warmSummaryAudio = mod.warmSummaryAudio;
   getCachedSummaryUrl = mod.getCachedSummaryUrl;
+  getCachedSummaryAudio = mod.getCachedSummaryAudio;
   awaitSummaryAudio = mod.awaitSummaryAudio;
+  primeSummaryAudio = mod.primeSummaryAudio;
 });
 
 describe("warmSummaryAudio", () => {
@@ -63,6 +77,23 @@ describe("warmSummaryAudio", () => {
     expect(mockFetchArticle).toHaveBeenCalledTimes(1);
   });
 
+  it("uses a primed summary result without calling the TTS endpoint", async () => {
+    primeSummaryAudio("Primed_Article", {
+      url: primedAudioUrl,
+      metadata,
+    });
+
+    const url = await awaitSummaryAudio("Primed_Article");
+
+    expect(url).toBe(primedAudioUrl);
+    expect(getCachedSummaryUrl("Primed_Article")).toBe(primedAudioUrl);
+    expect(getCachedSummaryAudio("Primed_Article")).toEqual({
+      url: primedAudioUrl,
+      metadata,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("returns null for summaries that are too short", async () => {
     mockFetchArticle.mockResolvedValue({ summary: "Short" });
 
@@ -77,6 +108,23 @@ describe("warmSummaryAudio", () => {
     warmSummaryAudio("Failing_Article", mockFetchArticle);
     const url = await awaitSummaryAudio("Failing_Article");
     expect(url).toBeNull();
+  });
+
+  it("clears failed warm attempts so the same slug can be retried", async () => {
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("TTS unavailable"))
+      .mockResolvedValueOnce({
+        ok: true,
+        blob: () =>
+          Promise.resolve(new Blob(["audio-data"], { type: "audio/mpeg" })),
+      } as Response);
+
+    warmSummaryAudio("Retry_Article", mockFetchArticle);
+    expect(await awaitSummaryAudio("Retry_Article")).toBeNull();
+
+    warmSummaryAudio("Retry_Article", mockFetchArticle);
+    expect(await awaitSummaryAudio("Retry_Article")).toBe(audioBlobUrl);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 

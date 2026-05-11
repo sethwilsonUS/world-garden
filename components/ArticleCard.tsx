@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { analytics } from "@/lib/analytics";
+import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
 export type TrendingArticle = {
@@ -31,12 +31,10 @@ const formatViewsAccessible = (n: number): string => {
 export const ArticleCard = ({
   article,
   imageLoading = "lazy",
-  onHover,
   source,
 }: {
   article: TrendingArticle;
   imageLoading?: "eager" | "lazy";
-  onHover?: () => void;
   source?: "curious" | "trending_page";
 }) => {
   const slug = encodeURIComponent(article.title.replace(/ /g, "_"));
@@ -44,11 +42,10 @@ export const ArticleCard = ({
   return (
     <li>
       <article className="group flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
-        <Link
+        <ArticleLink
+          articleTitle={article.title}
           href={`/article/${slug}`}
           onClick={() => source && analytics.trendingArticleViewed(source)}
-          onMouseEnter={onHover}
-          onFocus={onHover}
           className="result-link block flex-1 no-underline"
         >
           {article.thumbnail ? (
@@ -96,7 +93,7 @@ export const ArticleCard = ({
               </span>
             )}
           </div>
-        </Link>
+        </ArticleLink>
         <div className="flex items-center justify-end border-t border-border px-4 py-3">
           <PlaylistActionButton slug={article.title.replace(/ /g, "_")} title={article.title} />
         </div>

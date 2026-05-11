@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getTodayWikipediaData = vi.fn();
 const fetchWikipediaFeaturedSnapshot = vi.fn();
-const getDidYouKnowAudioState = vi.fn();
 const getPictureOfDayAudioState = vi.fn();
 
 vi.mock("@/lib/today-snapshot", () => ({
@@ -13,10 +12,6 @@ vi.mock("@/lib/featured-article", () => ({
   fetchWikipediaFeaturedSnapshot,
 }));
 
-vi.mock("@/lib/did-you-know-audio", () => ({
-  getDidYouKnowAudioState,
-}));
-
 vi.mock("@/lib/picture-of-day-audio", () => ({
   getPictureOfDayAudioState,
 }));
@@ -25,7 +20,6 @@ describe("GET /api/featured", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    getDidYouKnowAudioState.mockResolvedValue(null);
     getPictureOfDayAudioState.mockResolvedValue(null);
   });
 
@@ -72,7 +66,7 @@ describe("GET /api/featured", () => {
     expect(body.error).toContain("No Today on Wikipedia snapshot");
   });
 
-  it("does not cache per-request audio state with the featured payload", async () => {
+  it("does not include Did You Know audio state with the featured payload", async () => {
     getTodayWikipediaData.mockResolvedValue({
       tfa: null,
       trending: [],
@@ -88,22 +82,22 @@ describe("GET /api/featured", () => {
       snapshotFeedDate: "2026-05-07",
       snapshotGeneratedAt: 1_778_200_000_000,
       snapshotIsStale: false,
+      didYouKnowAudio: {
+        feedDate: "2026-05-07",
+        title: "Legacy Did You Know? audio",
+        status: "ready",
+        audioUrl: "https://cdn.example.com/legacy-dyk.mp3",
+      },
     });
-    getDidYouKnowAudioState.mockResolvedValue({
-      feedDate: "2026-05-07",
-      title: "Did You Know? May 7, 2026",
-      status: "pending",
-      audioUrl: null,
-      audio: null,
-    });
-
     const { GET } = await import("./route");
     const response = await GET();
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body.didYouKnowAudio.status).toBe("pending");
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=900, s-maxage=900, stale-while-revalidate=3600",
+    );
+    expect(body.didYouKnowAudio).toBeUndefined();
   });
 
   it("logs details but returns a generic public error on unexpected failures", async () => {

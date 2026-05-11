@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "March 16, 2026";
+const LAST_UPDATED = "May 10, 2026";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Curio Garden",
@@ -97,8 +97,9 @@ export default function PrivacyPage() {
             Wikipedia content is displayed under its own licenses and policies.
           </li>
           <li>
-            Audio generation may rely on third-party text-to-speech tooling and
-            infrastructure when audio features are used.
+            Audio generation may rely on OpenAI synthetic speech services and
+            Microsoft Edge TTS fallback infrastructure when audio features are
+            used.
           </li>
         </ul>
       </LegalSection>

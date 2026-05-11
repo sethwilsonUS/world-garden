@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AudioDownloadButton } from "@/components/AudioDownloadButton";
+import { ArticleLink } from "@/components/ArticleLink";
 import { PodcastFeedPanel } from "@/components/PodcastFeedPanel";
 import { PodcastEpisodeCard } from "@/components/PodcastEpisodeCard";
 import {
@@ -196,13 +197,14 @@ export default async function PodcastsPage() {
                         summary={description}
                         actions={
                           <>
-                            <Link
+                            <ArticleLink
+                              articleTitle={episode.title}
                               href={`/article/${encodeURIComponent(episode.slug)}`}
                               className="btn-secondary text-sm no-underline"
                               aria-label={`View the Wikipedia article for ${episode.title}`}
                             >
                               View article
-                            </Link>
+                            </ArticleLink>
                             <AudioDownloadButton
                               href={`/api/podcast/media/${episode._id}?download=1`}
                               ariaLabel={`Download the podcast audio for ${episode.title}`}

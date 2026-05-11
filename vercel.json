@@ -6,16 +6,14 @@
   "crons": [
     { "path": "/api/featured/cron", "schedule": "5 0 * * *" },
     { "path": "/api/podcast/featured/cron", "schedule": "10 0 * * *" },
-    { "path": "/api/did-you-know/audio/cron", "schedule": "15 0 * * *" },
     { "path": "/api/picture-of-day/audio/cron", "schedule": "20 0 * * *" },
     { "path": "/api/featured/cron", "schedule": "35 0 * * *" },
     { "path": "/api/podcast/featured/cron", "schedule": "40 0 * * *" },
-    { "path": "/api/did-you-know/audio/cron", "schedule": "45 0 * * *" },
     { "path": "/api/picture-of-day/audio/cron", "schedule": "50 0 * * *" },
     { "path": "/api/podcast/trending/cron", "schedule": "45 4 * * *" },
     { "path": "/api/podcast/trending/cron", "schedule": "15 5 * * *" }
   ],
   "routes": [
-    { "src": "/api/tts", "dest": "_python/tts.py" }
+    { "src": "/api/tts/edge", "dest": "_python/tts.py" }
   ]
 }
