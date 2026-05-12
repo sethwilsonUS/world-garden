@@ -257,6 +257,271 @@ describe("TableOfContents audio eligibility", () => {
     expect(markup).toContain(">Listen<");
   });
 
+  it("makes Play All a stop control while the next section is loading", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          activeSectionIndex: 0,
+          isGenerating: true,
+          isPlayingAll: true,
+          isPaused: false,
+          isSpeaking: false,
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          onSkipSection: () => {},
+          onDownloadAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain('aria-label="Stop playing all sections"');
+    expect(markup).toContain(">Loading<");
+    expect(markup).not.toContain(">Stop<");
+  });
+
+  it("allows skipping a section while Play All is loading", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          activeSectionIndex: 0,
+          isGenerating: true,
+          isPlayingAll: true,
+          isPaused: false,
+          isSpeaking: false,
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          onSkipSection: () => {},
+          onDownloadAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+    const skipButton = markup.match(
+      /<button[^>]*aria-label="Skip to next section"[^>]*>/,
+    )?.[0];
+
+    expect(skipButton).toBeDefined();
+    expect(skipButton).not.toContain("disabled");
+  });
+
+  it("keeps download disabled while audio generation is active", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          activeSectionIndex: 0,
+          isGenerating: true,
+          isPlayingAll: true,
+          isPaused: false,
+          isSpeaking: false,
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          onSkipSection: () => {},
+          onDownloadAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    const downloadButton = markup.match(
+      /<button[^>]*aria-label="Download full article as one audio file"[^>]*>/,
+    )?.[0];
+
+    expect(downloadButton).toBeDefined();
+    expect(downloadButton).toContain('disabled=""');
+  });
+
+  it("shows the active Play All section with the same playing state as an individual section", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          playback: {
+            status: "playing",
+            sectionKey: "section-0",
+            sectionIdx: 0,
+            label: "History",
+            mode: "play_all",
+            slowLoading: false,
+          },
+          audioProgress: { currentTime: 4, duration: 12 },
+          onSeek: () => {},
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          onTogglePlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    const stopButton = markup.match(
+      /<button[^>]*aria-label="Stop playing all sections"[^>]*>/,
+    )?.[0];
+
+    expect(markup).toContain("Pause");
+    expect(markup).toContain(">Stop<");
+    expect(stopButton).toContain('type="button"');
+    expect(markup).toContain(">Playing<");
+    expect(markup).toContain("toc-progress-range");
+  });
+
+  it("keeps the active section progress visible while Play All is paused", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          playback: {
+            status: "paused",
+            sectionKey: "section-0",
+            sectionIdx: 0,
+            label: "History",
+            mode: "play_all",
+            slowLoading: false,
+          },
+          audioProgress: { currentTime: 4, duration: 12 },
+          onSeek: () => {},
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          onTogglePlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    const stopButton = markup.match(
+      /<button[^>]*aria-label="Stop playing all sections"[^>]*>/,
+    )?.[0];
+
+    expect(markup).toContain("Resume");
+    expect(markup).toContain(">Stop<");
+    expect(stopButton).toContain('type="button"');
+    expect(markup).toContain(">Paused<");
+    expect(markup).toContain("toc-progress-range");
+  });
+
+  it("renders the slow-loading nudge for Play All generation", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary with enough text to estimate a duration.",
+          sections: [
+            {
+              title: "History",
+              level: 2,
+              content:
+                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+              audioMode: "full" as const,
+              audioReason: "eligible" as const,
+            },
+          ],
+          playback: {
+            status: "loading",
+            sectionKey: "section-0",
+            sectionIdx: 0,
+            label: "History",
+            mode: "play_all",
+            slowLoading: true,
+          },
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain("aria-live=\"polite\"");
+    expect(markup).toContain("Still generating audio. OpenAI is taking a little longer.");
+  });
+
   it("renders the high-demand fallback voice notice as polite status text", () => {
     const markup = renderToStaticMarkup(
       createElement(

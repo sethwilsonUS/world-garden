@@ -46,6 +46,23 @@ export type TtsAudioUrlResult = {
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown error";
 
+const DEFAULT_TTS_CLIENT_TIMEOUT_MS = 65_000;
+const DEFAULT_TTS_CHUNK_CONCURRENCY = 2;
+
+const parsePositiveInt = (value: string | undefined): number | null => {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const getClientTtsTimeoutMs = (): number =>
+  parsePositiveInt(process.env.NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS) ??
+  DEFAULT_TTS_CLIENT_TIMEOUT_MS;
+
+const getClientTtsChunkConcurrency = (): number =>
+  parsePositiveInt(process.env.NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY) ??
+  DEFAULT_TTS_CHUNK_CONCURRENCY;
+
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
 
@@ -162,8 +179,13 @@ const fetchSingleTtsAudioWithMetadata = async ({
 }: TtsRequest, options?: TtsClientOptions): Promise<SingleTtsAudioResult> => {
   const requestHeaders = new Headers(options?.headers);
   requestHeaders.set("Content-Type", "application/json");
+  const timeoutMs = getClientTtsTimeoutMs();
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : null;
+  let didTimeout = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  const resp = await fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
+  const fetchPromise = fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
     method: "POST",
     headers: requestHeaders,
     body: JSON.stringify({
@@ -171,7 +193,34 @@ const fetchSingleTtsAudioWithMetadata = async ({
       ...(voiceId ? { voiceId } : {}),
       ...(provider ? { provider } : {}),
     }),
+    ...(controller ? { signal: controller.signal } : {}),
   });
+
+  const timeoutPromise =
+    timeoutMs > 0
+      ? new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            didTimeout = true;
+            controller?.abort();
+            reject(new Error(`TTS request timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+        })
+      : null;
+
+  let resp: Response;
+  try {
+    resp = await (timeoutPromise
+      ? Promise.race([fetchPromise, timeoutPromise])
+      : fetchPromise);
+  } catch (error) {
+    if (didTimeout) {
+      throw new Error(`TTS request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    fetchPromise.catch(() => {});
+  }
 
   if (!resp.ok) {
     const contentType = resp.headers.get("content-type") ?? "unknown";
@@ -228,45 +277,65 @@ const generateTtsAudioForChunks = async ({
   options?: TtsClientOptions;
   fallbackReason?: TtsFallbackReason;
 }): Promise<TtsAudioResult> => {
-  const audioChunks: Blob[] = [];
-  let metadata: TtsMetadata | null = null;
+  const fetchChunkResults = async (): Promise<SingleTtsAudioResult[]> => {
+    const results: SingleTtsAudioResult[] = new Array(chunks.length);
+    const workerCount = Math.min(getClientTtsChunkConcurrency(), chunks.length);
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (nextIndex < chunks.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const chunk = chunks[index];
+        if (!chunk) continue;
+
+        try {
+          results[index] = await fetchSingleTtsAudioWithMetadata(
+            { text: chunk, voiceId, provider },
+            options,
+          );
+        } catch (error) {
+          throw new Error(
+            `TTS chunk ${index + 1}/${chunks.length} failed (${countWords(chunk)} words): ${getErrorMessage(error)}`,
+          );
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    return results;
+  };
+
+  const results = await fetchChunkResults();
   let activeFallbackReason = fallbackReason;
 
-  for (const [index, chunk] of chunks.entries()) {
-    try {
-      const result = await fetchSingleTtsAudioWithMetadata(
-        { text: chunk, voiceId, provider },
+  let metadata: TtsMetadata | null = null;
+  for (const result of results) {
+    activeFallbackReason ??= result.fallbackReason;
+
+    if (
+      chunks.length > 1 &&
+      (result.usedFallback ||
+        (metadata && metadata.provider !== result.metadata.provider) ||
+        (provider && provider !== result.metadata.provider))
+    ) {
+      return generateTtsAudioForChunks({
+        chunks,
+        voiceId,
+        provider: result.metadata.provider,
         options,
-      );
-      activeFallbackReason ??= result.fallbackReason;
-
-      if (
-        chunks.length > 1 &&
-        (result.usedFallback ||
-          (metadata && metadata.provider !== result.metadata.provider) ||
-          (provider && provider !== result.metadata.provider))
-      ) {
-        return generateTtsAudioForChunks({
-          chunks,
-          voiceId,
-          provider: result.metadata.provider,
-          options,
-          fallbackReason: activeFallbackReason,
-        });
-      }
-
-      metadata = result.metadata;
-      audioChunks.push(result.blob);
-    } catch (error) {
-      throw new Error(
-        `TTS chunk ${index + 1}/${chunks.length} failed (${countWords(chunk)} words): ${getErrorMessage(error)}`,
-      );
+        fallbackReason: activeFallbackReason,
+      });
     }
+
+    metadata = result.metadata;
   }
 
   if (!metadata) {
     throw new Error("No audio was generated");
   }
+
+  const audioChunks = results.map((result) => result.blob);
 
   if (audioChunks.length === 1) {
     return {

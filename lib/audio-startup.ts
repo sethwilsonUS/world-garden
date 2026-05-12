@@ -16,9 +16,13 @@ export type AudioStartupResolution = {
   result: TtsAudioUrlResult;
 };
 
+export type AudioRequestOwner = "warm" | "playback";
+
 export type AudioRequestCacheEntry = {
   promise: Promise<TtsAudioUrlResult>;
   result: TtsAudioUrlResult | null;
+  startedAt: number;
+  owner: AudioRequestOwner;
 };
 
 export type AudioRequestCache = Map<string, AudioRequestCacheEntry>;
@@ -39,6 +43,8 @@ export const primeAudioRequest = (
   cache.set(sectionKey, {
     promise: Promise.resolve(result),
     result,
+    startedAt: Date.now(),
+    owner: "playback",
   });
 };
 
@@ -47,25 +53,80 @@ export const getAudioRequestResult = (
   sectionKey: string,
 ): TtsAudioUrlResult | null => cache.get(sectionKey)?.result ?? null;
 
+export const clearAudioRequest = (
+  cache: AudioRequestCache,
+  sectionKey: string,
+): void => {
+  cache.delete(sectionKey);
+};
+
 export const awaitAudioRequest = (
   cache: AudioRequestCache,
   sectionKey: string,
+  options: {
+    timeoutMs?: number;
+    staleAfterMs?: number;
+    clearOnTimeout?: boolean;
+  } = {},
 ): Promise<TtsAudioUrlResult | null> | null => {
   const entry = cache.get(sectionKey);
-  return entry?.promise.catch(() => null) ?? null;
+  if (!entry) return null;
+
+  const request = entry.promise.catch(() => null);
+  const staleAfterMs =
+    typeof options.staleAfterMs === "number" && options.staleAfterMs > 0
+      ? options.staleAfterMs
+      : null;
+  const timeoutMs =
+    staleAfterMs !== null
+      ? Math.max(0, staleAfterMs - Math.max(0, Date.now() - entry.startedAt))
+      : typeof options.timeoutMs === "number" && options.timeoutMs > 0
+        ? options.timeoutMs
+        : null;
+
+  if (timeoutMs === null) return request;
+
+  if (timeoutMs === 0) {
+    if (options.clearOnTimeout && cache.get(sectionKey) === entry) {
+      cache.delete(sectionKey);
+    }
+    return Promise.resolve(null);
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => {
+      if (options.clearOnTimeout && cache.get(sectionKey) === entry) {
+        cache.delete(sectionKey);
+      }
+      resolve(null);
+    }, timeoutMs);
+  });
+
+  return Promise.race([request, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 };
 
 export const startAudioRequest = (
   cache: AudioRequestCache,
   sectionKey: string,
   generate: () => Promise<TtsAudioUrlResult>,
+  options: { force?: boolean; owner?: AudioRequestOwner } = {},
 ): Promise<TtsAudioUrlResult> => {
   const existing = cache.get(sectionKey);
-  if (existing) return existing.promise;
+  if (existing && !options.force) {
+    if ((options.owner ?? "playback") === "playback") {
+      existing.owner = "playback";
+    }
+    return existing.promise;
+  }
 
   const entry: AudioRequestCacheEntry = {
     promise: Promise.resolve().then(generate),
     result: null,
+    startedAt: Date.now(),
+    owner: options.owner ?? "playback",
   };
 
   entry.promise = entry.promise
@@ -91,7 +152,7 @@ export const warmAudioRequest = (
   sectionKey: string,
   generate: () => Promise<TtsAudioUrlResult>,
 ): Promise<TtsAudioUrlResult | null> =>
-  startAudioRequest(cache, sectionKey, generate).catch(() => null);
+  startAudioRequest(cache, sectionKey, generate, { owner: "warm" }).catch(() => null);
 
 export const selectNextWarmQueueItems = <TItem extends WarmQueueItem>(
   queue: TItem[],
