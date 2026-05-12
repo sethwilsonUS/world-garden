@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Section } from "@/lib/data-context";
 import type {
@@ -23,6 +29,8 @@ import {
 const SAMPLE_INTERVAL_MS = 1_000;
 const FLUSH_INTERVAL_MS = 5_000;
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 type ReportProgressFn = (args: {
   articleId: Id<"articles">;
@@ -46,6 +54,7 @@ type UseBadgeListenTrackingArgs = {
   trackingSectionKey: string | null;
   audioDurationSeconds: number;
   isPlaying: boolean;
+  enabled?: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
   reportProgress: ReportProgressFn;
   onBadgesAwarded?: (args: {
@@ -97,12 +106,14 @@ export const useBadgeListenTracking = ({
   trackingSectionKey,
   audioDurationSeconds,
   isPlaying,
+  enabled = true,
   audioRef,
   reportProgress,
   onBadgesAwarded,
   resolveAwardedBadges,
 }: UseBadgeListenTrackingArgs) => {
-  const enabledRef = useRef(!isLocal);
+  const unauthorizedRef = useRef(false);
+  const enabledRef = useRef(!isLocal && enabled);
   const isPlayingRef = useRef(isPlaying);
   const currentSectionKeyRef = useRef<string | null>(trackingSectionKey);
   const pendingRangesRef = useRef<HeardRange[]>([]);
@@ -152,7 +163,11 @@ export const useBadgeListenTracking = ({
 
   const flushPendingRanges = useCallback(
     async (sectionKeyOverride?: string | null) => {
-      if (!enabledRef.current) return;
+      if (!enabledRef.current) {
+        pendingRangesRef.current = [];
+        lastSampleRef.current = null;
+        return;
+      }
 
       const sectionKey = sectionKeyOverride ?? currentSectionKeyRef.current;
       if (!articleId || !wikiPageId || !title || !sectionKey) {
@@ -201,8 +216,10 @@ export const useBadgeListenTracking = ({
         }
       } catch (error) {
         if (isUnauthorizedError(error)) {
+          unauthorizedRef.current = true;
           enabledRef.current = false;
           pendingRangesRef.current = [];
+          lastSampleRef.current = null;
           return;
         }
 
@@ -227,6 +244,12 @@ export const useBadgeListenTracking = ({
 
   const samplePlayback = useCallback(
     (allowPaused = false) => {
+      if (!enabledRef.current) {
+        pendingRangesRef.current = [];
+        lastSampleRef.current = null;
+        return;
+      }
+
       const sectionKey = currentSectionKeyRef.current;
       const audio = audioRef.current;
       if (!sectionKey || !audio) {
@@ -274,6 +297,28 @@ export const useBadgeListenTracking = ({
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  useBrowserLayoutEffect(() => {
+    if (!enabled) {
+      unauthorizedRef.current = false;
+    }
+
+    enabledRef.current = !isLocal && enabled && !unauthorizedRef.current;
+
+    if (!enabledRef.current) {
+      pendingRangesRef.current = [];
+      lastSampleRef.current = null;
+      return;
+    }
+
+    const audio = audioRef.current;
+    if (isPlaying && currentSectionKeyRef.current && audio) {
+      lastSampleRef.current = {
+        currentTime: audio.currentTime,
+        observedAt: performance.now(),
+      };
+    }
+  }, [audioRef, enabled, isPlaying]);
+
   useEffect(() => {
     if (!trackingSectionKey || audioDurationSeconds <= 0) return;
     knownDurationsRef.current[trackingSectionKey] = Math.max(
@@ -294,7 +339,7 @@ export const useBadgeListenTracking = ({
 
     const audio = audioRef.current;
     lastSampleRef.current =
-      trackingSectionKey && audio
+      enabledRef.current && trackingSectionKey && audio
         ? {
             currentTime: audio.currentTime,
             observedAt: performance.now(),
@@ -305,6 +350,11 @@ export const useBadgeListenTracking = ({
   useEffect(() => {
     const wasPlaying = previousPlayingRef.current;
     previousPlayingRef.current = isPlaying;
+
+    if (!enabledRef.current) {
+      lastSampleRef.current = null;
+      return;
+    }
 
     if (!wasPlaying && isPlaying) {
       const audio = audioRef.current;
@@ -334,7 +384,7 @@ export const useBadgeListenTracking = ({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isPlaying, samplePlayback, trackingSectionKey]);
+  }, [enabled, isPlaying, samplePlayback, trackingSectionKey]);
 
   useEffect(() => {
     if (!trackingSectionKey || !enabledRef.current) return;
@@ -351,7 +401,7 @@ export const useBadgeListenTracking = ({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [flushPendingRanges, samplePlayback, trackingSectionKey]);
+  }, [enabled, flushPendingRanges, samplePlayback, trackingSectionKey]);
 
   useEffect(() => {
     const handlePageExit = () => {
