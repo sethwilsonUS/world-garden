@@ -52,6 +52,7 @@ export const ArticleCard = ({
         >
           {article.thumbnail ? (
             <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden" aria-hidden="true">
+              {/* Wikimedia thumbnails stay direct instead of proxying broad Commons URLs through Next. */}
               <Image
                 src={article.thumbnail.source}
                 alt=""

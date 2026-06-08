@@ -877,6 +877,7 @@ const ArticleViewContent = ({
   }, [displayArticle, warmPlayAllQueue, warmSummaryForIntent]);
 
   const audioEndedRef = useRef<() => void>(() => {});
+  // Keeps queued "play all" continuations calling the latest generator callback.
   const generateAudioRef = useRef<GenerateAudio>(() => {});
 
   const {
@@ -1625,6 +1626,10 @@ const ArticleViewContent = ({
       {displayArticle.thumbnailUrl ? (() => {
         const w = displayArticle.thumbnailWidth ?? 0;
         const h = displayArticle.thumbnailHeight ?? 0;
+        const hasThumbnailDimensions = w > 0 && h > 0;
+        // Next Image needs intrinsic dimensions; use 16:9 only as a rare metadata fallback.
+        const thumbnailWidth = hasThumbnailDimensions ? w : 1200;
+        const thumbnailHeight = hasThumbnailDimensions ? h : 675;
         const isPortrait = w > 0 && h >= w;
         const needsImageBackdrop =
           heroImageAnalysis?.url === displayArticle.thumbnailUrl &&
@@ -1650,6 +1655,7 @@ const ArticleViewContent = ({
               onClick={openHeroLightbox}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHeroLightbox(); } }}
             >
+              {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
               <Image
                 src={displayArticle.thumbnailUrl}
                 alt=""
@@ -1671,8 +1677,8 @@ const ArticleViewContent = ({
                   <Image
                     src={displayArticle.thumbnailUrl}
                     alt={displayArticle.title}
-                    width={w || 1200}
-                    height={h || 675}
+                    width={thumbnailWidth}
+                    height={thumbnailHeight}
                     className="max-h-56 sm:max-h-72 w-auto object-contain rounded-lg shrink-0"
                     priority
                     unoptimized
@@ -1704,6 +1710,7 @@ const ArticleViewContent = ({
           >
             {needsImageBackdrop ? (
               <>
+                {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
                 <Image
                   src={displayArticle.thumbnailUrl}
                   alt=""
@@ -1723,8 +1730,8 @@ const ArticleViewContent = ({
                     <Image
                       src={displayArticle.thumbnailUrl}
                       alt={displayArticle.title}
-                      width={w || 1200}
-                      height={h || 675}
+                      width={thumbnailWidth}
+                      height={thumbnailHeight}
                       className="w-full max-h-48 sm:max-h-64 object-contain rounded-lg"
                       priority
                       unoptimized
@@ -1733,15 +1740,18 @@ const ArticleViewContent = ({
                 </div>
               </>
             ) : (
-              <Image
-                src={displayArticle.thumbnailUrl}
-                alt={displayArticle.title}
-                width={w || 1200}
-                height={h || 675}
-                className="w-full max-h-48 sm:max-h-64 object-cover"
-                priority
-                unoptimized
-              />
+              <>
+                {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
+                <Image
+                  src={displayArticle.thumbnailUrl}
+                  alt={displayArticle.title}
+                  width={thumbnailWidth}
+                  height={thumbnailHeight}
+                  className="w-full max-h-48 sm:max-h-64 object-cover"
+                  priority
+                  unoptimized
+                />
+              </>
             )}
             {displayArticle.summary && (
               <div className="hidden md:block absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"

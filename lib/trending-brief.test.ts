@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildTrendingBriefPrompt,
   getCachedTrendingBriefContent,
+  getDailyTrendingBriefState,
   hasCurrentTrendingArtworkVersion,
   normalizeTrendingBrief,
   parseGeneratedTrendingBrief,
@@ -9,6 +10,48 @@ import {
   shouldReuseExistingTrendingBrief,
 } from "./trending-brief";
 import { getActiveTtsCacheKey } from "./tts-profile";
+
+vi.mock("convex/nextjs", () => ({
+  fetchMutation: vi.fn(),
+  fetchQuery: vi.fn(async () => null),
+}));
+
+vi.mock("@/lib/today-snapshot", () => ({
+  getTodayWikipediaData: vi.fn(async () => ({
+    feedDate: "2026-03-11",
+    snapshotIsStale: false,
+    trending: [
+      {
+        title: "Example Trend",
+        extract: "A trending article.",
+        views: 12345,
+      },
+    ],
+    trendingDate: "2026-03-11",
+    trendingIsStale: false,
+  })),
+}));
+
+const originalAiGatewayApiKey = process.env.AI_GATEWAY_API_KEY;
+const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+
+const restoreEnvValue = (key: string, value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+};
+
+afterEach(async () => {
+  const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+  vi.mocked(fetchMutation).mockClear();
+  vi.mocked(fetchQuery).mockClear();
+  restoreEnvValue("AI_GATEWAY_API_KEY", originalAiGatewayApiKey);
+  restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
+  restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
+});
 
 describe("normalizeTrendingBrief", () => {
   it("dedupes sources, trims fields, and strips URLs from spoken text", () => {
@@ -191,6 +234,25 @@ describe("cached trending brief reuse", () => {
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(false);
+  });
+});
+
+describe("getDailyTrendingBriefState", () => {
+  it("returns disabled without querying Convex in local mode without a Convex URL", async () => {
+    process.env.AI_GATEWAY_API_KEY = "gateway-key";
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
+    process.env.NEXT_PUBLIC_CONVEX_URL = "";
+
+    await expect(getDailyTrendingBriefState()).resolves.toMatchObject({
+      enabled: false,
+      status: "disabled",
+      trendingDate: "2026-03-11",
+      articleTitles: ["Example Trend"],
+      brief: null,
+    });
+
+    const { fetchQuery } = await import("convex/nextjs");
+    expect(fetchQuery).not.toHaveBeenCalled();
   });
 });
 

@@ -1,9 +1,22 @@
 import { createElement, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import DashboardPage from "./page";
 
 let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
+const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+
+const restoreEnvValue = (key: string, value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+};
+
+afterEach(() => {
+  restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
+});
 
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
@@ -114,5 +127,26 @@ describe("DashboardPage", () => {
     expect(markup).toContain("opaque-token");
     expect(markup).toContain("Signed-in progress");
     expect(markup).toContain("Podcast plays in podcast apps do not count toward badges yet.");
+  });
+
+  it("renders the local-mode dashboard without touching Clerk", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
+    vi.resetModules();
+    vi.doMock("@clerk/nextjs", () => ({
+      SignInButton: () => {
+        throw new Error("Clerk component should not render in local mode");
+      },
+      useAuth: () => {
+        throw new Error("Clerk hook should not run in local mode");
+      },
+      useUser: () => {
+        throw new Error("Clerk hook should not run in local mode");
+      },
+    }));
+
+    const LocalDashboardPage = (await import("./page")).default;
+    const markup = renderToStaticMarkup(createElement(LocalDashboardPage));
+
+    expect(markup).toContain("Dashboard is only available with accounts enabled");
   });
 });

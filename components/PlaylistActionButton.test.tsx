@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from "react";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,8 +23,9 @@ describe("PlaylistActionButton", () => {
   it("does not touch Clerk or playlist hooks in local mode", async () => {
     process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
     vi.doMock("@clerk/nextjs", () => ({
-      SignInButton: ({ children }: { children: ReactNode }) =>
-        createElement("div", null, children),
+      SignInButton: () => {
+        throw new Error("Clerk component should not render in local mode");
+      },
       useAuth: () => {
         throw new Error("Clerk hook should not run in local mode");
       },

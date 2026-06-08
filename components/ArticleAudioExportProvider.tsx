@@ -79,13 +79,40 @@ const ArticleAudioExportContext =
 const emptySubscribe = () => () => {};
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
+let fallbackClientId: string | null = null;
+
+const createClientId = (): string => {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.crypto?.randomUUID === "function"
+  ) {
+    return window.crypto.randomUUID();
+  }
+
+  return `client-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
+const readClientIdSnapshot = (): string | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    return window.localStorage.getItem(CLIENT_ID_STORAGE_KEY) ?? fallbackClientId;
+  } catch {
+    return fallbackClientId;
+  }
+};
 
 const ensureClientId = (): string => {
-  const existing = window.localStorage.getItem(CLIENT_ID_STORAGE_KEY);
+  const existing = readClientIdSnapshot();
   if (existing) return existing;
 
-  const created = window.crypto.randomUUID();
-  window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, created);
+  const created = createClientId();
+  fallbackClientId = created;
+  try {
+    window.localStorage.setItem(CLIENT_ID_STORAGE_KEY, created);
+  } catch {
+    // Restricted storage contexts can still use the in-memory ID for this tab.
+  }
   return created;
 };
 
@@ -406,7 +433,9 @@ export const ArticleAudioExportProvider = ({
     () => true,
     () => false,
   );
-  const clientId = useSyncExternalStore(emptySubscribe, ensureClientId, () => null);
+  const [clientId, setClientId] = useState<string | null>(
+    readClientIdSnapshot,
+  );
   const [startingJobs, setStartingJobs] = useState<StartingJob[]>([]);
   const [directDownloads, setDirectDownloads] = useState<DirectDownloadToast[]>([]);
   const [announcements, setAnnouncements] = useState({
@@ -414,6 +443,18 @@ export const ArticleAudioExportProvider = ({
     assertive: "",
   });
   const previousStatusesRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setClientId((current) => current ?? ensureClientId());
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const queriedJobs = useQuery(
     api.articleExports.getRecentArticleAudioExports,
@@ -544,6 +585,10 @@ export const ArticleAudioExportProvider = ({
 
       if (!resolvedClientId) {
         throw new Error("Article export client is not ready yet.");
+      }
+
+      if (!clientId) {
+        setClientId((current) => current ?? resolvedClientId);
       }
 
       setStartingJobs((current) =>

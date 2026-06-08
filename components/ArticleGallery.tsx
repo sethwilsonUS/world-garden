@@ -27,6 +27,7 @@ const ImageCard = ({
       >
         {!error ? (
           <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden">
+            {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
             <Image
               src={image.src}
               alt={image.alt && image.alt !== image.caption ? image.alt : ""}
@@ -213,6 +214,7 @@ export const Lightbox = ({
               width={image.width ?? 1600}
               height={image.height ?? 900}
               className="max-w-full max-h-[80vh] object-contain rounded-lg"
+              // Wikimedia originals stay direct instead of proxying broad Commons URLs through Next.
               unoptimized
             />
           )}

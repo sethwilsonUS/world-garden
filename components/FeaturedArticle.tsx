@@ -120,6 +120,7 @@ export const FeaturedArticle = () => {
           <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
             {featured!.thumbnail && (
               <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-surface-3 sm:min-h-[120px] sm:w-40 sm:aspect-auto">
+                {/* Wikimedia thumbnails stay direct instead of proxying broad Commons URLs through Next. */}
                 <Image
                   src={featured!.thumbnail.source}
                   alt=""
