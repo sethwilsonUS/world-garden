@@ -27,6 +27,8 @@ describe("proxy", () => {
     const proxy = (await import("./proxy")).default;
 
     expect(clerkMiddleware).not.toHaveBeenCalled();
-    expect(proxy(new Request("https://curiogarden.org/dashboard"))).toBeTruthy();
+    expect(
+      proxy(new Request("https://curiogarden.org/dashboard") as never, {} as never),
+    ).toBeTruthy();
   });
 });
