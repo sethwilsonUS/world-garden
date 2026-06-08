@@ -167,7 +167,8 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `CLERK_JWT_ISSUER_DOMAIN` | Convex mode | Clerk Frontend API URL configured in the Convex dashboard for JWT verification |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot |
 | `CLERK_SECRET_KEY` | No | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments |
-| `NEXT_PUBLIC_LOCAL_MODE` | No | Set to `"true"` to run without Convex |
+| `LOCAL_MODE` | No | Server-only flag used by `npm run local` to bypass Clerk middleware outside production |
+| `NEXT_PUBLIC_LOCAL_MODE` | No | Public client/server-render flag used by `npm run local` to run without Convex or account UI |
 | `TTS_PRIMARY_PROVIDER` | No | Primary speech provider for `/api/tts`; defaults to `openai` |
 | `OPENAI_API_KEY` | Yes for OpenAI TTS | Direct OpenAI API key for `/v1/audio/speech` |
 | `OPENAI_TTS_MODEL` | No | OpenAI speech model; defaults to `gpt-4o-mini-tts` |

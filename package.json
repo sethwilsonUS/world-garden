@@ -12,7 +12,7 @@
     "dev:frontend-python": "USE_PYTHON_TTS=true next dev",
     "dev:backend": "convex dev",
     "dev:tts-python": "bash scripts/ensure-edge-tts.sh scripts/dev-tts.py",
-    "local": "NEXT_PUBLIC_LOCAL_MODE=true next dev",
+    "local": "LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true next dev",
     "analytics:site": "node scripts/site-analytics-report.mjs",
     "build": "bash scripts/build.sh",
     "start": "next start",
