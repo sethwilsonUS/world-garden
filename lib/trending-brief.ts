@@ -371,6 +371,10 @@ const uploadBlobToConvexStorage = async (
 export const isTrendingBriefEnabled = (): boolean =>
   Boolean(process.env.AI_GATEWAY_API_KEY);
 
+const canReadTrendingBriefsFromConvex = (): boolean =>
+  process.env.NEXT_PUBLIC_LOCAL_MODE !== "true" &&
+  Boolean(process.env.NEXT_PUBLIC_CONVEX_URL?.trim());
+
 const generateTrendingBriefRecord = async ({
   baseUrl,
   force = false,
@@ -790,11 +794,8 @@ export const syncDailyTrendingBrief = async ({
 export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefState> => {
   const { trendingDateIso, sourceIsStale, articles } =
     await getCurrentTrendingBriefSource();
-  const brief = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
-    trendingDate: trendingDateIso,
-  })) as TrendingBriefRecord | null;
 
-  if (!isTrendingBriefEnabled()) {
+  if (!isTrendingBriefEnabled() || !canReadTrendingBriefsFromConvex()) {
     return {
       enabled: false,
       status: "disabled",
@@ -804,6 +805,10 @@ export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefSt
       brief: null,
     };
   }
+
+  const brief = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
+    trendingDate: trendingDateIso,
+  })) as TrendingBriefRecord | null;
 
   if (brief?.status === "ready" && brief.audioUrl) {
     return {

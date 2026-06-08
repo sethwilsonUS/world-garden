@@ -1,9 +1,9 @@
 # Curio Garden
 
-![Next.js](https://img.shields.io/badge/Next.js-16.1.6-black?logo=next.js)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
-![Convex](https://img.shields.io/badge/Convex-1.32-F3694C?logo=convex&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16.2.7-black?logo=next.js)
+![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)
+![Convex](https://img.shields.io/badge/Convex-1.40-F3694C?logo=convex&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![WCAG 2.2 AA](https://img.shields.io/badge/WCAG_2.2-AA-green?logo=accessibility&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
@@ -80,7 +80,7 @@ For article caching, synced accounts, personal playlist feeds, and audio caching
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.13.0 (or another Node 22 release that satisfies `>=22.13.0 <23`)
 - A [Convex](https://convex.dev) account
 
 ### 1. Install dependencies
@@ -167,7 +167,8 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `CLERK_JWT_ISSUER_DOMAIN` | Convex mode | Clerk Frontend API URL configured in the Convex dashboard for JWT verification |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot |
 | `CLERK_SECRET_KEY` | No | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments |
-| `NEXT_PUBLIC_LOCAL_MODE` | No | Set to `"true"` to run without Convex |
+| `LOCAL_MODE` | No | Server-only flag used by `npm run local` to bypass Clerk middleware outside production |
+| `NEXT_PUBLIC_LOCAL_MODE` | No | Public client/server-render flag used by `npm run local` to run without Convex or account UI |
 | `TTS_PRIMARY_PROVIDER` | No | Primary speech provider for `/api/tts`; defaults to `openai` |
 | `OPENAI_API_KEY` | Yes for OpenAI TTS | Direct OpenAI API key for `/v1/audio/speech` |
 | `OPENAI_TTS_MODEL` | No | OpenAI speech model; defaults to `gpt-4o-mini-tts` |

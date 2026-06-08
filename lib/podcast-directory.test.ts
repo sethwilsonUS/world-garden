@@ -1,14 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PODCAST_DIRECTORY,
   formatPodcastDate,
   formatTrendingDate,
   getAbsoluteFeedUrl,
+  getFeaturedEpisodes,
   getPodcastDirectoryEntry,
   getFeaturedEpisodeArtworkUrl,
   getTrendingEpisodeTitle,
   getTrendingEpisodeArtworkUrl,
+  getTrendingEpisodes,
 } from "./podcast-directory";
+
+vi.mock("convex/nextjs", () => ({
+  fetchQuery: vi.fn(async () => [{ _id: "from-convex" }]),
+}));
+
+const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+const restoreEnvValue = (key: string, value: string | undefined) => {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+};
+
+afterEach(async () => {
+  const { fetchQuery } = await import("convex/nextjs");
+  vi.mocked(fetchQuery).mockClear();
+  restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
+  restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
+});
 
 describe("getPodcastDirectoryEntry", () => {
   it("returns the featured feed entry", () => {
@@ -19,6 +43,19 @@ describe("getPodcastDirectoryEntry", () => {
 
   it("returns null for unknown slugs", () => {
     expect(getPodcastDirectoryEntry("unknown")).toBeNull();
+  });
+});
+
+describe("episode queries", () => {
+  it("skips Convex fetches in local mode when no Convex URL is configured", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
+    process.env.NEXT_PUBLIC_CONVEX_URL = "";
+
+    await expect(getFeaturedEpisodes(5)).resolves.toEqual([]);
+    await expect(getTrendingEpisodes(5)).resolves.toEqual([]);
+
+    const { fetchQuery } = await import("convex/nextjs");
+    expect(fetchQuery).not.toHaveBeenCalled();
   });
 });
 

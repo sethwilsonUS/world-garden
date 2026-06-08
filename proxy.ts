@@ -1,6 +1,12 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-export default clerkMiddleware();
+const shouldBypassClerkMiddleware =
+  process.env.LOCAL_MODE === "true" && process.env.NODE_ENV !== "production";
+
+export default shouldBypassClerkMiddleware
+  ? () => NextResponse.next()
+  : clerkMiddleware();
 
 export const config = {
   matcher: [

@@ -18,10 +18,10 @@ afterEach(() => {
   global.fetch = originalFetch;
   vi.restoreAllMocks();
   vi.resetModules();
-  vi.unmock("convex/nextjs");
-  vi.unmock("convex/server");
-  vi.unmock("@/lib/featured-article");
-  vi.unmock("@/lib/nsfw-filter");
+  vi.doUnmock("convex/nextjs");
+  vi.doUnmock("convex/server");
+  vi.doUnmock("@/lib/featured-article");
+  vi.doUnmock("@/lib/nsfw-filter");
   restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
   restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
 });

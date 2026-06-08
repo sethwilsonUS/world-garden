@@ -110,18 +110,28 @@ export const getTrendingEpisodeArtworkUrl = (
   episode.imageUrls?.[0] ??
   null;
 
+const shouldFetchPodcastEpisodesFromConvex = (): boolean =>
+  process.env.NEXT_PUBLIC_LOCAL_MODE !== "true" &&
+  Boolean(process.env.NEXT_PUBLIC_CONVEX_URL?.trim());
+
 export const getFeaturedEpisodes = async (
   limit: number,
-): Promise<FeaturedPodcastEpisode[]> =>
-  (await fetchQuery(anyApi.podcast.getRecentFeaturedEpisodes, {
+): Promise<FeaturedPodcastEpisode[]> => {
+  if (!shouldFetchPodcastEpisodesFromConvex()) return [];
+
+  return (await fetchQuery(anyApi.podcast.getRecentFeaturedEpisodes, {
     status: "ready",
     limit,
   })) as FeaturedPodcastEpisode[];
+};
 
 export const getTrendingEpisodes = async (
   limit: number,
-): Promise<TrendingPodcastEpisode[]> =>
-  (await fetchQuery(anyApi.trending.getRecentTrendingBriefs, {
+): Promise<TrendingPodcastEpisode[]> => {
+  if (!shouldFetchPodcastEpisodesFromConvex()) return [];
+
+  return (await fetchQuery(anyApi.trending.getRecentTrendingBriefs, {
     status: "ready",
     limit,
   })) as TrendingPodcastEpisode[];
+};

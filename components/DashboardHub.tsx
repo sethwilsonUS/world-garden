@@ -803,13 +803,7 @@ const LocalModeDashboard = () => {
   );
 };
 
-export const DashboardHub = () => {
-  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
-
-  useEffect(() => {
-    analytics.dashboardPageAccessed();
-  }, []);
-
+const DashboardHubFrame = ({ children }: { children: ReactNode }) => {
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="mx-auto max-w-[88rem]">
@@ -835,16 +829,28 @@ export const DashboardHub = () => {
           </Link>
         </nav>
 
-        {isLocal ? (
-          <LocalModeDashboard />
-        ) : !isAuthLoaded ? (
-          <LoadingDashboard />
-        ) : !isSignedIn ? (
-          <SignedOutDashboardTeaser />
-        ) : (
-          <SignedInDashboard />
-        )}
+        {children}
       </div>
     </div>
+  );
+};
+
+const DashboardAccountContent = () => {
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+
+  if (!isAuthLoaded) return <LoadingDashboard />;
+  if (!isSignedIn) return <SignedOutDashboardTeaser />;
+  return <SignedInDashboard />;
+};
+
+export const DashboardHub = () => {
+  useEffect(() => {
+    analytics.dashboardPageAccessed();
+  }, []);
+
+  return (
+    <DashboardHubFrame>
+      {isLocal ? <LocalModeDashboard /> : <DashboardAccountContent />}
+    </DashboardHubFrame>
   );
 };
