@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { analytics } from "@/lib/analytics";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
@@ -38,6 +39,7 @@ export const ArticleCard = ({
   source?: "curious" | "trending_page";
 }) => {
   const slug = encodeURIComponent(article.title.replace(/ /g, "_"));
+  const imagePriority = imageLoading === "eager";
 
   return (
     <li>
@@ -50,11 +52,15 @@ export const ArticleCard = ({
         >
           {article.thumbnail ? (
             <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden" aria-hidden="true">
-              <img
+              <Image
                 src={article.thumbnail.source}
                 alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-                loading={imageLoading}
+                fill
+                sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                className="object-cover"
+                loading={imagePriority ? undefined : "lazy"}
+                priority={imagePriority}
+                unoptimized
               />
             </div>
           ) : (

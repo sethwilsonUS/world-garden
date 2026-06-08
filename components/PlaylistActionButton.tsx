@@ -18,14 +18,28 @@ export const PlaylistActionButton = ({
   title: string;
   className?: string;
 }) => {
+  if (isLocal) {
+    return null;
+  }
+
+  return (
+    <PlaylistActionButtonInner slug={slug} title={title} className={className} />
+  );
+};
+
+const PlaylistActionButtonInner = ({
+  slug,
+  title,
+  className = "",
+}: {
+  slug: string;
+  title: string;
+  className?: string;
+}) => {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { addBySlug, isAdding, isAvailable, isLoaded, isInPlaylist } =
     usePersonalPlaylist();
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  if (isLocal) {
-    return null;
-  }
 
   const disabled = isSubmitting || isAdding(slug);
   const active = isInPlaylist(slug);

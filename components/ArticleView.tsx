@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useData, type Article, type Section } from "@/lib/data-context";
@@ -77,6 +78,13 @@ type QueueItem = {
   label: string;
   sectionIdx: number | null;
 };
+
+type GenerateAudio = (
+  sectionKey: string,
+  label: string,
+  sectionIdx: number | null,
+  source?: AudioStartupSource,
+) => void;
 
 const PLAY_ALL_WARM_WINDOW = 2;
 const PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS = 5_000;
@@ -345,6 +353,7 @@ const AuthenticatedArticleView = ({ slug }: { slug: string }) => {
 
   return (
     <ArticleViewContent
+      key={slug}
       slug={slug}
       badgeTrackingEnabled={isAuthLoaded && isSignedIn === true}
     />
@@ -353,7 +362,13 @@ const AuthenticatedArticleView = ({ slug }: { slug: string }) => {
 
 export const ArticleView = ({ slug }: { slug: string }) => {
   if (isLocal) {
-    return <ArticleViewContent slug={slug} badgeTrackingEnabled={false} />;
+    return (
+      <ArticleViewContent
+        key={slug}
+        slug={slug}
+        badgeTrackingEnabled={false}
+      />
+    );
   }
 
   return <AuthenticatedArticleView slug={slug} />;
@@ -408,7 +423,10 @@ const ArticleViewContent = ({
   );
 
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [savedProgressState, setSavedProgressState] = useState<{ sectionKey?: string; sectionIndex?: number | null } | null>(null);
+  const [savedProgressState, setSavedProgressState] = useState<{
+    sectionKey?: string;
+    sectionIndex?: number | null;
+  } | null>(null);
   const [heroLightbox, setHeroLightbox] = useState<LightboxState>(null);
   const [heroImageAnalysis, setHeroImageAnalysis] = useState<HeroImageAnalysis | null>(null);
   const [trackingSectionKey, setTrackingSectionKey] = useState<string | null>(null);
@@ -491,13 +509,35 @@ const ArticleViewContent = ({
       ? `/api/article/audio-export/${currentArticleExport._id}?download=1`
       : undefined;
 
-  useEffect(() => {
-    if (fetchTriggered.current) return;
+  const updateResumePrompt = useCallback(
+    () => {
+      const progress = getProgress(slug);
+      if (
+        progress?.lastSectionKey &&
+        progress.lastSectionKey !== "summary" &&
+        progress.lastSectionIndex != null
+      ) {
+        setSavedProgressState({
+          sectionKey: progress.lastSectionKey,
+          sectionIndex: progress.lastSectionIndex,
+        });
+        setShowResumeBanner(true);
+        return;
+      }
+
+      setSavedProgressState(null);
+      setShowResumeBanner(false);
+    },
+    [getProgress, slug],
+  );
+
+  const loadArticle = useCallback(() => {
     fetchTriggered.current = true;
     fetchArticle({ slug })
       .then((result) => {
         const article = result as unknown as ArticleData;
         setDisplayArticle(article);
+        updateResumePrompt();
         recordVisit(slug, article.title);
       })
       .catch((err) =>
@@ -506,7 +546,12 @@ const ArticleViewContent = ({
         ),
       )
       .finally(() => setFetching(false));
-  }, [slug, fetchArticle, recordVisit]);
+  }, [slug, fetchArticle, recordVisit, updateResumePrompt]);
+
+  useEffect(() => {
+    if (fetchTriggered.current) return;
+    loadArticle();
+  }, [loadArticle]);
 
   useEffect(() => {
     const thumbnailUrl = displayArticle?.thumbnailUrl;
@@ -537,24 +582,8 @@ const ArticleViewContent = ({
   const ttsRequestCache = useRef(createAudioRequestCache());
   const seededStartupPath = useRef<Map<string, AudioStartupPath>>(new Map());
 
-  useEffect(() => {
-    requestId.current += 1;
-    clearSlowLoadingTimer();
-    if (activeAudioRequestKey.current) {
-      clearAudioRequest(ttsRequestCache.current, activeAudioRequestKey.current);
-    }
-    activeAudioRequestKey.current = null;
-    pendingAutoPlay.current = false;
-    isPlayingAllRef.current = false;
-    playAllQueue.current = [];
-    setTrackingSectionKey(null);
-    setAudioUrl(null);
-    setAudioPlayback(createIdleAudioPlayback());
-    ttsCache.current = new Map();
-    ttsRequestCache.current = createAudioRequestCache();
-    seededStartupPath.current = new Map();
-
-    return () => {
+  useEffect(
+    () => () => {
       requestId.current += 1;
       clearSlowLoadingTimer();
       if (activeAudioRequestKey.current) {
@@ -563,8 +592,9 @@ const ArticleViewContent = ({
       activeAudioRequestKey.current = null;
       pendingAutoPlay.current = false;
       isPlayingAllRef.current = false;
-    };
-  }, [clearSlowLoadingTimer, slug]);
+    },
+    [clearSlowLoadingTimer],
+  );
 
   const generateTtsFromApi = useCallback(
     async (
@@ -691,10 +721,6 @@ const ArticleViewContent = ({
     },
     [seedAudioResult],
   );
-
-  useEffect(() => {
-    setFallbackVoiceNotice(null);
-  }, [slug]);
 
   const showFallbackNoticeForPlayback = useCallback(
     (result: TtsAudioUrlResult) => {
@@ -851,6 +877,7 @@ const ArticleViewContent = ({
   }, [displayArticle, warmPlayAllQueue, warmSummaryForIntent]);
 
   const audioEndedRef = useRef<() => void>(() => {});
+  const generateAudioRef = useRef<GenerateAudio>(() => {});
 
   const {
     audioRef,
@@ -1143,7 +1170,7 @@ const ArticleViewContent = ({
           if (isPlayingAllRef.current) {
             const next = playAllQueue.current.shift();
             if (next) {
-              generateAudio(
+              generateAudioRef.current(
                 next.sectionKey,
                 next.label,
                 next.sectionIdx,
@@ -1189,6 +1216,10 @@ const ArticleViewContent = ({
       startSlowLoadingTimer,
     ],
   );
+
+  useEffect(() => {
+    generateAudioRef.current = generateAudio;
+  }, [generateAudio]);
 
   const handleAudioEnded = useCallback(() => {
     if (isPlayingAll && playAllQueue.current.length > 0) {
@@ -1451,23 +1482,6 @@ const ArticleViewContent = ({
     }
   }, [articleId, displayArticle, downloading, queueExport]);
 
-  const [hasCheckedResume, setHasCheckedResume] = useState(false);
-  if (displayArticle && !hasCheckedResume) {
-    setHasCheckedResume(true);
-    const progress = getProgress(slug);
-    if (
-      progress?.lastSectionKey &&
-      progress.lastSectionKey !== "summary" &&
-      progress.lastSectionIndex != null
-    ) {
-      setSavedProgressState({
-        sectionKey: progress.lastSectionKey,
-        sectionIndex: progress.lastSectionIndex,
-      });
-      setShowResumeBanner(true);
-    }
-  }
-
   useEffect(() => {
     if (displayArticle && !showResumeBanner) {
       suppressPlayAllFocusWarm.current = true;
@@ -1541,15 +1555,9 @@ const ArticleViewContent = ({
           </p>
           <button
             onClick={() => {
-              fetchTriggered.current = false;
               setFetchError(null);
               setFetching(true);
-              fetchArticle({ slug })
-                .then((r) => setDisplayArticle(r as unknown as ArticleData))
-                .catch((e) =>
-                  setFetchError(e instanceof Error ? e.message : "Failed to load article"),
-                )
-                .finally(() => setFetching(false));
+              loadArticle();
             }}
             className="btn-secondary mt-3 px-4 py-2 text-sm"
             aria-label="Try loading article again"
@@ -1642,12 +1650,15 @@ const ArticleViewContent = ({
               onClick={openHeroLightbox}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHeroLightbox(); } }}
             >
-              <img
+              <Image
                 src={displayArticle.thumbnailUrl}
                 alt=""
                 aria-hidden="true"
-                className="absolute inset-0 w-full h-full object-cover"
+                fill
+                sizes="100vw"
+                className="object-cover"
                 style={{ transform: 'scale(1.8)', filter: 'blur(80px) brightness(0.65)' }}
+                unoptimized
               />
               <div className="absolute inset-0 bg-black/45" />
               <div className="relative flex items-center justify-center gap-16 p-6 sm:p-10">
@@ -1657,13 +1668,14 @@ const ArticleViewContent = ({
                     : "shrink-0"}
                   style={imagePanelStyle}
                 >
-                  <img
+                  <Image
                     src={displayArticle.thumbnailUrl}
                     alt={displayArticle.title}
-                    width={w || undefined}
-                    height={h || undefined}
+                    width={w || 1200}
+                    height={h || 675}
                     className="max-h-56 sm:max-h-72 w-auto object-contain rounded-lg shrink-0"
-                    loading="eager"
+                    priority
+                    unoptimized
                   />
                 </div>
                 {displayArticle.summary && (
@@ -1692,12 +1704,15 @@ const ArticleViewContent = ({
           >
             {needsImageBackdrop ? (
               <>
-                <img
+                <Image
                   src={displayArticle.thumbnailUrl}
                   alt=""
                   aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover"
+                  fill
+                  sizes="100vw"
+                  className="object-cover"
                   style={{ transform: 'scale(1.8)', filter: 'blur(80px) brightness(0.65)' }}
+                  unoptimized
                 />
                 <div className="absolute inset-0 bg-black/45" />
                 <div className={`relative flex items-center justify-center p-6 sm:p-8${displayArticle.summary ? " md:pb-24" : ""}`}>
@@ -1705,25 +1720,27 @@ const ArticleViewContent = ({
                     className="w-full rounded-[1.25rem] border border-white/15 p-3 sm:p-4 shadow-2xl"
                     style={imagePanelStyle}
                   >
-                    <img
+                    <Image
                       src={displayArticle.thumbnailUrl}
                       alt={displayArticle.title}
-                      width={w || undefined}
-                      height={h || undefined}
+                      width={w || 1200}
+                      height={h || 675}
                       className="w-full max-h-48 sm:max-h-64 object-contain rounded-lg"
-                      loading="eager"
+                      priority
+                      unoptimized
                     />
                   </div>
                 </div>
               </>
             ) : (
-              <img
+              <Image
                 src={displayArticle.thumbnailUrl}
                 alt={displayArticle.title}
-                width={w || undefined}
-                height={h || undefined}
+                width={w || 1200}
+                height={h || 675}
                 className="w-full max-h-48 sm:max-h-64 object-cover"
-                loading="eager"
+                priority
+                unoptimized
               />
             )}
             {displayArticle.summary && (

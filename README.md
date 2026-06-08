@@ -1,9 +1,9 @@
 # Curio Garden
 
-![Next.js](https://img.shields.io/badge/Next.js-16.1.6-black?logo=next.js)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
-![Convex](https://img.shields.io/badge/Convex-1.32-F3694C?logo=convex&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16.2.7-black?logo=next.js)
+![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)
+![Convex](https://img.shields.io/badge/Convex-1.40-F3694C?logo=convex&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![WCAG 2.2 AA](https://img.shields.io/badge/WCAG_2.2-AA-green?logo=accessibility&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
@@ -80,7 +80,7 @@ For article caching, synced accounts, personal playlist feeds, and audio caching
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.13.0 (or another Node 22 release that satisfies `>=22.13.0 <23`)
 - A [Convex](https://convex.dev) account
 
 ### 1. Install dependencies

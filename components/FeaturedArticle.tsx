@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import { analytics } from "@/lib/analytics";
 import { ArticleLink } from "@/components/ArticleLink";
@@ -119,11 +120,14 @@ export const FeaturedArticle = () => {
           <div className={featured!.thumbnail ? "flex flex-col sm:flex-row" : ""}>
             {featured!.thumbnail && (
               <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-surface-3 sm:min-h-[120px] sm:w-40 sm:aspect-auto">
-                <img
+                <Image
                   src={featured!.thumbnail.source}
                   alt=""
-                  className="absolute inset-0 h-full w-full object-cover"
-                  loading="eager"
+                  fill
+                  sizes="(min-width: 640px) 160px, 100vw"
+                  className="object-cover"
+                  priority
+                  unoptimized
                 />
               </div>
             )}

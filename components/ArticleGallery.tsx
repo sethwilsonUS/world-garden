@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useData } from "@/lib/data-context";
 import type { ArticleImage } from "@/lib/data-context";
@@ -26,12 +27,14 @@ const ImageCard = ({
       >
         {!error ? (
           <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden">
-            <img
+            <Image
               src={image.src}
               alt={image.alt && image.alt !== image.caption ? image.alt : ""}
-              className="absolute inset-0 w-full h-full object-cover"
-              loading="lazy"
+              fill
+              sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+              className="object-cover"
               onError={() => setError(true)}
+              unoptimized
             />
             {image.videoSrc && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -204,10 +207,13 @@ export const Lightbox = ({
               className="max-w-full max-h-[80vh] object-contain rounded-lg"
             />
           ) : (
-            <img
+            <Image
               src={image.originalSrc ?? image.src}
               alt={image.alt && image.alt !== image.caption ? image.alt : ""}
+              width={image.width ?? 1600}
+              height={image.height ?? 900}
               className="max-w-full max-h-[80vh] object-contain rounded-lg"
+              unoptimized
             />
           )}
 

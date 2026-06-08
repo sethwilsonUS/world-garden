@@ -406,16 +406,14 @@ export const ArticleAudioExportProvider = ({
     () => true,
     () => false,
   );
-  const [clientId, setClientId] = useState<string | null>(null);
+  const clientId = useSyncExternalStore(emptySubscribe, ensureClientId, () => null);
   const [startingJobs, setStartingJobs] = useState<StartingJob[]>([]);
   const [directDownloads, setDirectDownloads] = useState<DirectDownloadToast[]>([]);
-  const [politeAnnouncement, setPoliteAnnouncement] = useState("");
-  const [assertiveAnnouncement, setAssertiveAnnouncement] = useState("");
+  const [announcements, setAnnouncements] = useState({
+    polite: "",
+    assertive: "",
+  });
   const previousStatusesRef = useRef<Record<string, string>>({});
-
-  useEffect(() => {
-    setClientId(ensureClientId());
-  }, []);
 
   const queriedJobs = useQuery(
     api.articleExports.getRecentArticleAudioExports,
@@ -522,8 +520,20 @@ export const ArticleAudioExportProvider = ({
 
     previousStatusesRef.current = nextStatuses;
 
-    if (nextPolite) setPoliteAnnouncement(nextPolite);
-    if (nextAssertive) setAssertiveAnnouncement(nextAssertive);
+    if (!nextPolite && !nextAssertive) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setAnnouncements((current) => ({
+        polite: nextPolite || current.polite,
+        assertive: nextAssertive || current.assertive,
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [trayJobs]);
 
   const queueExport = useCallback(
@@ -536,7 +546,6 @@ export const ArticleAudioExportProvider = ({
         throw new Error("Article export client is not ready yet.");
       }
 
-      setClientId((current) => current ?? resolvedClientId);
       setStartingJobs((current) =>
         current.some((job) => job.articleId === articleId)
           ? current
@@ -644,8 +653,8 @@ export const ArticleAudioExportProvider = ({
               title: matchingJob?.title ?? "Wikipedia article",
             });
           }}
-          politeAnnouncement={politeAnnouncement}
-          assertiveAnnouncement={assertiveAnnouncement}
+          politeAnnouncement={announcements.polite}
+          assertiveAnnouncement={announcements.assertive}
         />
       ) : null}
     </ArticleAudioExportContext.Provider>
