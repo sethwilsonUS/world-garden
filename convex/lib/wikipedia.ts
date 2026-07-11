@@ -8,6 +8,13 @@ import {
   getBadgeTopicQuery,
   type BadgeKey,
 } from "../../lib/badges";
+import {
+  buildWikimediaSourceFallback,
+  fetchWikimediaMediaAttributions,
+  getAttributionForImageUrl,
+  getWikimediaFileTitleFromUrl,
+  type WikimediaMediaAttribution,
+} from "../../lib/wikimedia-media";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
@@ -41,6 +48,7 @@ export type WikiArticle = {
   thumbnailUrl?: string;
   thumbnailWidth?: number;
   thumbnailHeight?: number;
+  thumbnailAttribution?: WikimediaMediaAttribution;
 };
 
 type WikiThumbnail = {
@@ -184,6 +192,7 @@ export const fetchArticleByPageId = async (
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
+  const thumbnailAttribution = await getAttributionForImageUrl(thumbnail?.source);
 
   return {
     wikiPageId: String(page.pageid),
@@ -197,6 +206,7 @@ export const fetchArticleByPageId = async (
     thumbnailUrl: thumbnail?.source,
     thumbnailWidth: thumbnail?.width,
     thumbnailHeight: thumbnail?.height,
+    thumbnailAttribution,
   };
 };
 
@@ -250,6 +260,7 @@ export const fetchArticleByTitle = async (
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
+  const thumbnailAttribution = await getAttributionForImageUrl(thumbnail?.source);
 
   return {
     wikiPageId: String(page.pageid),
@@ -263,6 +274,7 @@ export const fetchArticleByTitle = async (
     thumbnailUrl: thumbnail?.source,
     thumbnailWidth: thumbnail?.width,
     thumbnailHeight: thumbnail?.height,
+    thumbnailAttribution,
   };
 };
 
@@ -376,6 +388,7 @@ export type WikiArticleImage = {
   width?: number;
   height?: number;
   videoSrc?: string;
+  attribution?: WikimediaMediaAttribution;
 };
 
 export type ParsedPageData = {
@@ -614,6 +627,7 @@ export const extractImages = (html: string): WikiArticleImage[] => {
       }
 
       const originalSrc = toOriginalUrl(src);
+      const sourceTitle = getWikimediaFileTitleFromUrl(originalSrc);
 
       const alt = decodeEntities(attrs.match(attrRe("alt"))?.[1] ?? "");
       const captionMatch = figHtml.match(captionRe);
@@ -632,6 +646,9 @@ export const extractImages = (html: string): WikiArticleImage[] => {
         caption,
         ...(width > 0 ? { width } : {}),
         ...(height > 0 ? { height } : {}),
+        ...(sourceTitle
+          ? { attribution: buildWikimediaSourceFallback(sourceTitle) }
+          : {}),
       });
 
       continue;
@@ -658,12 +675,18 @@ export const extractImages = (html: string): WikiArticleImage[] => {
 
     if (seenSrcs.has(poster)) continue;
     seenSrcs.add(poster);
+    const videoSourceTitle = getWikimediaFileTitleFromUrl(videoSrc || poster);
 
     images.push({
       src: poster,
       alt: caption,
       caption,
       ...(videoSrc ? { videoSrc } : {}),
+      ...(videoSourceTitle
+        ? {
+            attribution: buildWikimediaSourceFallback(videoSourceTitle),
+          }
+        : {}),
     });
   }
 
@@ -704,6 +727,12 @@ export const fetchParsedPageData = async (
   const sections: { line: string; level: string; index: string }[] =
     data.parse?.sections ?? [];
 
+  const images = extractImages(html);
+  const sourceTitles = images
+    .map((image) => image.attribution?.sourceTitle)
+    .filter((title): title is string => Boolean(title));
+  const attributions = await fetchWikimediaMediaAttributions(sourceTitles);
+
   return {
     linkCounts: extractLinkCounts(html, sections),
     citations: extractCitations(html),
@@ -712,7 +741,15 @@ export const fetchParsedPageData = async (
       title: stripTags(s.line),
       index: s.index,
     })),
-    images: extractImages(html),
+    images: images.map((image) => {
+      const sourceTitle = image.attribution?.sourceTitle;
+      return sourceTitle
+        ? {
+            ...image,
+            attribution: attributions.get(sourceTitle) ?? image.attribution,
+          }
+        : image;
+    }),
   };
 };
 

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useData } from "@/lib/data-context";
 import type { ArticleImage } from "@/lib/data-context";
+import { MediaAttribution } from "./MediaAttribution";
 
 export type LightboxState = { index: number } | null;
 
@@ -20,11 +21,12 @@ const ImageCard = ({
 
   return (
     <li>
-      <button
-        type="button"
-        onClick={() => onOpen(index)}
-        className="result-link group block bg-surface-2 border-[1.5px] border-border rounded-2xl no-underline overflow-hidden transition-all duration-200 w-full text-left cursor-pointer"
-      >
+      <div className="garden-bed overflow-hidden">
+        <button
+          type="button"
+          onClick={() => onOpen(index)}
+          className="result-link group block w-full cursor-zoom-in border-0 bg-transparent text-left transition-all duration-200"
+        >
         {!error ? (
           <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden">
             {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
@@ -71,14 +73,18 @@ const ImageCard = ({
             </svg>
           </div>
         )}
-        {image.caption && (
-          <div className="px-4 py-3">
-            <span className="text-[0.8125rem] leading-[1.5] text-muted line-clamp-3">
+          {image.caption && (
+            <span className="block px-4 py-3 text-[0.8125rem] leading-[1.5] text-muted line-clamp-3">
               {image.caption}
             </span>
+          )}
+        </button>
+        {image.attribution ? (
+          <div className="border-t border-border px-4 py-2.5">
+            <MediaAttribution attribution={image.attribution} compact />
           </div>
-        )}
-      </button>
+        ) : null}
+      </div>
     </li>
   );
 };
@@ -94,16 +100,19 @@ export const Lightbox = ({
 }) => {
   const [current, setCurrent] = useState(state?.index ?? 0);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
     dialog.showModal();
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = "";
       if (dialog.open) dialog.close();
+      openerRef.current?.focus();
     };
   }, []);
 
@@ -224,6 +233,15 @@ export const Lightbox = ({
               {image.caption}
             </p>
           )}
+
+          {image.attribution ? (
+            <div className="mt-3 max-w-lg text-center">
+              <MediaAttribution
+                attribution={image.attribution}
+                inverse
+              />
+            </div>
+          ) : null}
 
           {images.length > 1 && (
             <span className="mt-2 text-xs text-white/50 font-mono" aria-hidden="true">

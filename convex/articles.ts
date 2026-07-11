@@ -57,6 +57,15 @@ const badgeKey = v.union(
   v.literal("nature"),
 );
 
+const wikimediaMediaAttribution = v.object({
+  creator: v.optional(v.string()),
+  credit: v.optional(v.string()),
+  licenseName: v.optional(v.string()),
+  licenseUrl: v.optional(v.string()),
+  sourceTitle: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+});
+
 /* ── Article CRUD ── */
 
 export const getByWikiPageId = query({
@@ -111,6 +120,7 @@ export const upsertArticle = internalMutation({
     thumbnailUrl: v.optional(v.string()),
     thumbnailWidth: v.optional(v.number()),
     thumbnailHeight: v.optional(v.number()),
+    thumbnailAttribution: v.optional(wikimediaMediaAttribution),
     badgeKeys: v.optional(v.array(badgeKey)),
     badgeTopicVersion: v.optional(v.number()),
     badgeTopicsCachedAt: v.optional(v.number()),
@@ -143,6 +153,7 @@ export const upsertArticle = internalMutation({
         thumbnailUrl: args.thumbnailUrl,
         thumbnailWidth: args.thumbnailWidth,
         thumbnailHeight: args.thumbnailHeight,
+        thumbnailAttribution: args.thumbnailAttribution,
         ...(args.badgeKeys !== undefined
           ? {
               badgeKeys: args.badgeKeys,
@@ -166,6 +177,7 @@ export const upsertArticle = internalMutation({
       thumbnailUrl: args.thumbnailUrl,
       thumbnailWidth: args.thumbnailWidth,
       thumbnailHeight: args.thumbnailHeight,
+      thumbnailAttribution: args.thumbnailAttribution,
       badgeKeys: args.badgeKeys,
       badgeTopicVersion: args.badgeTopicVersion,
       badgeTopicsCachedAt: args.badgeTopicsCachedAt,
@@ -194,6 +206,7 @@ type StoredArticle = {
   thumbnailUrl?: string;
   thumbnailWidth?: number;
   thumbnailHeight?: number;
+  thumbnailAttribution?: WikiArticle["thumbnailAttribution"];
   badgeKeys?: BadgeKey[];
   sections?: Array<{
     title: string;
@@ -254,6 +267,7 @@ export const cachedArticleToFetchResult = (
     thumbnailUrl: article.thumbnailUrl,
     thumbnailWidth: article.thumbnailWidth,
     thumbnailHeight: article.thumbnailHeight,
+    thumbnailAttribution: article.thumbnailAttribution,
     badgeKeys: article.badgeKeys,
   };
 };
@@ -351,6 +365,7 @@ export const fetchAndCache = action({
         thumbnailUrl: data.thumbnailUrl,
         thumbnailWidth: data.thumbnailWidth,
         thumbnailHeight: data.thumbnailHeight,
+        thumbnailAttribution: data.thumbnailAttribution,
         badgeKeys: badgeCacheUpdate.badgeKeys,
         badgeTopicVersion: badgeCacheUpdate.badgeTopicVersion,
         badgeTopicsCachedAt: badgeCacheUpdate.badgeTopicsCachedAt,
@@ -405,6 +420,7 @@ export const fetchAndCacheBySlug = action({
         thumbnailUrl: data.thumbnailUrl,
         thumbnailWidth: data.thumbnailWidth,
         thumbnailHeight: data.thumbnailHeight,
+        thumbnailAttribution: data.thumbnailAttribution,
         badgeKeys: badgeCacheUpdate.badgeKeys,
         badgeTopicVersion: badgeCacheUpdate.badgeTopicVersion,
         badgeTopicsCachedAt: badgeCacheUpdate.badgeTopicsCachedAt,
@@ -468,6 +484,7 @@ export const upsertParseCache = internalMutation({
           width: v.optional(v.number()),
           height: v.optional(v.number()),
           videoSrc: v.optional(v.string()),
+          attribution: v.optional(wikimediaMediaAttribution),
         }),
       ),
     ),

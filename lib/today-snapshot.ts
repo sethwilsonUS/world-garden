@@ -8,6 +8,10 @@ import {
   type WikipediaFeaturedThumbnail,
 } from "@/lib/featured-article";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
+import {
+  fetchWikimediaMediaAttributions,
+  getWikimediaFileTitleFromUrl,
+} from "@/lib/wikimedia-media";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const USER_AGENT =
@@ -136,6 +140,19 @@ export const enrichDidYouKnowThumbnails = async (
     return items;
   }
   if (details.size === 0) return items;
+
+  const sourceTitles = [...details.values()]
+    .map((detail) => getWikimediaFileTitleFromUrl(detail.thumbnail?.source))
+    .filter((title): title is string => Boolean(title));
+  const attributions = await fetchWikimediaMediaAttributions(sourceTitles);
+
+  for (const detail of details.values()) {
+    if (!detail.thumbnail) continue;
+    const sourceTitle = getWikimediaFileTitleFromUrl(detail.thumbnail.source);
+    if (sourceTitle) {
+      detail.thumbnail.attribution = attributions.get(sourceTitle);
+    }
+  }
 
   return items.map((item) => ({
     ...item,

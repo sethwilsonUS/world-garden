@@ -102,6 +102,15 @@ const heardRange = v.object({
   endSecond: v.number(),
 });
 
+const wikimediaMediaAttribution = v.object({
+  creator: v.optional(v.string()),
+  credit: v.optional(v.string()),
+  licenseName: v.optional(v.string()),
+  licenseUrl: v.optional(v.string()),
+  sourceTitle: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+});
+
 export default defineSchema({
   articles: defineTable({
     wikiPageId: v.string(),
@@ -114,6 +123,7 @@ export default defineSchema({
     thumbnailUrl: v.optional(v.string()),
     thumbnailWidth: v.optional(v.number()),
     thumbnailHeight: v.optional(v.number()),
+    thumbnailAttribution: v.optional(wikimediaMediaAttribution),
     badgeKeys: v.optional(v.array(badgeKey)),
     badgeTopicVersion: v.optional(v.number()),
     badgeTopicsCachedAt: v.optional(v.number()),
@@ -248,6 +258,7 @@ export default defineSchema({
           width: v.optional(v.number()),
           height: v.optional(v.number()),
           videoSrc: v.optional(v.string()),
+          attribution: v.optional(wikimediaMediaAttribution),
         }),
       ),
     ),

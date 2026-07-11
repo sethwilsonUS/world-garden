@@ -7,13 +7,23 @@ import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
+import { HOMEPAGE_PREVIEW_LIMITS } from "@/lib/homepage-articles";
+import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
+import { MediaAttribution } from "./MediaAttribution";
+
+type FeedImage = {
+  source: string;
+  width: number;
+  height: number;
+  attribution?: WikimediaMediaAttribution;
+};
 
 type FeedArticleLink = {
   title: string;
   slug: string;
   text?: string;
   wikiPageId?: string;
-  thumbnail?: { source: string; width: number; height: number };
+  thumbnail?: FeedImage;
 };
 
 type DidYouKnowSegment =
@@ -31,7 +41,7 @@ type DidYouKnowSegment =
 type FeaturedArticle = {
   title: string;
   extract: string;
-  thumbnail?: { source: string; width: number; height: number };
+  thumbnail?: FeedImage;
   featuredDate?: string | null;
   feedDate?: string | null;
 };
@@ -40,7 +50,7 @@ type TrendingArticle = {
   title: string;
   extract: string;
   views: number;
-  thumbnail?: { source: string; width: number; height: number };
+  thumbnail?: FeedImage;
 };
 
 type TrendingBrief = {
@@ -78,8 +88,8 @@ type PictureOfDay = {
   pictureKey: string;
   altText: string;
   description: string;
-  thumbnail?: { source: string; width: number; height: number };
-  image?: { source: string; width: number; height: number };
+  thumbnail?: FeedImage;
+  image?: FeedImage;
   filePage?: string;
   artist?: string;
   credit?: string;
@@ -102,8 +112,11 @@ export type TodayOnWikipediaData = {
   onThisDay?: OnThisDayItem[];
 };
 
-const MAX_NEWS_ITEMS = 3;
-const MAX_TRENDING_ARTICLES = 4;
+const MAX_DID_YOU_KNOW_ITEMS = HOMEPAGE_PREVIEW_LIMITS.didYouKnowItems;
+const MAX_NEWS_ITEMS = HOMEPAGE_PREVIEW_LIMITS.newsItems;
+const MAX_TRENDING_ARTICLES = HOMEPAGE_PREVIEW_LIMITS.trendingArticles;
+const MAX_ARTICLE_LINKS_PER_ITEM =
+  HOMEPAGE_PREVIEW_LIMITS.articleLinksPerItem;
 
 const toArticleSlug = (title: string) => title.replace(/ /g, "_");
 const toArticleHref = (titleOrSlug: string) =>
@@ -176,7 +189,7 @@ const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
 
   return (
     <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0" role="list">
-      {links.slice(0, 3).map((link) => (
+      {links.slice(0, MAX_ARTICLE_LINKS_PER_ITEM).map((link) => (
         <li key={`${link.wikiPageId ?? link.slug}-${link.title}`}>
           <ArticleLink
             articleTitle={link.title}
@@ -262,27 +275,74 @@ const FeaturedArticleCard = ({
               Last updated: {dateLabel}
             </p>
           )}
+          {article.thumbnail?.attribution ? (
+            <div className="mt-2">
+              <MediaAttribution
+                attribution={article.thumbnail.attribution}
+                compact
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </article>
   );
 };
 
-const NewsCard = ({ news }: { news: InTheNewsItem[] }) => (
-  <section
-    aria-labelledby="today-news-heading"
-    className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
-  >
-    <h3
-      id="today-news-heading"
-      className="font-display text-base font-semibold text-foreground"
-    >
-      In the News
-    </h3>
+const PreviewToggle = ({
+  expanded,
+  onToggle,
+  total,
+  visible,
+  label,
+  controls,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  total: number;
+  visible: number;
+  label: string;
+  controls: string;
+}) => {
+  if (total <= visible) return null;
 
-    {news.length > 0 ? (
-      <ul className="m-0 mt-3 list-none space-y-4 p-0" role="list">
-        {news.slice(0, MAX_NEWS_ITEMS).map((item, index) => {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      className="linked-article-link mt-4 min-h-8 rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-semibold text-foreground-2"
+    >
+      {expanded ? `Show fewer ${label}` : `Show all ${total} ${label}`}
+    </button>
+  );
+};
+
+const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
+  const [expanded, setExpanded] = useState(false);
+  const visibleNews = expanded ? news : news.slice(0, MAX_NEWS_ITEMS);
+
+  return (
+    <section
+      aria-labelledby="today-news-heading"
+      className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
+    >
+      <h3
+        id="today-news-heading"
+        className="font-display text-base font-semibold text-foreground"
+      >
+        In the News
+      </h3>
+
+      {news.length > 0 ? (
+        <>
+          <ul
+            id="today-news-list"
+            className="m-0 mt-3 list-none space-y-4 p-0"
+            role="list"
+          >
+            {visibleNews.map((item, index) => {
           const imageLink = getFirstLinkedImage(item.links);
           const image = imageLink?.thumbnail;
 
@@ -297,18 +357,33 @@ const NewsCard = ({ news }: { news: InTheNewsItem[] }) => (
                   {item.story}
                 </p>
                 <ArticleLinkList links={item.links} />
+                {image?.attribution ? (
+                  <div className="mt-2">
+                    <MediaAttribution attribution={image.attribution} compact />
+                  </div>
+                ) : null}
               </div>
             </li>
           );
-        })}
-      </ul>
-    ) : (
-      <p className="mt-3 text-sm text-muted" role="status">
-        No news items are available right now.
-      </p>
-    )}
-  </section>
-);
+            })}
+          </ul>
+          <PreviewToggle
+            expanded={expanded}
+            onToggle={() => setExpanded((current) => !current)}
+            total={news.length}
+            visible={MAX_NEWS_ITEMS}
+            label="news stories"
+            controls="today-news-list"
+          />
+        </>
+      ) : (
+        <p className="mt-3 text-sm text-muted" role="status">
+          No news items are available right now.
+        </p>
+      )}
+    </section>
+  );
+};
 
 const OnThisDayCard = ({ item }: { item?: OnThisDayItem }) => {
   if (!item) return null;
@@ -330,6 +405,11 @@ const OnThisDayCard = ({ item }: { item?: OnThisDayItem }) => {
             {item.text}
           </p>
           <ArticleLinkList links={item.pages} />
+          {image?.attribution ? (
+            <div className="mt-2">
+              <MediaAttribution attribution={image.attribution} compact />
+            </div>
+          ) : null}
         </div>
       </div>
     </aside>
@@ -379,21 +459,32 @@ const DidYouKnowSegmentText = ({
   return <>{segment.text}</>;
 };
 
-const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => (
-  <section
-    aria-labelledby="today-dyk-heading"
-    className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
-  >
-    <h3
-      id="today-dyk-heading"
-      className="font-display text-base font-semibold text-foreground"
-    >
-      Did You Know?
-    </h3>
+const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => {
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded
+    ? items
+    : items.slice(0, MAX_DID_YOU_KNOW_ITEMS);
 
-    {items.length > 0 ? (
-      <ol className="m-0 mt-3 list-none space-y-4 p-0" role="list">
-        {items.map((item, index) => {
+  return (
+    <section
+      aria-labelledby="today-dyk-heading"
+      className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
+    >
+      <h3
+        id="today-dyk-heading"
+        className="font-display text-base font-semibold text-foreground"
+      >
+        Did You Know?
+      </h3>
+
+      {items.length > 0 ? (
+        <>
+          <ol
+            id="today-dyk-list"
+            className="m-0 mt-3 list-none space-y-4 p-0"
+            role="list"
+          >
+            {visibleItems.map((item, index) => {
           const imageLink = getFirstLinkedImage(item.links);
           const image = imageLink?.thumbnail;
 
@@ -419,18 +510,33 @@ const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => (
                   ))}
                 </p>
                 <ArticleLinkList links={item.links} />
+                {image?.attribution ? (
+                  <div className="mt-2">
+                    <MediaAttribution attribution={image.attribution} compact />
+                  </div>
+                ) : null}
               </div>
             </li>
           );
-        })}
-      </ol>
-    ) : (
-      <p className="mt-3 text-sm text-muted" role="status">
-        No Did You Know items are available right now.
-      </p>
-    )}
-  </section>
-);
+            })}
+          </ol>
+          <PreviewToggle
+            expanded={expanded}
+            onToggle={() => setExpanded((current) => !current)}
+            total={items.length}
+            visible={MAX_DID_YOU_KNOW_ITEMS}
+            label="facts"
+            controls="today-dyk-list"
+          />
+        </>
+      ) : (
+        <p className="mt-3 text-sm text-muted" role="status">
+          No Did You Know items are available right now.
+        </p>
+      )}
+    </section>
+  );
+};
 
 const TrendingArticles = ({
   articles,
@@ -484,11 +590,12 @@ const TrendingArticles = ({
               const slug = toArticleSlug(article.title);
               return (
                 <li key={article.title}>
-                  <ArticleLink
-                    articleTitle={article.title}
-                    href={toArticleHref(slug)}
-                    className="result-link flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2 no-underline transition-all duration-200"
-                  >
+                  <div className="garden-bed flex h-full flex-col overflow-hidden">
+                    <ArticleLink
+                      articleTitle={article.title}
+                      href={toArticleHref(slug)}
+                      className="result-link flex flex-1 flex-col border-0 bg-transparent no-underline transition-all duration-200"
+                    >
                     {article.thumbnail ? (
                       <span
                         className="relative block aspect-[16/9] overflow-hidden bg-surface-3"
@@ -524,7 +631,7 @@ const TrendingArticles = ({
                         </svg>
                       </span>
                     )}
-                    <span className="flex flex-1 flex-col px-4 py-3">
+                      <span className="flex flex-1 flex-col px-4 py-3">
                       <span className="text-xs font-semibold text-accent">
                         #{index + 1}
                       </span>
@@ -535,12 +642,21 @@ const TrendingArticles = ({
                         {truncate(article.extract, 120)}
                       </span>
                       {article.views > 0 && (
-                        <span className="mt-2 text-[0.6875rem] text-muted opacity-75">
+                        <span className="mt-2 text-[0.6875rem] text-muted">
                           {formatViews(article.views)} views yesterday
                         </span>
                       )}
-                    </span>
-                  </ArticleLink>
+                      </span>
+                    </ArticleLink>
+                    {article.thumbnail?.attribution ? (
+                      <div className="border-t border-border px-4 py-2.5">
+                        <MediaAttribution
+                          attribution={article.thumbnail.attribution}
+                          compact
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
@@ -625,6 +741,8 @@ const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
             fill
             sizes="(min-width: 1024px) 38vw, 100vw"
             className="object-contain"
+            loading="eager"
+            fetchPriority="high"
             unoptimized
           />
         </div>
@@ -690,6 +808,12 @@ const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
             <span className="sr-only"> (opens in new tab)</span>
           </a>
         )}
+
+        {!picture.filePage && image?.attribution ? (
+          <div className="mt-3">
+            <MediaAttribution attribution={image.attribution} />
+          </div>
+        ) : null}
 
         <PictureAudioStatus audio={picture.audio} />
       </figcaption>

@@ -6,6 +6,8 @@ describe("sitemap", () => {
     const paths = sitemap().map((entry) => new URL(entry.url).pathname);
 
     expect(paths).toContain("/trending");
+    expect(paths).toContain("/podcasts");
+    expect(paths).toContain("/about");
     expect(paths).not.toContain("/did-you-know");
   });
 });

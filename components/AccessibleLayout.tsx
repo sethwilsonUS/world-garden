@@ -262,8 +262,10 @@ export const AccessibleLayout = ({
               .
             </p>
             <p className="mt-1">
-              Audio powered by OpenAI with Edge TTS fallback. Wikipedia&reg; is
-              a registered trademark of the Wikimedia Foundation.
+              Audio powered by OpenAI with Edge TTS fallback. Curio Garden is
+              an independent project and is not endorsed by or affiliated with
+              the Wikimedia Foundation. Wikipedia is a trademark of the
+              Wikimedia Foundation.
             </p>
             <p className="mt-3 font-display italic">
               Tended with care.

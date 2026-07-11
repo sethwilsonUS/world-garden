@@ -430,7 +430,7 @@ describe("fetchArticleByTitle", () => {
 
     const result = await fetchArticleByTitle("Example");
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0]).toMatchObject({
       title: "History",
@@ -504,6 +504,12 @@ describe("extractImages", () => {
     expect(images[0].caption).toBe("A domestic cat");
     expect(images[0].src).toContain("220px-Cat.jpg");
     expect(images[0].src.startsWith("https:")).toBe(true);
+    expect(images[0].attribution).toMatchObject({
+      sourceTitle: "File:Cat.jpg",
+    });
+    expect(images[0].attribution?.sourceUrl).toContain(
+      "commons.wikimedia.org/wiki",
+    );
   });
 
   it("strips HTML tags from captions", () => {

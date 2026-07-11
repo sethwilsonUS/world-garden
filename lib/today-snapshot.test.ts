@@ -83,12 +83,16 @@ describe("enrichDidYouKnowThumbnails", () => {
               source: "https://upload.wikimedia.org/lenox.jpg",
               width: 320,
               height: 240,
+              attribution: {
+                sourceTitle: "File:lenox.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File%3Alenox.jpg",
+              },
             },
           },
         ],
       },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("uses the slug when a Did You Know link has no title", async () => {
@@ -140,12 +144,16 @@ describe("enrichDidYouKnowThumbnails", () => {
               source: "https://upload.wikimedia.org/lenox.jpg",
               width: 320,
               height: 240,
+              attribution: {
+                sourceTitle: "File:lenox.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File%3Alenox.jpg",
+              },
             },
           },
         ],
       },
     ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("leaves missing thumbnails and items without links untouched", async () => {

@@ -6,6 +6,52 @@ type ArticleHeaderProps = {
   wikiPageId: string;
 };
 
+export const ArticleSourceLine = ({
+  language,
+  revisionId,
+  wikiPageId,
+}: Pick<ArticleHeaderProps, "language" | "revisionId" | "wikiPageId">) => {
+  const wikiUrl = `https://${language}.wikipedia.org/wiki?curid=${wikiPageId}`;
+  const revisionUrl = `https://${language}.wikipedia.org/w/index.php?oldid=${revisionId}`;
+
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-relaxed text-muted">
+      <span>
+        From{" "}
+        <a
+          href={wikiUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-accent underline underline-offset-2"
+        >
+          Wikipedia
+          <span className="sr-only"> (opens in new tab)</span>
+        </a>
+      </span>
+      <span aria-hidden="true">·</span>
+      <a
+        href={revisionUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-accent underline underline-offset-2"
+      >
+        Revision {revisionId}
+        <span className="sr-only"> (opens in new tab)</span>
+      </a>
+      <span aria-hidden="true">·</span>
+      <a
+        href="https://creativecommons.org/licenses/by-sa/4.0/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-accent underline underline-offset-2"
+      >
+        CC BY-SA 4.0
+        <span className="sr-only"> (opens in new tab)</span>
+      </a>
+    </p>
+  );
+};
+
 export const ArticleHeader = ({
   title,
   language,
@@ -93,6 +139,12 @@ export const ArticleHeader = ({
             <span className="sr-only"> (opens in new tab)</span>
           </a>
           .
+        </p>
+        <p className="mt-2">
+          Curio Garden adapts article structure for listening. Navigation and
+          citation markers may be omitted from synthetic speech; use the
+          revision and edit history above to inspect the original context and
+          contributors.
         </p>
       </div>
     </footer>

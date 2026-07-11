@@ -10,6 +10,7 @@ import {
   getFeaturedPodcastItemArtworkUrl,
   getPodcastDescription,
   getPodcastSiteUrl,
+  getWikipediaEpisodeDescription,
 } from "@/lib/podcast-feed";
 import { getOrCreatePodcastShowArtworkUrl } from "@/lib/podcast-show-artwork-cache";
 import {
@@ -27,6 +28,7 @@ export const revalidate = 0;
 type FeaturedPodcastEpisode = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
   artworkUrl?: string | null;
+  sourceRevisionId?: string;
 };
 
 export const GET = async (req: NextRequest) => {
@@ -56,6 +58,11 @@ export const GET = async (req: NextRequest) => {
         const duration = formatPodcastDuration(episode.durationSeconds);
         const guid = `${siteUrl}/podcast/featured/${episode._id}`;
         const summary = getPodcastDescription(episode.description);
+        const attributedSummary = getWikipediaEpisodeDescription({
+          summary,
+          wikiPageId: episode.wikiPageId,
+          revisionId: episode.sourceRevisionId,
+        });
         const itemImageUrl = getFeaturedPodcastItemArtworkUrl(
           {
             artworkUrl: episode.artworkUrl,
@@ -70,14 +77,14 @@ export const GET = async (req: NextRequest) => {
         return `
   <item>
     <title>${escapeXml(episode.title)}</title>
-    <description>${escapeXml(summary)}</description>
+    <description>${escapeXml(attributedSummary)}</description>
     <link>${escapeXml(articleUrl)}</link>
     <guid isPermaLink="false">${escapeXml(guid)}</guid>
     <pubDate>${escapeXml(pubDate)}</pubDate>
     <enclosure url="${escapeXml(mediaUrl)}" type="audio/mpeg"${enclosureLength} />
     ${xmlTag("itunes:author", "Curio Garden")}
     ${xmlTag("itunes:subtitle", summary)}
-    ${xmlTag("itunes:summary", summary)}
+    ${xmlTag("itunes:summary", attributedSummary)}
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
     ${itemImageUrl ? `<itunes:image href="${escapeXml(itemImageUrl)}" />` : ""}

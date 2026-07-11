@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)
 ![Convex](https://img.shields.io/badge/Convex-1.40-F3694C?logo=convex&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
-![WCAG 2.2 AA](https://img.shields.io/badge/WCAG_2.2-AA-green?logo=accessibility&logoColor=white)
+![WCAG 2.2 AA target](https://img.shields.io/badge/WCAG_2.2-AA_target-green?logo=accessibility&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
 
 Your Wikipedia listening library and personal podcast queue — an accessibility-first web app that turns Wikipedia articles into structured, navigable audio you can listen to right in your browser or follow in your podcast app.
@@ -30,7 +30,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Personal playlist** — Add an article to your playlist while browsing to queue a full-article MP3 for background generation. Playlist is intentionally separate from Library: Library is for keeping things around, Playlist is for sequencing what should play next in your personal podcast feed.
 
-**Accessibility** — Built from the ground up for WCAG 2.2 AA compliance: skip links, semantic landmarks, visible focus outlines, screen reader support with ARIA labels and live regions, full keyboard navigation, high-contrast text in light and dark modes, and color-independent status indicators.
+**Accessibility** — Built from the ground up toward WCAG 2.2 AA: skip links, semantic landmarks, visible focus outlines, screen reader support with ARIA labels and live regions, full keyboard navigation, high-contrast text in light and dark modes, and color-independent status indicators.
 
 **Installable** — Progressive Web App support with a manifest and service worker. Install Curio Garden to your home screen on any device for an app-like experience with faster repeat loads.
 
@@ -44,6 +44,24 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
 - **Testing:** Vitest
+
+## Product Tour
+
+| Home and daily discovery | Article listening | Wikimedia gallery |
+| --- | --- | --- |
+| ![Curio Garden home page](screenshot-home.png) | ![Curio Garden article listening page](screenshot-article.png) | ![Curio Garden Wikimedia image gallery](gallery-full-screenshot.png) |
+
+The live product stays focused on listening. The [/about](https://curiogarden.org/about) page gives technical reviewers a shorter account of the motivation, architecture, provenance model, and major engineering tradeoffs.
+
+## Architecture at a Glance
+
+1. Wikipedia Action and REST APIs provide revisioned article text, section structure, citations, daily discovery data, and per-file media metadata.
+2. The app normalizes that material into an audio-suitable article model while preserving revision links, contributor history, and Wikimedia media licensing.
+3. Convex caches articles, parsed page data, generated audio variants, account libraries, personal queues, and podcast publication state. Local mode swaps this layer for browser storage and direct Wikipedia requests.
+4. OpenAI speech is the primary narrator, with Edge TTS as a provider-aware fallback. Section audio is cached by provider, model, voice, prompt, and normalization version.
+5. The same article/audio model powers accessible browser playback, downloads, public featured-article podcasts, AI-labeled trending briefings, and private playlist feeds.
+
+This design deliberately keeps the app useful without an account, distinguishes Wikipedia text from Curio Garden-generated material, and makes source revision and media provenance part of the data model rather than footer-only copy.
 
 ## Audio Architecture
 
@@ -182,6 +200,9 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PUBLIC_OPENAI_DAILY_LIMIT` | No | Public OpenAI TTS daily quota per IP; defaults to `800` requests |
 | `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS` | No | Public OpenAI TTS daily window; defaults to `86400000` ms |
 | `TTS_QUOTA_BYPASS_SECRET` | No | Shared secret for trusted server TTS generation to bypass public visitor quotas; set in both Vercel and Convex |
+| `HOMEPAGE_AUDIO_WARM_ENABLED` | No | Pre-generate homepage article summary audio; defaults to enabled in production and disabled elsewhere |
+| `HOMEPAGE_AUDIO_WARM_MAX_ARTICLES` | No | Maximum homepage summaries warmed per run; defaults to and is capped at `30` |
+| `HOMEPAGE_AUDIO_WARM_CONCURRENCY` | No | Concurrent homepage summary jobs; defaults to `3` and is capped at `6` |
 | `USE_PYTHON_TTS` | No | Route `/api/tts/edge` to the standalone Python TTS server (used by `npm run dev:python`) |
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
@@ -304,13 +325,15 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and Convex so the homepage warmer can use the configured primary TTS provider without consuming public visitor quota.
+4. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
 - `5 0 * * *` and `35 0 * * *` for the Today on Wikipedia snapshot (`00:05 UTC` primary run, `00:35 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `20 0 * * *` and `50 0 * * *` for Picture of the Day audio (`00:20 UTC` primary run, `00:50 UTC` retry)
+- `25 0 * * *` and `55 0 * * *` for homepage article summary audio (`00:25 UTC` primary run, `00:55 UTC` retry)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
 
 ### Local podcast testing
@@ -486,7 +509,7 @@ Primary Convex tables:
 
 ## Accessibility
 
-Curio Garden follows WCAG 2.2 AA guidelines:
+Curio Garden targets WCAG 2.2 AA and treats accessibility as product behavior, not a certification claim. Automated checks are supplemented with keyboard, zoom/reflow, reduced-motion, contrast, and screen-reader review:
 
 - **Skip link** to main content
 - **Semantic landmarks:** `<header>`, `<main>`, `<footer>`, `<nav>`, `<article>`, `<time>`
