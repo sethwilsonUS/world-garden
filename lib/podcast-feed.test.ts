@@ -11,6 +11,8 @@ import {
   getTrendingPodcastEpisodeArtworkUrl,
   getTrendingPodcastItemArtworkUrl,
   getTrendingPodcastShowArtworkUrl,
+  getTrendingEpisodeDescription,
+  getWikipediaEpisodeDescription,
 } from "./podcast-feed";
 
 describe("getPodcastDescription", () => {
@@ -50,6 +52,27 @@ describe("getPodcastExcerpt", () => {
 
     expect(excerpt.endsWith("…")).toBe(true);
     expect(excerpt.length).toBeLessThanOrEqual(70);
+  });
+});
+
+describe("podcast provenance descriptions", () => {
+  it("includes the exact Wikipedia revision and license for article audio", () => {
+    const description = getWikipediaEpisodeDescription({
+      summary: "An episode summary.",
+      wikiPageId: "42",
+      revisionId: "123456",
+    });
+
+    expect(description).toContain("oldid=123456");
+    expect(description).toContain("CC BY-SA 4.0");
+    expect(description).toContain("not endorsed by or affiliated");
+  });
+
+  it("labels trending briefings as AI-generated Curio Garden material", () => {
+    const description = getTrendingEpisodeDescription("Today in context.");
+
+    expect(description).toContain("AI-generated Curio Garden briefing");
+    expect(description).toContain("not Wikipedia article text");
   });
 });
 

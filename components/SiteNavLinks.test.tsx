@@ -15,6 +15,10 @@ vi.mock("@clerk/nextjs", () => ({
   }) => (when === authState ? createElement("div", null, children) : null),
 }));
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+}));
+
 describe("SiteNavLinks", () => {
   it("shows Library for signed-out navigation", () => {
     authState = "signed-out";
@@ -53,5 +57,14 @@ describe("SiteNavLinks", () => {
 
     expect(markup).not.toContain("Did you know?");
     expect(markup).not.toContain("/did-you-know");
+  });
+
+  it("marks the current page and includes About in footer navigation", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SiteNavLinks, { variant: "footer", authEnabled: false }),
+    );
+
+    expect(markup).toContain('aria-current="page"');
+    expect(markup).toContain('href="/about"');
   });
 });

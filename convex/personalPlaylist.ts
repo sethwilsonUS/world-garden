@@ -375,7 +375,18 @@ export const listViewerPlaylistEpisodesForCtx = async (
   viewerTokenIdentifier: string,
 ) => {
   const episodes = await getActiveViewerEpisodes(ctx, viewerTokenIdentifier);
-  return await Promise.all(episodes.map((episode) => withStorageUrl(ctx, episode)));
+  return await Promise.all(
+    episodes.map(async (episode) => {
+      const [episodeWithUrl, article] = await Promise.all([
+        withStorageUrl(ctx, episode),
+        ctx.db.get(episode.articleId),
+      ]);
+      return {
+        ...episodeWithUrl,
+        sourceRevisionId: article?.revisionId,
+      };
+    }),
+  );
 };
 
 export const getViewerFeedToken = query({

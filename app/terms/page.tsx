@@ -50,6 +50,12 @@ export default function TermsPage() {
           including CC BY-SA where applicable.
         </p>
         <p>
+          Article pages identify the Wikipedia revision used by Curio Garden and
+          link to the original article and contributor history. Images and other
+          non-text media can carry separate creator, source, and license terms;
+          those details are shown with the media when Wikimedia supplies them.
+        </p>
+        <p>
           Audio playback and downloads may use AI-generated synthetic speech to
           read Wikipedia-derived text, generated summaries, or briefings aloud.
           Synthetic speech is a transformed presentation of the underlying
@@ -59,6 +65,10 @@ export default function TermsPage() {
           Wikipedia and related names are trademarks of the Wikimedia Foundation.
           Any third-party trademarks, logos, or brand names mentioned by the
           service remain the property of their respective owners.
+        </p>
+        <p>
+          Curio Garden is an independent project. It is not endorsed by or
+          affiliated with the Wikimedia Foundation.
         </p>
       </LegalSection>
 

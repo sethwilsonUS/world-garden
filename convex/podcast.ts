@@ -74,7 +74,18 @@ export const getRecentFeaturedEpisodes = query({
       .sort((a, b) => b.publishedAt - a.publishedAt)
       .slice(0, limit);
 
-    return await Promise.all(filtered.map((record) => withStorageUrl(ctx, record)));
+    return await Promise.all(
+      filtered.map(async (record) => {
+        const [episode, article] = await Promise.all([
+          withStorageUrl(ctx, record),
+          ctx.db.get(record.articleId),
+        ]);
+        return {
+          ...episode,
+          sourceRevisionId: article?.revisionId,
+        };
+      }),
+    );
   },
 });
 

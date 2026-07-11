@@ -9,6 +9,7 @@ import {
   PERSONAL_PODCAST_TITLE,
   getPodcastDescription,
   getPodcastSiteUrl,
+  getWikipediaEpisodeDescription,
 } from "@/lib/podcast-feed";
 import { getOrCreatePodcastShowArtworkUrl } from "@/lib/podcast-show-artwork-cache";
 import {
@@ -25,6 +26,7 @@ export const revalidate = 0;
 
 type PersonalPlaylistEpisode = Doc<"personalPlaylistEpisodes"> & {
   audioUrl: string | null;
+  sourceRevisionId?: string;
 };
 
 export const GET = async (req: NextRequest) => {
@@ -68,6 +70,11 @@ export const GET = async (req: NextRequest) => {
         const duration = formatPodcastDuration(episode.durationSeconds);
         const guid = `${siteUrl}/podcast/personal/${episode._id}?token=${encodeURIComponent(feedToken)}`;
         const summary = getPodcastDescription(episode.description);
+        const attributedSummary = getWikipediaEpisodeDescription({
+          summary,
+          wikiPageId: episode.wikiPageId,
+          revisionId: episode.sourceRevisionId,
+        });
         const itemImageUrl = episode.imageUrl?.trim() || feedImageUrl;
         const enclosureLength =
           episode.byteLength != null ? ` length="${episode.byteLength}"` : "";
@@ -75,14 +82,14 @@ export const GET = async (req: NextRequest) => {
         return `
   <item>
     <title>${escapeXml(episode.title)}</title>
-    <description>${escapeXml(summary)}</description>
+    <description>${escapeXml(attributedSummary)}</description>
     <link>${escapeXml(articleUrl)}</link>
     <guid isPermaLink="false">${escapeXml(guid)}</guid>
     <pubDate>${escapeXml(pubDate)}</pubDate>
     <enclosure url="${escapeXml(mediaUrl)}" type="audio/mpeg"${enclosureLength} />
     ${xmlTag("itunes:author", "Curio Garden")}
     ${xmlTag("itunes:subtitle", summary)}
-    ${xmlTag("itunes:summary", summary)}
+    ${xmlTag("itunes:summary", attributedSummary)}
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
     <itunes:image href="${escapeXml(itemImageUrl)}" />

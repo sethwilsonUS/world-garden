@@ -1,3 +1,9 @@
+import {
+  fetchWikimediaMediaAttributions,
+  getWikimediaFileTitleFromUrl,
+  type WikimediaMediaAttribution,
+} from "./wikimedia-media";
+
 const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_PAGEVIEWS_TOP_API =
@@ -15,12 +21,14 @@ export type WikipediaFeaturedThumbnail = {
   source: string;
   width: number;
   height: number;
+  attribution?: WikimediaMediaAttribution;
 };
 
 export type WikipediaFeaturedImage = {
   source: string;
   width: number;
   height: number;
+  attribution?: WikimediaMediaAttribution;
 };
 
 export type WikipediaFeaturedArticle = {
@@ -689,7 +697,7 @@ export const fetchWikipediaFeaturedSnapshot = async (
 
   const trendingIsStale = isMostReadDateStale({ feedDate, trendingDate });
 
-  return {
+  const snapshot: WikipediaFeaturedSnapshot = {
     tfa: toFeaturedArticle(todayData.tfa),
     trendingCandidates: mostRead.map(toTrendingArticle),
     didYouKnow: (todayData.dyk ?? [])
@@ -709,6 +717,38 @@ export const fetchWikipediaFeaturedSnapshot = async (
     feedDate,
     feedDateIso: feedDate.replace(/\//g, "-"),
   };
+
+  const thumbnails = [
+    snapshot.tfa?.thumbnail,
+    ...snapshot.trendingCandidates.map((article) => article.thumbnail),
+    ...snapshot.didYouKnow.flatMap((item) =>
+      item.links.map((link) => link.thumbnail),
+    ),
+    ...snapshot.inTheNews.flatMap((item) =>
+      item.links.map((link) => link.thumbnail),
+    ),
+    ...snapshot.onThisDay.flatMap((item) =>
+      item.pages.map((page) => page.thumbnail),
+    ),
+    snapshot.pictureOfDay?.thumbnail,
+    snapshot.pictureOfDay?.image,
+  ].filter(
+    (thumbnail): thumbnail is WikipediaFeaturedThumbnail | WikipediaFeaturedImage =>
+      Boolean(thumbnail),
+  );
+  const sourceTitles = thumbnails
+    .map((thumbnail) => getWikimediaFileTitleFromUrl(thumbnail.source))
+    .filter((title): title is string => Boolean(title));
+  const attributions = await fetchWikimediaMediaAttributions(sourceTitles);
+
+  for (const thumbnail of thumbnails) {
+    const sourceTitle = getWikimediaFileTitleFromUrl(thumbnail.source);
+    if (sourceTitle) {
+      thumbnail.attribution = attributions.get(sourceTitle);
+    }
+  }
+
+  return snapshot;
 };
 
 export const fetchCurrentFeaturedArticle = async (

@@ -7,6 +7,11 @@ import { RandomArticleButton } from "@/components/RandomArticleButton";
 import { TodayOnWikipedia } from "@/components/TodayOnWikipedia";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+const LISTENING_FEATURES = [
+  "Choose a section",
+  "Save your place",
+  "Follow as a podcast",
+] as const;
 
 export default function Home() {
   return (
@@ -45,8 +50,8 @@ export default function Home() {
             </h1>
 
             <p className="text-lg leading-[1.7] text-foreground-2 max-w-[440px] mx-auto">
-              Plant a seed of curiosity. Search for any topic and listen to it
-              read aloud.
+              Explore any Wikipedia article as clear, section-by-section audio,
+              then keep listening wherever curiosity takes you.
             </p>
           </div>
 
@@ -55,6 +60,34 @@ export default function Home() {
             <div className="mt-3">
               <RandomArticleButton />
             </div>
+
+            <ul
+              className="mx-auto mt-7 grid max-w-[460px] list-none grid-cols-1 gap-2 p-0 text-left text-sm text-foreground-2 min-[420px]:grid-cols-3"
+              aria-label="Ways to listen"
+            >
+              {LISTENING_FEATURES.map((feature) => (
+                <li
+                  key={feature}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-border bg-surface-2/70 px-3 py-2.5 min-[420px]:justify-start"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    width={14}
+                    height={14}
+                    aria-hidden="true"
+                    className="shrink-0 text-accent"
+                  >
+                    <path d="m5 12 4 4L19 6" />
+                  </svg>
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
           </div>
 
         </section>

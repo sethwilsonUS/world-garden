@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Show } from "@clerk/nextjs";
 
 type SiteNavLinksProps = {
@@ -24,13 +27,23 @@ export const SiteNavLinks = ({
   variant,
   authEnabled = false,
 }: SiteNavLinksProps) => {
+  const pathname = usePathname();
   const linkClass = linkClassByVariant[variant];
 
-  const renderLink = (href: string, label: string) => (
-    <Link key={href} href={href} className={linkClass}>
-      {label}
-    </Link>
-  );
+  const renderLink = (href: string, label: string) => {
+    const isCurrent = href === "/" ? pathname === href : pathname.startsWith(href);
+
+    return (
+      <Link
+        key={href}
+        href={href}
+        aria-current={isCurrent ? "page" : undefined}
+        className={`${linkClass}${isCurrent ? " nav-link-current" : ""}`}
+      >
+        {label}
+      </Link>
+    );
+  };
 
   return (
     <>
@@ -47,6 +60,7 @@ export const SiteNavLinks = ({
       ) : (
         renderLink("/library", "Library")
       )}
+      {variant === "footer" ? renderLink("/about", "About") : null}
     </>
   );
 };

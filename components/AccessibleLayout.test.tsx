@@ -20,5 +20,8 @@ describe("AccessibleLayout", () => {
     expect(markup).toContain("Audio powered by OpenAI with Edge TTS fallback.");
     expect(markup).not.toContain("Audio powered by Edge TTS.");
     expect(markup).toContain("Wikipedia");
+    expect(markup).toContain(
+      "not endorsed by or affiliated with the Wikimedia Foundation",
+    );
   });
 });

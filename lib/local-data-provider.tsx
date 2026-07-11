@@ -55,6 +55,7 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
           thumbnailUrl: data.thumbnailUrl,
           thumbnailWidth: data.thumbnailWidth,
           thumbnailHeight: data.thumbnailHeight,
+          thumbnailAttribution: data.thumbnailAttribution,
           sections: data.sections,
           badgeKeys,
         };

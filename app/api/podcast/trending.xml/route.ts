@@ -10,6 +10,7 @@ import {
   getTrendingPodcastItemArtworkUrl,
   getPodcastExcerpt,
   getPodcastSiteUrl,
+  getTrendingEpisodeDescription,
 } from "@/lib/podcast-feed";
 import { renderTrendingShowPodcastArtworkPng } from "@/lib/trending-show-podcast-artwork";
 import {
@@ -70,6 +71,7 @@ export const GET = async (req: NextRequest) => {
         const summary = getPodcastExcerpt(
           episode.podcastDescription || episode.summary || episode.spokenSummary,
         );
+        const attributedSummary = getTrendingEpisodeDescription(summary);
         const itemImageUrl = getTrendingPodcastItemArtworkUrl(
           {
             artworkUrl: episode.artworkUrl,
@@ -85,14 +87,14 @@ export const GET = async (req: NextRequest) => {
         return `
   <item>
     <title>${escapeXml(title)}</title>
-    <description>${escapeXml(summary)}</description>
+    <description>${escapeXml(attributedSummary)}</description>
     <link>${escapeXml(trendingPageUrl)}</link>
     <guid isPermaLink="false">${escapeXml(guid)}</guid>
     <pubDate>${escapeXml(pubDate)}</pubDate>
     <enclosure url="${escapeXml(mediaUrl)}" type="audio/mpeg"${enclosureLength} />
     ${xmlTag("itunes:author", "Curio Garden")}
     ${xmlTag("itunes:subtitle", summary)}
-    ${xmlTag("itunes:summary", summary)}
+    ${xmlTag("itunes:summary", attributedSummary)}
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
     <itunes:image href="${escapeXml(itemImageUrl)}" />

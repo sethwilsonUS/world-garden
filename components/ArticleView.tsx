@@ -10,7 +10,7 @@ import {
   type AudioPlaybackMode,
   type AudioPlaybackState,
 } from "./TableOfContents";
-import { ArticleHeader } from "./ArticleHeader";
+import { ArticleHeader, ArticleSourceLine } from "./ArticleHeader";
 import { ArticleTopics } from "./ArticleTopics";
 import { BookmarkButton } from "./BookmarkButton";
 import { PlaylistActionButton } from "./PlaylistActionButton";
@@ -67,6 +67,7 @@ import {
 } from "@/lib/tts-profile";
 import { hasFullAudio } from "@/lib/audio-suitability";
 import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
+import { MediaAttribution } from "@/components/MediaAttribution";
 
 type ArticleData = Article & {
   _id?: string;
@@ -1620,6 +1621,11 @@ const ArticleViewContent = ({
             <BookmarkButton slug={slug} title={displayArticle.title} />
           </div>
         </div>
+        <ArticleSourceLine
+          language={displayArticle.language}
+          revisionId={displayArticle.revisionId}
+          wikiPageId={displayArticle.wikiPageId}
+        />
         <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
       </div>
 
@@ -1648,13 +1654,14 @@ const ArticleViewContent = ({
         if (isPortrait) {
           return (
             <div
-              className="relative mb-4 overflow-hidden rounded-xl cursor-pointer"
-              role="button"
-              tabIndex={0}
-              aria-label={`View full image for ${displayArticle.title}`}
-              onClick={openHeroLightbox}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHeroLightbox(); } }}
+              className="relative mb-4 overflow-hidden rounded-xl"
             >
+              <button
+                type="button"
+                onClick={openHeroLightbox}
+                aria-label={`View full image for ${displayArticle.title}`}
+                className="absolute inset-0 z-10 cursor-zoom-in rounded-xl border-0 bg-transparent"
+              />
               {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
               <Image
                 src={displayArticle.thumbnailUrl}
@@ -1685,7 +1692,7 @@ const ArticleViewContent = ({
                   />
                 </div>
                 {displayArticle.summary && (
-                  <div className="hidden md:block max-w-sm" onClick={(e) => e.stopPropagation()}>
+                  <div className="hidden md:block max-w-sm">
                     <p
                       className="text-sm leading-relaxed text-white line-clamp-[7]"
                       style={{ textShadow: '0 1px 4px rgba(0, 0, 0, 0.6)' }}
@@ -1701,13 +1708,14 @@ const ArticleViewContent = ({
 
         return (
           <div
-            className="relative mb-4 overflow-hidden rounded-xl cursor-pointer"
-            role="button"
-            tabIndex={0}
-            aria-label={`View full image for ${displayArticle.title}`}
-            onClick={openHeroLightbox}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHeroLightbox(); } }}
+            className="relative mb-4 overflow-hidden rounded-xl"
           >
+            <button
+              type="button"
+              onClick={openHeroLightbox}
+              aria-label={`View full image for ${displayArticle.title}`}
+              className="absolute inset-0 z-10 cursor-zoom-in rounded-xl border-0 bg-transparent"
+            />
             {needsImageBackdrop ? (
               <>
                 {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
@@ -1756,7 +1764,6 @@ const ArticleViewContent = ({
             {displayArticle.summary && (
               <div className="hidden md:block absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"
                 style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
-                onClick={(e) => e.stopPropagation()}
               >
                 <p className="text-sm leading-relaxed text-white line-clamp-3">
                   {displayArticle.summary}
@@ -1773,6 +1780,15 @@ const ArticleViewContent = ({
         </div>
       )}
 
+      {displayArticle.thumbnailUrl && displayArticle.thumbnailAttribution ? (
+        <div className="-mt-1 mb-4 px-1">
+          <MediaAttribution
+            attribution={displayArticle.thumbnailAttribution}
+            compact
+          />
+        </div>
+      ) : null}
+
       {displayArticle.thumbnailUrl && displayArticle.summary && (
         <div className="hidden min-[360px]:block md:hidden mb-4">
           <p className="text-sm leading-relaxed text-muted line-clamp-3">
@@ -1783,7 +1799,13 @@ const ArticleViewContent = ({
 
       {displayArticle.thumbnailUrl && heroLightbox && (
         <Lightbox
-          images={[{ src: displayArticle.thumbnailUrl, originalSrc: displayArticle.thumbnailUrl, alt: displayArticle.title, caption: "" }]}
+          images={[{
+            src: displayArticle.thumbnailUrl,
+            originalSrc: displayArticle.thumbnailUrl,
+            alt: displayArticle.title,
+            caption: "",
+            attribution: displayArticle.thumbnailAttribution,
+          }]}
           state={heroLightbox}
           onClose={() => setHeroLightbox(null)}
         />

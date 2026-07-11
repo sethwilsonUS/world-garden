@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import type { AudioMode, AudioReason } from "@/lib/audio-suitability";
 import type { BadgeKey } from "@/lib/badges";
+import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 
 export type SearchResult = {
   wikiPageId: string;
@@ -29,6 +30,7 @@ export type Article = {
   thumbnailUrl?: string;
   thumbnailWidth?: number;
   thumbnailHeight?: number;
+  thumbnailAttribution?: WikimediaMediaAttribution;
   sections?: Section[];
   badgeKeys?: BadgeKey[];
 };
@@ -56,6 +58,7 @@ export type ArticleImage = {
   width?: number;
   height?: number;
   videoSrc?: string;
+  attribution?: WikimediaMediaAttribution;
 };
 
 export type DataContextValue = {

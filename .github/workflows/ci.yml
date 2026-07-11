@@ -41,6 +41,23 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+  build:
+    name: Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build local-mode production bundle
+        run: npm run build
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -57,6 +74,26 @@ jobs:
 
       - name: Run unit tests
         run: npm run test
+
+  browser:
+    name: Browser and Accessibility Smoke Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: npm run test:e2e
 
   python:
     name: Python (TTS function)

@@ -9,7 +9,7 @@ export const LocalModeBanner = () => {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-3 py-2 px-4 bg-accent-bg border-b border-accent-border text-[0.8125rem] text-accent font-medium"
+      className="fixed inset-x-0 top-12 z-[60] flex items-center justify-center gap-3 border-b border-accent-border bg-surface px-4 py-2 text-[0.8125rem] font-medium text-accent shadow-sm"
     >
       <span>
         Running in local mode &mdash; articles are fetched live from Wikipedia.
@@ -18,7 +18,7 @@ export const LocalModeBanner = () => {
       <button
         onClick={() => setDismissed(true)}
         aria-label="Dismiss local mode notice"
-        className="flex items-center justify-center w-5 h-5 p-0 bg-transparent border-0 cursor-pointer text-inherit rounded shrink-0"
+        className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded border-0 bg-transparent p-0 text-inherit"
       >
         <svg
           viewBox="0 0 24 24"
