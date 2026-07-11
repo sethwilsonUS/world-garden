@@ -85,7 +85,7 @@ describe("enrichDidYouKnowThumbnails", () => {
               height: 240,
               attribution: {
                 sourceTitle: "File:lenox.jpg",
-                sourceUrl: "https://en.wikipedia.org/wiki/File%3Alenox.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File%3Alenox.jpg",
               },
             },
           },
@@ -146,7 +146,7 @@ describe("enrichDidYouKnowThumbnails", () => {
               height: 240,
               attribution: {
                 sourceTitle: "File:lenox.jpg",
-                sourceUrl: "https://en.wikipedia.org/wiki/File%3Alenox.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File%3Alenox.jpg",
               },
             },
           },

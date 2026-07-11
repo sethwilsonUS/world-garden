@@ -44,8 +44,15 @@ jobs:
   build:
     name: Production Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      LOCAL_MODE: "true"
+      NEXT_PUBLIC_LOCAL_MODE: "true"
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -78,8 +85,12 @@ jobs:
   browser:
     name: Browser and Accessibility Smoke Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:

@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchWikimediaMediaAttributions,
   getWikimediaFileTitleFromUrl,
+  WIKIMEDIA_MEDIA_TIMEOUT_MS,
 } from "./wikimedia-media";
 
 describe("Wikimedia media attribution", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("derives file titles from thumbnail and original URLs", () => {
     expect(
       getWikimediaFileTitleFromUrl(
@@ -19,8 +24,17 @@ describe("Wikimedia media attribution", () => {
   });
 
   it("normalizes imageinfo metadata and keeps a source fallback", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      expect(url.hostname).toBe("commons.wikimedia.org");
+      expect(url.pathname).toBe("/w/api.php");
+      expect(url.searchParams.get("prop")).toBe("imageinfo");
+      expect(url.searchParams.get("iiprop")).toBe("url|extmetadata");
+      expect(url.searchParams.get("titles")).toBe(
+        "File:Example.jpg|File:Missing.jpg",
+      );
+
+      return new Response(
         JSON.stringify({
           query: {
             pages: {
@@ -44,8 +58,8 @@ describe("Wikimedia media attribution", () => {
           },
         }),
         { status: 200 },
-      ),
-    );
+      );
+    });
 
     const result = await fetchWikimediaMediaAttributions(
       ["File:Example.jpg", "File:Missing.jpg"],
@@ -59,7 +73,67 @@ describe("Wikimedia media attribution", () => {
       sourceUrl: "https://commons.wikimedia.org/wiki/File:Example.jpg",
     });
     expect(result.get("File:Missing.jpg")?.sourceUrl).toContain(
-      "en.wikipedia.org/wiki/File%3AMissing.jpg",
+      "commons.wikimedia.org/wiki/File%3AMissing.jpg",
+    );
+  });
+
+  it("keeps Credit separate when Artist metadata is missing", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          query: {
+            pages: {
+              "1": {
+                title: "File:Credit only.jpg",
+                imageinfo: [
+                  {
+                    extmetadata: {
+                      Credit: { value: "Museum archive scan" },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await fetchWikimediaMediaAttributions(
+      ["File:Credit only.jpg"],
+      fetchMock,
+    );
+
+    expect(result.get("File:Credit only.jpg")).toMatchObject({
+      credit: "Museum archive scan",
+    });
+    expect(result.get("File:Credit only.jpg")?.creator).toBeUndefined();
+  });
+
+  it("aborts stalled Commons metadata requests and preserves fallbacks", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+      async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const pending = fetchWikimediaMediaAttributions(
+      ["File:Slow.jpg"],
+      fetchMock,
+    );
+    await vi.advanceTimersByTimeAsync(WIKIMEDIA_MEDIA_TIMEOUT_MS);
+    const result = await pending;
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("commons.wikimedia.org/w/api.php"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(result.get("File:Slow.jpg")?.sourceUrl).toContain(
+      "commons.wikimedia.org/wiki/File%3ASlow.jpg",
     );
   });
 });

@@ -47,8 +47,8 @@
     --color-accent-bg: rgba(52, 211, 153, 0.1);
     --color-accent-border: rgba(52, 211, 153, 0.2);
     --color-accent-glow: rgba(52, 211, 153, 0.12);
-    --color-btn-primary: #059669;
-    --color-btn-primary-hover: #047857;
+    --color-btn-primary: #047857;
+    --color-btn-primary-hover: #065f46;
     --color-btn-primary-text: #ffffff;
     --color-critical: #ef4444;
     --color-serious: #f97316;

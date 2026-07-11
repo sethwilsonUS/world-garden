@@ -742,6 +742,7 @@ const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
             sizes="(min-width: 1024px) 38vw, 100vw"
             className="object-contain"
             loading="eager"
+            fetchPriority="high"
             unoptimized
           />
         </div>

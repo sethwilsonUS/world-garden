@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SiteNavLinks } from "./SiteNavLinks";
+import { isSiteNavHrefCurrent, SiteNavLinks } from "./SiteNavLinks";
 
 let authState: "signed-in" | "signed-out" = "signed-out";
 
@@ -20,6 +20,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("SiteNavLinks", () => {
+  it("matches current navigation only at path boundaries", () => {
+    expect(isSiteNavHrefCurrent("/about", "/about")).toBe(true);
+    expect(isSiteNavHrefCurrent("/about/engineering", "/about")).toBe(true);
+    expect(isSiteNavHrefCurrent("/aboutness", "/about")).toBe(false);
+    expect(isSiteNavHrefCurrent("/library-archive", "/library")).toBe(false);
+  });
+
   it("shows Library for signed-out navigation", () => {
     authState = "signed-out";
 

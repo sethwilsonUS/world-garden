@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getPodcastAdminAuthError = vi.fn();
 const enforceRouteQuota = vi.fn();
@@ -14,6 +14,10 @@ vi.mock("@/lib/homepage-audio-warm", () => ({
 }));
 
 describe("GET /api/featured/audio-warm/cron", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -96,6 +100,6 @@ describe("GET /api/featured/audio-warm/cron", () => {
 
     expect(response.status).toBe(500);
     expect(body.error).toBe("Homepage article summary audio warm failed");
-    consoleError.mockRestore();
+    expect(consoleError).toHaveBeenCalled();
   });
 });

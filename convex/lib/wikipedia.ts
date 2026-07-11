@@ -675,17 +675,16 @@ export const extractImages = (html: string): WikiArticleImage[] => {
 
     if (seenSrcs.has(poster)) continue;
     seenSrcs.add(poster);
+    const videoSourceTitle = getWikimediaFileTitleFromUrl(videoSrc || poster);
 
     images.push({
       src: poster,
       alt: caption,
       caption,
       ...(videoSrc ? { videoSrc } : {}),
-      ...(getWikimediaFileTitleFromUrl(videoSrc || poster)
+      ...(videoSourceTitle
         ? {
-            attribution: buildWikimediaSourceFallback(
-              getWikimediaFileTitleFromUrl(videoSrc || poster)!,
-            ),
+            attribution: buildWikimediaSourceFallback(videoSourceTitle),
           }
         : {}),
     });

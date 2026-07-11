@@ -11,7 +11,7 @@ export const MediaAttribution = ({
 }) => {
   if (!attribution?.sourceUrl) return null;
 
-  const rawCreator = attribution.creator || attribution.credit;
+  const rawCreator = attribution.creator;
   const creator = rawCreator && !/^https?:\/\//i.test(rawCreator)
     ? rawCreator
     : undefined;

@@ -23,6 +23,11 @@ const linkClassByVariant: Record<SiteNavLinksProps["variant"], string> = {
   footer: "text-foreground-2 no-underline text-sm",
 };
 
+export const isSiteNavHrefCurrent = (pathname: string, href: string): boolean =>
+  href === "/"
+    ? pathname === "/"
+    : pathname === href || pathname.startsWith(`${href}/`);
+
 export const SiteNavLinks = ({
   variant,
   authEnabled = false,
@@ -31,7 +36,7 @@ export const SiteNavLinks = ({
   const linkClass = linkClassByVariant[variant];
 
   const renderLink = (href: string, label: string) => {
-    const isCurrent = href === "/" ? pathname === href : pathname.startsWith(href);
+    const isCurrent = isSiteNavHrefCurrent(pathname, href);
 
     return (
       <Link

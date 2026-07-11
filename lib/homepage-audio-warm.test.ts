@@ -60,6 +60,7 @@ describe("homepage summary audio warmer", () => {
   });
 
   it("reuses an exact readable cache entry and regenerates an inaccessible one", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const expected = getTtsMetadata(getActiveTtsProfile());
     const getCachedSummary = vi
       .fn<HomepageAudioWarmDependencies["getCachedSummary"]>()
@@ -87,6 +88,10 @@ describe("homepage summary audio warmer", () => {
       failed: 0,
     });
     expect(dependencies.generateAudio).toHaveBeenCalledTimes(1);
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "[homepage-audio-warm] cached summary unavailable; regenerating",
+      expect.objectContaining({ title: "Stale", error: "404" }),
+    );
     expect(dependencies.saveSummary).toHaveBeenCalledWith(
       expect.objectContaining({
         articleId: "Stale",
@@ -94,6 +99,7 @@ describe("homepage summary audio warmer", () => {
         metadata: expected,
       }),
     );
+    consoleWarn.mockRestore();
   });
 
   it("stores fallback audio as degraded so a later run retries the primary key", async () => {

@@ -1692,7 +1692,7 @@ const ArticleViewContent = ({
                   />
                 </div>
                 {displayArticle.summary && (
-                  <div className="hidden md:block max-w-sm">
+                  <div className="relative z-20 hidden max-w-sm md:block">
                     <p
                       className="text-sm leading-relaxed text-white line-clamp-[7]"
                       style={{ textShadow: '0 1px 4px rgba(0, 0, 0, 0.6)' }}
@@ -1762,7 +1762,7 @@ const ArticleViewContent = ({
               </>
             )}
             {displayArticle.summary && (
-              <div className="hidden md:block absolute inset-x-0 bottom-0 rounded-b-xl bg-black/70 px-5 py-4"
+              <div className="absolute inset-x-0 bottom-0 z-20 hidden rounded-b-xl bg-black/70 px-5 py-4 md:block"
                 style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
               >
                 <p className="text-sm leading-relaxed text-white line-clamp-3">

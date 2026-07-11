@@ -507,7 +507,9 @@ describe("extractImages", () => {
     expect(images[0].attribution).toMatchObject({
       sourceTitle: "File:Cat.jpg",
     });
-    expect(images[0].attribution?.sourceUrl).toContain("wikipedia.org/wiki");
+    expect(images[0].attribution?.sourceUrl).toContain(
+      "commons.wikimedia.org/wiki",
+    );
   });
 
   it("strips HTML tags from captions", () => {

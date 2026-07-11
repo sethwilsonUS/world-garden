@@ -7,6 +7,10 @@ const tinyPng = Buffer.from(
 );
 
 const expectNoSeriousAxeViolations = async (page: Page) => {
+  await page.addStyleTag({
+    content:
+      "*, *::before, *::after { animation: none !important; transition: none !important; }",
+  });
   const results = await new AxeBuilder({ page }).analyze();
   const serious = results.violations.filter(
     (violation) => violation.impact === "critical" || violation.impact === "serious",
@@ -67,6 +71,31 @@ const mockHomeData = async (page: Page) => {
 const mockArticleData = async (page: Page) => {
   await page.route("https://upload.wikimedia.org/**", (route) =>
     route.fulfill({ contentType: "image/png", body: tinyPng }),
+  );
+
+  await page.route("https://commons.wikimedia.org/w/api.php**", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        query: {
+          pages: {
+            "1": {
+              title: "File:Ada portrait.jpg",
+              imageinfo: [
+                {
+                  descriptionurl:
+                    "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
+                  extmetadata: {
+                    Artist: { value: "Alfred Edward Chalon" },
+                    LicenseShortName: { value: "Public domain" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    }),
   );
 
   await page.route("https://en.wikipedia.org/w/api.php**", async (route) => {
@@ -168,11 +197,15 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await expect(page.getByRole("link", { name: /Revision 123456789/ }).first()).toBeVisible();
   await expect(page.getByText("Image by Alfred Edward Chalon", { exact: false }).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "View full image for Ada Lovelace" }).click();
+  const heroLightboxButton = page.getByRole("button", {
+    name: "View full image for Ada Lovelace",
+  });
+  await heroLightboxButton.focus();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: "Image gallery" })).toBeVisible();
   await expect(page.getByText("Creator: Alfred Edward Chalon")).toBeVisible();
   await page.getByRole("button", { name: "Close lightbox" }).click();
-  await expect(page.getByRole("button", { name: "View full image for Ada Lovelace" })).toBeFocused();
+  await expect(heroLightboxButton).toBeFocused();
   await expectNoSeriousAxeViolations(page);
 });
 

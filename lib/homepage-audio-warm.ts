@@ -232,8 +232,16 @@ export const warmHomepageArticleSummaries = async ({
           await dependencies.verifyAudioUrl(cached.url);
           result.reused += 1;
           return;
-        } catch {
-          // The record is stale; replace it below.
+        } catch (error) {
+          console.warn(
+            "[homepage-audio-warm] cached summary unavailable; regenerating",
+            {
+              title: ref.title,
+              source: ref.source,
+              ttsCacheKey: expected.ttsCacheKey,
+              error: sanitizeError(error),
+            },
+          );
         }
       }
 

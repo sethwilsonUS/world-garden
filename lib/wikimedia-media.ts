@@ -19,10 +19,13 @@ type ImageInfoPage = {
   imageinfo?: ImageInfo[];
 };
 
-const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
+const WIKIMEDIA_COMMONS_HOST = "commons.wikimedia.org";
+const WIKIMEDIA_COMMONS_ACTION_API =
+  `https://${WIKIMEDIA_COMMONS_HOST}/w/api.php`;
 const USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 const IMAGE_INFO_BATCH_SIZE = 50;
+export const WIKIMEDIA_MEDIA_TIMEOUT_MS = 8_000;
 
 const decodeHtml = (value: string): string =>
   value
@@ -70,9 +73,10 @@ export const getWikimediaFileTitleFromUrl = (
 
 export const buildWikimediaSourceFallback = (
   sourceTitle: string,
+  projectHost = WIKIMEDIA_COMMONS_HOST,
 ): WikimediaMediaAttribution => ({
   sourceTitle,
-  sourceUrl: `https://en.wikipedia.org/wiki/${encodeURIComponent(
+  sourceUrl: `https://${projectHost}/wiki/${encodeURIComponent(
     sourceTitle.replace(/ /g, "_"),
   )}`,
 });
@@ -100,9 +104,20 @@ export const fetchWikimediaMediaAttributions = async (
     });
 
     try {
-      const response = await fetchImpl(`${WIKI_ACTION_API}?${params}`, {
-        headers: { "User-Agent": USER_AGENT },
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        WIKIMEDIA_MEDIA_TIMEOUT_MS,
+      );
+      let response: Response;
+      try {
+        response = await fetchImpl(`${WIKIMEDIA_COMMONS_ACTION_API}?${params}`, {
+          headers: { "User-Agent": USER_AGENT },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
       if (!response.ok) continue;
 
       const payload = (await response.json()) as {
@@ -116,9 +131,7 @@ export const fetchWikimediaMediaAttributions = async (
         const metadata = info?.extmetadata;
 
         results.set(sourceTitle, {
-          creator:
-            metadataText(metadata, "Artist") ??
-            metadataText(metadata, "Credit"),
+          creator: metadataText(metadata, "Artist"),
           credit: metadataText(metadata, "Credit"),
           licenseName:
             metadataText(metadata, "LicenseShortName") ??
