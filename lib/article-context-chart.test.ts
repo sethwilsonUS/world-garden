@@ -2,12 +2,42 @@ import { describe, expect, it } from "vitest";
 import type { ContextChartBlock } from "./article-context-types";
 import {
   formatContextChartCell,
+  getContextChartPayloadKey,
   getRankedBarGeometry,
   getRankedChartPresentation,
   getStandardChartFamilyView,
   getStandardChartPresentation,
   shouldStandardChartUseZeroBaseline,
 } from "./article-context-chart";
+
+describe("chart payload readiness keys", () => {
+  it("changes for interior plotted values and selected-series metadata", () => {
+    const rows = [
+      { region: "North", population: 10 },
+      { region: "Central", population: 20 },
+      { region: "South", population: 30 },
+    ];
+    const series = [{
+      id: "population",
+      label: "Population",
+      type: "bar" as const,
+      xColumn: "region",
+      yColumn: "population",
+      unit: "people",
+    }];
+    const original = getContextChartPayloadKey(rows, series);
+
+    expect(getContextChartPayloadKey(
+      rows.map((row, index) => index === 1 ? { ...row, population: 25 } : row),
+      series,
+    )).not.toBe(original);
+    expect(getContextChartPayloadKey(rows, [
+      { ...series[0], label: "Residents" },
+    ])).not.toBe(original);
+    expect(getContextChartPayloadKey(rows.map((row) => ({ ...row })), series))
+      .toBe(original);
+  });
+});
 
 const base = {
   id: "ranking",

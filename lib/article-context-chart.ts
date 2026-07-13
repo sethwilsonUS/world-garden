@@ -146,6 +146,23 @@ export type StandardChartRenderKind =
   | "line"
   | "pie";
 
+export const getContextChartPayloadKey = (
+  rows: ContextChartBlock["chart"]["rows"],
+  series: ContextChartSeries[],
+): string => JSON.stringify({
+  series: series.map(({ id, label, type, xColumn, yColumn, unit }) => [
+    id,
+    label,
+    type,
+    xColumn,
+    yColumn,
+    unit ?? null,
+  ]),
+  values: rows.map((row) =>
+    series.map(({ xColumn, yColumn }) => [row[xColumn], row[yColumn]]),
+  ),
+});
+
 export type StandardChartScaleFamily = {
   id: string;
   label: string;

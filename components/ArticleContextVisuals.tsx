@@ -23,6 +23,7 @@ import type {
 } from "@/lib/article-context-types";
 import {
   formatContextChartCell,
+  getContextChartPayloadKey,
   getRankedBarGeometry,
   getRankedChartPresentation,
   getStandardChartFamilyView,
@@ -1133,7 +1134,8 @@ const EChartsGraphic = ({
   const chartHeight = horizontalBars
     ? Math.min(560, Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)))
     : 300;
-  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${selectedSeries.map((series) => series.id).join(",")}:${rows.length}:${String(rows[0]?.[xColumn])}:${String(rows.at(-1)?.[xColumn])}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
+  const chartPayloadKey = getContextChartPayloadKey(rows, selectedSeries);
+  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${chartPayloadKey}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
   const ready = readyAttempt === chartAttempt;
 
   useEffect(() => {
