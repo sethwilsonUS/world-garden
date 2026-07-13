@@ -20,6 +20,9 @@ const expectNoSeriousAxeViolations = async (page: Page) => {
 
 const todayFixture = {
   feedDate: "2026-07-10",
+  // Wikimedia's featured feed uses this legacy date-only shape. Keep the
+  // fixture exact so the browser test exercises our normalization path.
+  trendingDate: "2026-07-12Z",
   tfa: {
     title: "Ada Lovelace",
     extract: "Ada Lovelace wrote about Charles Babbage's Analytical Engine.",
@@ -187,6 +190,38 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(page.getByText("accessible fact 4", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Show fewer facts" })).toBeFocused();
   await expectNoSeriousAxeViolations(page);
+});
+
+test.describe("date-only labels stay on the Wikimedia calendar date", () => {
+  test.describe("west of UTC", () => {
+    test.use({ timezoneId: "America/Chicago" });
+
+    test("the Trending page does not roll a UTC-midnight date backward", async ({
+      page,
+    }) => {
+      await mockHomeData(page);
+      await page.goto("/trending");
+
+      await expect(
+        page.getByText("Most-read data from: Jul 12, 2026", { exact: true }),
+      ).toBeVisible();
+    });
+  });
+
+  test.describe("east of UTC", () => {
+    test.use({ timezoneId: "Pacific/Kiritimati" });
+
+    test("the home page does not roll a noon-UTC date forward", async ({
+      page,
+    }) => {
+      await mockHomeData(page);
+      await page.goto("/");
+
+      await expect(
+        page.getByText("Last updated: Jul 12, 2026", { exact: true }),
+      ).toBeVisible();
+    });
+  });
 });
 
 test("article exposes revision and media provenance in an accessible lightbox", async ({ page }) => {

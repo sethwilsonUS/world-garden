@@ -514,6 +514,29 @@ test("article context reflows at a narrow viewport and honors reduced motion", a
   await page.goto("/article/Ada_Lovelace");
 
   await expect(page.locator("article.context-card")).toHaveCount(4);
+  const tocRows = page.locator(".toc-row");
+  expect(await tocRows.count()).toBeGreaterThan(0);
+  const tocRowLayoutViolations = await tocRows.evaluateAll(
+    (rows) =>
+      rows.flatMap((row, index) => {
+        const copy = row.children.item(0);
+        const action = row.children.item(1);
+        if (!(copy instanceof HTMLElement) || !(action instanceof HTMLElement)) {
+          return [];
+        }
+        const copyRect = copy.getBoundingClientRect();
+        const actionRect = action.getBoundingClientRect();
+        return copyRect.bottom <= actionRect.top + 0.5
+          ? []
+          : [{
+              index,
+              copyBottom: copyRect.bottom,
+              actionTop: actionRect.top,
+              text: row.textContent?.replace(/\s+/g, " ").trim(),
+            }];
+      }),
+  );
+  expect(tocRowLayoutViolations).toEqual([]);
   const diagramCard = page.locator("#article-context-diagram-engine");
   await openDetailsWithKeyboard(
     page,

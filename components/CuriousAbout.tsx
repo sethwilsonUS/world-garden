@@ -21,6 +21,7 @@ function formatTrendingDate(isoDate: string | null): string {
       month: "short",
       day: "numeric",
       year: "numeric",
+      timeZone: "UTC",
     });
   } catch {
     return "";
