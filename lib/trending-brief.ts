@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
-import type { GatewayLanguageModelOptions } from "@ai-sdk/gateway";
-import { gateway, generateText, stepCountIs } from "ai";
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
+import type OpenAI from "openai";
+import { zodTextFormat } from "openai/helpers/zod";
+import { z } from "zod";
 import type { Id } from "@/convex/_generated/dataModel";
 import { addMp3MetadataToBlob } from "@/lib/audio-metadata";
-import { TRENDING_PODCAST_TITLE } from "@/lib/podcast-feed";
+import {
+  TRENDING_AI_AUDIO_DISCLOSURE,
+  TRENDING_PODCAST_TITLE,
+} from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
+import { getOpenAIClient, isOpenAIConfigured } from "@/lib/openai-client";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 import {
@@ -22,13 +27,37 @@ import {
 } from "@/lib/trending-podcast-artwork";
 
 const TTS_WORDS_PER_SECOND = 2.5;
-const DEFAULT_TRENDING_BRIEF_MODEL = "anthropic/claude-opus-4.5";
-const DEFAULT_TRENDING_BRIEF_FALLBACK_MODEL = "openai/gpt-5.2";
+const DEFAULT_TRENDING_BRIEF_MODEL = "gpt-5.6-luna";
 const MAX_ARTICLES_IN_PROMPT = 10;
 const MAX_KEY_POINTS = 5;
 const MAX_SOURCES = 6;
 const JOB_LEASE_MS = 8 * 60 * 1000;
+const TRENDING_AUDIO_SCRIPT_VERSION = "ai-disclosure-v1";
 const inFlightTrendingBriefs = new Map<string, Promise<TrendingBriefSyncResult>>();
+
+export const getTrendingAudioCacheKey = (): string =>
+  `${getActiveTtsCacheKey()}:trending-script:${TRENDING_AUDIO_SCRIPT_VERSION}`;
+
+export const getTrendingAudioScript = (spokenSummary: string): string =>
+  `${TRENDING_AI_AUDIO_DISCLOSURE} ${spokenSummary.trim()}`;
+
+export const getTrendingBriefModel = (): string => {
+  const configuredModel = process.env.TRENDING_BRIEF_MODEL?.trim();
+  if (!configuredModel) return DEFAULT_TRENDING_BRIEF_MODEL;
+
+  // Smooth the transition from the Gateway's provider/model identifiers.
+  if (configuredModel.startsWith("openai/")) {
+    return configuredModel.slice("openai/".length);
+  }
+  if (configuredModel.includes("/")) {
+    console.warn(
+      `[podcast:trending] Ignoring non-OpenAI TRENDING_BRIEF_MODEL=${configuredModel}; using ${DEFAULT_TRENDING_BRIEF_MODEL}`,
+    );
+    return DEFAULT_TRENDING_BRIEF_MODEL;
+  }
+
+  return configuredModel;
+};
 
 type TrendingArticle = {
   title: string;
@@ -50,6 +79,19 @@ type GeneratedTrendingBrief = {
   keyPoints: string[];
   sources: TrendingBriefSource[];
 };
+
+const TrimmedNonEmptyTextSchema = z.string().trim().min(1);
+
+const TrendingBriefOutputSchema = z.object({
+  headline: TrimmedNonEmptyTextSchema,
+  summary: TrimmedNonEmptyTextSchema,
+  podcastDescription: TrimmedNonEmptyTextSchema,
+  spokenSummary: TrimmedNonEmptyTextSchema,
+  keyPoints: z
+    .array(TrimmedNonEmptyTextSchema)
+    .min(3)
+    .max(MAX_KEY_POINTS),
+});
 
 export type TrendingBriefRecord = {
   _id: string;
@@ -145,7 +187,7 @@ export const shouldReuseExistingTrendingBrief = (
   Boolean(
       record?.status === "ready" &&
       record.audioUrl &&
-      record.ttsCacheKey === getActiveTtsCacheKey() &&
+      record.ttsCacheKey === getTrendingAudioCacheKey() &&
       !(options?.force && options?.regenArt) &&
       (!options?.regenArt || hasCurrentTrendingArtworkVersion(record)),
   );
@@ -169,13 +211,24 @@ const getErrorMessage = (error: unknown): string =>
 const stripUrlsFromSpeech = (text: string): string =>
   text.replace(/https?:\/\/\S+/g, "").replace(/\s{2,}/g, " ").trim();
 
+const normalizeHttpUrl = (value: string): string | null => {
+  const normalized = value.trim();
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return normalized;
+  } catch {
+    return null;
+  }
+};
+
 const dedupeSources = (sources: TrendingBriefSource[]): TrendingBriefSource[] => {
   const seen = new Set<string>();
   const result: TrendingBriefSource[] = [];
 
   for (const source of sources) {
     const title = sanitizeText(source.title);
-    const url = sanitizeText(source.url);
+    const url = normalizeHttpUrl(source.url);
     if (!title || !url || seen.has(url)) continue;
     seen.add(url);
     result.push({ title, url });
@@ -185,48 +238,69 @@ const dedupeSources = (sources: TrendingBriefSource[]): TrendingBriefSource[] =>
   return result;
 };
 
-export const parseGeneratedTrendingBrief = (
-  rawText: string,
-): GeneratedTrendingBrief => {
-  const trimmed = rawText.trim();
-  if (!trimmed) {
-    throw new Error("Trending brief model returned empty text");
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object";
+
+const getSourceTitleFromUrl = (url: string): string => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "Web source";
+  }
+};
+
+/**
+ * Builds the reader-facing source list from Responses API web-search metadata.
+ * Citation annotations take precedence because they include useful page titles;
+ * the complete consulted-source list fills any remaining slots.
+ */
+export const extractTrendingBriefSources = (
+  output: unknown,
+): TrendingBriefSource[] => {
+  if (!Array.isArray(output)) return [];
+
+  const citations: TrendingBriefSource[] = [];
+  const consultedSources: TrendingBriefSource[] = [];
+
+  for (const item of output) {
+    if (!isRecord(item)) continue;
+
+    if (item.type === "message" && Array.isArray(item.content)) {
+      for (const content of item.content) {
+        if (!isRecord(content) || !Array.isArray(content.annotations)) continue;
+        for (const annotation of content.annotations) {
+          if (
+            !isRecord(annotation) ||
+            annotation.type !== "url_citation" ||
+            typeof annotation.url !== "string"
+          ) {
+            continue;
+          }
+          citations.push({
+            title:
+              typeof annotation.title === "string" && annotation.title.trim()
+                ? annotation.title
+                : getSourceTitleFromUrl(annotation.url),
+            url: annotation.url,
+          });
+        }
+      }
+    }
+
+    if (item.type === "web_search_call" && isRecord(item.action)) {
+      const sources = item.action.sources;
+      if (!Array.isArray(sources)) continue;
+      for (const source of sources) {
+        if (!isRecord(source) || typeof source.url !== "string") continue;
+        consultedSources.push({
+          title: getSourceTitleFromUrl(source.url),
+          url: source.url,
+        });
+      }
+    }
   }
 
-  const jsonMatch = trimmed.match(/```json\s*([\s\S]*?)```/i);
-  const candidate = (jsonMatch?.[1] ?? trimmed).trim();
-
-  const parsed = JSON.parse(candidate) as Partial<GeneratedTrendingBrief>;
-
-  if (
-    typeof parsed.headline !== "string" ||
-    typeof parsed.summary !== "string" ||
-    typeof parsed.podcastDescription !== "string" ||
-    typeof parsed.spokenSummary !== "string" ||
-    !Array.isArray(parsed.keyPoints) ||
-    !Array.isArray(parsed.sources)
-  ) {
-    throw new Error("Trending brief model output was not valid JSON");
-  }
-
-  return {
-    headline: parsed.headline,
-    summary: parsed.summary,
-    podcastDescription: parsed.podcastDescription,
-    spokenSummary: parsed.spokenSummary,
-    keyPoints: parsed.keyPoints.filter(
-      (item): item is string => typeof item === "string",
-    ),
-    sources: parsed.sources.filter(
-      (item): item is TrendingBriefSource =>
-        Boolean(
-          item &&
-            typeof item === "object" &&
-            typeof item.title === "string" &&
-            typeof item.url === "string",
-        ),
-    ),
-  };
+  return dedupeSources([...citations, ...consultedSources]);
 };
 
 export const normalizeTrendingBrief = (
@@ -270,16 +344,13 @@ export const buildTrendingBriefPrompt = ({
   return [
     `Today's Wikipedia trending date is ${trendingDate}.`,
     "You are preparing a daily Curio Garden trend briefing about why these English Wikipedia articles are trending.",
-    "You must use the news/web search tool before writing the briefing.",
-    "Base the explanation on recent reporting when possible. If the reason is uncertain, say that clearly.",
-    "Do not claim that something is trending for a specific reason unless the search results support it.",
-    "Return only valid JSON. Do not wrap it in markdown unless necessary.",
-    'Use this exact shape: {"headline":"...","summary":"...","podcastDescription":"...","spokenSummary":"...","keyPoints":["..."],"sources":[{"title":"...","url":"..."}]}.',
+    "Use only the supplied web research and Wikipedia context. If the reason is uncertain, say that clearly.",
+    "Do not claim that something is trending for a specific reason unless the research supports it.",
+    "The response schema is enforced separately; write complete content for every requested field.",
     "For podcastDescription, write a compact 1-2 sentence episode description suitable for a podcast app listing. Keep it shorter than summary.",
     "For spokenSummary, write natural audio-ready prose with no markdown, no bullets, and no URLs.",
     "For summary, keep it readable on-screen in 1-2 short paragraphs.",
     "For keyPoints, provide 3-5 short bullets explaining the most likely drivers across the list.",
-    "For sources, include 3-6 reputable source links you actually relied on.",
     "",
     "Trending Wikipedia articles:",
     articleList,
@@ -300,8 +371,119 @@ const buildTrendingResearchPrompt = ({
     `Search recent news coverage for likely reasons these topics are trending: ${articleTitles}.`,
     "Use web search and gather the most relevant recent reporting.",
     "Focus on timely events, deaths, announcements, releases, sports moments, political developments, and media coverage spikes.",
-    "Return a short plain-text research note summarizing the strongest explanations you found. Include source names and URLs in the note.",
+    "Return a short plain-text research note summarizing the strongest explanations you found, with inline citations.",
+    "If no credible recent source explains an item, explicitly mark its cause as uncertain rather than guessing.",
   ].join("\n");
+};
+
+type TrendingOpenAIClient = Pick<OpenAI, "responses">;
+
+const logOpenAIUsage = ({
+  stage,
+  response,
+  webSearchCalls = 0,
+}: {
+  stage: "research" | "writing";
+  response: {
+    model?: string;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+    } | null;
+  };
+  webSearchCalls?: number;
+}) => {
+  console.info(
+    `[podcast:trending:openai] stage=${stage} model=${response.model ?? "unknown"} inputTokens=${response.usage?.input_tokens ?? 0} outputTokens=${response.usage?.output_tokens ?? 0} totalTokens=${response.usage?.total_tokens ?? 0} webSearchCalls=${webSearchCalls}`,
+  );
+};
+
+export const generateTrendingBriefContent = async ({
+  client,
+  model,
+  trendingDate,
+  articles,
+}: {
+  client: TrendingOpenAIClient;
+  model: string;
+  trendingDate: string;
+  articles: TrendingArticle[];
+}): Promise<GeneratedTrendingBrief> => {
+  const researchResult = await client.responses.create({
+    model,
+    instructions:
+      "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use current, reputable reporting to investigate why topics are trending. Distinguish supported explanations from uncertainty.",
+    input: buildTrendingResearchPrompt({ trendingDate, articles }),
+    tools: [{ type: "web_search", search_context_size: "medium" }],
+    tool_choice: "required",
+    include: ["web_search_call.action.sources"],
+    reasoning: { effort: "medium" },
+    max_output_tokens: 4_000,
+    metadata: { workflow: "trending-brief", stage: "research" },
+    safety_identifier: "public-trending-brief",
+    store: false,
+  });
+
+  const webSearchCalls = researchResult.output.filter(
+    (item) => item.type === "web_search_call",
+  ).length;
+  logOpenAIUsage({
+    stage: "research",
+    response: researchResult,
+    webSearchCalls,
+  });
+
+  if (webSearchCalls === 0) {
+    throw new Error("Trending brief research did not perform a web search");
+  }
+
+  const researchText = researchResult.output_text.trim();
+  if (!researchText) {
+    throw new Error("Trending brief research returned empty text");
+  }
+
+  const sources = extractTrendingBriefSources(researchResult.output);
+  if (sources.length === 0) {
+    throw new Error("Trending brief research did not return cited web sources");
+  }
+
+  const writingResult = await client.responses.parse({
+    model,
+    instructions:
+      "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using only the supplied research and article context, never speculation. Write clean prose for sighted and screen-reader audiences.",
+    input: [
+      buildTrendingBriefPrompt({ trendingDate, articles }),
+      "",
+      "Research context from OpenAI web search:",
+      researchText,
+      "",
+      "Verified source list:",
+      ...sources.map((source) => `- ${source.title}: ${source.url}`),
+    ].join("\n"),
+    reasoning: { effort: "medium" },
+    max_output_tokens: 4_000,
+    text: {
+      format: zodTextFormat(TrendingBriefOutputSchema, "trending_brief"),
+      verbosity: "low",
+    },
+    metadata: { workflow: "trending-brief", stage: "writing" },
+    safety_identifier: "public-trending-brief",
+    store: false,
+  });
+
+  logOpenAIUsage({ stage: "writing", response: writingResult });
+
+  if (!writingResult.output_parsed) {
+    throw new Error("Trending brief writing pass returned no structured output");
+  }
+
+  const normalized = normalizeTrendingBrief({
+    ...writingResult.output_parsed,
+    sources,
+  });
+  const validated = TrendingBriefOutputSchema.parse(normalized);
+  return { ...validated, sources: normalized.sources };
 };
 
 export const selectTrendingArtworkItems = (
@@ -369,7 +551,7 @@ const uploadBlobToConvexStorage = async (
 };
 
 export const isTrendingBriefEnabled = (): boolean =>
-  Boolean(process.env.AI_GATEWAY_API_KEY);
+  isOpenAIConfigured();
 
 const canReadTrendingBriefsFromConvex = (): boolean =>
   process.env.NEXT_PUBLIC_LOCAL_MODE !== "true" &&
@@ -456,11 +638,7 @@ const generateTrendingBriefRecord = async ({
     throw new Error(`Trending brief sync already running for ${trendingDateIso}`);
   }
 
-  const model =
-    process.env.TRENDING_BRIEF_MODEL || DEFAULT_TRENDING_BRIEF_MODEL;
-  const fallbackModel =
-    process.env.TRENDING_BRIEF_FALLBACK_MODEL ||
-    DEFAULT_TRENDING_BRIEF_FALLBACK_MODEL;
+  const model = getTrendingBriefModel();
 
   if (!existingReadyBrief) {
     await fetchMutation(anyApi.trending.saveTrendingBrief, {
@@ -483,79 +661,12 @@ const generateTrendingBriefRecord = async ({
     stage = cachedBriefContent ? "reusing_cached_brief" : "generating_brief_content";
     const brief = cachedBriefContent
       ? normalizeTrendingBrief(cachedBriefContent)
-      : await (async (): Promise<GeneratedTrendingBrief> => {
-          const researchResult = await generateText({
-            model,
-            system:
-              "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use web search to gather recent reporting about why topics are trending.",
-            prompt: buildTrendingResearchPrompt({
-              trendingDate: trendingDateIso,
-              articles,
-            }),
-            maxOutputTokens: 1200,
-            stopWhen: stepCountIs(3),
-            toolChoice: "required",
-            tools: {
-              news_search: gateway.tools.perplexitySearch({
-                searchRecencyFilter: "week",
-                searchLanguageFilter: ["en"],
-                maxResults: 8,
-                maxTokensPerPage: 1024,
-              }),
-            },
-            providerOptions: {
-              gateway: {
-                models: [fallbackModel],
-                user: "public-trending-brief",
-                tags: ["trending-brief", "daily-audio"],
-              } satisfies GatewayLanguageModelOptions,
-            },
-          });
-
-          if (researchResult.toolResults.length === 0) {
-            throw new Error("Trending brief research did not return any search results");
-          }
-
-          const researchContext = [
-            researchResult.text.trim(),
-            ...researchResult.toolResults.map((toolResult) =>
-              JSON.stringify(toolResult.output),
-            ),
-          ]
-            .filter(Boolean)
-            .join("\n\n");
-
-          const writingResult = await generateText({
-            model,
-            system:
-              "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using recent reporting, not speculation. Return only valid JSON.",
-            prompt: [
-              buildTrendingBriefPrompt({
-                trendingDate: trendingDateIso,
-                articles,
-              }),
-              "",
-              "Research context from recent news search:",
-              researchContext,
-            ].join("\n"),
-            maxOutputTokens: 1400,
-            providerOptions: {
-              gateway: {
-                models: [fallbackModel],
-                user: "public-trending-brief",
-                tags: ["trending-brief", "daily-audio"],
-              } satisfies GatewayLanguageModelOptions,
-            },
-          });
-
-          if (!writingResult.text.trim()) {
-            throw new Error("Trending brief writing pass returned empty text");
-          }
-
-          return normalizeTrendingBrief(
-            parseGeneratedTrendingBrief(writingResult.text),
-          );
-        })();
+      : await generateTrendingBriefContent({
+          client: getOpenAIClient(),
+          model,
+          trendingDate: trendingDateIso,
+          articles,
+        });
 
     const canReuseStoredAssets = Boolean(
       !regenArt &&
@@ -563,12 +674,12 @@ const generateTrendingBriefRecord = async ({
         existing?.artworkStorageId &&
         existing?.durationSeconds != null &&
         existing?.byteLength != null &&
-        existing?.ttsCacheKey === getActiveTtsCacheKey(),
+        existing?.ttsCacheKey === getTrendingAudioCacheKey(),
     );
     const canReuseExistingAudioForArtwork = Boolean(
       regenArt &&
         existing?.audioUrl &&
-        existing.ttsCacheKey === getActiveTtsCacheKey(),
+        existing.ttsCacheKey === getTrendingAudioCacheKey(),
     );
 
     const assetState = canReuseStoredAssets
@@ -591,6 +702,7 @@ const generateTrendingBriefRecord = async ({
           stage = canReuseExistingAudioForArtwork
             ? "reusing_existing_audio"
             : "generating_tts_audio";
+          const audioScript = getTrendingAudioScript(brief.spokenSummary);
           let ttsMetadata: TtsMetadata | null = null;
           const existingAudioUrl =
             canReuseExistingAudioForArtwork && existing?.audioUrl
@@ -600,13 +712,16 @@ const generateTrendingBriefRecord = async ({
             ? await fetchBlobFromUrl(existingAudioUrl)
             : await (async () => {
                 const generatedAudio = await generateTtsAudioWithMetadata(
-                  { text: brief.spokenSummary },
+                  { text: audioScript },
                   { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
                 );
                 ttsMetadata = generatedAudio.metadata;
                 return generatedAudio.blob;
               })();
-          const metadata = ttsMetadata ?? getTtsMetadata(getActiveTtsProfile());
+          const metadata = {
+            ...(ttsMetadata ?? getTtsMetadata(getActiveTtsProfile())),
+            ttsCacheKey: getTrendingAudioCacheKey(),
+          };
           const artworkBlob = new Blob([Buffer.from(artwork.data)], {
             type: artwork.mimeType,
           });
@@ -631,7 +746,7 @@ const generateTrendingBriefRecord = async ({
           return {
             storageId: newStorageId,
             artworkStorageId: newArtworkStorageId,
-            durationSeconds: estimateDurationSeconds(brief.spokenSummary),
+            durationSeconds: estimateDurationSeconds(audioScript),
             byteLength: taggedAudioBlob.size,
             metadata,
           };

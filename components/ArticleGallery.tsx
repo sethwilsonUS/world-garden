@@ -213,7 +213,7 @@ export const Lightbox = ({
               src={image.videoSrc}
               poster={image.src}
               controls
-              autoPlay
+              preload="metadata"
               className="max-w-full max-h-[80vh] object-contain rounded-lg"
             />
           ) : (

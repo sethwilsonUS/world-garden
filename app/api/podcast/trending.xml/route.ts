@@ -5,8 +5,10 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import { getOrCreatePodcastShowArtworkUrl } from "@/lib/podcast-show-artwork-cache";
 import {
   TRENDING_PODCAST_DESCRIPTION,
+  TRENDING_PODCAST_AI_DISCLOSURE,
   TRENDING_PODCAST_SUBTITLE,
   TRENDING_PODCAST_TITLE,
+  TRENDING_AI_DISCLOSURE,
   getTrendingPodcastItemArtworkUrl,
   getPodcastExcerpt,
   getPodcastSiteUrl,
@@ -16,6 +18,7 @@ import { renderTrendingShowPodcastArtworkPng } from "@/lib/trending-show-podcast
 import {
   ATOM_NS,
   CONTENT_NS,
+  PODCAST_INDEX_NS,
   PODCAST_NS,
   escapeXml,
   formatPodcastDuration,
@@ -97,13 +100,15 @@ export const GET = async (req: NextRequest) => {
     ${xmlTag("itunes:summary", attributedSummary)}
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
+    <podcast:txt purpose="ai-disclosure">${escapeXml(TRENDING_AI_DISCLOSURE)}</podcast:txt>
+    <podcast:txt purpose="ai-content">true</podcast:txt>
     <itunes:image href="${escapeXml(itemImageUrl)}" />
   </item>`.trim();
       })
       .join("\n");
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}" xmlns:content="${CONTENT_NS}">
+<rss version="2.0" xmlns:itunes="${PODCAST_NS}" xmlns:atom="${ATOM_NS}" xmlns:content="${CONTENT_NS}" xmlns:podcast="${PODCAST_INDEX_NS}">
 <channel>
   <title>${escapeXml(TRENDING_PODCAST_TITLE)}</title>
   <link>${escapeXml(siteUrl)}</link>
@@ -123,6 +128,8 @@ export const GET = async (req: NextRequest) => {
   <itunes:block>yes</itunes:block>
   <itunes:type>episodic</itunes:type>
   <itunes:category text="News" />
+  <podcast:txt purpose="ai-disclosure">${escapeXml(TRENDING_PODCAST_AI_DISCLOSURE)}</podcast:txt>
+  <podcast:txt purpose="ai-content">true</podcast:txt>
   <itunes:image href="${escapeXml(feedImageUrl)}" />
 ${itemsXml}
 </channel>

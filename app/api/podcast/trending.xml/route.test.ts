@@ -46,6 +46,11 @@ describe("GET /api/podcast/trending.xml", () => {
     expect(response.status).toBe(200);
     expect(xml).toContain('xmlns:content="http://purl.org/rss/1.0/modules/content/"');
     expect(xml).toContain("<itunes:block>yes</itunes:block>");
+    expect(xml).toContain('purpose="ai-disclosure"');
+    expect(xml).toContain("generated this briefing with OpenAI");
+    expect(xml).toContain("This podcast contains daily briefings generated with OpenAI");
+    expect(xml).toContain("Episodes were not written by Wikipedia");
+    expect(xml.match(/purpose="ai-content">true/g)).toHaveLength(2);
     expect(xml).toContain("<url>https://cdn.example.com/trending-show.png</url>");
     expect(xml).toContain(
       '<itunes:image href="https://cdn.example.com/trending-episode.png" />',

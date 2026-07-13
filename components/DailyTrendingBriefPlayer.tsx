@@ -32,7 +32,7 @@ export const DailyTrendingBriefPlayer = ({
       <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={toggle}
-          aria-label={playing ? "Pause daily trending briefing" : "Play daily trending briefing"}
+          aria-label={playing ? "Pause AI-generated daily trending briefing" : "Play AI-generated daily trending briefing"}
           className="search-submit flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 bg-accent text-white"
         >
           {playing ? (
@@ -49,7 +49,7 @@ export const DailyTrendingBriefPlayer = ({
 
         <div className="min-w-0 flex-1">
           <p className="m-0 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-muted">
-            Daily audio briefing
+            AI-generated daily audio briefing
           </p>
           <p className="m-0 mt-1 truncate font-display text-sm font-semibold text-foreground">
             {title}
@@ -94,7 +94,7 @@ export const DailyTrendingBriefPlayer = ({
         ref={audioRef}
         src={audioUrl}
         preload="metadata"
-        aria-label={`Audio for ${title}`}
+        aria-label={`AI-generated audio briefing: ${title}`}
       />
     </div>
   );

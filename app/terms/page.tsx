@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "May 10, 2026";
+const LAST_UPDATED = "July 13, 2026";
 
 export const metadata: Metadata = {
   title: "Terms of Use — Curio Garden",
@@ -60,6 +60,12 @@ export default function TermsPage() {
           read Wikipedia-derived text, generated summaries, or briefings aloud.
           Synthetic speech is a transformed presentation of the underlying
           content, not a human narration.
+        </p>
+        <p>
+          Trending summaries and podcast scripts are AI-generated Curio Garden
+          material based on Wikimedia pageview data and linked reporting. They
+          are not Wikipedia article text, may contain errors, and are disclosed
+          as generated material in the interface, podcast metadata, and audio.
         </p>
         <p>
           Wikipedia and related names are trademarks of the Wikimedia Foundation.

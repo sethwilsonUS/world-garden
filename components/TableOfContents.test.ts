@@ -10,6 +10,7 @@ import {
   TTS_WORDS_PER_SECOND,
 } from "./TableOfContents";
 import { DataContext, type DataContextValue } from "@/lib/data-context";
+import type { ContextBlock } from "@/lib/article-context-types";
 
 const dataContextValue: DataContextValue = {
   search: async () => [],
@@ -21,6 +22,47 @@ const dataContextValue: DataContextValue = {
   getSectionLinks: async () => [],
   getSectionCitations: async () => [],
   getArticleImages: async () => [],
+};
+
+const contextBlock: ContextBlock = {
+  id: "timeline-context",
+  kind: "timeline",
+  title: "A short chronology",
+  takeaway: "One milestone is shown.",
+  spokenSummary: "The milestone happened in 1969.",
+  longDescription: "The chronology contains one milestone in 1969.",
+  section: { index: "__summary__", title: "Summary" },
+  order: 0,
+  sources: [
+    {
+      label: "Wikipedia revision",
+      url: "https://en.wikipedia.org/w/index.php?oldid=123",
+      revisionId: "123",
+      accessedAt: "2026-07-13T00:00:00.000Z",
+    },
+  ],
+  provenance: {
+    articleUrl: "https://en.wikipedia.org/wiki/Example",
+    articleRevisionUrl: "https://en.wikipedia.org/w/index.php?oldid=123",
+    sourceHash: "context-source-hash",
+    extractorVersion: "test",
+    descriptionMethod: "deterministic",
+  },
+  timeline: {
+    chronological: true,
+    events: [
+      {
+        id: "milestone",
+        label: "Milestone",
+        start: {
+          display: "1969",
+          iso: "1969",
+          sortKey: 1969,
+          precision: "year",
+        },
+      },
+    ],
+  },
 };
 
 describe("formatDuration", () => {
@@ -380,6 +422,65 @@ describe("TableOfContents audio eligibility", () => {
 
     expect(downloadButton).toBeDefined();
     expect(downloadButton).toContain('disabled=""');
+  });
+
+  it("includes context-only audio in Play All without claiming it is in the article export", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "A short summary.",
+          sections: [],
+          contextBlocks: [contextBlock],
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          onDownloadAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain(
+      'aria-label="Play all 2 audio items including summary and context notes"',
+    );
+    expect(markup).toContain("Play all");
+    expect(markup).toContain('aria-label="Download summary as audio file"');
+    expect(markup).not.toContain(
+      'aria-label="Download full article as one audio file"',
+    );
+    expect(markup).toContain("1 accessible context note ready.");
+  });
+
+  it("announces context generation through a persistent polite live region", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "A short summary.",
+          sections: [],
+          contextLoading: true,
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).toContain('aria-atomic="true"');
+    expect(markup).toContain("Generating accessible context notes.");
+    expect(markup).toContain("Looking for accessible context notes…");
   });
 
   it("shows the active Play All section with the same playing state as an individual section", () => {

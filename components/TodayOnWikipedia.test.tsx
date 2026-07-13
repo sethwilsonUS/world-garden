@@ -216,7 +216,7 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).not.toContain(">Daily audio</p>");
     expect(markup).not.toContain("Audio: Did You Know? May 7, 2026 @1");
     expect(markup).toContain("Trending");
-    expect(markup).toContain("Daily audio briefing");
+    expect(markup).toContain("AI-generated daily audio briefing");
     expect(markup).toContain("Why these topics are trending today");
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
@@ -248,7 +248,9 @@ describe("TodayOnWikipediaContent", () => {
     const newsIndex = markup.indexOf("In the News");
     const onThisDayIndex = markup.indexOf("On This Day");
     const trendingHeadingIndex = markup.indexOf("What people are curious about");
-    const trendingAudioIndex = markup.indexOf("Daily audio briefing");
+    const trendingAudioIndex = markup.indexOf(
+      "AI-generated daily audio briefing",
+    );
     const firstTrendIndex = markup.indexOf("Vijay (actor)");
 
     expect(featuredIndex).toBeGreaterThan(-1);

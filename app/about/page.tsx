@@ -18,7 +18,7 @@ const engineeringHighlights = [
   },
   {
     title: "Web and podcast, one pipeline",
-    text: "The same structured article audio powers browser playback, featured-article episodes, trending briefings, and private personal playlist feeds.",
+    text: "The same structured article audio powers browser playback, featured-article episodes, clearly labeled AI-generated trending briefings, and private personal playlist feeds.",
   },
   {
     title: "Accessibility in the architecture",
@@ -104,6 +104,30 @@ export default function AboutPage() {
               </li>
             ))}
           </ol>
+        </section>
+
+        <section aria-labelledby="ai-transparency-heading" className="mx-auto mt-16 max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+            Plain-language provenance
+          </p>
+          <h2 id="ai-transparency-heading" className="mt-2 font-display text-3xl font-semibold text-foreground">
+            Wikipedia text and generated context stay distinct.
+          </h2>
+          <div className="mt-5 space-y-4 text-base leading-[1.8] text-foreground-2">
+            <p>
+              Article text remains tied to an exact Wikipedia revision. Curio
+              Garden&apos;s Trending summaries and podcast scripts are generated
+              with OpenAI from Wikimedia pageview data and linked reporting;
+              they are labeled as AI-generated on the page, in podcast metadata,
+              and at the beginning of the audio.
+            </p>
+            <p>
+              Rich context notes start from deterministic source extraction.
+              When AI helps make a description clearer, that assistance and the
+              model are disclosed beside the source revision. Generated material
+              may contain errors, and readers can report a problem from each note.
+            </p>
+          </div>
         </section>
 
         <section aria-labelledby="modes-heading" className="mx-auto mt-16 max-w-3xl">

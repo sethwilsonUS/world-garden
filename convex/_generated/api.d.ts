@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as analyticsRollups from "../analyticsRollups.js";
+import type * as articleContexts from "../articleContexts.js";
 import type * as articleExports from "../articleExports.js";
 import type * as articles from "../articles.js";
 import type * as audio from "../audio.js";
@@ -34,6 +36,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  analyticsRollups: typeof analyticsRollups;
+  articleContexts: typeof articleContexts;
   articleExports: typeof articleExports;
   articles: typeof articles;
   audio: typeof audio;
