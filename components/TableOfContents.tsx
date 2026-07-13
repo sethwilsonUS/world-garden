@@ -23,9 +23,7 @@ import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadBut
 import { ArticleLink } from "@/components/ArticleLink";
 import type { ContextBlock } from "@/lib/article-context-types";
 import {
-  ArticleContextIndex,
   ContextSectionLink,
-  getContextAudioKey,
   getContextBlocksForSection,
 } from "@/components/ArticleContext";
 
@@ -81,7 +79,6 @@ type TableOfContentsProps = {
   playAllRef?: RefObject<HTMLButtonElement | null>;
   fallbackVoiceNotice?: string | null;
   contextBlocks?: ContextBlock[];
-  contextLoading?: boolean;
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -270,7 +267,6 @@ export const TableOfContents = ({
   playAllRef,
   fallbackVoiceNotice,
   contextBlocks = [],
-  contextLoading = false,
 }: TableOfContentsProps) => {
   const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(
     null,
@@ -344,7 +340,6 @@ export const TableOfContents = ({
     effectivePlayback.status !== "idle" &&
     effectivePlayback.status !== "error";
 
-  const isContextAudio = effectivePlayback.sectionKey?.startsWith("context-") === true;
   const isSummarySelected = effectivePlayback.sectionKey === "summary";
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
@@ -352,11 +347,8 @@ export const TableOfContents = ({
   const isSummaryLoading = isGenerating && isSummarySelected;
   const audioSections = sections.filter(hasFullAudio);
   const hasNonAudioSections = audioSections.length < sections.length;
-  const playableCount = audioSections.length + contextBlocks.length + 1;
-  const playAllSummaryOnly =
-    audioSections.length === 0 && contextBlocks.length === 0;
-  // Context notes join Play All, but the packaged article export currently
-  // contains only the summary and eligible article sections.
+  const playableCount = audioSections.length + 1;
+  const playAllSummaryOnly = audioSections.length === 0;
   const downloadSummaryOnly = audioSections.length === 0;
   const isPlayAllLoading = isPlayingAll && isGenerating;
   const canSkipSection = isPlayingAll && (isSpeaking || isGenerating);
@@ -383,20 +375,6 @@ export const TableOfContents = ({
       } else {
         total += Math.round(
           sections[i].content.split(/\s+/).filter(Boolean).length /
-            TTS_WORDS_PER_SECOND,
-        );
-        allActual = false;
-      }
-    }
-
-    for (const block of contextBlocks) {
-      const contextKey = getContextAudioKey(block, "summary");
-      const actual = sectionDurations?.[contextKey];
-      if (actual != null) {
-        total += actual;
-      } else {
-        total += Math.round(
-          block.spokenSummary.split(/\s+/).filter(Boolean).length /
             TTS_WORDS_PER_SECOND,
         );
         allActual = false;
@@ -497,7 +475,7 @@ export const TableOfContents = ({
                 ? "Generating audio, please wait"
                 : playAllSummaryOnly
                   ? "Play summary"
-                  : `Play all ${playableCount} audio items including summary${contextBlocks.length > 0 ? " and context notes" : ""}`
+                  : `Play all ${playableCount} audio items including summary`
           }
         >
           {isPlayingAll ? (
@@ -680,21 +658,6 @@ export const TableOfContents = ({
       <p className="mb-3 text-[0.6875rem] leading-normal text-muted">
         Audio is generated with synthetic speech.
       </p>
-      <p
-        className="sr-only"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {contextLoading
-          ? "Generating accessible context notes."
-          : contextBlocks.length > 0
-            ? `${contextBlocks.length} accessible context ${
-                contextBlocks.length === 1 ? "note" : "notes"
-              } ready.`
-            : ""}
-      </p>
-      <ArticleContextIndex blocks={contextBlocks} loading={contextLoading} />
       {fallbackVoiceNotice ? (
         <p
           className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
@@ -974,7 +937,6 @@ export const TableOfContents = ({
           `Generating audio for ${sections[activeSectionIndex].title}, please wait.`}
         {isGenerating &&
           activeSectionIndex === null &&
-          !isContextAudio &&
           `Generating summary audio, please wait.`}
       </div>
       <div aria-live="assertive" className="sr-only" role="status">

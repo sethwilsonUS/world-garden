@@ -4,24 +4,27 @@ import {
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
 } from "./article-context-ai";
-import type { ContextManifest } from "./article-context-types";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+  type ContextManifest,
+} from "./article-context-types";
 
 const manifest: ContextManifest = {
-  schemaVersion: 1,
+  schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
   wikiPageId: "42",
   title: "Example",
   revisionId: "100",
   language: "en",
   sourceHash: "hash",
-  extractorVersion: "1.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [
     {
       id: "timeline-1",
       kind: "timeline",
       title: "A short chronology",
-      takeaway: "Two dated events are shown.",
-      spokenSummary: "The first event was in 1969 and the second in 1972.",
+      caption: "Two dated events are shown.",
       longDescription: "In chronological order: launch in 1969, then return in 1972.",
       section: { index: "1", title: "History" },
       order: 0,
@@ -37,7 +40,7 @@ const manifest: ContextManifest = {
         articleRevisionUrl:
           "https://en.wikipedia.org/w/index.php?title=Example&oldid=100",
         sourceHash: "hash",
-        extractorVersion: "1.0.0",
+        extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
         descriptionMethod: "deterministic",
       },
       timeline: {
@@ -120,8 +123,7 @@ describe("article context AI descriptions", () => {
       blocks: [
         {
           id: "timeline-1",
-          takeaway: "Two milestones span 1969 to 1972.",
-          spokenSummary: "Launch came in 1969, followed by return in 1972.",
+          caption: "Two milestones span 1969 to 1972.",
           longDescription:
             "The chronology begins with launch in 1969 and ends with return in 1972.",
         },
@@ -137,11 +139,12 @@ describe("article context AI descriptions", () => {
       { timeout: 20_000 },
     );
 
-    expect(enhanced.blocks[0]?.takeaway).toContain("1969");
+    expect(enhanced.blocks[0]?.caption).toContain("1969");
+    expect(enhanced.blocks[0]).not.toHaveProperty("spokenSummary");
     expect(enhanced.blocks[0]?.provenance).toMatchObject({
       descriptionMethod: "ai-assisted",
       model: "gpt-5.6-luna",
-      promptVersion: "context-accessibility-v2",
+      promptVersion: "context-accessibility-v3",
     });
   });
 
@@ -151,8 +154,7 @@ describe("article context AI descriptions", () => {
         blocks: [
           {
             id: "timeline-1",
-            takeaway: "Three milestones are shown.",
-            spokenSummary: "An extra milestone appeared in 1975.",
+            caption: "Three milestones are shown.",
             longDescription: "Events occurred in 1969, 1972, and 1975.",
           },
         ],
@@ -168,8 +170,7 @@ describe("article context AI descriptions", () => {
         blocks: [
           {
             id: "timeline-1",
-            takeaway: "A milestone happened in 100.",
-            spokenSummary: "The chronology starts in 100.",
+            caption: "A milestone happened in 100.",
             longDescription: "The source chronology records the year 100.",
           },
         ],
@@ -184,8 +185,7 @@ describe("article context AI descriptions", () => {
     secondBlock.id = "timeline-2";
     secondBlock.title = "A separate chronology";
     if (secondBlock.kind !== "timeline") throw new Error("Expected timeline fixture");
-    secondBlock.takeaway = "One milestone is shown in 1984.";
-    secondBlock.spokenSummary = "The separate event happened in 1984.";
+    secondBlock.caption = "One milestone is shown in 1984.";
     secondBlock.longDescription = "This chronology contains an event in 1984.";
     secondBlock.timeline.events = [
       {
@@ -209,15 +209,13 @@ describe("article context AI descriptions", () => {
         blocks: [
           {
             id: "timeline-1",
-            takeaway: "Two milestones span 1969 to 1984.",
-            spokenSummary: "Launch came in 1969, followed by return in 1984.",
+            caption: "Two milestones span 1969 to 1984.",
             longDescription:
               "The first chronology begins in 1969 and ends in 1984.",
           },
           {
             id: "timeline-2",
-            takeaway: "One milestone is shown in 1984.",
-            spokenSummary: "The separate event happened in 1984.",
+            caption: "One milestone is shown in 1984.",
             longDescription: "This chronology contains an event in 1984.",
           },
         ],

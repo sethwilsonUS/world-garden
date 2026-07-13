@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import type {
   ArticleContextApiResponse,
@@ -15,6 +16,7 @@ import type {
   ContextChartBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
+import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "@/lib/article-context-types";
 import {
   ContextChartView,
   ContextDiagramView,
@@ -27,20 +29,11 @@ export type ArticleContextLoadState =
   | { status: "ready"; manifest: ContextManifest; error: null }
   | { status: "error"; manifest: null; error: string };
 
-export type ContextAudioDetail = "summary" | "description";
-
 const KIND_LABELS: Record<ContextBlockKind, string> = {
   map: "Map",
   timeline: "Timeline",
   chart: "Data",
   diagram: "Diagram",
-};
-
-const KIND_ACTIONS: Record<ContextBlockKind, string> = {
-  map: "Explore map and places",
-  timeline: "Explore timeline",
-  chart: "Explore chart and exact data",
-  diagram: "Explore diagram",
 };
 
 const slugify = (value: string): string =>
@@ -51,26 +44,6 @@ const slugify = (value: string): string =>
 
 export const getContextBlockDomId = (block: Pick<ContextBlock, "id">): string =>
   `article-context-${slugify(block.id)}`;
-
-export const getContextAudioKey = (
-  block: ContextBlock,
-  detail: ContextAudioDetail = "summary",
-): string => {
-  const hash = block.provenance.sourceHash.slice(0, 12);
-  return `context-${detail}-${slugify(block.id)}-${hash}`;
-};
-
-export const getContextAudioDetail = (
-  sectionKey: string | null | undefined,
-): ContextAudioDetail | null => {
-  if (sectionKey?.startsWith("context-summary-")) return "summary";
-  if (sectionKey?.startsWith("context-description-")) return "description";
-  return null;
-};
-
-export const isContextAudioKey = (
-  sectionKey: string | null | undefined,
-): sectionKey is string => getContextAudioDetail(sectionKey) !== null;
 
 export const getContextBlocksForSection = (
   blocks: ContextBlock[],
@@ -98,6 +71,7 @@ const isArticleContextApiResponse = (value: unknown): value is ArticleContextApi
   return Boolean(
     response.context &&
       typeof response.context === "object" &&
+      response.context.schemaVersion === ARTICLE_CONTEXT_SCHEMA_VERSION &&
       Array.isArray(response.context.blocks),
   );
 };
@@ -137,11 +111,11 @@ export const useArticleContext = (request: ArticleContextRequest | null) => {
         if (!response.ok) {
           const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
             ? body.error
-            : "Context notes are temporarily unavailable.";
+            : "Visual context is temporarily unavailable.";
           throw new Error(message);
         }
         if (!isArticleContextApiResponse(body)) {
-          throw new Error("Context notes returned an unexpected response.");
+          throw new Error("Visual context returned an unexpected response.");
         }
         return body.context;
       })
@@ -165,7 +139,7 @@ export const useArticleContext = (request: ArticleContextRequest | null) => {
           state: {
             status: "error",
             manifest: null,
-            error: error instanceof Error ? error.message : "Context notes are temporarily unavailable.",
+            error: error instanceof Error ? error.message : "Visual context is temporarily unavailable.",
           },
         });
       });
@@ -226,55 +200,29 @@ const ContextGlyph = ({ kind }: { kind: ContextBlockKind }) => {
   );
 };
 
-export const ArticleContextIndex = ({
-  blocks,
-  loading = false,
-}: {
-  blocks: ContextBlock[];
-  loading?: boolean;
-}) => {
-  if (loading) {
-    return <p className="context-index-loading">Looking for accessible context notes…</p>;
-  }
-  if (blocks.length === 0) return null;
-
-  return (
-    <details id="article-context-index" className="context-index">
-      <summary>
-        <span className="context-index-summary">
-          <span className="context-index-sprig" aria-hidden="true">✦</span>
-          Context notes
-          <span className="context-count">{blocks.length}</span>
-        </span>
-        <span className="context-index-hint">Maps, timelines, data, and diagrams</span>
-      </summary>
-      <nav aria-label="Context notes in this article">
-        <ol>
-          {blocks.map((block) => (
-            <li key={block.id}>
-              <a href={`#${getContextBlockDomId(block)}`}>
-                <span className={`context-kind-mark context-kind-${block.kind}`}>
-                  <ContextGlyph kind={block.kind} />
-                  {KIND_LABELS[block.kind]}
-                </span>
-                <span>
-                  <strong>{block.title}</strong>
-                  <small>{block.section.index === "__summary__" ? "Article summary" : block.section.title}</small>
-                </span>
-              </a>
-            </li>
-          ))}
-        </ol>
-      </nav>
-    </details>
-  );
-};
-
 export const ContextSectionLink = ({ blocks }: { blocks: ContextBlock[] }) => {
   if (blocks.length === 0) return null;
-  const label = `${blocks.length} context ${blocks.length === 1 ? "note" : "notes"}`;
+  const first = blocks[0];
+  const targetId = getContextBlockDomId(first);
+  const label = `${blocks.length} ${blocks.length === 1 ? "visual" : "visuals"}`;
+  const destination = blocks.length === 1
+    ? `${KIND_LABELS[first.kind].toLowerCase()}: ${first.title}`
+    : `${KIND_LABELS[first.kind].toLowerCase()}: ${first.title}, plus ${blocks.length - 1} more`;
+  const focusVisual = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      document.getElementById(targetId)?.focus({ preventScroll: true });
+    });
+  };
   return (
-    <a className="context-section-link" href={`#${getContextBlockDomId(blocks[0])}`}>
+    <a
+      className="context-section-link"
+      href={`#${targetId}`}
+      aria-label={`${label}: jump to ${destination}`}
+      onClick={focusVisual}
+    >
       <span aria-hidden="true">✦</span>
       {label}
     </a>
@@ -404,72 +352,45 @@ const ContextReportForm = ({
   );
 };
 
-const ContextListenButton = ({
+const ContextKindView = ({
   block,
-  detail,
-  activeAudioKey,
-  playbackStatus,
-  onListen,
+  captionId,
+  descriptionId,
 }: {
   block: ContextBlock;
-  detail: ContextAudioDetail;
-  activeAudioKey?: string | null;
-  playbackStatus?: "idle" | "loading" | "playing" | "paused" | "error";
-  onListen?: (block: ContextBlock, detail: ContextAudioDetail) => void;
+  captionId: string;
+  descriptionId: string;
 }) => {
-  if (!onListen) return null;
-  const audioKey = getContextAudioKey(block, detail);
-  const active = activeAudioKey === audioKey;
-  const state = active ? playbackStatus : "idle";
-  const label = detail === "summary" ? "Listen to context" : "Listen to full description";
-  const visible = state === "loading" ? "Loading…" : state === "playing" ? "Pause" : state === "paused" ? "Resume" : label;
-  return (
-    <button
-      type="button"
-      className={detail === "summary" ? "btn-primary context-listen" : "btn-secondary context-listen"}
-      onClick={() => onListen(block, detail)}
-      aria-label={`${visible}: ${block.title}`}
-      aria-pressed={active && (state === "playing" || state === "paused") ? true : undefined}
-      disabled={state === "loading"}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        {state === "playing" ? <><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></> : <path d="m7 4 13 8-13 8Z" />}
-      </svg>
-      <span>{visible}</span>
-    </button>
-  );
-};
-
-const ContextKindView = ({ block }: { block: ContextBlock }) => {
   switch (block.kind) {
     case "map":
-      return <ContextMapView block={block} />;
+      return <ContextMapView block={block} caption={block.caption} captionId={captionId} descriptionId={descriptionId} />;
     case "timeline":
-      return <ContextTimelineView block={block} />;
+      return <ContextTimelineView block={block} caption={block.caption} captionId={captionId} />;
     case "chart":
-      return <ContextChartView block={block} />;
+      return <ContextChartView block={block} caption={block.caption} captionId={captionId} />;
     case "diagram":
-      return <ContextDiagramView block={block} />;
+      return <ContextDiagramView block={block} caption={block.caption} captionId={captionId} descriptionId={descriptionId} />;
   }
 };
 
 const ContextCard = ({
   block,
   manifest,
-  activeAudioKey,
-  playbackStatus,
-  onListen,
 }: {
   block: ContextBlock;
   manifest: ContextManifest;
-  activeAudioKey?: string | null;
-  playbackStatus?: "idle" | "loading" | "playing" | "paused" | "error";
-  onListen?: (block: ContextBlock, detail: ContextAudioDetail) => void;
 }) => {
   const domId = getContextBlockDomId(block);
+  const captionId = `${domId}-caption`;
+  const descriptionId = `${domId}-description`;
   return (
-    <article id={domId} className={`context-card context-card-${block.kind}`} aria-labelledby={`${domId}-heading`}>
-      <a href="#article-context-index" className="context-return-link">Return to context index</a>
+    <article
+      id={domId}
+      tabIndex={-1}
+      className={`context-card context-card-${block.kind}`}
+      aria-labelledby={`${domId}-heading`}
+      aria-describedby={`${captionId} ${descriptionId}`}
+    >
       <header>
         <div className="context-eyebrow">
           <span className={`context-kind-mark context-kind-${block.kind}`}>
@@ -477,37 +398,12 @@ const ContextCard = ({
             {KIND_LABELS[block.kind]}
           </span>
           <span>{block.section.index === "__summary__" ? "Article summary" : `From “${block.section.title}”`}</span>
+          {block.sources[0] ? <span>Source: {block.sources[0].label}</span> : null}
         </div>
         <h3 id={`${domId}-heading`}>{block.title}</h3>
-        <p className="context-takeaway"><strong>Why it matters:</strong> {block.takeaway}</p>
       </header>
-
-      <div className="context-audio-row">
-        <ContextListenButton
-          block={block}
-          detail="summary"
-          activeAudioKey={activeAudioKey}
-          playbackStatus={playbackStatus}
-          onListen={onListen}
-        />
-        <p>{block.spokenSummary}</p>
-      </div>
-
-      <div className="context-description-row">
-        <p className="context-long-description">{block.longDescription}</p>
-        <ContextListenButton
-          block={block}
-          detail="description"
-          activeAudioKey={activeAudioKey}
-          playbackStatus={playbackStatus}
-          onListen={onListen}
-        />
-      </div>
-
-      <details className="context-explorer">
-        <summary>{KIND_ACTIONS[block.kind]}</summary>
-        <ContextKindView block={block} />
-      </details>
+      <ContextKindView block={block} captionId={captionId} descriptionId={descriptionId} />
+      <p id={descriptionId} className="sr-only">{block.longDescription}</p>
 
       <div className="context-card-footer">
         <div className="context-downloads" aria-label={`Download data for ${block.title}`}>
@@ -536,21 +432,15 @@ const ContextCard = ({
 export const ArticleContextLane = ({
   state,
   retry,
-  activeAudioKey,
-  playbackStatus,
-  onListen,
 }: {
   state: ArticleContextLoadState;
   retry: () => void;
-  activeAudioKey?: string | null;
-  playbackStatus?: "idle" | "loading" | "playing" | "paused" | "error";
-  onListen?: (block: ContextBlock, detail: ContextAudioDetail) => void;
 }) => {
   if (state.status === "idle") return null;
   if (state.status === "loading") {
     return (
       <section className="context-lane context-lane-loading" aria-labelledby="article-context-heading">
-        <h2 id="article-context-heading">Context notes</h2>
+        <h2 id="article-context-heading">Visual context</h2>
         <p role="status">Gathering maps, timelines, data, and diagrams with accessible descriptions…</p>
       </section>
     );
@@ -558,7 +448,7 @@ export const ArticleContextLane = ({
   if (state.status === "error") {
     return (
       <section className="context-lane context-lane-error" aria-labelledby="article-context-heading">
-        <h2 id="article-context-heading">Context notes</h2>
+        <h2 id="article-context-heading">Visual context</h2>
         <p>{state.error}</p>
         <button type="button" className="btn-secondary" onClick={retry}>Try context again</button>
       </section>
@@ -581,9 +471,6 @@ export const ArticleContextLane = ({
             key={block.id}
             block={block}
             manifest={manifest}
-            activeAudioKey={activeAudioKey}
-            playbackStatus={playbackStatus}
-            onListen={onListen}
           />
         ))}
       </div>

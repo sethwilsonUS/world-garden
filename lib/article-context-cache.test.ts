@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ContextManifest } from "./article-context-types";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+  type ContextManifest,
+} from "./article-context-types";
 
 const fetchArticleContextManifest = vi.hoisted(() => vi.fn());
 const normalizeArticleContextRequest = vi.hoisted(() =>
@@ -14,7 +18,7 @@ vi.mock("./article-context-extractor", () => ({
 }));
 
 vi.mock("./article-context-ai", () => ({
-  CONTEXT_DESCRIPTION_PROMPT_VERSION: "context-accessibility-v2",
+  CONTEXT_DESCRIPTION_PROMPT_VERSION: "context-accessibility-v3",
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
 }));
@@ -33,21 +37,20 @@ const request = {
 };
 
 const deterministicManifest: ContextManifest = {
-  schemaVersion: 1,
+  schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
   wikiPageId: request.wikiPageId,
   title: request.title,
   revisionId: request.revisionId,
   language: request.language,
   sourceHash: "source-hash",
-  extractorVersion: "1.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [
     {
       id: "timeline-history",
       kind: "timeline",
       title: "History timeline",
-      takeaway: "Three events are shown.",
-      spokenSummary: "Three dated events are shown.",
+      caption: "Three events are shown.",
       longDescription: "The events are arranged chronologically.",
       section: { index: "1", title: "History" },
       order: 0,
@@ -57,7 +60,7 @@ const deterministicManifest: ContextManifest = {
         articleRevisionUrl:
           "https://en.wikipedia.org/w/index.php?oldid=100",
         sourceHash: "source-hash",
-        extractorVersion: "1.0.0",
+        extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
         descriptionMethod: "deterministic",
       },
       timeline: {
@@ -91,6 +94,11 @@ beforeEach(() => {
 });
 afterEach(() => {
   clearArticleContextMemoryCache();
+  delete (
+    globalThis as typeof globalThis & {
+      __curioGardenArticleContextCacheV1?: unknown;
+    }
+  ).__curioGardenArticleContextCacheV1;
   vi.useRealTimers();
   if (originalCacheTtl === undefined) {
     delete process.env.ARTICLE_CONTEXT_CACHE_TTL_MS;
@@ -100,6 +108,34 @@ afterEach(() => {
 });
 
 describe("article context enhanced-memory cache", () => {
+  it("does not read entries from the schema-v1 memory namespace", async () => {
+    const legacyManifest = {
+      ...deterministicManifest,
+      schemaVersion: 1,
+    } as unknown as ContextManifest;
+    (
+      globalThis as typeof globalThis & {
+        __curioGardenArticleContextCacheV1?: unknown;
+      }
+    ).__curioGardenArticleContextCacheV1 = {
+      deterministic: new Map([
+        [
+          "en:42:100:example",
+          {
+            value: legacyManifest,
+            expiresAt: Date.now() + 60_000,
+            lastAccessedAt: Date.now(),
+          },
+        ],
+      ]),
+      enhanced: new Map(),
+    };
+
+    await getEnhancedArticleContext(request);
+
+    expect(fetchArticleContextManifest).toHaveBeenCalledOnce();
+  });
+
   it("retries an AI-enabled deterministic fallback after one hour in a long-lived worker", async () => {
     const enhance = vi.fn(async (manifest: ContextManifest) => manifest);
 
@@ -124,7 +160,7 @@ describe("article context enhanced-memory cache", () => {
           ...block.provenance,
           descriptionMethod: "ai-assisted" as const,
           model: "gpt-5.6-luna",
-          promptVersion: "context-accessibility-v1",
+          promptVersion: "context-accessibility-v3",
         },
       })),
     };

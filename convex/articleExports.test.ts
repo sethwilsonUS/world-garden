@@ -45,6 +45,34 @@ describe("getArticleExportSections", () => {
       },
     ]);
   });
+
+  it("keeps visual captions and descriptions out of packaged article audio", () => {
+    const articleWithVisualContext = {
+      _id: "article-1" as never,
+      title: "Example article",
+      summary: "Lead summary with enough content to speak aloud.",
+      sections: [],
+      contextBlocks: [
+        {
+          id: "timeline-context",
+          title: "A short chronology",
+          caption: "The milestone happened in 1969.",
+          longDescription: "The chronology contains one milestone in 1969.",
+        },
+      ],
+    };
+
+    const result = getArticleExportSections(articleWithVisualContext);
+
+    expect(result).toEqual([
+      {
+        sectionKey: "summary",
+        text: "Lead summary with enough content to speak aloud.",
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("milestone");
+    expect(JSON.stringify(result)).not.toContain("context-");
+  });
 });
 
 describe("findReusableArticleAudioExport", () => {

@@ -344,6 +344,8 @@ export default defineSchema({
     override: v.optional(
       v.object({
         title: v.optional(v.string()),
+        caption: v.optional(v.string()),
+        // Legacy fields remain valid only so pre-v2 moderation documents load.
         takeaway: v.optional(v.string()),
         spokenSummary: v.optional(v.string()),
         longDescription: v.optional(v.string()),

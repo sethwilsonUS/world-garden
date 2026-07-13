@@ -28,8 +28,7 @@ const contextBlock: ContextBlock = {
   id: "timeline-context",
   kind: "timeline",
   title: "A short chronology",
-  takeaway: "One milestone is shown.",
-  spokenSummary: "The milestone happened in 1969.",
+  caption: "The milestone happened in 1969.",
   longDescription: "The chronology contains one milestone in 1969.",
   section: { index: "__summary__", title: "Summary" },
   order: 0,
@@ -424,7 +423,7 @@ describe("TableOfContents audio eligibility", () => {
     expect(downloadButton).toContain('disabled=""');
   });
 
-  it("includes context-only audio in Play All without claiming it is in the article export", () => {
+  it("keeps visual context out of Play All while retaining its direct anchor", () => {
     const markup = renderToStaticMarkup(
       createElement(
         DataContext.Provider,
@@ -435,6 +434,10 @@ describe("TableOfContents audio eligibility", () => {
           summaryText: "A short summary.",
           sections: [],
           contextBlocks: [contextBlock],
+          sectionDurations: {
+            summary: 10,
+            "context-summary-timeline-context-context-source": 3_600,
+          },
           onListenSection: () => {},
           onListenSummary: () => {},
           onPlayAll: () => {},
@@ -445,42 +448,20 @@ describe("TableOfContents audio eligibility", () => {
       ),
     );
 
-    expect(markup).toContain(
-      'aria-label="Play all 2 audio items including summary and context notes"',
-    );
-    expect(markup).toContain("Play all");
+    expect(markup).toContain('aria-label="Play summary"');
+    expect(markup).not.toContain("Play all");
+    expect(markup).not.toContain("(2)");
+    expect(markup).toContain('aria-hidden="true">10s</span>');
+    expect(markup).not.toContain("1h");
     expect(markup).toContain('aria-label="Download summary as audio file"');
     expect(markup).not.toContain(
       'aria-label="Download full article as one audio file"',
     );
-    expect(markup).toContain("1 accessible context note ready.");
-  });
-
-  it("announces context generation through a persistent polite live region", () => {
-    const markup = renderToStaticMarkup(
-      createElement(
-        DataContext.Provider,
-        { value: dataContextValue },
-        createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
-          summaryText: "A short summary.",
-          sections: [],
-          contextLoading: true,
-          onListenSection: () => {},
-          onListenSummary: () => {},
-          onPlayAll: () => {},
-          onStopPlayAll: () => {},
-          playbackRate: 1,
-        }),
-      ),
+    expect(markup).toContain(
+      'aria-label="1 visual: jump to timeline: A short chronology"',
     );
-
-    expect(markup).toContain('role="status"');
-    expect(markup).toContain('aria-live="polite"');
-    expect(markup).toContain('aria-atomic="true"');
-    expect(markup).toContain("Generating accessible context notes.");
-    expect(markup).toContain("Looking for accessible context notes…");
+    expect(markup).not.toContain("context note");
+    expect(markup).not.toContain("Generating accessible context");
   });
 
   it("shows the active Play All section with the same playing state as an individual section", () => {

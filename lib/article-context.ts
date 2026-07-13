@@ -1,4 +1,8 @@
-import type { ArticleContextRequest, ContextManifest } from "./article-context-types";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  type ArticleContextRequest,
+  type ContextManifest,
+} from "./article-context-types";
 import {
   fetchArticleContextManifest,
   normalizeArticleContextRequest,
@@ -26,7 +30,7 @@ type ArticleContextCache = {
   enhanced: Map<string, CacheEntry>;
 };
 
-const CACHE_KEY = "__curioGardenArticleContextCacheV1" as const;
+const CACHE_KEY = "__curioGardenArticleContextCacheV2" as const;
 
 const getCache = (): ArticleContextCache => {
   const shared = globalThis as typeof globalThis & {
@@ -50,6 +54,7 @@ const cacheTtlMs = (): number =>
 
 const deterministicKey = (request: ArticleContextRequest): string =>
   [
+    ARTICLE_CONTEXT_EXTRACTOR_VERSION,
     request.language,
     request.wikiPageId,
     request.revisionId,
@@ -149,7 +154,7 @@ export const getEnhancedArticleContext = async (
 ): Promise<{ context: ContextManifest; cacheStatus: "hit" | "miss" }> => {
   const { enhance = enhanceArticleContextManifest, ...extractorOptions } = options;
   const deterministic = await getArticleContext(input, extractorOptions);
-  const key = `${deterministic.context.sourceHash}:${enhancementVariant()}`;
+  const key = `${ARTICLE_CONTEXT_EXTRACTOR_VERSION}:${deterministic.context.sourceHash}:${enhancementVariant()}`;
   const enhanced = await readOrCreate(
     getCache().enhanced,
     key,

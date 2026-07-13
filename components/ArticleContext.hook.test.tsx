@@ -35,13 +35,13 @@ const request = (id: string): ArticleContextRequest => ({
 });
 
 const manifest = (id: string): ContextManifest => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   wikiPageId: id,
   title: `Article ${id}`,
   revisionId: `${id}00`,
   language: "en",
   sourceHash: `hash-${id}`,
-  extractorVersion: "test",
+  extractorVersion: "2.0.0",
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [],
 });
@@ -137,5 +137,29 @@ describe("useArticleContext request identity", () => {
     });
     expect(container.querySelector("output")?.dataset.status).toBe("loading");
     expect(container.textContent).not.toContain("Article 1");
+  });
+
+  it("rejects a legacy schema-v1 response instead of exposing stale context", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response({
+          context: { ...manifest("legacy"), schemaVersion: 1 },
+          cacheStatus: "hit",
+        }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe value={request("legacy")} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("output")?.dataset.status).toBe("error");
+    expect(container.textContent).toBe(
+      "Visual context returned an unexpected response.",
+    );
   });
 });

@@ -12,7 +12,7 @@ import type {
 } from "@/lib/article-context-types";
 
 const DEFAULT_CONTEXT_DESCRIPTION_MODEL = "gpt-5.6-luna";
-export const CONTEXT_DESCRIPTION_PROMPT_VERSION = "context-accessibility-v2";
+export const CONTEXT_DESCRIPTION_PROMPT_VERSION = "context-accessibility-v3";
 const MAX_CONTEXT_DESCRIPTION_SOURCE_CHARS = 120_000;
 const CONTEXT_DESCRIPTION_TIMEOUT_MS = 20_000;
 
@@ -21,8 +21,7 @@ const ContextDescriptionSchema = z.object({
     .array(
       z.object({
         id: z.string(),
-        takeaway: z.string().min(1).max(320),
-        spokenSummary: z.string().min(1).max(900),
+        caption: z.string().min(1).max(800),
         longDescription: z.string().min(1).max(3_200),
       }),
     )
@@ -99,8 +98,7 @@ const compactBlocksForPrompt = (blocks: ContextBlock[]) =>
     title: block.title,
     section: block.section,
     deterministicCopy: {
-      takeaway: block.takeaway,
-      spokenSummary: block.spokenSummary,
+      caption: block.caption,
       longDescription: block.longDescription,
     },
     extractedFacts: getBlockFacts(block),
@@ -146,8 +144,7 @@ const hasOnlySourceNumbers = (
     if (!allowed) return false;
     const generated = numericTokens(
       JSON.stringify({
-        takeaway: block.takeaway,
-        spokenSummary: block.spokenSummary,
+        caption: block.caption,
         longDescription: block.longDescription,
       }),
     );
@@ -208,7 +205,7 @@ export const enhanceArticleContextManifest = async (
           {
             role: "system",
             content:
-              "You are the accessibility copy editor for Curio Garden, an audio-first Wikipedia reader. Rewrite only the supplied deterministic descriptions so they are concise, concrete, neutral, and useful without sight. Preserve every fact exactly. Never add, infer, round, or omit dates, coordinates, measurements, values, labels, relationships, or uncertainty. For charts, call minimum and maximum values the lowest and highest; do not use from-to wording that could imply chronological endpoints. For diagrams, mention a walkthrough, named parts, or relationships only when the extracted facts actually include them; otherwise describe the static source image and its caption. Do not describe colors or visual position unless the source explicitly gives them. Spoken summaries must sound natural when read aloud and must not include URLs. Return one item for every supplied block ID.",
+              "You are the accessibility copy editor for Curio Garden, a Wikipedia reader. Rewrite only the supplied deterministic copy into two fields: a concise, neutral visible caption and a fuller long description that remains useful without sight. Preserve every source fact in the long description exactly. Never add, infer, round, or alter dates, coordinates, measurements, values, labels, relationships, or uncertainty. For charts, call minimum and maximum values the lowest and highest; do not use from-to wording that could imply chronological endpoints. For diagrams, mention a walkthrough, named parts, or relationships only when the extracted facts actually include them; otherwise describe the static source image and its caption. Do not describe colors or visual position unless the source explicitly gives them. Do not include URLs. Return one item for every supplied block ID.",
           },
           {
             role: "user",
@@ -245,8 +242,7 @@ export const enhanceArticleContextManifest = async (
         if (!copy) return block;
         return {
           ...block,
-          takeaway: copy.takeaway.trim(),
-          spokenSummary: copy.spokenSummary.trim(),
+          caption: copy.caption.trim(),
           longDescription: copy.longDescription.trim(),
           provenance: {
             ...block.provenance,

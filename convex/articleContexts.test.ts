@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
   MAX_ARTICLE_CONTEXT_BLOCKS,
   MAX_ARTICLE_CONTEXT_MANIFEST_BYTES,
   MAX_REPORTERS_PER_CONTEXT_BLOCK,
@@ -118,7 +119,7 @@ const createCtx = () => {
 const cacheKey = {
   wikiPageId: "736",
   revisionId: "123456789",
-  extractorVersion: "1.0.0",
+  extractorVersion: "2.0.0",
   sourceHash: "sha256:abc123",
 };
 
@@ -128,6 +129,9 @@ const manifestJson = (
     {
       id: "map-lead-1",
       kind: "map",
+      title: "Example map",
+      caption: "One place is shown.",
+      longDescription: "The map identifies one place.",
       provenance: {
         sourceHash: key.sourceHash,
         extractorVersion: key.extractorVersion,
@@ -137,7 +141,7 @@ const manifestJson = (
   extra: Record<string, unknown> = {},
 ) =>
   JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
     wikiPageId: key.wikiPageId,
     revisionId: key.revisionId,
     extractorVersion: key.extractorVersion,
@@ -185,7 +189,7 @@ describe("article context cache validation", () => {
     );
 
     expect(result.blockCount).toBe(1);
-    expect(result.schemaVersion).toBe(1);
+    expect(result.schemaVersion).toBe(ARTICLE_CONTEXT_SCHEMA_VERSION);
     expect(result.byteLength).toBeLessThan(manifestJson().length + 1);
     expect(JSON.parse(result.manifestJson)).toMatchObject({
       wikiPageId: cacheKey.wikiPageId,
@@ -199,6 +203,12 @@ describe("article context cache validation", () => {
     );
     expect(() =>
       validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, [], { schemaVersion: 1 }),
+        cacheKey,
+      ),
+    ).toThrow("schemaVersion");
+    expect(() =>
+      validateAndNormalizeManifestJson(
         manifestJson({ ...cacheKey, revisionId: "different" }),
         cacheKey,
       ),
@@ -207,6 +217,9 @@ describe("article context cache validation", () => {
     const duplicate = {
       id: "same-id",
       kind: "timeline",
+      title: "Duplicate timeline",
+      caption: "Three events are shown.",
+      longDescription: "The timeline contains three events.",
       provenance: {
         sourceHash: cacheKey.sourceHash,
         extractorVersion: cacheKey.extractorVersion,
@@ -241,6 +254,17 @@ describe("article context cache validation", () => {
         cacheKey,
       ),
     ).toThrow("may not exceed");
+  });
+
+  it("rejects legacy audio-copy fields from schema-v2 cache writes", () => {
+    const parsed = JSON.parse(manifestJson()) as {
+      blocks: Array<Record<string, unknown>>;
+    };
+    parsed.blocks[0].spokenSummary = "Legacy narration";
+
+    expect(() =>
+      validateAndNormalizeManifestJson(JSON.stringify(parsed), cacheKey),
+    ).toThrow("legacy audio copy");
   });
 });
 
@@ -429,7 +453,7 @@ describe("article context reports and moderation", () => {
       ...blockKey,
       mode: "override",
       override: {
-        spokenSummary: "A corrected, screen-reader-friendly summary.",
+        caption: "A corrected visual caption.",
       },
       now: 200,
     });
@@ -437,8 +461,7 @@ describe("article context reports and moderation", () => {
       mode: "override",
       override: {
         title: undefined,
-        takeaway: undefined,
-        spokenSummary: "A corrected, screen-reader-friendly summary.",
+        caption: "A corrected visual caption.",
         longDescription: undefined,
       },
       updatedAt: 200,
@@ -446,6 +469,49 @@ describe("article context reports and moderation", () => {
 
     await clearArticleContextModerationForCtx(ctx, { ...blockKey, now: 300 });
     expect(await getArticleContextModerationForCtx(ctx, blockKey)).toBeNull();
+  });
+
+  it("maps legacy stored takeaway overrides to caption and ignores spokenSummary", async () => {
+    const { ctx, tables } = createCtx();
+    tables.articleContextModerations.push({
+      _id: "articleContextModerations-legacy",
+      _creationTime: 1,
+      ...blockKey,
+      mode: "override",
+      status: "active",
+      override: {
+        takeaway: "Legacy owner caption.",
+        spokenSummary: "Legacy narration must stay retired.",
+      },
+      createdAt: 100,
+      updatedAt: 200,
+    });
+
+    await expect(
+      getArticleContextModerationForCtx(ctx, blockKey),
+    ).resolves.toEqual({
+      mode: "override",
+      override: {
+        title: undefined,
+        caption: "Legacy owner caption.",
+        longDescription: undefined,
+      },
+      updatedAt: 200,
+    });
+  });
+
+  it("does not accept legacy audio fields in new moderation writes", async () => {
+    const { ctx } = createCtx();
+
+    await expect(
+      setArticleContextModerationForCtx(ctx, {
+        ...blockKey,
+        mode: "override",
+        override: {
+          spokenSummary: "A retired field.",
+        } as never,
+      }),
+    ).rejects.toThrow("at least one replacement text field");
   });
 
   it("does not permit a suppression record to smuggle in override content", async () => {

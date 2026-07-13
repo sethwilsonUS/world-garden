@@ -14,6 +14,7 @@ export const MAX_ARTICLE_CONTEXT_MANIFEST_BYTES = 400_000;
 export const MAX_ARTICLE_CONTEXT_BLOCKS = 6;
 export const MAX_CACHE_VARIANTS_PER_REVISION = 4;
 export const MAX_REPORTERS_PER_CONTEXT_BLOCK = 50;
+export const ARTICLE_CONTEXT_SCHEMA_VERSION = 2;
 
 const reportReasonValidator = v.union(
   v.literal("inaccurate"),
@@ -38,8 +39,7 @@ const moderationModeValidator = v.union(
 
 const contextTextOverrideValidator = v.object({
   title: v.optional(v.string()),
-  takeaway: v.optional(v.string()),
-  spokenSummary: v.optional(v.string()),
+  caption: v.optional(v.string()),
   longDescription: v.optional(v.string()),
 });
 
@@ -73,8 +73,7 @@ export type ArticleContextReportStatus =
 
 export type ArticleContextTextOverride = {
   title?: string;
-  takeaway?: string;
-  spokenSummary?: string;
+  caption?: string;
   longDescription?: string;
 };
 
@@ -188,7 +187,7 @@ export const validateAndNormalizeManifestJson = (
   if (!isRecord(parsed)) {
     throw new Error("manifestJson must contain a JSON object");
   }
-  if (parsed.schemaVersion !== 1) {
+  if (parsed.schemaVersion !== ARTICLE_CONTEXT_SCHEMA_VERSION) {
     throw new Error("Unsupported article context schemaVersion");
   }
   if (parsed.wikiPageId !== key.wikiPageId) {
@@ -232,6 +231,22 @@ export const validateAndNormalizeManifestJson = (
       throw new Error(`Unsupported context block kind for ${block.id}`);
     }
 
+    if (
+      typeof block.title !== "string" ||
+      !block.title.trim() ||
+      typeof block.caption !== "string" ||
+      !block.caption.trim() ||
+      typeof block.longDescription !== "string" ||
+      !block.longDescription.trim()
+    ) {
+      throw new Error(
+        `Context block ${block.id} is missing schema-v2 accessibility copy`,
+      );
+    }
+    if ("takeaway" in block || "spokenSummary" in block) {
+      throw new Error(`Context block ${block.id} contains legacy audio copy`);
+    }
+
     if (!isRecord(block.provenance)) {
       throw new Error(`Context block ${block.id} is missing provenance`);
     }
@@ -257,7 +272,7 @@ export const validateAndNormalizeManifestJson = (
     manifestJson: normalizedJson,
     byteLength,
     blockCount: parsed.blocks.length,
-    schemaVersion: 1,
+    schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
   };
 };
 
@@ -284,15 +299,10 @@ export const validateTextOverride = (
 
   const normalized: ArticleContextTextOverride = {
     title: normalizeOptionalText("override.title", override.title, 500),
-    takeaway: normalizeOptionalText(
-      "override.takeaway",
-      override.takeaway,
+    caption: normalizeOptionalText(
+      "override.caption",
+      override.caption,
       4_000,
-    ),
-    spokenSummary: normalizeOptionalText(
-      "override.spokenSummary",
-      override.spokenSummary,
-      8_000,
     ),
     longDescription: normalizeOptionalText(
       "override.longDescription",
@@ -588,9 +598,19 @@ export const getArticleContextModerationForCtx = async (
     .unique();
 
   if (!record || record.status !== "active") return null;
+  const storedOverride = record.override;
+  const override = storedOverride
+    ? {
+        title: storedOverride.title,
+        caption: storedOverride.caption ?? storedOverride.takeaway,
+        longDescription: storedOverride.longDescription,
+      }
+    : undefined;
   return {
     mode: record.mode,
-    override: record.override,
+    ...(override && Object.values(override).some((value) => value !== undefined)
+      ? { override }
+      : {}),
     updatedAt: record.updatedAt,
   };
 };

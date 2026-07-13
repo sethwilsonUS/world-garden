@@ -28,13 +28,13 @@ describe("POST /api/article-context", () => {
   it("returns the stable context response envelope", async () => {
     getPublishedArticleContext.mockResolvedValue({
       context: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         wikiPageId: "1",
         title: "Test",
         revisionId: "2",
         language: "en",
         sourceHash: "abc",
-        extractorVersion: "1.0.0",
+        extractorVersion: "2.0.0",
         generatedAt: "2026-07-13T12:00:00.000Z",
         blocks: [],
       },

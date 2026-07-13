@@ -8,6 +8,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
 } from "react";
 import { useTheme } from "./ThemeProvider";
 import type {
@@ -18,6 +21,16 @@ import type {
   ContextMapBlock,
   ContextTimelineBlock,
 } from "@/lib/article-context-types";
+import {
+  formatContextChartCell,
+  getRankedBarGeometry,
+  getRankedChartPresentation,
+  getStandardChartFamilyView,
+  getStandardChartPresentation,
+  shouldStandardChartUseZeroBaseline,
+  type RankedChartPresentation,
+  type StandardChartRenderKind,
+} from "@/lib/article-context-chart";
 import type { Feature } from "geojson";
 import type { ECharts, EChartsOption } from "echarts";
 
@@ -43,46 +56,247 @@ const MAP_OVERLAY_COLORS = {
   },
 } as const;
 const MAP_LOAD_TIMEOUT_MS = 15_000;
+const MAP_FEATURE_FIT_PADDING = 40;
+const MAP_FEATURE_FIT_MAX_ZOOM = 10;
+const EXACT_MAP_DATA_NOTE =
+  "Exact place, route, and area information is available in the expandable map data below.";
 const PARTIAL_MAP_STATUS =
-  "Some map details could not load. The exact place and route lists remain available.";
+  `Some map details could not load. ${EXACT_MAP_DATA_NOTE}`;
+const RICH_MEDIA_ROOT_MARGIN = "400px 0px";
 
 type MapInstance = import("maplibre-gl").Map;
 type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
 
 const isReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const allMapCoordinates = (block: ContextMapBlock): ContextCoordinate[] => [
-  block.map.center,
+const useNearViewport = (ref: RefObject<HTMLElement | null>): boolean => {
+  const [nearViewport, setNearViewport] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || nearViewport) return;
+    if (typeof IntersectionObserver === "undefined") {
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (!cancelled) setNearViewport(true);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNearViewport(true);
+        observer.disconnect();
+      },
+      { rootMargin: RICH_MEDIA_ROOT_MARGIN },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nearViewport, ref]);
+
+  return nearViewport;
+};
+
+const countLabel = (count: number, singular: string): string =>
+  `${count} ${singular}${count === 1 ? "" : "s"}`;
+
+const StructuredDataDisclosure = ({
+  label,
+  title,
+  meta,
+  children,
+}: {
+  label: string;
+  title: string;
+  meta: string;
+  children: ReactNode;
+}) => (
+  <details className="context-data-disclosure">
+    <summary>
+      <span className="context-data-disclosure-label">
+        {label}<span className="sr-only"> for {title}</span>
+      </span>{" "}
+      <span className="context-data-disclosure-meta">{meta}</span>
+      <span className="context-data-disclosure-chevron" aria-hidden="true">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          focusable="false"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </span>
+    </summary>
+    <div className="context-data-disclosure-content">{children}</div>
+  </details>
+);
+
+const mapFeatureCoordinates = (block: ContextMapBlock): ContextCoordinate[] => [
   ...block.map.places,
   ...block.map.routes.flatMap((route) => route.points),
   ...block.map.areas.flatMap((area) => area.rings.flat()),
 ];
 
-export const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
-  const coordinates = allMapCoordinates(block);
-  const longitudes = coordinates.map((point) => point.longitude);
-  const latitudes = coordinates.map((point) => point.latitude);
-  const minLongitude = Math.min(...longitudes);
-  const maxLongitude = Math.max(...longitudes);
-  const minLatitude = Math.min(...latitudes);
-  const maxLatitude = Math.max(...latitudes);
-  const longitudeSpan = maxLongitude - minLongitude;
-  const latitudeSpan = maxLatitude - minLatitude;
-  const project = (point: ContextCoordinate) => ({
-    x:
-      longitudeSpan === 0
-        ? 320
-        : 32 + ((point.longitude - minLongitude) / longitudeSpan) * 576,
-    y:
-      latitudeSpan === 0
-        ? 150
-        : 24 + ((maxLatitude - point.latitude) / latitudeSpan) * 252,
+const uniqueMapFeatureCoordinates = (
+  block: ContextMapBlock,
+): ContextCoordinate[] =>
+  mapFeatureCoordinates(block).filter(
+    (coordinate, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          candidate.latitude === coordinate.latitude &&
+          candidate.longitude === coordinate.longitude,
+      ) === index,
+  );
+
+export type ContextMapFeatureBounds = [
+  southwest: [longitude: number, latitude: number],
+  northeast: [longitude: number, latitude: number],
+];
+
+const getCoordinateExtent = (
+  coordinates: ContextCoordinate[],
+): ContextMapFeatureBounds | null => {
+  if (coordinates.length === 0) return null;
+
+  const latitudes = coordinates.map((coordinate) => coordinate.latitude);
+  const longitudes = coordinates
+    .map((coordinate) => coordinate.longitude)
+    .sort((a, b) => a - b);
+  let largestGap = Number.NEGATIVE_INFINITY;
+  let largestGapIndex = 0;
+
+  longitudes.forEach((longitude, index) => {
+    const next =
+      index === longitudes.length - 1
+        ? longitudes[0] + 360
+        : longitudes[index + 1];
+    const gap = next - longitude;
+    if (gap > largestGap) {
+      largestGap = gap;
+      largestGapIndex = index;
+    }
   });
 
+  const west = longitudes[(largestGapIndex + 1) % longitudes.length];
+  const rawEast = longitudes[largestGapIndex];
+  const east = rawEast < west ? rawEast + 360 : rawEast;
+  const south = Math.min(...latitudes);
+  const north = Math.max(...latitudes);
+
+  return [[west, south], [east, north]];
+};
+
+/**
+ * Find the smallest longitude interval containing every real map feature.
+ * The source center is a viewport hint, not a feature, so it must not enlarge
+ * or crop the fitted view. Longitudes may extend past 180 to represent a
+ * compact antimeridian-crossing interval to MapLibre.
+ */
+export const getMapFeatureBounds = (
+  block: ContextMapBlock,
+): ContextMapFeatureBounds | null => {
+  const coordinates = uniqueMapFeatureCoordinates(block);
+  if (coordinates.length < 2) return null;
+  return getCoordinateExtent(coordinates);
+};
+
+type ContextMapCamera = {
+  fitBounds: (
+    bounds: ContextMapFeatureBounds,
+    options: {
+      padding: number;
+      maxZoom: number;
+      duration: number;
+      bearing: number;
+      pitch: number;
+      roll: number;
+    },
+  ) => unknown;
+  jumpTo: (options: {
+    center: [longitude: number, latitude: number];
+    zoom: number;
+    bearing: number;
+    pitch: number;
+    roll: number;
+  }) => unknown;
+};
+
+export const fitMapToFeatures = (
+  map: ContextMapCamera,
+  block: ContextMapBlock,
+): "features" | "source" => {
+  const bounds = getMapFeatureBounds(block);
+  if (bounds) {
+    map.fitBounds(bounds, {
+      padding: MAP_FEATURE_FIT_PADDING,
+      maxZoom: MAP_FEATURE_FIT_MAX_ZOOM,
+      duration: 0,
+      bearing: 0,
+      pitch: 0,
+      roll: 0,
+    });
+    return "features";
+  }
+
+  const feature = uniqueMapFeatureCoordinates(block)[0];
+  const center = feature ?? block.map.center;
+  map.jumpTo({
+    center: [center.longitude, center.latitude],
+    zoom: block.map.suggestedZoom ?? 5,
+    bearing: 0,
+    pitch: 0,
+    roll: 0,
+  });
+  return feature ? "features" : "source";
+};
+
+export const MapSchematic = ({
+  block,
+  captionId,
+  descriptionId,
+}: {
+  block: ContextMapBlock;
+  captionId?: string;
+  descriptionId?: string;
+}) => {
+  const coordinates = uniqueMapFeatureCoordinates(block);
+  const extent = getCoordinateExtent(
+    coordinates.length > 0 ? coordinates : [block.map.center],
+  )!;
+  const [[west, south], [east, north]] = extent;
+  const longitudeSpan = east - west;
+  const latitudeSpan = north - south;
+  const project = (point: ContextCoordinate) => {
+    const longitude = point.longitude < west ? point.longitude + 360 : point.longitude;
+    return {
+      x:
+        longitudeSpan === 0
+          ? 320
+          : 32 + ((longitude - west) / longitudeSpan) * 576,
+      y:
+        latitudeSpan === 0
+          ? 150
+          : 24 + ((north - point.latitude) / latitudeSpan) * 252,
+    };
+  };
+
   return (
-    <figure className="context-visual context-map-schematic">
+    <figure
+      className="context-visual context-map-schematic"
+      role="img"
+      aria-label={`Coordinate overview for ${block.title}`}
+      aria-describedby={[captionId, descriptionId].filter(Boolean).join(" ") || undefined}
+    >
       <svg
         viewBox="0 0 640 300"
         aria-hidden="true"
@@ -131,10 +345,6 @@ export const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
           );
         })}
       </svg>
-      <figcaption>
-        Coordinate overview — not a street map. Exact locations and descriptions
-        follow in the place and route lists.
-      </figcaption>
     </figure>
   );
 };
@@ -183,24 +393,27 @@ const InteractiveMap = ({
   overlayColors,
   attemptKey,
   onUnavailable,
+  captionId,
+  descriptionId,
 }: {
   block: ContextMapBlock;
   styleUrl: string;
   overlayColors: MapOverlayColors;
   attemptKey: string;
   onUnavailable: (failedAttemptKey: string) => void;
+  captionId: string;
+  descriptionId: string;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const nearViewport = useNearViewport(containerRef);
   const mapRef = useRef<MapInstance | null>(null);
   const [map, setMap] = useState<MapInstance | null>(null);
-  const [status, setStatus] = useState("Loading interactive map");
+  const [status, setStatus] = useState("Interactive map waiting to load");
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const disclosure = container.closest("details");
+    if (!container || !nearViewport) return;
     let cancelled = false;
-    let started = false;
     let ready = false;
     let partialFailure = false;
     let failureReported = false;
@@ -212,14 +425,11 @@ const InteractiveMap = ({
       onUnavailable(attemptKey);
     };
 
-    const start = () => {
-      if (started || (disclosure && !disclosure.open)) return;
-      started = true;
-      setMap(null);
-      setStatus("Loading interactive map");
-      loadTimeout = setTimeout(reportUnavailable, MAP_LOAD_TIMEOUT_MS);
+    setMap(null);
+    setStatus("Loading interactive map");
+    loadTimeout = setTimeout(reportUnavailable, MAP_LOAD_TIMEOUT_MS);
 
-      import("maplibre-gl")
+    import("maplibre-gl")
         .then((maplibre) => {
           if (cancelled || failureReported) return;
           const instance = new maplibre.Map({
@@ -230,9 +440,9 @@ const InteractiveMap = ({
             attributionControl: false,
             cooperativeGestures: true,
           });
-          instance
-            .getCanvas()
-            .setAttribute("aria-label", `Interactive street map for ${block.title}`);
+          const canvas = instance.getCanvas();
+          canvas.setAttribute("aria-label", `Interactive street map for ${block.title}`);
+          canvas.setAttribute("aria-describedby", `${captionId} ${descriptionId}`);
           mapRef.current = instance;
 
           instance.once("load", () => {
@@ -330,6 +540,7 @@ const InteractiveMap = ({
                   "circle-stroke-width": 3,
                 },
               });
+              fitMapToFeatures(instance, block);
             } catch {
               reportUnavailable();
               return;
@@ -359,24 +570,19 @@ const InteractiveMap = ({
             setStatus(
               ready
                 ? PARTIAL_MAP_STATUS
-                : "The interactive map is still loading. Some visual details may be unavailable; the exact place and route lists remain available.",
+                : `The interactive map is still loading. Some visual details may be unavailable. ${EXACT_MAP_DATA_NOTE}`,
             );
           });
         })
         .catch(reportUnavailable);
-    };
-
-    disclosure?.addEventListener("toggle", start);
-    start();
 
     return () => {
       cancelled = true;
       if (loadTimeout) clearTimeout(loadTimeout);
-      disclosure?.removeEventListener("toggle", start);
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [attemptKey, block, onUnavailable, overlayColors, styleUrl]);
+  }, [attemptKey, block, captionId, descriptionId, nearViewport, onUnavailable, overlayColors, styleUrl]);
 
   const centerOnPlace = (name: string, longitude: number, latitude: number) => {
     if (!map) return;
@@ -388,19 +594,32 @@ const InteractiveMap = ({
 
   const reset = () => {
     if (!map) return;
-    map.jumpTo({
-      center: [block.map.center.longitude, block.map.center.latitude],
-      zoom: block.map.suggestedZoom ?? 5,
-    });
-    setStatus("Map view reset");
+    const cameraSource = fitMapToFeatures(map, block);
+    setStatus(
+      cameraSource === "features"
+        ? "Map view reset to show all mapped features"
+        : "Map view reset",
+    );
   };
 
   return (
     <div className="context-interactive-map">
       <div
-        ref={containerRef}
-        className="context-map-canvas"
-      />
+        className="context-map-surface"
+        role="region"
+        aria-label={`Interactive street map for ${block.title}`}
+        aria-describedby={`${captionId} ${descriptionId}`}
+        aria-busy={!map}
+      >
+        <div ref={containerRef} className="context-map-canvas" />
+        {!map ? (
+          <p className="context-rich-media-placeholder">
+            {nearViewport
+              ? "Loading interactive street map."
+              : "Street map will load as it approaches the viewport."}
+          </p>
+        ) : null}
+      </div>
       <div className="context-map-toolbar">
         <MapControls map={map} onAction={setStatus} />
         <button type="button" onClick={reset} disabled={!map} className="context-map-reset">
@@ -440,7 +659,17 @@ const InteractiveMap = ({
   );
 };
 
-export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
+export const ContextMapView = ({
+  block,
+  caption,
+  captionId,
+  descriptionId,
+}: {
+  block: ContextMapBlock;
+  caption: string;
+  captionId: string;
+  descriptionId: string;
+}) => {
   const { theme } = useTheme();
   const [view, setView] = useState<"interactive" | "schematic" | "unavailable">(
     "interactive",
@@ -487,10 +716,10 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
       ? "Street map unavailable"
       : "Coordinate overview shown";
   const promptDescription = interactive
-    ? "Street map tiles load from OpenFreeMap. Exact place, route, and area information remains available in the semantic lists below."
+    ? `Street map tiles load from OpenFreeMap. ${EXACT_MAP_DATA_NOTE}`
     : view === "unavailable"
-      ? "The coordinate overview is shown instead. Exact place, route, and area information remains available below."
-      : "This coordinate overview is not a street map. Exact place, route, and area information remains available below.";
+      ? `The coordinate overview is shown instead. ${EXACT_MAP_DATA_NOTE}`
+      : `This coordinate overview is not a street map. ${EXACT_MAP_DATA_NOTE}`;
   const buttonLabel = interactive
     ? "Show coordinate overview"
     : view === "unavailable"
@@ -499,6 +728,29 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
 
   return (
     <div className="context-kind-view">
+      <div id={`${block.id}-map-view`} ref={mapViewRef}>
+        {interactive ? (
+          <InteractiveMap
+            block={block}
+            styleUrl={MAP_STYLE_URLS[theme]}
+            overlayColors={MAP_OVERLAY_COLORS[theme]}
+            attemptKey={mapAttemptKey}
+            onUnavailable={showUnavailable}
+            captionId={captionId}
+            descriptionId={descriptionId}
+          />
+        ) : (
+          <MapSchematic
+            block={block}
+            captionId={captionId}
+            descriptionId={descriptionId}
+          />
+        )}
+      </div>
+      <p id={captionId} className="context-visual-caption">
+        {caption}
+      </p>
+
       <div className="context-map-prompt">
         <div>
           <strong>{promptTitle}</strong>
@@ -526,78 +778,90 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
           : ""}
       </p>
 
-      <div id={`${block.id}-map-view`} ref={mapViewRef}>
-        {interactive ? (
-          <InteractiveMap
-            block={block}
-            styleUrl={MAP_STYLE_URLS[theme]}
-            overlayColors={MAP_OVERLAY_COLORS[theme]}
-            attemptKey={mapAttemptKey}
-            onUnavailable={showUnavailable}
-          />
-        ) : (
-          <MapSchematic block={block} />
-        )}
-      </div>
-
       <div className="context-map-actions">
         <a href={centerUrl} target="_blank" rel="noopener noreferrer" className="context-text-link">
           Open area in OpenStreetMap<span className="sr-only"> (opens in a new tab)</span>
         </a>
       </div>
 
-      {block.map.places.length > 0 ? (
-        <section aria-labelledby={`${block.id}-places-heading`}>
-          <h4 id={`${block.id}-places-heading`}>Places</h4>
-          <ol className="context-place-list">
-            {block.map.places.map((place) => (
-              <li key={place.id}>
-                <strong>{place.name}</strong>
-                {place.description ? <span>{place.description}</span> : null}
-                <span className="context-coordinates">
-                  Latitude {place.latitude.toFixed(4)}, longitude {place.longitude.toFixed(4)}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
+      <StructuredDataDisclosure
+        label="Exact map data"
+        title={block.title}
+        meta={[
+          block.map.places.length
+            ? countLabel(block.map.places.length, "place")
+            : null,
+          block.map.routes.length
+            ? countLabel(block.map.routes.length, "route")
+            : null,
+          block.map.areas.length
+            ? countLabel(block.map.areas.length, "area")
+            : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(", ")}
+      >
+        {block.map.places.length > 0 ? (
+          <section aria-labelledby={`${block.id}-places-heading`}>
+            <h4 id={`${block.id}-places-heading`}>Places</h4>
+            <ol className="context-place-list">
+              {block.map.places.map((place) => (
+                <li key={place.id}>
+                  <strong>{place.name}</strong>
+                  {place.description ? <span>{place.description}</span> : null}
+                  <span className="context-coordinates">
+                    Latitude {place.latitude.toFixed(4)}, longitude {place.longitude.toFixed(4)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
 
-      {block.map.routes.length > 0 ? (
-        <section aria-labelledby={`${block.id}-routes-heading`}>
-          <h4 id={`${block.id}-routes-heading`}>Routes</h4>
-          <ul className="context-route-list">
-            {block.map.routes.map((route) => (
-              <li key={route.id}>
-                <strong>{route.name}</strong>
-                {route.description ? <span>{route.description}</span> : null}
-                <span>{route.points.length} mapped points</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+        {block.map.routes.length > 0 ? (
+          <section aria-labelledby={`${block.id}-routes-heading`}>
+            <h4 id={`${block.id}-routes-heading`}>Routes</h4>
+            <ul className="context-route-list">
+              {block.map.routes.map((route) => (
+                <li key={route.id}>
+                  <strong>{route.name}</strong>
+                  {route.description ? <span>{route.description}</span> : null}
+                  <span>{route.points.length} mapped points</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
-      {block.map.areas.length > 0 ? (
-        <section aria-labelledby={`${block.id}-areas-heading`}>
-          <h4 id={`${block.id}-areas-heading`}>Areas</h4>
-          <ul className="context-route-list">
-            {block.map.areas.map((area) => (
-              <li key={area.id}>
-                <strong>{area.name}</strong>
-                {area.description ? <span>{area.description}</span> : null}
-                <span>{area.rings.length} boundary {area.rings.length === 1 ? "ring" : "rings"}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+        {block.map.areas.length > 0 ? (
+          <section aria-labelledby={`${block.id}-areas-heading`}>
+            <h4 id={`${block.id}-areas-heading`}>Areas</h4>
+            <ul className="context-route-list">
+              {block.map.areas.map((area) => (
+                <li key={area.id}>
+                  <strong>{area.name}</strong>
+                  {area.description ? <span>{area.description}</span> : null}
+                  <span>{area.rings.length} boundary {area.rings.length === 1 ? "ring" : "rings"}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </StructuredDataDisclosure>
 
     </div>
   );
 };
 
-export const ContextTimelineView = ({ block }: { block: ContextTimelineBlock }) => {
+export const ContextTimelineView = ({
+  block,
+  caption,
+  captionId,
+}: {
+  block: ContextTimelineBlock;
+  caption: string;
+  captionId: string;
+}) => {
   const categories = useMemo(
     () => Array.from(new Set(block.timeline.events.map((event) => event.category).filter((value): value is string => Boolean(value)))),
     [block.timeline.events],
@@ -651,6 +915,9 @@ export const ContextTimelineView = ({ block }: { block: ContextTimelineBlock }) 
           </li>
         ))}
       </ol>
+      <p id={captionId} className="context-visual-caption">
+        {caption}
+      </p>
     </div>
   );
 };
@@ -675,7 +942,12 @@ const buildLinePath = (
   }, "");
 };
 
-const CHART_COLORS = ["#047857", "#b45309", "#2563eb", "#a21caf", "#be123c", "#4d7c0f"];
+const CHART_COLORS = {
+  light: ["#047857", "#b45309", "#2563eb", "#a21caf", "#be123c", "#4d7c0f"],
+  dark: ["#34d399", "#f2ad5d", "#75a7e8", "#c99ae0", "#fb7185", "#a3e635"],
+} as const;
+const CHART_LINE_STYLES = ["solid", "dashed", "dotted"] as const;
+const CHART_SYMBOLS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"] as const;
 const FALLBACK_CHART_TOP = 24;
 const FALLBACK_CHART_HEIGHT = 190;
 
@@ -703,21 +975,55 @@ export const getFallbackBarGeometry = (
 
 const ChartGraphic = ({
   block,
+  rows,
+  renderKind,
   selectedSeries,
+  zeroBaseline,
 }: {
   block: ContextChartBlock;
+  rows: ContextChartBlock["chart"]["rows"];
+  renderKind: Exclude<StandardChartRenderKind, "exact-only">;
   selectedSeries: ContextChartSeries[];
+  zeroBaseline: boolean;
 }) => {
+  const { theme } = useTheme();
+  const chartColors = CHART_COLORS[theme];
   const values = selectedSeries.flatMap((series) =>
-    block.chart.rows.map((row) => numericValue(row[series.yColumn])).filter((value): value is number => value !== null),
+    rows.map((row) => numericValue(row[series.yColumn])).filter((value): value is number => value !== null),
   );
-  const min = Math.min(0, ...values);
-  const max = Math.max(0, ...values);
+  const dataMin = values.length > 0 ? Math.min(...values) : 0;
+  const dataMax = values.length > 0 ? Math.max(...values) : 0;
+  const min = zeroBaseline ? Math.min(0, dataMin) : dataMin;
+  const max = zeroBaseline ? Math.max(0, dataMax) : dataMax;
   const zeroY = fallbackChartY(0, min, max);
 
   return (
-    <figure className="context-visual context-chart-graphic">
       <svg viewBox="0 0 640 260" aria-hidden="true" focusable="false" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          {selectedSeries.map((series, seriesIndex) => {
+            const color = chartColors[seriesIndex % chartColors.length];
+            return (
+              <pattern
+                key={series.id}
+                id={`context-chart-pattern-${block.id}-${series.id}`}
+                width="8"
+                height="8"
+                patternUnits="userSpaceOnUse"
+                patternTransform={`rotate(${seriesIndex * 45})`}
+              >
+                <rect width="8" height="8" fill={color} />
+                {seriesIndex > 0 ? (
+                  <path
+                    d="M 0 0 L 0 8"
+                    stroke={theme === "dark" ? "#111827" : "#ffffff"}
+                    strokeOpacity="0.62"
+                    strokeWidth={Math.min(3, seriesIndex + 1)}
+                  />
+                ) : null}
+              </pattern>
+            );
+          })}
+        </defs>
         <rect width="640" height="260" rx="14" className="context-chart-paper" />
         {[0, 1, 2, 3, 4].map((line) => (
           <line key={line} x1="54" x2="604" y1={24 + line * 47.5} y2={24 + line * 47.5} className="context-chart-grid" />
@@ -725,11 +1031,11 @@ const ChartGraphic = ({
         <line x1="54" x2="54" y1="24" y2="214" className="context-chart-axis" />
         <line x1="54" x2="604" y1={zeroY} y2={zeroY} className="context-chart-axis" />
         {selectedSeries.map((series, seriesIndex) => {
-          const color = CHART_COLORS[seriesIndex % CHART_COLORS.length];
-          if (series.type === "bar" || series.type === "pie") {
-            const slotWidth = 550 / Math.max(block.chart.rows.length, 1);
+          const color = chartColors[seriesIndex % chartColors.length];
+          if (renderKind === "bar" || renderKind === "pie") {
+            const slotWidth = 550 / Math.max(rows.length, 1);
             const barWidth = Math.max(2, (slotWidth * 0.72) / Math.max(selectedSeries.length, 1));
-            return block.chart.rows.map((row, rowIndex) => {
+            return rows.map((row, rowIndex) => {
               const value = numericValue(row[series.yColumn]);
               if (value === null) return null;
               const geometry = getFallbackBarGeometry(value, min, max);
@@ -740,104 +1046,175 @@ const ChartGraphic = ({
                   y={geometry.y}
                   width={barWidth}
                   height={geometry.height}
-                  fill={color}
-                  className={series.type === "pie" ? "context-chart-pie-bar" : undefined}
+                  fill={`url(#context-chart-pattern-${block.id}-${series.id})`}
+                  className={renderKind === "pie" ? "context-chart-pie-bar" : undefined}
                 />
               );
             });
           }
-          const path = buildLinePath(block.chart.rows, series, min, max);
+          const path = buildLinePath(rows, series, min, max);
           return (
             <g key={series.id}>
-              {series.type === "area" ? (
+              {series.type === "area" && renderKind === "line" ? (
                 <path d={`${path} L604 ${zeroY} L54 ${zeroY} Z`} fill={color} opacity="0.18" />
               ) : null}
-              <path d={path} fill="none" stroke={color} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+              <path
+                d={path}
+                fill="none"
+                stroke={color}
+                strokeWidth="4"
+                strokeDasharray={seriesIndex === 0 ? undefined : seriesIndex % 2 === 0 ? "3 5" : "10 6"}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
             </g>
           );
         })}
       </svg>
-      <figcaption>
-        Visual overview of the selected series. The exact values are available in the data table below.
-      </figcaption>
-    </figure>
   );
 };
 
 const EChartsGraphic = ({
   block,
+  rows,
+  renderKind,
   selectedSeries,
+  zeroBaseline,
 }: {
   block: ContextChartBlock;
+  rows: ContextChartBlock["chart"]["rows"];
+  renderKind: Exclude<StandardChartRenderKind, "exact-only">;
   selectedSeries: ContextChartSeries[];
+  zeroBaseline: boolean;
 }) => {
+  const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const nearViewport = useNearViewport(containerRef);
   const [failed, setFailed] = useState(false);
+  const [readyAttempt, setReadyAttempt] = useState<string | null>(null);
+  const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key ?? "";
+  const xLabels = useMemo(
+    () => rows.map((row) => String(row[xColumn] ?? "Not available")),
+    [rows, xColumn],
+  );
+  const horizontalBars =
+    selectedSeries.length > 0 &&
+    renderKind === "bar" &&
+    (rows.length > 8 || xLabels.some((label) => label.length > 16));
+  const chartHeight = horizontalBars
+    ? Math.min(560, Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)))
+    : 300;
+  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${selectedSeries.map((series) => series.id).join(",")}:${rows.length}:${String(rows[0]?.[xColumn])}:${String(rows.at(-1)?.[xColumn])}:${horizontalBars}:${renderKind}:${zeroBaseline}`;
+  const ready = readyAttempt === chartAttempt;
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const disclosure = container.closest("details");
+    if (!container || !nearViewport) return;
     let chart: ECharts | null = null;
     let cancelled = false;
-    let started = false;
 
-    const start = () => {
-      if (started || (disclosure && !disclosure.open)) return;
-      started = true;
-      import("echarts")
-        .then((echarts) => {
-          if (cancelled) return;
-          chart = echarts.init(container, undefined, { renderer: "svg" });
-          const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key;
-          const xLabels = block.chart.rows.map((row) => String(row[xColumn] ?? "Not available"));
-          const option: EChartsOption = {
-            animation: !isReducedMotion(),
-            animationDuration: 350,
-            color: CHART_COLORS,
-            backgroundColor: "transparent",
-            grid: { left: 54, right: 22, top: 28, bottom: 54, containLabel: true },
-            legend: { show: false },
-            tooltip: { show: false },
-            xAxis: { type: "category", data: xLabels, axisLabel: { hideOverlap: true } },
-            yAxis: { type: "value", scale: true },
-            series: selectedSeries.map((series) => {
-              if (series.type === "pie") {
-                return {
-                  id: series.id,
-                  name: series.label,
-                  type: "pie" as const,
-                  radius: ["35%", "68%"],
-                  data: block.chart.rows
-                    .map((row, index): { name: string; value: number } | null => {
-                      const value = numericValue(row[series.yColumn]);
-                      return value === null ? null : { name: xLabels[index], value };
-                    })
-                    .filter((item): item is { name: string; value: number } => item !== null),
-                  label: { show: true, formatter: "{b}" },
-                };
+    import("echarts")
+      .then((echarts) => {
+        if (cancelled) return;
+        chart = echarts.init(container, undefined, { renderer: "svg" });
+        const styles = getComputedStyle(container);
+        const textColor = styles.getPropertyValue("--color-foreground-2").trim() ||
+          (theme === "dark" ? "#d1d5db" : "#374151");
+        const borderColor = styles.getPropertyValue("--color-border").trim() ||
+          (theme === "dark" ? "#374151" : "#d1d5db");
+        const valueAxis = {
+          type: "value" as const,
+          scale: !zeroBaseline,
+          axisLabel: { color: textColor },
+          axisLine: { lineStyle: { color: borderColor } },
+          splitLine: { lineStyle: { color: borderColor } },
+        };
+        const categoryAxis = {
+          type: "category" as const,
+          data: xLabels,
+          axisLabel: { hideOverlap: !horizontalBars, color: textColor },
+          axisLine: { lineStyle: { color: borderColor } },
+          axisTick: { lineStyle: { color: borderColor } },
+        };
+        const option: EChartsOption = {
+          animation: !isReducedMotion(),
+          animationDuration: 350,
+          color: [...CHART_COLORS[theme]],
+          backgroundColor: "transparent",
+          textStyle: { color: textColor },
+          grid: horizontalBars
+            ? { left: 24, right: 34, top: selectedSeries.length > 1 ? 48 : 18, bottom: 24, containLabel: true }
+            : { left: 54, right: 22, top: selectedSeries.length > 1 ? 54 : 28, bottom: 54, containLabel: true },
+          legend: selectedSeries.length > 1
+            ? {
+                show: true,
+                top: 4,
+                type: "scroll",
+                textStyle: { color: textColor },
               }
+            : { show: false },
+          tooltip: { show: false },
+          xAxis: horizontalBars ? valueAxis : categoryAxis,
+          yAxis: horizontalBars
+            ? { ...categoryAxis, inverse: true }
+            : valueAxis,
+          series: selectedSeries.map((series, seriesIndex) => {
+            const decal = {
+              symbol: CHART_SYMBOLS[seriesIndex % CHART_SYMBOLS.length],
+              symbolSize: 0.65,
+              color: theme === "dark"
+                ? "rgba(17, 24, 39, 0.55)"
+                : "rgba(255, 255, 255, 0.62)",
+              dashArrayX: [1, 0],
+              dashArrayY: [3 + (seriesIndex % 3), 3],
+              rotation: (seriesIndex * Math.PI) / 4,
+            };
+            if (renderKind === "pie") {
               return {
                 id: series.id,
                 name: series.label,
-                type: series.type === "bar" ? "bar" as const : "line" as const,
-                data: block.chart.rows.map((row) => numericValue(row[series.yColumn])),
-                connectNulls: false,
-                showSymbol: block.chart.rows.length <= 30,
-                areaStyle: series.type === "area" ? { opacity: 0.18 } : undefined,
-                emphasis: { disabled: true },
+                cursor: "default",
+                silent: true,
+                type: "pie" as const,
+                radius: ["35%", "68%"],
+                data: rows
+                  .map((row, index): { name: string; value: number } | null => {
+                    const value = numericValue(row[series.yColumn]);
+                    return value === null ? null : { name: xLabels[index], value };
+                  })
+                  .filter((item): item is { name: string; value: number } => item !== null),
+                label: { show: true, formatter: "{b}", color: textColor },
+                itemStyle: { decal },
               };
-            }),
-          };
-          chart.setOption(option);
-        })
-        .catch(() => {
-          if (!cancelled) setFailed(true);
-        });
-    };
+            }
+            return {
+              id: series.id,
+              name: series.label,
+              cursor: "default",
+              silent: true,
+              type: renderKind === "bar" ? "bar" as const : "line" as const,
+              data: rows.map((row) => numericValue(row[series.yColumn])),
+              connectNulls: false,
+              showSymbol: rows.length <= 30,
+              symbol: CHART_SYMBOLS[seriesIndex % CHART_SYMBOLS.length],
+              lineStyle: {
+                type: CHART_LINE_STYLES[seriesIndex % CHART_LINE_STYLES.length],
+              },
+              itemStyle: renderKind === "bar" ? { decal } : undefined,
+              areaStyle: renderKind === "line" && series.type === "area"
+                ? { opacity: 0.18 }
+                : undefined,
+              emphasis: { disabled: true },
+            };
+          }),
+        };
+        chart.setOption(option);
+        if (!cancelled) setReadyAttempt(chartAttempt);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
 
-    disclosure?.addEventListener("toggle", start);
-    start();
     const resize = () => chart?.resize();
     window.addEventListener("resize", resize);
     const resizeObserver = typeof ResizeObserver !== "undefined"
@@ -847,85 +1224,525 @@ const EChartsGraphic = ({
 
     return () => {
       cancelled = true;
-      disclosure?.removeEventListener("toggle", start);
       window.removeEventListener("resize", resize);
       resizeObserver?.disconnect();
       chart?.dispose();
     };
-  }, [block, selectedSeries]);
+  }, [block, chartAttempt, horizontalBars, nearViewport, renderKind, rows, selectedSeries, theme, xLabels, zeroBaseline]);
 
-  if (failed) return <ChartGraphic block={block} selectedSeries={selectedSeries} />;
+  if (failed) {
+    return (
+      <ChartGraphic
+        block={block}
+        rows={rows}
+        renderKind={renderKind}
+        selectedSeries={selectedSeries}
+        zeroBaseline={zeroBaseline}
+      />
+    );
+  }
   return (
-    <figure className="context-visual context-chart-graphic">
-      <div ref={containerRef} className="context-echarts" aria-hidden="true" />
-      <figcaption>
-        Visual overview of the selected series. The exact values are available in the data table below.
-      </figcaption>
-    </figure>
+      <div className="context-echarts-surface" aria-busy={!ready}>
+        <div
+          ref={containerRef}
+          className="context-echarts"
+          aria-hidden="true"
+          style={{ minHeight: chartHeight }}
+        />
+        {!ready ? (
+          <p className="context-rich-media-placeholder">
+            {nearViewport
+              ? "Loading chart."
+              : "Chart will load as it approaches the viewport."}
+          </p>
+        ) : null}
+      </div>
   );
 };
 
-export const ContextChartView = ({ block }: { block: ContextChartBlock }) => {
-  const [selectedIds, setSelectedIds] = useState(() => new Set(block.chart.series.map((series) => series.id)));
-  const selectedSeries = useMemo(
-    () => block.chart.series.filter((series) => selectedIds.has(series.id)),
-    [block.chart.series, selectedIds],
+const ChartDataDisclosure = ({
+  block,
+  rowHeaderKey,
+}: {
+  block: ContextChartBlock;
+  rowHeaderKey: string;
+}) => (
+  <StructuredDataDisclosure
+    label="Exact chart data"
+    title={block.title}
+    meta={`${countLabel(block.chart.rows.length, "row")}, ${countLabel(block.chart.columns.length, "column")}`}
+  >
+    <div className="context-table-wrap" role="region" aria-labelledby={`${block.id}-table-caption`} tabIndex={0}>
+      <table className="context-data-table">
+        <caption id={`${block.id}-table-caption`}>Exact data for {block.title}</caption>
+        <thead>
+          <tr>
+            {block.chart.columns.map((column) => (
+              <th key={column.key} scope="col">
+                {column.label}{column.unit ? <span> ({column.unit})</span> : null}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {block.chart.rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {block.chart.columns.map((column) => (
+                column.key === rowHeaderKey ? (
+                  <th key={column.key} scope="row">{formatContextChartCell(row[column.key], column)}</th>
+                ) : (
+                  <td key={column.key}>{formatContextChartCell(row[column.key], column)}</td>
+                )
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </StructuredDataDisclosure>
+);
+
+const formatSeriesList = (labels: string[]): string => {
+  if (labels.length <= 1) return labels[0] ?? "No metrics";
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
+};
+
+const getSeriesUnit = (
+  block: ContextChartBlock,
+  series: ContextChartSeries,
+): string | undefined =>
+  series.unit ?? block.chart.columns.find(
+    (column) => column.key === series.yColumn,
+  )?.unit;
+
+const formatSeriesLabel = (
+  block: ContextChartBlock,
+  series: ContextChartSeries,
+): string => {
+  const unit = getSeriesUnit(block, series);
+  if (!unit) return series.label;
+  const normalizedLabel = series.label.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const normalizedUnit = unit.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  if (
+    normalizedLabel.endsWith(`(${normalizedUnit})`) ||
+    (normalizedUnit === "%" && /(?:%|percent|percentage)(?:\W|$)/i.test(series.label))
+  ) {
+    return series.label;
+  }
+  return `${series.label} (${unit})`;
+};
+
+const RankingMetricPanel = ({
+  block,
+  presentation,
+  series,
+  color,
+}: {
+  block: ContextChartBlock;
+  presentation: RankedChartPresentation;
+  series: ContextChartSeries;
+  color: string;
+}) => {
+  const measureColumn = block.chart.columns.find(
+    (column) => column.key === series.yColumn,
   );
+  const measureUnit = series.unit ?? measureColumn?.unit;
+  const values = presentation.visibleRows.map((row) => row[series.yColumn]);
+  const headingId = `${block.id}-${series.id}-ranking-heading`;
+
+  return (
+    <section
+      className="context-ranking-panel"
+      aria-labelledby={headingId}
+      style={{ "--context-ranking-color": color } as CSSProperties}
+    >
+      <h4 id={headingId}>
+        {series.label}
+        {measureUnit ? <span> ({measureUnit})</span> : null}
+      </h4>
+      <ol
+        className="context-ranked-bars"
+        aria-label={`${series.label} for the first ${presentation.visibleRows.length} published entries in ${block.title}`}
+      >
+        {presentation.visibleRows.map((row, rowIndex) => {
+          const value = row[series.yColumn];
+          const geometry = getRankedBarGeometry(values, value);
+          return (
+            <li key={`${String(row[presentation.rankColumn.key] ?? rowIndex)}-${String(row[presentation.entityColumn.key])}`}>
+              <span className="context-ranked-bar-identity">
+                <span className="context-ranking-position">
+                  <span className="sr-only">{presentation.rankColumn.label}: </span>
+                  {formatContextChartCell(row[presentation.rankColumn.key])}
+                </span>
+                <span className="context-ranking-entry">
+                  <strong>
+                    <span className="sr-only">{presentation.entityColumn.label}: </span>
+                    {formatContextChartCell(row[presentation.entityColumn.key])}
+                  </strong>
+                  {presentation.outcomeColumn && row[presentation.outcomeColumn.key] ? (
+                    <span>
+                      <span className="sr-only">{presentation.outcomeColumn.label}: </span>
+                      {formatContextChartCell(row[presentation.outcomeColumn.key])}
+                    </span>
+                  ) : null}
+                </span>
+              </span>
+              <span className="context-ranked-bar-measure">
+                <span className="context-ranked-bar-track" aria-hidden="true">
+                  {geometry ? (
+                    <>
+                      <span
+                        className="context-ranked-bar-zero-line"
+                        style={{ left: `${geometry.zeroPercent}%` }}
+                      />
+                      {geometry.direction === "zero" ? (
+                        <span
+                          className="context-ranked-bar-zero-value"
+                          style={{ left: `${geometry.zeroPercent}%` }}
+                        />
+                      ) : (
+                        <span
+                          className={`context-ranked-bar-fill context-ranked-bar-fill-${geometry.direction}`}
+                          style={{
+                            left: `${geometry.startPercent}%`,
+                            width: `${geometry.widthPercent}%`,
+                          }}
+                        />
+                      )}
+                    </>
+                  ) : null}
+                </span>
+                <span className="context-ranking-measure">
+                  <span className="sr-only">{series.label}: </span>
+                  <strong>{formatContextChartCell(value)}</strong>
+                  {measureUnit ? <span> {measureUnit}</span> : null}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+};
+
+const RankingOverview = ({
+  block,
+  presentation,
+  caption,
+  captionId,
+}: {
+  block: ContextChartBlock;
+  presentation: RankedChartPresentation;
+  caption: string;
+  captionId: string;
+}) => {
+  const { theme } = useTheme();
+  const [selectedIds, setSelectedIds] = useState(
+    () => new Set([presentation.measureSeries.id]),
+  );
+  const selectedSeries = presentation.availableSeries.filter((series) =>
+    selectedIds.has(series.id),
+  );
+  const controlHelpId = `${block.id}-ranking-metric-help`;
+  const selectionLabels = selectedSeries.map((series) => series.label);
   const toggleSeries = (id: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
-      if (next.has(id) && next.size > 1) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        if (next.size === 1) return current;
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   };
 
   return (
-    <div className="context-kind-view">
-      {block.chart.series.length > 1 ? (
-        <fieldset className="context-series-controls">
-          <legend>Series shown in the visual overview</legend>
-          {block.chart.series.map((series) => (
-            <label key={series.id}>
-              <input type="checkbox" checked={selectedIds.has(series.id)} onChange={() => toggleSeries(series.id)} />
-              <span>{series.label}{series.unit ? ` (${series.unit})` : ""}</span>
-            </label>
-          ))}
-        </fieldset>
+    <div className="context-kind-view context-ranking-view">
+      {presentation.availableSeries.length > 1 ? (
+        <>
+          <fieldset
+            className="context-series-controls context-ranking-controls"
+            aria-describedby={controlHelpId}
+          >
+            <legend>Metrics shown in the ranking overview</legend>
+            {presentation.availableSeries.map((series) => {
+              const checked = selectedIds.has(series.id);
+              const unit = series.unit ?? block.chart.columns.find(
+                (column) => column.key === series.yColumn,
+              )?.unit;
+              return (
+                <label key={series.id}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={checked && selectedIds.size === 1}
+                    onChange={() => toggleSeries(series.id)}
+                  />
+                  <span>{series.label}{unit ? ` (${unit})` : ""}</span>
+                </label>
+              );
+            })}
+          </fieldset>
+          <p id={controlHelpId} className="context-ranking-control-help">
+            The primary metric is selected first. Add another metric to compare it on a separate scale; at least one metric remains shown.
+          </p>
+        </>
       ) : null}
-      <EChartsGraphic block={block} selectedSeries={selectedSeries} />
-      <div className="context-table-wrap" role="region" aria-labelledby={`${block.id}-table-caption`} tabIndex={0}>
-        <table className="context-data-table">
-          <caption id={`${block.id}-table-caption`}>Exact data for {block.title}</caption>
-          <thead>
-            <tr>
-              {block.chart.columns.map((column) => (
-                <th key={column.key} scope="col">
-                  {column.label}{column.unit ? <span> ({column.unit})</span> : null}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.chart.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {block.chart.columns.map((column, columnIndex) => (
-                  columnIndex === 0 ? (
-                    <th key={column.key} scope="row">{row[column.key] ?? "Not available"}</th>
-                  ) : (
-                    <td key={column.key}>{row[column.key] ?? "Not available"}</td>
-                  )
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <p className="context-ranking-selection-status" role="status">
+        {formatSeriesList(selectionLabels)} shown. Each metric uses its own scale with a visible zero baseline.
+      </p>
+      <figure className="context-visual context-ranking-overview">
+        <div className="context-ranking-panels">
+          {selectedSeries.map((series) => (
+            <RankingMetricPanel
+              key={series.id}
+              block={block}
+              presentation={presentation}
+              series={series}
+              color={CHART_COLORS[theme][
+                presentation.availableSeries.indexOf(series) % CHART_COLORS[theme].length
+              ]}
+            />
+          ))}
+        </div>
+        <p className="context-ranking-summary">
+          {presentation.hiddenRowCount > 0
+            ? `The overview pictures the first ${presentation.visibleRows.length} of ${presentation.rows.length} published entries in source ranking order. Expand Exact chart data for all ${presentation.rows.length}.`
+            : `The overview pictures all ${presentation.rows.length} published entries in source ranking order.`}
+        </p>
+        <figcaption id={captionId} className="context-visual-caption">
+          {caption} Bar lengths provide supporting metric context and do not determine the published rank.
+        </figcaption>
+      </figure>
+      <ChartDataDisclosure
+        block={block}
+        rowHeaderKey={presentation.entityColumn.key}
+      />
     </div>
   );
 };
 
-export const ContextDiagramView = ({ block }: { block: ContextDiagramBlock }) => {
+const StandardChartView = ({
+  block,
+  caption,
+  captionId,
+}: {
+  block: ContextChartBlock;
+  caption: string;
+  captionId: string;
+}) => {
+  const presentation = useMemo(
+    () => getStandardChartPresentation(block),
+    [block],
+  );
+  const [selectedIds, setSelectedIds] = useState(
+    () => new Set(
+      (presentation?.defaultSeries ?? block.chart.series.slice(0, 1)).map(
+        (series) => series.id,
+      ),
+    ),
+  );
+  const selectedSeries = useMemo(
+    () => (presentation?.availableSeries ?? block.chart.series).filter(
+      (series) => selectedIds.has(series.id),
+    ),
+    [block.chart.series, presentation, selectedIds],
+  );
+  const selectedFamilyViews = useMemo(
+    () => presentation?.families.flatMap((family) => {
+      const familySeries = family.series.filter((series) => selectedIds.has(series.id));
+      if (familySeries.length === 0) return [];
+      const view = getStandardChartFamilyView(block, family, familySeries);
+      return view ? [{ family, view }] : [];
+    }) ?? [],
+    [block, presentation, selectedIds],
+  );
+  const availableSeries = presentation?.availableSeries ?? block.chart.series;
+  const controlHelpId = `${block.id}-standard-chart-help`;
+  const toggleSeries = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        if (next.size === 1) return current;
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  if (!presentation) {
+    const fallbackSeries = selectedSeries.length > 0
+      ? selectedSeries
+      : block.chart.series.slice(0, 1);
+    const fallbackRenderKind: Exclude<StandardChartRenderKind, "exact-only"> =
+      fallbackSeries.every((series) => series.type === "pie")
+        ? "pie"
+        : fallbackSeries.every(
+              (series) => series.type === "line" || series.type === "area",
+            )
+          ? "line"
+          : "bar";
+    return (
+      <div className="context-kind-view">
+        <figure className="context-visual context-chart-graphic">
+          <EChartsGraphic
+            block={block}
+            rows={block.chart.rows}
+            renderKind={fallbackRenderKind}
+            selectedSeries={fallbackSeries}
+            zeroBaseline={shouldStandardChartUseZeroBaseline(
+              fallbackSeries,
+              block.chart.rows,
+            )}
+          />
+          <figcaption id={captionId} className="context-visual-caption">
+            {caption}
+          </figcaption>
+        </figure>
+        <ChartDataDisclosure
+          block={block}
+          rowHeaderKey={block.chart.series[0]?.xColumn ?? block.chart.columns[0].key}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="context-kind-view context-standard-chart-view">
+      {availableSeries.length > 1 ? (
+        <>
+        <fieldset
+          className="context-series-controls context-standard-chart-controls"
+          aria-describedby={controlHelpId}
+        >
+          <legend>Series shown in the visual overview</legend>
+          {availableSeries.map((series) => {
+            const checked = selectedIds.has(series.id);
+            return (
+              <label key={series.id}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={checked && selectedIds.size === 1}
+                  onChange={() => toggleSeries(series.id)}
+                />
+                <span>{formatSeriesLabel(block, series)}</span>
+              </label>
+            );
+          })}
+        </fieldset>
+        <p id={controlHelpId} className="context-standard-chart-control-help">
+          {presentation.selectionSummary} Series with different units appear in separate panels; at least one series remains shown.
+        </p>
+        </>
+      ) : null}
+      <p className="context-standard-chart-selection-status" role="status">
+        {formatSeriesList(selectedSeries.map((series) => series.label))} shown
+        {selectedFamilyViews.length > 1
+          ? ` across ${selectedFamilyViews.length} separate scales.`
+          : " on one compatible scale."}
+      </p>
+      <figure className="context-visual context-chart-graphic context-standard-chart-overview">
+        <div className="context-standard-chart-panels">
+          {selectedFamilyViews.map(({ family, view }) => {
+            const headingId = `${block.id}-${family.id}-chart-heading`;
+            const heading = family.scaleKind === "unspecified"
+              ? formatSeriesList(view.selectedSeries.map((candidate) => candidate.label))
+              : family.label;
+            return (
+              <section
+                key={family.id}
+                className="context-standard-chart-panel"
+                aria-labelledby={headingId}
+              >
+                <h4 id={headingId}>{heading}</h4>
+                {view.renderKind === "exact-only" ? (
+                  <p className="context-standard-chart-omission">
+                    {view.rowSummary}
+                  </p>
+                ) : (
+                  <>
+                    <EChartsGraphic
+                      block={block}
+                      rows={view.visualRows}
+                      renderKind={view.renderKind}
+                      selectedSeries={view.selectedSeries}
+                      zeroBaseline={view.zeroBaseline}
+                    />
+                    <p className="context-standard-chart-summary">
+                      {view.rowSummary}
+                    </p>
+                  </>
+                )}
+              </section>
+            );
+          })}
+        </div>
+        {presentation.hiddenSeriesCount > 0 ? (
+          <p className="context-standard-chart-summary">
+            {presentation.hiddenSeriesCount} additional {presentation.hiddenSeriesCount === 1 ? "series remains" : "series remain"} available in Exact chart data.
+          </p>
+        ) : null}
+        <figcaption id={captionId} className="context-visual-caption">
+          {caption}
+          {selectedFamilyViews.some(
+            ({ view }) => view.hiddenRowCount > 0 || view.renderKind === "exact-only",
+          )
+            ? " This caption summarizes the complete source table; the overview subset is described above."
+            : ""}
+        </figcaption>
+      </figure>
+      <ChartDataDisclosure
+        block={block}
+        rowHeaderKey={presentation.categoryColumn.key}
+      />
+    </div>
+  );
+};
+
+export const ContextChartView = ({
+  block,
+  caption,
+  captionId,
+}: {
+  block: ContextChartBlock;
+  caption: string;
+  captionId: string;
+}) => {
+  const ranking = getRankedChartPresentation(block);
+  return ranking ? (
+    <RankingOverview
+      block={block}
+      presentation={ranking}
+      caption={caption}
+      captionId={captionId}
+    />
+  ) : (
+    <StandardChartView
+      block={block}
+      caption={caption}
+      captionId={captionId}
+    />
+  );
+};
+
+export const ContextDiagramView = ({
+  block,
+  caption,
+  captionId,
+  descriptionId,
+}: {
+  block: ContextDiagramBlock;
+  caption: string;
+  captionId: string;
+  descriptionId: string;
+}) => {
   const [zoom, setZoom] = useState(1);
   const image = block.diagram.image;
   return (
@@ -940,6 +1757,7 @@ export const ContextDiagramView = ({ block }: { block: ContextDiagramBlock }) =>
           <Image
             src={image.src}
             alt={image.alt}
+            aria-describedby={`${captionId} ${descriptionId}`}
             width={image.width ?? 1200}
             height={image.height ?? 800}
             unoptimized
@@ -947,7 +1765,9 @@ export const ContextDiagramView = ({ block }: { block: ContextDiagramBlock }) =>
             style={{ width: `${zoom * 100}%`, maxWidth: "none", height: "auto" }}
           />
         </div>
-        <figcaption>{block.diagram.caption}</figcaption>
+        <figcaption id={captionId} className="context-visual-caption">
+          {caption}
+        </figcaption>
       </figure>
       <div className="context-diagram-controls" aria-label="Diagram zoom controls">
         <button type="button" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} disabled={zoom >= 3}>
