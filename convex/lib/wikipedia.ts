@@ -15,6 +15,7 @@ import {
   getWikimediaFileTitleFromUrl,
   type WikimediaMediaAttribution,
 } from "../../lib/wikimedia-media";
+import { isArticleGalleryImageCandidate } from "../../lib/article-image-policy";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
@@ -562,8 +563,6 @@ const extractSectionCitations = (
   return result;
 };
 
-const MIN_IMAGE_DIMENSION = 100;
-
 /**
  * Upscale a Wikipedia thumbnail URL to a larger size. Thumbnail URLs follow
  * the pattern .../thumb/<path>/<size>px-<filename>. We replace the size
@@ -591,8 +590,6 @@ export const toOriginalUrl = (url: string): string => {
   return url.replace(/\/thumb\/.*$/, "/" + pathWithoutFile.replace(/\/$/, ""));
 };
 
-const MAX_ASPECT_RATIO = 3;
-
 export const extractImages = (html: string): WikiArticleImage[] => {
   const figureRe = /<figure\b([^>]*)>([\s\S]*?)<\/figure>/gi;
   const imgRe = /<img\b([^>]*)>/i;
@@ -616,18 +613,11 @@ export const extractImages = (html: string): WikiArticleImage[] => {
       let src = attrs.match(attrRe("src"))?.[1] ?? "";
       if (!src) continue;
 
-      if (src.endsWith(".svg") || src.includes("/math/")) continue;
-
       if (src.startsWith("//")) src = "https:" + src;
 
       const width = parseInt(attrs.match(attrRe("width"))?.[1] ?? "0", 10);
       const height = parseInt(attrs.match(attrRe("height"))?.[1] ?? "0", 10);
-      if ((width > 0 && width < MIN_IMAGE_DIMENSION) || (height > 0 && height < MIN_IMAGE_DIMENSION)) continue;
-
-      if (width > 0 && height > 0) {
-        const ratio = width / height;
-        if (ratio > MAX_ASPECT_RATIO || ratio < 1 / MAX_ASPECT_RATIO) continue;
-      }
+      if (!isArticleGalleryImageCandidate({ src, width, height })) continue;
 
       const originalSrc = toOriginalUrl(src);
       const sourceTitle = getWikimediaFileTitleFromUrl(originalSrc);

@@ -101,6 +101,27 @@ export const getWikimediaFileTitleFromUrl = (
   }
 };
 
+/** Canonical identity shared by thumbnail, original, and rasterized-SVG URLs. */
+export const getWikimediaMediaIdentity = (
+  imageUrl: string | undefined,
+): string | undefined => {
+  if (!imageUrl) return undefined;
+  let absoluteUrl: string;
+  try {
+    const url = new URL(imageUrl, "https://upload.wikimedia.org");
+    if (url.hostname !== "upload.wikimedia.org") return undefined;
+    absoluteUrl = url.toString();
+  } catch {
+    return undefined;
+  }
+
+  const sourceTitle = getWikimediaFileTitleFromUrl(absoluteUrl);
+  if (!sourceTitle) return undefined;
+  return `${getWikimediaMediaRepositoryFromUrl(absoluteUrl)}:${normalizeSourceTitle(
+    sourceTitle,
+  ).normalize("NFC")}`;
+};
+
 export const buildWikimediaSourceFallback = (
   sourceTitle: string,
   projectHost = WIKIMEDIA_COMMONS_HOST,

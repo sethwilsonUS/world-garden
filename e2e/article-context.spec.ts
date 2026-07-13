@@ -211,6 +211,163 @@ const contextManifest = {
   ],
 } satisfies ContextManifest;
 
+const rankingManifest = {
+  ...contextManifest,
+  blocks: [
+    {
+      id: "ranking-one",
+      kind: "chart",
+      title: "Tournament ranking data",
+      caption:
+        "Points are listed for 13 ranked teams, led by Team 1 with 12 points.",
+      longDescription:
+        "The source ranking lists 13 teams in order. Team 1 is first with 12 points, followed by Team 2 with 11 points.",
+      section: { index: "1", title: "Early life", anchor: "Early_life" },
+      order: 1,
+      sources: [source],
+      provenance,
+      chart: {
+        columns: [
+          { key: "position", label: "Position", dataType: "number" },
+          { key: "group", label: "Group", dataType: "string" },
+          { key: "team", label: "Team", dataType: "string" },
+          { key: "played", label: "Played", dataType: "number" },
+          { key: "won", label: "Won", dataType: "number" },
+          { key: "drawn", label: "Drawn", dataType: "number" },
+          { key: "lost", label: "Lost", dataType: "number" },
+          { key: "goalsFor", label: "Goals for", dataType: "number" },
+          { key: "goalsAgainst", label: "Goals against", dataType: "number" },
+          { key: "goalDifference", label: "Goal difference", dataType: "number" },
+          { key: "points", label: "Points", dataType: "number" },
+          { key: "finalResult", label: "Final result", dataType: "string" },
+        ],
+        rows: Array.from({ length: 13 }, (_, index) => ({
+          position: index + 1,
+          group: String.fromCharCode(65 + (index % 12)),
+          team: index === 7
+            ? "A deliberately long national team name for reflow"
+            : `Team ${index + 1}`,
+          played: 4,
+          won: Math.max(0, 4 - Math.floor(index / 4)),
+          drawn: index % 2,
+          lost: Math.floor(index / 5),
+          goalsFor: Math.max(1, 12 - index),
+          goalsAgainst: Math.floor(index / 2),
+          goalDifference: 6 - index * 2,
+          points: Math.max(0, 12 - index),
+          finalResult: index < 4 ? "Semi-finals" : "Eliminated",
+        })),
+        series: [
+          {
+            id: "points",
+            label: "Points",
+            type: "bar",
+            xColumn: "team",
+            yColumn: "points",
+          },
+          {
+            id: "goal-difference",
+            label: "Goal difference",
+            type: "bar",
+            xColumn: "team",
+            yColumn: "goalDifference",
+          },
+          {
+            id: "won",
+            label: "Won",
+            type: "bar",
+            xColumn: "team",
+            yColumn: "won",
+          },
+          {
+            id: "goals-for",
+            label: "Goals for",
+            type: "bar",
+            xColumn: "team",
+            yColumn: "goalsFor",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    },
+  ],
+} satisfies ContextManifest;
+
+const demographicChartManifest = {
+  ...contextManifest,
+  blocks: [
+    {
+      id: "demographic-chart",
+      kind: "chart",
+      title: "Population, share, and income by region",
+      caption:
+        "Population ranges from 100,000 to 1.5 million people across the listed regions.",
+      longDescription:
+        "The source table contains population counts, percentage shares, and median household income. Each measurement family is available on its own scale, and the exact table retains all source rows.",
+      section: { index: "1", title: "Early life", anchor: "Early_life" },
+      order: 1,
+      sources: [source],
+      provenance,
+      chart: {
+        columns: [
+          { key: "region", label: "Region", dataType: "string" },
+          { key: "population", label: "Population", dataType: "number", unit: "people" },
+          { key: "workingAge", label: "Working-age population", dataType: "number", unit: "people" },
+          { key: "share", label: "Share of world", dataType: "number", unit: "%" },
+          { key: "income", label: "Median household income", dataType: "number", unit: "$" },
+        ],
+        rows: [
+          { region: "World", population: 9_999_999, workingAge: 6_400_000, share: 100, income: 60_000 },
+          ...Array.from({ length: 15 }, (_, index) => ({
+            region: index === 14
+              ? "A deliberately long regional name for narrow-screen reflow"
+              : `Region ${index + 1}`,
+            population: (index + 1) * 100_000,
+            workingAge: (index + 1) * 64_000,
+            share: Number(((index + 1) * 0.65).toFixed(2)),
+            income: 42_000 + index * 1_500,
+          })),
+        ],
+        series: [
+          {
+            id: "population",
+            label: "Population",
+            type: "bar",
+            xColumn: "region",
+            yColumn: "population",
+            unit: "people",
+          },
+          {
+            id: "share",
+            label: "Share of world",
+            type: "bar",
+            xColumn: "region",
+            yColumn: "share",
+            unit: "%",
+          },
+          {
+            id: "working-age",
+            label: "Working-age population",
+            type: "bar",
+            xColumn: "region",
+            yColumn: "workingAge",
+            unit: "people",
+          },
+          {
+            id: "income",
+            label: "Median household income",
+            type: "bar",
+            xColumn: "region",
+            yColumn: "income",
+            unit: "$",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    },
+  ],
+} satisfies ContextManifest;
+
 const expectNoSeriousAxeViolations = async (page: Page) => {
   await page.addStyleTag({
     content:
@@ -578,6 +735,14 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   ).toBe(true);
   await expect(mapCard.getByRole("button", { name: /listen/i })).toHaveCount(0);
   await expect(mapCard.locator("audio")).toHaveCount(0);
+  const mapDataDisclosure = mapCard.locator("details.context-data-disclosure");
+  const mapDataSummary = mapDataDisclosure.locator(":scope > summary");
+  await expect(mapDataDisclosure).toHaveJSProperty("open", false);
+  await expect(mapDataSummary).toContainText("Exact map data");
+  await expect(mapDataSummary).toContainText("2 places, 1 route, 1 area");
+  await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeHidden();
+  await openDetailsWithKeyboard(page, mapDataDisclosure);
+  await expect(mapDataSummary).toBeFocused();
   await expect(mapCard.getByRole("list").first()).toContainText("London");
   await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Routes" })).toBeVisible();
@@ -612,6 +777,19 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
     "article-context-map-journey-caption article-context-map-journey-description",
   );
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
+
+  const londonButton = mapCard.getByRole("button", { name: "London" });
+  await londonButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(interactiveStatus).toHaveText("Centered map on London");
+
+  const resetMapButton = mapCard.getByRole("button", { name: "Reset map" });
+  await resetMapButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(resetMapButton).toBeFocused();
+  await expect(interactiveStatus).toHaveText(
+    "Map view reset to show all mapped features",
+  );
 
   await showSchematicButton.focus();
   await page.keyboard.press("Enter");
@@ -682,6 +860,16 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   const dataTable = chartCard.getByRole("table", {
     name: "Exact data for Notes compared with the source article",
   });
+  const chartDataDisclosure = chartCard.locator("details.context-data-disclosure");
+  const chartDataSummary = chartDataDisclosure.locator(":scope > summary");
+  await expect(chartDataDisclosure).toHaveJSProperty("open", false);
+  await expect(chartDataSummary).toContainText("Exact chart data");
+  await expect(chartDataSummary).toContainText("2 rows, 2 columns");
+  await expect(dataTable).toBeHidden();
+  await chartDataSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(chartDataDisclosure).toHaveJSProperty("open", true);
+  await expect(chartDataSummary).toBeFocused();
   await expect(dataTable.getByRole("columnheader")).toHaveCount(2);
   await expect(dataTable.getByRole("rowheader", { name: "Source article" })).toBeVisible();
   await expect(dataTable.getByRole("cell", { name: "20" })).toBeVisible();
@@ -782,7 +970,7 @@ test("article map falls back accessibly and can retry after a style failure", as
 
   await expect(mapCard.getByText("Street map unavailable", { exact: true })).toBeVisible();
   await expect(failureStatus).toHaveText(
-    "Street map unavailable. The coordinate overview is shown instead. Exact place, route, and area information remains available below.",
+    "Street map unavailable. The coordinate overview is shown instead. Exact place, route, and area information is available in the expandable map data below.",
   );
   await expect(mapCard.locator(".context-map-schematic")).toBeVisible();
   const retryButton = mapCard.getByRole("button", {
@@ -844,7 +1032,7 @@ test("article map remains usable when decorative sprite resources fail", async (
   await expect(
     mapCard.locator(".context-interactive-map .context-status"),
   ).toHaveText(
-    "Some map details could not load. The exact place and route lists remain available.",
+    "Some map details could not load. Exact place, route, and area information is available in the expandable map data below.",
   );
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
@@ -877,7 +1065,231 @@ test("rich visuals initialize without IntersectionObserver or a disclosure click
   await expect(
     page.locator("#article-context-chart-note-length .context-echarts svg"),
   ).toBeAttached();
+  await expect(
+    page.locator("details.context-data-disclosure"),
+  ).toHaveCount(2);
+  expect(
+    await page
+      .locator("details.context-data-disclosure")
+      .evaluateAll((details) =>
+        details.every((detail) => !(detail as HTMLDetailsElement).open),
+      ),
+  ).toBe(true);
   await expect(page.locator("details.context-explorer")).toHaveCount(0);
+});
+
+test("ranked chart data renders as a compact, keyboard-accessible bar overview", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await mockArticleAndContext(page, { manifest: rankingManifest });
+  await page.goto("/article/Ada_Lovelace");
+
+  const card = page.locator("#article-context-ranking-one");
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.getByRole("heading", { name: "Tournament ranking data" })).toBeVisible();
+  const rankingList = card.getByRole("list", {
+    name: "Points for the first 8 published entries in Tournament ranking data",
+  });
+  await expect(rankingList.locator(":scope > li")).toHaveCount(8);
+  const visibleTeamNames = rankingList.locator(".context-ranking-entry strong");
+  await expect(visibleTeamNames.first()).toContainText("Team 1");
+  await expect(visibleTeamNames.last()).toContainText(
+    "A deliberately long national team name for reflow",
+  );
+  await expect(visibleTeamNames).toHaveCount(8);
+  const firstRankingItem = rankingList.locator(":scope > li").first();
+  const firstRankingSnapshot = await firstRankingItem.ariaSnapshot();
+  expect(firstRankingSnapshot).toContain("Position: 1");
+  expect(firstRankingSnapshot).toContain("Team: Team 1");
+  expect(firstRankingSnapshot).toContain("Final result: Semi-finals");
+  expect(firstRankingSnapshot).toContain("Points:");
+  expect(firstRankingSnapshot).toContain('strong: "12"');
+  await expect(rankingList.locator(".context-ranked-bar-track")).toHaveCount(8);
+  await expect(rankingList.locator(".context-ranked-bar-track").first()).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+  await expect(
+    card.getByText(
+      "The overview pictures the first 8 of 13 published entries in source ranking order. Expand Exact chart data for all 13.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const metricControls = card.getByRole("group", {
+    name: "Metrics shown in the ranking overview",
+  });
+  await expect(metricControls.getByRole("checkbox")).toHaveCount(4);
+  const pointsCheckbox = metricControls.getByRole("checkbox", { name: "Points" });
+  const goalDifferenceCheckbox = metricControls.getByRole("checkbox", {
+    name: "Goal difference",
+  });
+  await expect(pointsCheckbox).toBeChecked();
+  await expect(pointsCheckbox).toBeDisabled();
+  await expect(goalDifferenceCheckbox).not.toBeChecked();
+  await goalDifferenceCheckbox.focus();
+  await page.keyboard.press("Space");
+  await expect(goalDifferenceCheckbox).toBeChecked();
+  await expect(pointsCheckbox).toBeEnabled();
+  await expect(card.getByRole("status")).toHaveText(
+    "Points and Goal difference shown. Each metric uses its own scale with a visible zero baseline.",
+  );
+  const goalDifferenceList = card.getByRole("list", {
+    name: "Goal difference for the first 8 published entries in Tournament ranking data",
+  });
+  await expect(goalDifferenceList.locator(":scope > li")).toHaveCount(8);
+  expect(await goalDifferenceList.locator(".context-ranked-bar-fill-negative").count()).toBeGreaterThan(0);
+  await pointsCheckbox.focus();
+  await page.keyboard.press("Space");
+  await expect(pointsCheckbox).not.toBeChecked();
+  await expect(goalDifferenceCheckbox).toBeDisabled();
+  await expect(card.getByRole("status")).toHaveText(
+    "Goal difference shown. Each metric uses its own scale with a visible zero baseline.",
+  );
+  await expect(rankingList).toHaveCount(0);
+  await expect(card.locator(".context-echarts")).toHaveCount(0);
+
+  const exactData = card.locator("details.context-data-disclosure");
+  await expect(exactData).toHaveJSProperty("open", false);
+  const exactDataSummary = exactData.locator(":scope > summary");
+  await exactDataSummary.focus();
+  await expect(exactDataSummary).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(exactData).toHaveJSProperty("open", true);
+  await expect(exactDataSummary).toBeFocused();
+
+  const table = card.getByRole("table", {
+    name: "Exact data for Tournament ranking data",
+  });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveCount(12);
+  await expect(table.getByRole("rowheader")).toHaveCount(13);
+  await expect(table.getByRole("rowheader").first()).toHaveText("Team 1");
+  await expect(table.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+
+  const tableScroller = card.locator(".context-table-wrap");
+  expect(
+    await tableScroller.evaluate(
+      (tableScroller) => tableScroller.scrollWidth > tableScroller.clientWidth,
+    ),
+  ).toBe(true);
+  await tableScroller.focus();
+  await expect(tableScroller).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(() => tableScroller.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("mixed-unit demographic charts use separate scales and a bounded overview", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await mockArticleAndContext(page, { manifest: demographicChartManifest });
+  await page.goto("/article/Ada_Lovelace");
+
+  const card = page.locator("#article-context-demographic-chart");
+  await card.scrollIntoViewIfNeeded();
+  const controls = card.getByRole("group", {
+    name: "Series shown in the visual overview",
+  });
+  await expect(controls.getByRole("checkbox")).toHaveCount(4);
+  const population = controls.getByRole("checkbox", {
+    name: "Population (people)",
+    exact: true,
+  });
+  const workingAge = controls.getByRole("checkbox", {
+    name: "Working-age population (people)",
+    exact: true,
+  });
+  const share = controls.getByRole("checkbox", {
+    name: "Share of world (%)",
+    exact: true,
+  });
+  await expect(population).toBeChecked();
+  await expect(population).toBeEnabled();
+  await expect(workingAge).toBeChecked();
+  await expect(workingAge).toBeEnabled();
+  await expect(share).not.toBeChecked();
+  await expect(card.locator(".context-standard-chart-panel")).toHaveCount(1);
+  await expect(card.getByRole("heading", { name: "Counts (people)" })).toBeVisible();
+  const initialChart = card.locator(".context-echarts").first();
+  await initialChart.scrollIntoViewIfNeeded();
+  await expect(initialChart.locator("svg")).toBeVisible();
+  expect((await initialChart.boundingBox())?.height ?? 0).toBeGreaterThan(440);
+  expect(
+    await initialChart.locator("svg").evaluate((svg) =>
+      Array.from(svg.querySelectorAll("path, rect")).every(
+        (mark) => getComputedStyle(mark).cursor !== "pointer",
+      ),
+    ),
+  ).toBe(true);
+  await expect(
+    card.locator(".context-echarts text").filter({ hasText: /^Population$/ }),
+  ).toBeVisible();
+  await expect(
+    card.locator(".context-echarts text").filter({ hasText: /^Working-age population$/ }),
+  ).toBeVisible();
+  await expect(
+    card.getByText(
+      "Showing the top 12 of 15 categories by Population; 3 more remain in Exact chart data. 1 aggregate row kept in Exact chart data.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+
+  await share.focus();
+  await page.keyboard.press("Space");
+  await expect(share).toBeChecked();
+  await expect(population).toBeEnabled();
+  await expect(card.locator(".context-standard-chart-panel")).toHaveCount(2);
+  await expect(card.getByRole("heading", { name: "Percent (%)" })).toBeVisible();
+  await expect(card.getByRole("status")).toHaveText(
+    "Population, Working-age population, and Share of world shown across 2 separate scales.",
+  );
+
+  await workingAge.focus();
+  await page.keyboard.press("Space");
+  await expect(workingAge).not.toBeChecked();
+  await population.focus();
+  await page.keyboard.press("Space");
+  await expect(population).not.toBeChecked();
+  await expect(share).toBeDisabled();
+  await expect(card.locator(".context-standard-chart-panel")).toHaveCount(1);
+  await expect(card.getByRole("heading", { name: "Counts (people)" })).toHaveCount(0);
+  await expect(card.getByRole("status")).toHaveText(
+    "Share of world shown on one compatible scale.",
+  );
+  await expect(
+    card.getByText(
+      "Showing the top 12 of 15 categories by Share of world; 3 more remain in Exact chart data. 1 aggregate row kept in Exact chart data.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+
+  const exactData = card.locator("details.context-data-disclosure");
+  await expect(exactData).toHaveJSProperty("open", false);
+  const exactDataSummary = exactData.locator(":scope > summary");
+  await exactDataSummary.focus();
+  await page.keyboard.press("Enter");
+  await expect(exactData).toHaveJSProperty("open", true);
+  const table = card.getByRole("table", {
+    name: "Exact data for Population, share, and income by region",
+  });
+  await expect(table.getByRole("rowheader")).toHaveCount(16);
+  await expect(table.getByRole("rowheader", { name: "World" })).toBeVisible();
+  await expect(table.getByRole("columnheader")).toHaveCount(5);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
+  await expectNoSeriousAxeViolations(page);
 });
 
 test("an article with no visual context leaves no empty lane or spacer", async ({
@@ -910,6 +1322,51 @@ test("an article with no visual context leaves no empty lane or spacer", async (
   ).toBe(true);
 });
 
+test("a hero and Gallery image do not receive a third Context diagram copy", async ({
+  page,
+}) => {
+  const sourceDiagram = contextManifest.blocks.find(
+    (block) => block.kind === "diagram",
+  );
+  expect(sourceDiagram?.kind).toBe("diagram");
+  if (!sourceDiagram || sourceDiagram.kind !== "diagram") return;
+
+  const duplicateManifest: ContextManifest = {
+    ...contextManifest,
+    blocks: [
+      {
+        ...sourceDiagram,
+        diagram: {
+          ...sourceDiagram.diagram,
+          image: {
+            ...sourceDiagram.diagram.image,
+            src: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/500px-Ada_portrait.jpg",
+            width: 500,
+            height: 667,
+          },
+        },
+      },
+    ],
+  };
+  await mockArticleAndContext(page, { manifest: duplicateManifest });
+  const contextResponse = page.waitForResponse("**/api/article-context");
+
+  await page.goto("/article/Ada_Lovelace");
+  await contextResponse;
+
+  await expect(
+    page.getByRole("button", { name: "View full image for Ada Lovelace" }),
+  ).toBeVisible();
+  const gallery = page.getByRole("heading", { name: "Gallery" }).locator("..");
+  await expect(gallery).toBeVisible();
+  await expect(
+    gallery.getByRole("button", { name: /Open image 1 of 1: Portrait of Ada Lovelace/ }),
+  ).toBeVisible();
+  await expect(page.locator("#article-context-diagram-engine")).toHaveCount(0);
+  await expect(page.locator("section.context-lane")).toHaveCount(0);
+  await expect(page.locator("a.context-section-link")).toHaveCount(0);
+});
+
 test("visual context remains usable at 200 percent zoom with forced colors", async ({
   page,
 }) => {
@@ -930,10 +1387,18 @@ test("visual context remains usable at 200 percent zoom with forced colors", asy
     ),
   ).toBeVisible();
   await expect(mapCard.getByRole("button", { name: "Show coordinate overview" })).toBeVisible();
+  await openDetailsWithKeyboard(
+    page,
+    mapCard.locator("details.context-data-disclosure"),
+  );
   await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
 
   const chartCard = page.locator("#article-context-chart-note-length");
   await chartCard.scrollIntoViewIfNeeded();
+  await openDetailsWithKeyboard(
+    page,
+    chartCard.locator("details.context-data-disclosure"),
+  );
   await expect(
     chartCard.getByRole("table", {
       name: "Exact data for Notes compared with the source article",

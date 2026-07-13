@@ -15,7 +15,7 @@ import {
   getContextBlocksForSection,
 } from "./ArticleContext";
 import { Lightbox } from "./ArticleGallery";
-import { MapSchematic } from "./ArticleContextVisuals";
+import { ContextChartView, MapSchematic } from "./ArticleContextVisuals";
 import { ThemeProvider } from "./ThemeProvider";
 
 const base = {
@@ -95,7 +95,7 @@ const blocks: ContextBlock[] = [
     id: "chart-one",
     kind: "chart",
     title: "Population over time",
-    caption: "Population rises from 100 to 250 between 1900 and 2000.",
+    caption: "Population rises from 100 to 1.65 billion between 1900 and 2000.",
     order: 3,
     chart: {
       columns: [
@@ -104,7 +104,7 @@ const blocks: ContextBlock[] = [
       ],
       rows: [
         { year: "1900", population: 100 },
-        { year: "2000", population: 250 },
+        { year: "2000", population: 1_650_000_000 },
       ],
       series: [
         {
@@ -196,15 +196,36 @@ describe("ArticleContext", () => {
     expect(markup).toContain(
       '<p id="article-context-map-one-description" class="sr-only">A complete long description that does not depend on the visual view.</p>',
     );
+    expect(markup).toContain(
+      '<span class="context-data-disclosure-label">Exact map data<span class="sr-only"> for Places in the journey</span></span>',
+    );
+    expect(markup).toContain(
+      '<span class="context-data-disclosure-meta">1 place</span>',
+    );
     expect(markup).toContain("Latitude 41.9000, longitude 12.5000");
     expect(markup).toContain('<time dateTime="1969-07-20">20 July 1969</time>');
+    expect(markup).toContain(
+      '<span class="context-data-disclosure-label">Exact chart data<span class="sr-only"> for Population over time</span></span>',
+    );
+    expect(markup).toContain(
+      '<span class="context-data-disclosure-meta">2 rows, 2 columns</span>',
+    );
     expect(markup).toContain("Exact data for Population over time");
     expect(markup).toContain('<th scope="row">1900</th>');
+    expect(markup).toContain("1,650,000,000");
     expect(markup).toContain('alt="A labeled diagram of two connected parts."');
     expect(markup).toContain("First part");
     expect(markup).toContain("flows into");
     expect(markup).toContain("Report a problem");
     expect(markup).not.toContain('role="application"');
+
+    const dataDisclosures = markup.match(
+      /<details class="context-data-disclosure">/g,
+    );
+    expect(dataDisclosures).toHaveLength(2);
+    expect(markup).not.toContain(
+      '<details class="context-data-disclosure" open="">',
+    );
 
     const mapPosition = markup.indexOf("article-context-map-one");
     const timelinePosition = markup.indexOf("article-context-timeline-one");
@@ -228,6 +249,229 @@ describe("ArticleContext", () => {
     );
 
     expect(markup).toBe("");
+  });
+
+  it("renders ranked data as a concise leaderboard with entity row headers", () => {
+    const rankingBlock: ContextChartBlock = {
+      ...base,
+      id: "ranking-one",
+      kind: "chart",
+      title: "Tournament ranking data",
+      caption:
+        "Points is listed for 13 ranked entries; the lowest is 1 for Team 13, and the highest is 13 for Team 1.",
+      chart: {
+        columns: [
+          { key: "position", label: "Position", dataType: "number" },
+          { key: "team", label: "Team", dataType: "string" },
+          { key: "points", label: "Points", dataType: "number" },
+          { key: "won", label: "Won", dataType: "number" },
+          { key: "final-result", label: "Final result", dataType: "string" },
+        ],
+        rows: Array.from({ length: 13 }, (_, index) => ({
+          position: index + 1,
+          team: `Team ${index + 1}`,
+          points: 13 - index,
+          won: Math.max(0, 6 - Math.floor(index / 2)),
+          "final-result": index < 4 ? "Semifinals" : "Eliminated",
+        })),
+        series: [
+          {
+            id: "points",
+            label: "Points",
+            type: "bar",
+            xColumn: "team",
+            yColumn: "points",
+          },
+          {
+            id: "won",
+            label: "Won",
+            type: "bar",
+            xColumn: "team",
+            yColumn: "won",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(ContextChartView, {
+          block: rankingBlock,
+          caption: rankingBlock.caption,
+          captionId: "ranking-caption",
+        }),
+      ),
+    );
+
+    expect(markup).toContain(
+      'aria-label="Points for the first 8 published entries in Tournament ranking data"',
+    );
+    expect(markup.match(/<li>/g)).toHaveLength(8);
+    expect(markup).toContain(
+      "The overview pictures the first 8 of 13 published entries in source ranking order.",
+    );
+    expect(markup).toContain(
+      "Bar lengths provide supporting metric context and do not determine the published rank.",
+    );
+    expect(markup.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(markup).toContain('type="checkbox" disabled="" checked=""');
+    expect(markup).toContain("Metrics shown in the ranking overview");
+    expect(markup).toContain("Points shown. Each metric uses its own scale");
+    expect(markup).toContain('class="context-ranked-bar-track" aria-hidden="true"');
+    expect(markup).toContain("context-ranked-bar-fill-positive");
+    expect(markup).not.toContain("context-echarts");
+    expect(markup).toContain('<span class="sr-only">Team: </span>Team 1');
+    expect(markup).toContain(
+      '<span class="sr-only">Final result: </span>Semifinals',
+    );
+    expect(markup).toContain('<th scope="row">Team 1</th>');
+    expect(markup).toContain('<td>1</td><th scope="row">Team 1</th>');
+  });
+
+  it("separates incompatible standard-chart scales and keeps exact rows intact", () => {
+    const demographicBlock: ContextChartBlock = {
+      ...base,
+      id: "demographic-one",
+      kind: "chart",
+      title: "Age and sex distribution",
+      caption: "Population totals and percentages are available by age group.",
+      chart: {
+        columns: [
+          { key: "age", label: "Age group", dataType: "string" },
+          { key: "total", label: "Total (thousands)", dataType: "number", unit: "thousands" },
+          { key: "male", label: "Males (thousands)", dataType: "number", unit: "thousands" },
+          { key: "share", label: "Share of population", dataType: "number", unit: "%" },
+          { key: "ratio", label: "Sex ratio", dataType: "number", unit: "males per female" },
+        ],
+        rows: [
+          { age: "Total", total: 330_000, male: 164_000, share: 100, ratio: 0.98 },
+          ...Array.from({ length: 13 }, (_, index) => ({
+            age: `${index * 5}–${index * 5 + 4}`,
+            total: 30_000 - index * 1_000,
+            male: 15_000 - index * 500,
+            share: 9 - index * 0.4,
+            ratio: 1.05 - index * 0.02,
+          })),
+        ],
+        series: [
+          {
+            id: "total",
+            label: "Total (thousands)",
+            type: "bar",
+            xColumn: "age",
+            yColumn: "total",
+            unit: "thousands",
+          },
+          {
+            id: "male",
+            label: "Males (thousands)",
+            type: "bar",
+            xColumn: "age",
+            yColumn: "male",
+            unit: "thousands",
+          },
+          {
+            id: "share",
+            label: "Share of population",
+            type: "bar",
+            xColumn: "age",
+            yColumn: "share",
+            unit: "%",
+          },
+          {
+            id: "ratio",
+            label: "Sex ratio",
+            type: "bar",
+            xColumn: "age",
+            yColumn: "ratio",
+            unit: "males per female",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(ContextChartView, {
+          block: demographicBlock,
+          caption: demographicBlock.caption,
+          captionId: "demographic-caption",
+        }),
+      ),
+    );
+
+    expect(markup).toContain("Series shown in the visual overview");
+    expect(markup.match(/type="checkbox"/g)).toHaveLength(4);
+    expect(markup.match(/type="checkbox" checked=""/g)).toHaveLength(2);
+    expect(markup).toContain("Total (thousands)</span>");
+    expect(markup).not.toContain("Total (thousands) (thousands)");
+    expect(markup).toContain("Counts (thousands)");
+    expect(markup).toContain(
+      "Total (thousands) and Males (thousands) shown on one compatible scale.",
+    );
+    expect(markup).toContain(
+      "Showing the first 12 of 13 categories in meaningful source order; 1 more remain in Exact chart data. 1 aggregate row kept in Exact chart data.",
+    );
+    expect(markup.match(/<section class="context-standard-chart-panel"/g)).toHaveLength(1);
+    expect(markup).toContain('<th scope="row">Total</th>');
+    expect(markup).toContain(
+      '<span class="context-data-disclosure-meta">14 rows, 5 columns</span>',
+    );
+  });
+
+  it("omits a misleading connected line when repeated categories have no ordered chronology", () => {
+    const repeatedYearBlock: ContextChartBlock = {
+      ...base,
+      id: "repeated-year-line",
+      kind: "chart",
+      title: "Population by changing territory",
+      caption: "The complete source table lists multiple territories for the same years.",
+      chart: {
+        columns: [
+          { key: "year", label: "Year", dataType: "number" },
+          { key: "population", label: "Population", dataType: "number" },
+        ],
+        rows: Array.from({ length: 14 }, (_, index) => ({
+          year: 1800 + Math.floor(index / 2),
+          population: 10_000 + index * 500,
+        })),
+        series: [
+          {
+            id: "population",
+            label: "Population",
+            type: "line",
+            xColumn: "year",
+            yColumn: "population",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(ContextChartView, {
+          block: repeatedYearBlock,
+          caption: repeatedYearBlock.caption,
+          captionId: "repeated-year-caption",
+        }),
+      ),
+    );
+
+    expect(markup).toContain(
+      "The visual overview is omitted because the source line does not have a unique ordered chronology",
+    );
+    expect(markup).not.toContain("context-echarts");
+    expect(markup).toContain(">1800</th>");
+    expect(markup).toContain("14 rows, 2 columns");
   });
 
   it("centers a single place in the coordinate overview fallback", () => {

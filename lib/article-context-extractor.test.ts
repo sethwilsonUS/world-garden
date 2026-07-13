@@ -530,6 +530,71 @@ describe("article context deterministic extraction", () => {
     expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
   });
 
+  it("preserves every chart-extension series that fits and rejects an over-wide source", () => {
+    const makePayload = (seriesCount: number) =>
+      escapeAttribute(
+        JSON.stringify({
+          spec: {
+            xAxis: { name: "Year", data: [2022, 2023, 2024] },
+            yAxis: { name: "Value" },
+            series: Array.from({ length: seriesCount }, (_, index) => ({
+              type: "line",
+              name: `Measure ${index + 1}`,
+              data: [index + 1, index + 2, index + 3],
+            })),
+          },
+        }),
+      );
+    const source = (seriesCount: number): MediaWikiParsedSource => ({
+      ...richSource(),
+      html: `<wiki-chart data-mw-chart="${makePayload(seriesCount)}"></wiki-chart>`,
+      wikitext: "",
+      sections: [],
+    });
+
+    const chart = extractArticleContextFromSource(source(11), request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    expect(chart?.kind === "chart" && chart.chart.series).toHaveLength(11);
+    expect(
+      chart?.kind === "chart" && chart.chart.series.map((series) => series.label),
+    ).toEqual(Array.from({ length: 11 }, (_, index) => `Measure ${index + 1}`));
+    expect(extractArticleContextFromSource(source(12), request).blocks).toEqual([]);
+  });
+
+  it("inherits an enclosing table caption unit and labels an unambiguous generic year axis", () => {
+    const payload = escapeAttribute(
+      JSON.stringify({
+        spec: {
+          xAxis: { data: [1800, 1900, 2000] },
+          series: [
+            { type: "line", name: "Population", data: [1, 2, 6] },
+          ],
+        },
+      }),
+    );
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <caption>World population (millions, historical estimates)</caption>
+        <tr><td><wiki-chart data-mw-chart="${payload}"></wiki-chart></td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.columns[0]).toMatchObject({
+      label: "Year",
+      dataType: "number",
+    });
+    expect(chart.chart.series[0]).toMatchObject({
+      label: "Population",
+      unit: "millions",
+    });
+  });
+
   it("keeps year-and-value tables quantitative instead of misclassifying them as timelines", () => {
     const source: MediaWikiParsedSource = {
       ...richSource(),
@@ -548,6 +613,711 @@ describe("article context deterministic extraction", () => {
     const manifest = extractArticleContextFromSource(source, request);
     expect(manifest.blocks).toHaveLength(1);
     expect(manifest.blocks[0].kind).toBe("chart");
+  });
+
+  it.each([
+    "Location",
+    "City",
+    "State",
+    "County",
+    "Region",
+    "Territory",
+    "Borough",
+    "Prefecture",
+    "Language",
+    "Species",
+  ])("recognizes %s as a ranked entity label", (entityHeader) => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Rank</th><th>${entityHeader}</th><th>Score</th></tr>
+        <tr><td>1</td><td>Alpha</td><td>30</td></tr>
+        <tr><td>2</td><td>Beta</td><td>20</td></tr>
+        <tr><td>3</td><td>Gamma</td><td>10</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series[0]).toMatchObject({
+      label: "Score",
+      xColumn: entityHeader.toLocaleLowerCase().replace(/\s+/g, "-"),
+      yColumn: "score",
+    });
+  });
+
+  it.each([
+    "Densest cities",
+    "Cities by population density",
+    "Most densely populated cities",
+  ])(
+    "uses %s wording to choose the primary ranking metric",
+    (contextTitle) => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Densest_cities">${contextTitle}</h2>
+        <table class="wikitable">
+          <caption>${contextTitle}</caption>
+          <tr><th>Rank</th><th>City</th><th>Population</th><th>Density (people/km²)</th></tr>
+          <tr><td>1</td><td>Alpha</td><td>500000</td><td>18000</td></tr>
+          <tr><td>2</td><td>Beta</td><td>900000</td><td>14000</td></tr>
+          <tr><td>3</td><td>Gamma</td><td>700000</td><td>11000</td></tr>
+          <tr><td>4</td><td>Delta</td><td>1200000</td><td>9000</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        {
+          index: "1",
+          line: contextTitle,
+          anchor: "Densest_cities",
+          level: "2",
+        },
+      ],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "Density (people/km²)",
+      "Population",
+    ]);
+    expect(chart.chart.series[0].unit).toBe("people/km²");
+    },
+  );
+
+  it("does not mistake source names or reference years for measurement units", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Country</th><th>GDP (IMF)</th><th>Population (2026)</th><th>Area (km²)</th></tr>
+        <tr><td>Alpha</td><td>100</td><td>10</td><td>4</td></tr>
+        <tr><td>Beta</td><td>200</td><td>30</td><td>7</td></tr>
+        <tr><td>Gamma</td><td>150</td><td>20</td><td>5</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(
+      Object.fromEntries(
+        chart.chart.series.map((series) => [series.label, series.unit]),
+      ),
+    ).toEqual({
+      "GDP (IMF)": undefined,
+      "Population (2026)": undefined,
+      "Area (km²)": "km²",
+    });
+  });
+
+  it("normalizes spaced area and density unit spellings", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>City</th><th>Land Area (mi 2 )</th><th>Density (/mi 2 )</th></tr>
+        <tr><td>Alpha</td><td>100</td><td>50</td></tr>
+        <tr><td>Beta</td><td>80</td><td>75</td></tr>
+        <tr><td>Gamma</td><td>60</td><td>100</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.unit)).toEqual([
+      "mi²",
+      "per mi²",
+    ]);
+  });
+
+  it.each([
+    {
+      sectionTitle: "Population in millions",
+      metric: "Population",
+      unit: "millions",
+    },
+    {
+      sectionTitle: "Decadal growth rate",
+      metric: "Growth",
+      unit: "%",
+    },
+    {
+      sectionTitle: "Life expectancy",
+      metric: "Life expectancy",
+      unit: "years",
+    },
+  ])(
+    "infers $unit for $sectionTitle without manufacturing a source year unit",
+    ({ sectionTitle, metric, unit }) => {
+      const source: MediaWikiParsedSource = {
+        ...richSource(),
+        html: `<h2 id="Metric">${sectionTitle}</h2>
+          <table class="wikitable">
+            <tr><th>Region</th><th>${metric}</th></tr>
+            <tr><td>Alpha</td><td>10</td></tr>
+            <tr><td>Beta</td><td>20</td></tr>
+            <tr><td>Gamma</td><td>15</td></tr>
+          </table>`,
+        wikitext: "",
+        sections: [
+          {
+            index: "1",
+            line: sectionTitle,
+            anchor: "Metric",
+            level: "2",
+          },
+        ],
+      };
+
+      const chart = extractArticleContextFromSource(source, request).blocks[0];
+      expect(chart?.kind).toBe("chart");
+      expect(chart?.kind === "chart" && chart.chart.series[0].unit).toBe(unit);
+    },
+  );
+
+  it("applies a decadal growth percentage to each period series", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <caption>Decadal growth rate by state</caption>
+        <tr><th>State</th><th>1991–01</th><th>2001–11</th></tr>
+        <tr><td>Alpha</td><td>12.5</td><td>10.1</td></tr>
+        <tr><td>Beta</td><td>8.2</td><td>7.4</td></tr>
+        <tr><td>Gamma</td><td>15.0</td><td>13.3</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    expect(
+      chart?.kind === "chart" &&
+        chart.chart.series.map((series) => series.unit),
+    ).toEqual(["%", "%"]);
+  });
+
+  it("uses only a nearby same-section paragraph as explicit table unit context", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Earlier">Earlier section</h2>
+        <p>These unrelated measurements are expressed in billions.</p>
+        <h2 id="Past_population">Past population</h2>
+        <p>The following table gives historical estimates, in millions.</p>
+        <table class="wikitable">
+          <tr><th>Year</th><th>Population</th></tr>
+          <tr><td>1800</td><td>1</td></tr>
+          <tr><td>1900</td><td>2</td></tr>
+          <tr><td>2000</td><td>6</td></tr>
+          <tr><td>2020</td><td>8</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        {
+          index: "1",
+          line: "Earlier section",
+          anchor: "Earlier",
+          level: "2",
+        },
+        {
+          index: "2",
+          line: "Past population",
+          anchor: "Past_population",
+          level: "2",
+        },
+      ],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    expect(chart?.kind === "chart" && chart.chart.series[0].unit).toBe(
+      "millions",
+    );
+  });
+
+  it("uses article table context to choose a non-ranking default metric", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Population_by_region">Population by region</h2>
+        <table class="wikitable">
+          <tr><th>Region</th><th>Land area</th><th>Population</th></tr>
+          <tr><td>Alpha</td><td>100</td><td>500</td></tr>
+          <tr><td>Beta</td><td>200</td><td>900</td></tr>
+          <tr><td>Gamma</td><td>150</td><td>700</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        {
+          index: "1",
+          line: "Population by region",
+          anchor: "Population_by_region",
+          level: "2",
+        },
+      ],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "Population",
+      "Land area",
+    ]);
+  });
+
+  it("chooses a later chronological column over a non-chronological first column", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Source</th><th>Year</th><th>Population</th></tr>
+        <tr><td>Official census</td><td>2000</td><td>100</td></tr>
+        <tr><td>Official census</td><td>2010</td><td>120</td></tr>
+        <tr><td>Official census</td><td>2020</td><td>150</td></tr>
+        <tr><td>Official census</td><td>2025</td><td>160</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series).toEqual([
+      expect.objectContaining({
+        label: "Population",
+        type: "line",
+        xColumn: "year",
+        yColumn: "population",
+      }),
+    ]);
+  });
+
+  it("accepts comma-formatted BCE years as a chronological table axis", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Year</th><th>Estimated population</th></tr>
+        <tr><td>10,000 BC</td><td>4</td></tr>
+        <tr><td>8,000 BC</td><td>5</td></tr>
+        <tr><td>6,000 BC</td><td>7</td></tr>
+        <tr><td>4,000 BC</td><td>10</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series[0]).toMatchObject({
+      type: "line",
+      xColumn: "year",
+      yColumn: "estimated-population",
+    });
+  });
+
+  it("does not mistake a duration metric for a chronological x column", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Country</th><th>Years of schooling</th><th>Population</th></tr>
+        <tr><td>Alpha</td><td>11</td><td>100</td></tr>
+        <tr><td>Beta</td><td>12</td><td>200</td></tr>
+        <tr><td>Gamma</td><td>13</td><td>150</td></tr>
+        <tr><td>Delta</td><td>14</td><td>250</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series).toEqual([
+      expect.objectContaining({
+        label: "Years of schooling",
+        type: "bar",
+        xColumn: "country",
+      }),
+      expect.objectContaining({
+        label: "Population",
+        type: "bar",
+        xColumn: "country",
+      }),
+    ]);
+  });
+
+  it("does not interpret month-and-day schedule labels as ancient month-and-year dates", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Matchday</th><th>Pairings</th><th>Groups</th><th>Date</th></tr>
+        <tr><td>1</td><td>1 v 2</td><td>A</td><td>June 11</td></tr>
+        <tr><td>1</td><td>3 v 4</td><td>B</td><td>June 12</td></tr>
+        <tr><td>2</td><td>1 v 3</td><td>A</td><td>June 13</td></tr>
+        <tr><td>2</td><td>2 v 4</td><td>B</td><td>June 14</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+  });
+
+  it.each(["Area", "Area/colony", "Area/Province", "Groups"])(
+    "does not connect changing %s categories into one chronological line",
+    (categoryHeader) => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Year</th><th>${categoryHeader}</th><th>Population</th></tr>
+        <tr><td>1800</td><td>Upper Canada</td><td>100</td></tr>
+        <tr><td>1810</td><td>Lower Canada</td><td>150</td></tr>
+        <tr><td>1820</td><td>New Brunswick</td><td>125</td></tr>
+        <tr><td>1830</td><td>Nova Scotia</td><td>175</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+    },
+  );
+
+  it("prefers the latest dated series when a wide table exceeds the series cap", () => {
+    const years = Array.from({ length: 11 }, (_, index) => 2010 + index);
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>State</th>${years.map((year) => `<th>${year}</th>`).join("")}</tr>
+        ${["Alpha", "Beta", "Gamma"]
+          .map(
+            (state, stateIndex) =>
+              `<tr><td>${state}</td>${years
+                .map((year) => `<td>${year - 1900 + stateIndex * 10}</td>`)
+                .join("")}</tr>`,
+          )
+          .join("")}
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "2020",
+      "2019",
+      "2018",
+      "2017",
+      "2016",
+      "2015",
+      "2014",
+      "2013",
+    ]);
+  });
+
+  it("keeps source order within series that share the same reference year", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Group</th><th>Pop 2010</th><th>% 2010</th><th>Pop 2020</th><th>% 2020</th></tr>
+        <tr><td>Alpha</td><td>100</td><td>10%</td><td>120</td><td>12%</td></tr>
+        <tr><td>Beta</td><td>200</td><td>20%</td><td>230</td><td>23%</td></tr>
+        <tr><td>Gamma</td><td>300</td><td>30%</td><td>350</td><td>35%</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "Pop 2020",
+      "% 2020",
+      "Pop 2010",
+      "% 2010",
+    ]);
+  });
+
+  it("uses bars for an underpowered three-date comparison", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Year</th><th>Population</th><th>Households</th><th>Median age</th></tr>
+        <tr><td>2000</td><td>100</td><td>40</td><td>30</td></tr>
+        <tr><td>2010</td><td>120</td><td>50</td><td>32</td></tr>
+        <tr><td>2020</td><td>150</td><td>65</td><td>35</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.type)).toEqual([
+      "bar",
+      "bar",
+      "bar",
+    ]);
+  });
+
+  it("rejects numeric table metrics without a source-supplied label", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>City</th><th></th></tr>
+        <tr><td>Alpha</td><td>100</td></tr>
+        <tr><td>Beta</td><td>120</td></tr>
+        <tr><td>Gamma</td><td>150</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+  });
+
+  it("normalizes grouped standings into one comprehensible ranked series", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Tournament_ranking">Tournament ranking</h2>
+        <table class="wikitable">
+          <tr>
+            <th><abbr title="Position">Pos</abbr></th>
+            <th>Team</th>
+            <th><abbr title="Played">Pld</abbr></th>
+            <th><abbr title="Won">W</abbr></th>
+            <th><abbr title="Points">Pts</abbr></th>
+            <th>Final result</th>
+          </tr>
+          <tr><td>1</td><th scope="row">&nbsp;</th><td>0</td><td>0</td><td>0</td><td rowspan="1">Champion</td></tr>
+          <tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          <tr><td>2</td><th scope="row">Alpha</th><td>4</td><td>3</td><td>9</td><td rowspan="2">Qualified</td></tr>
+          <tr><td>3</td><th scope="row">Beta</th><td>4</td><td>2</td><td>6</td></tr>
+          <tr><td>4</td><th scope="row">Gamma</th><td>4</td><td>1</td><td>3</td><td rowspan="2">Eliminated</td></tr>
+          <tr><td>5</td><th scope="row">Delta</th><td>4</td><td>0</td><td>1</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        {
+          index: "1",
+          line: "Tournament ranking",
+          anchor: "Tournament_ranking",
+          level: "2",
+        },
+      ],
+    };
+
+    const manifest = extractArticleContextFromSource(source, request);
+    const chart = manifest.blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+
+    expect(chart.chart.columns.map((column) => column.label)).toEqual([
+      "Position",
+      "Team",
+      "Played",
+      "Won",
+      "Points",
+      "Final result",
+    ]);
+    expect(chart.chart.rows).toHaveLength(4);
+    expect(chart.chart.rows.map((row) => row.team)).toEqual([
+      "Alpha",
+      "Beta",
+      "Gamma",
+      "Delta",
+    ]);
+    expect(chart.chart.rows[1]["final-result"]).toBe("Qualified");
+    expect(chart.chart.rows[3]["final-result"]).toBe("Eliminated");
+    expect(chart.chart.series).toEqual([
+      expect.objectContaining({
+        label: "Points",
+        type: "bar",
+        xColumn: "team",
+        yColumn: "points",
+      }),
+      expect.objectContaining({
+        label: "Won",
+        type: "bar",
+        xColumn: "team",
+        yColumn: "won",
+      }),
+    ]);
+    expect(chart.caption).toBe(
+      "Points is listed for 4 ranked entries; the lowest is 1 for Delta, and the highest is 9 for Alpha.",
+    );
+  });
+
+  it("rejects unnamed or malformed standings rather than charting a surviving fragment", () => {
+    const placeholderSource: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Position</th><th>Team</th><th>Points</th></tr>
+        <tr><td>1</td><td>&nbsp;</td><td>0</td></tr>
+        <tr><td>2</td><td>TBD</td><td>0</td></tr>
+        <tr><td>3</td><td>—</td><td>0</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+    expect(extractArticleContextFromSource(placeholderSource, request).blocks).toEqual([]);
+
+    const malformedSource: MediaWikiParsedSource = {
+      ...placeholderSource,
+      html: `<table class="wikitable">
+        <tr><th>Position</th><th>Team</th><th>Points</th><th>Result</th></tr>
+        <tr><td>1</td><td>Alpha</td><td>9</td><td rowspan="3">Qualified</td></tr>
+        <tr><td>2</td><td>Beta</td><td>6</td></tr>
+      </table>`,
+    };
+    expect(extractArticleContextFromSource(malformedSource, request).blocks).toEqual([]);
+  });
+
+  it("does not let an individual scoring table suppress team group standings", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Group_A">Group A</h2>
+        <table class="wikitable">
+          <tr><th>Position</th><th>Team</th><th>Points</th></tr>
+          <tr><td>1</td><td>Alpha</td><td>9</td></tr>
+          <tr><td>2</td><td>Beta</td><td>6</td></tr>
+          <tr><td>3</td><td>Gamma</td><td>3</td></tr>
+          <tr><td>4</td><td>Delta</td><td>0</td></tr>
+        </table>
+        <h2 id="Golden_Boot">Golden Boot</h2>
+        <table class="wikitable">
+          <tr><th>Rank</th><th>Player</th><th>Goals</th><th>Assists</th><th>Minutes played</th></tr>
+          ${Array.from(
+            { length: 10 },
+            (_, index) =>
+              `<tr><td>${index + 1}</td><td>Player ${index + 1}</td><td>${10 - index}</td><td>${Math.max(0, 5 - Math.floor(index / 2))}</td><td>${300 + index * 37}</td></tr>`,
+          ).join("")}
+        </table>`,
+      wikitext: "",
+      sections: [
+        { index: "1", line: "Group A", anchor: "Group_A", level: "2" },
+        {
+          index: "2",
+          line: "Golden Boot",
+          anchor: "Golden_Boot",
+          level: "2",
+        },
+      ],
+    };
+
+    const charts = extractArticleContextFromSource(source, request).blocks.filter(
+      (block) => block.kind === "chart",
+    );
+    expect(charts.map((block) => block.section.title)).toEqual([
+      "Group A",
+      "Golden Boot",
+    ]);
+    const goldenBoot = charts.find((block) => block.section.title === "Golden Boot");
+    expect(
+      goldenBoot?.kind === "chart"
+        ? goldenBoot.chart.series.map((series) => series.label)
+        : [],
+    ).toEqual(["Goals", "Assists"]);
+  });
+
+  it("prioritizes four useful league metrics for optional ranking comparisons", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Standings">Standings</h2>
+        <table class="wikitable">
+          <tr><th>Position</th><th>Team</th><th>Played</th><th>Won</th><th>Drawn</th><th>Lost</th><th>Goals for</th><th>Goals against</th><th>Goal difference</th><th>Points</th></tr>
+          <tr><td>1</td><td>Alpha</td><td>6</td><td>5</td><td>1</td><td>0</td><td>15</td><td>3</td><td>12</td><td>16</td></tr>
+          <tr><td>2</td><td>Beta</td><td>6</td><td>4</td><td>1</td><td>1</td><td>12</td><td>5</td><td>7</td><td>13</td></tr>
+          <tr><td>3</td><td>Gamma</td><td>6</td><td>3</td><td>1</td><td>2</td><td>9</td><td>7</td><td>2</td><td>10</td></tr>
+          <tr><td>4</td><td>Delta</td><td>6</td><td>2</td><td>1</td><td>3</td><td>7</td><td>10</td><td>-3</td><td>7</td></tr>
+          <tr><td>5</td><td>Epsilon</td><td>6</td><td>1</td><td>1</td><td>4</td><td>5</td><td>12</td><td>-7</td><td>4</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        { index: "1", line: "Standings", anchor: "Standings", level: "2" },
+      ],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "Points",
+      "Goal difference",
+      "Won",
+      "Goals for",
+    ]);
+  });
+
+  it("treats serial numbers as identifiers instead of ranking semantics", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Cities">Cities</h2>
+        <table class="wikitable">
+          <tr><th>No.</th><th>Name</th><th>Population</th></tr>
+          <tr><td>1</td><td>Alpha</td><td>100</td></tr>
+          <tr><td>2</td><td>Beta</td><td>250</td></tr>
+          <tr><td>3</td><td>Gamma</td><td>175</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [{ index: "1", line: "Cities", anchor: "Cities", level: "2" }],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series).toEqual([
+      expect.objectContaining({
+        label: "Population",
+        xColumn: "name",
+        yColumn: "population",
+      }),
+    ]);
+    expect(chart.caption).toContain("at Beta");
+    expect(chart.caption).not.toContain("ranked entries");
+  });
+
+  it("keeps a constant benchmark beside a changing comparison series", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Performance">Performance</h2>
+        <table class="wikitable">
+          <tr><th>Year</th><th>Actual</th><th>Target</th></tr>
+          <tr><td>2023</td><td>80</td><td>100</td></tr>
+          <tr><td>2024</td><td>95</td><td>100</td></tr>
+          <tr><td>2025</td><td>110</td><td>100</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        {
+          index: "1",
+          line: "Performance",
+          anchor: "Performance",
+          level: "2",
+        },
+      ],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "Actual",
+      "Target",
+    ]);
   });
 
   it("uses the latest event end when a timeline range outlasts later starts", () => {
@@ -778,6 +1548,9 @@ describe("article context dates and sanitization", () => {
     expect(parseContextDateRange("218 to 201 BC")).toMatchObject({
       start: { sortKey: -2180000 },
       end: { sortKey: -2010000 },
+    });
+    expect(parseContextDateRange("10,000 BC")).toMatchObject({
+      start: { display: "10,000 BC", sortKey: -100000000 },
     });
     expect(
       parseContextDateRange("05/06/2024", { numericFormat: "dmy" }),

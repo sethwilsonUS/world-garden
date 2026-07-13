@@ -84,6 +84,7 @@ import {
   analyzeAdaptiveImage,
   type AdaptiveImageAnalysis,
 } from "@/lib/adaptive-image";
+import { getVisibleArticleContextBlocks } from "@/lib/article-context-visibility";
 
 type ArticleData = Article & {
   _id?: string;
@@ -319,8 +320,19 @@ const ArticleViewContent = ({
   );
   const contextBlocks =
     articleContext.status === "ready"
-      ? articleContext.manifest.blocks
+      ? getVisibleArticleContextBlocks(
+          articleContext.manifest.blocks,
+          displayArticle?.thumbnailUrl,
+        )
       : EMPTY_CONTEXT_BLOCKS;
+  const visibleArticleContext =
+    articleContext.status === "ready" &&
+    contextBlocks !== articleContext.manifest.blocks
+      ? {
+          ...articleContext,
+          manifest: { ...articleContext.manifest, blocks: contextBlocks },
+        }
+      : articleContext;
 
   const activeSectionIndex = audioPlayback.sectionIdx;
   const isPaused = audioPlayback.status === "paused";
@@ -1817,7 +1829,7 @@ const ArticleViewContent = ({
 
       {/* 4. Accessible contextual maps, timelines, data, and diagrams */}
       <ArticleContextLane
-        state={articleContext}
+        state={visibleArticleContext}
         retry={articleContext.retry}
       />
 

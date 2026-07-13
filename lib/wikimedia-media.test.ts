@@ -3,6 +3,7 @@ import {
   fetchWikimediaMediaDetails,
   fetchWikimediaMediaAttributions,
   getWikimediaFileTitleFromUrl,
+  getWikimediaMediaIdentity,
   getWikimediaMediaRepositoryFromUrl,
   WIKIMEDIA_MEDIA_TIMEOUT_MS,
 } from "./wikimedia-media";
@@ -36,6 +37,25 @@ describe("Wikimedia media attribution", () => {
         "https://upload.wikimedia.org/wikipedia/en/a/ab/Poster.jpg",
       ),
     ).toBe("enwiki");
+  });
+
+  it("builds repository-aware identities across Wikimedia renditions", () => {
+    const commonsThumbnail =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.svg/500px-Example.svg.png";
+    const commonsOriginal =
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.svg";
+    const enwikiThumbnail =
+      "https://upload.wikimedia.org/wikipedia/en/thumb/a/ab/Example.svg/500px-Example.svg.png";
+
+    expect(getWikimediaMediaIdentity(commonsThumbnail)).toBe(
+      getWikimediaMediaIdentity(commonsOriginal),
+    );
+    expect(getWikimediaMediaIdentity(commonsThumbnail)).toBe(
+      "commons:file:Example.svg",
+    );
+    expect(getWikimediaMediaIdentity(enwikiThumbnail)).toBe(
+      "enwiki:file:Example.svg",
+    );
   });
 
   it("normalizes imageinfo metadata and keeps a source fallback", async () => {

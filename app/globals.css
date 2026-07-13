@@ -634,6 +634,7 @@ body {
 
 .context-lane {
   position: relative;
+  min-width: 0;
   margin-bottom: 1.5rem;
   scroll-margin-top: 72px;
 }
@@ -716,6 +717,7 @@ body {
 
 .context-card-list {
   display: grid;
+  min-width: 0;
   gap: 0;
 }
 
@@ -723,6 +725,7 @@ body {
   --context-kind-color: var(--color-accent);
 
   position: relative;
+  min-width: 0;
   scroll-margin-top: 72px;
   padding: 28px 0 30px;
   border-top: 1px solid var(--color-border);
@@ -791,6 +794,7 @@ body {
 }
 
 .context-kind-view {
+  min-width: 0;
   padding: 0 0 18px;
 }
 
@@ -892,6 +896,87 @@ body {
   color: var(--color-muted);
   font-family: var(--font-mono);
   font-size: 0.625rem;
+}
+
+.context-data-disclosure {
+  width: 100%;
+  min-width: 0;
+  margin-top: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface-2) 70%, transparent);
+}
+
+.context-data-disclosure > summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  color: var(--color-foreground);
+  cursor: pointer;
+  list-style: none;
+}
+
+.context-data-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.context-data-disclosure > summary:hover {
+  background: color-mix(in srgb, var(--color-surface-3) 55%, transparent);
+}
+
+.context-data-disclosure > summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.context-data-disclosure[open] > summary {
+  border-bottom: 1px solid var(--color-border);
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: color-mix(in srgb, var(--color-accent-bg) 55%, transparent);
+}
+
+.context-data-disclosure-label {
+  flex: 1 1 12rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.context-data-disclosure-meta {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.context-data-disclosure-chevron {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-accent);
+}
+
+.context-data-disclosure-chevron svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 160ms ease;
+}
+
+.context-data-disclosure[open] .context-data-disclosure-chevron svg {
+  transform: rotate(180deg);
+}
+
+.context-data-disclosure-content {
+  min-width: 0;
+  padding: 0 12px 14px;
 }
 
 .context-map-prompt {
@@ -1226,6 +1311,240 @@ body {
   accent-color: var(--color-accent);
 }
 
+.context-ranking-overview {
+  min-width: 0;
+}
+
+.context-ranking-controls {
+  margin-bottom: 6px;
+}
+
+.context-ranking-controls label:has(input:disabled),
+.context-standard-chart-controls label:has(input:disabled) {
+  color: var(--color-muted);
+}
+
+.context-ranking-control-help,
+.context-ranking-selection-status,
+.context-ranking-summary,
+.context-standard-chart-control-help,
+.context-standard-chart-selection-status,
+.context-standard-chart-summary {
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  line-height: 1.55;
+}
+
+.context-ranking-control-help {
+  margin: 0 0 4px;
+}
+
+.context-ranking-selection-status {
+  margin: 0 0 14px;
+}
+
+.context-standard-chart-controls {
+  margin-bottom: 6px;
+}
+
+.context-standard-chart-control-help {
+  margin: 0 0 4px;
+}
+
+.context-standard-chart-selection-status {
+  margin: 0 0 14px;
+}
+
+.context-standard-chart-panels {
+  display: grid;
+  min-width: 0;
+  gap: 24px;
+}
+
+.context-standard-chart-panel {
+  min-width: 0;
+}
+
+.context-standard-chart-panel h4 {
+  margin: 0 0 7px;
+  color: var(--color-foreground);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.context-standard-chart-summary {
+  margin: 9px 0 0;
+}
+
+.context-standard-chart-omission {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface-2) 70%, transparent);
+  color: var(--color-foreground-2);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.context-ranking-panels {
+  display: grid;
+  min-width: 0;
+  gap: 24px;
+}
+
+.context-ranking-panel {
+  min-width: 0;
+}
+
+.context-ranking-panel h4 {
+  margin: 0 0 7px;
+  color: var(--color-foreground);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.context-ranking-panel h4 span {
+  color: var(--color-muted);
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.context-ranked-bars {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.context-ranked-bars li {
+  display: grid;
+  min-width: 0;
+  min-height: 52px;
+  grid-template-columns: minmax(180px, 0.85fr) minmax(0, 1.35fr);
+  gap: 14px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.context-ranked-bars li:last-child {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.context-ranked-bar-identity {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.context-ranking-position {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-ranking-entry {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.context-ranking-entry strong {
+  overflow-wrap: anywhere;
+  color: var(--color-foreground);
+  font-size: 0.8125rem;
+}
+
+.context-ranking-entry > span {
+  color: var(--color-muted);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+}
+
+.context-ranked-bar-measure {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(96px, 1fr) minmax(46px, max-content);
+  gap: 10px;
+  align-items: center;
+}
+
+.context-ranked-bar-track {
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: 18px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-surface-3) 70%, transparent);
+}
+
+.context-ranked-bar-zero-line,
+.context-ranked-bar-zero-value,
+.context-ranked-bar-fill {
+  position: absolute;
+}
+
+.context-ranked-bar-zero-line {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-foreground-2) 65%, transparent);
+}
+
+.context-ranked-bar-fill {
+  top: 2px;
+  bottom: 2px;
+  min-width: 2px;
+  border: 1px solid color-mix(in srgb, var(--context-ranking-color) 75%, var(--color-foreground));
+  border-radius: 3px;
+  background: var(--context-ranking-color);
+}
+
+.context-ranked-bar-fill-negative {
+  top: 1px;
+  bottom: 1px;
+  border: 2px dashed var(--context-ranking-color);
+  background: transparent;
+}
+
+.context-ranked-bar-zero-value {
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--color-surface);
+  border-radius: 999px;
+  background: var(--context-ranking-color);
+}
+
+.context-ranking-measure {
+  min-width: 0;
+  justify-self: end;
+  color: var(--color-foreground-2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.context-ranking-measure strong {
+  color: var(--color-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.context-ranking-summary {
+  margin: 8px 0 0;
+}
+
 .context-chart-axis {
   stroke: var(--color-foreground-2);
   stroke-width: 1.5;
@@ -1254,6 +1573,8 @@ body {
 }
 
 .context-table-wrap {
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   margin-top: 12px;
   overflow: auto;
@@ -1456,6 +1777,21 @@ body {
 }
 
 @media (max-width: 520px) {
+  .context-ranked-bars li {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    padding: 9px 0;
+  }
+
+  .context-ranked-bar-measure {
+    grid-template-columns: minmax(72px, 1fr) minmax(42px, max-content);
+  }
+
+  .context-ranking-measure {
+    font-size: 0.6875rem;
+  }
+
   .context-timeline-list::before {
     left: 4px;
   }
@@ -1497,6 +1833,9 @@ body {
   .context-map-prompt,
   .context-map-canvas,
   .context-echarts,
+  .context-ranked-bar-track,
+  .context-data-disclosure,
+  .context-data-disclosure-chevron,
   .context-table-wrap,
   .context-diagram-scroll {
     border: 1px solid CanvasText;
@@ -1510,6 +1849,21 @@ body {
 
   .context-section-link {
     border: 1px solid ButtonText;
+  }
+
+  .context-ranked-bar-fill,
+  .context-ranked-bar-zero-value {
+    border-color: CanvasText;
+    background: Highlight;
+  }
+
+  .context-ranked-bar-fill-negative {
+    border: 2px dashed CanvasText;
+    background: Canvas;
+  }
+
+  .context-ranked-bar-zero-line {
+    background: CanvasText;
   }
 }
 
