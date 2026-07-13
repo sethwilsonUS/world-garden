@@ -7,6 +7,7 @@ import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
+import { formatUtcCalendarDate } from "@/lib/date-only";
 import { HOMEPAGE_PREVIEW_LIMITS } from "@/lib/homepage-articles";
 import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 import { MediaAttribution } from "./MediaAttribution";
@@ -144,42 +145,6 @@ function formatFeaturedDate(isoDate: string | null | undefined): string {
   }
 }
 
-function formatFeedDate(isoDate: string | null | undefined): string {
-  if (!isoDate) return "";
-  try {
-    const d = new Date(`${isoDate}T12:00:00Z`);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-  } catch {
-    return "";
-  }
-}
-
-function formatTrendingDate(isoDate: string | null | undefined): string {
-  if (!isoDate) return "";
-  try {
-    const normalized =
-      /^\d{4}-\d{2}-\d{2}Z?$/.test(isoDate) && !isoDate.includes("T")
-        ? `${isoDate.slice(0, 10)}T12:00:00Z`
-        : isoDate;
-    const d = new Date(normalized);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-  } catch {
-    return "";
-  }
-}
-
 const formatViews = (views: number): string => {
   if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)} million`;
   if (views >= 1_000) return `${Math.round(views / 1_000)} thousand`;
@@ -238,7 +203,8 @@ const FeaturedArticleCard = ({
 
   const slug = toArticleSlug(article.title);
   const dateLabel =
-    formatFeaturedDate(article.featuredDate) || formatFeedDate(article.feedDate ?? feedDate);
+    formatFeaturedDate(article.featuredDate) ||
+    formatUtcCalendarDate(article.feedDate ?? feedDate);
 
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
@@ -427,7 +393,7 @@ const SnapshotCallout = ({
 }) => {
   if (!snapshotIsStale || !snapshotFeedDate) return null;
 
-  const dateLabel = formatFeedDate(snapshotFeedDate);
+  const dateLabel = formatUtcCalendarDate(snapshotFeedDate);
   if (!dateLabel) return null;
 
   return (
@@ -551,7 +517,7 @@ const TrendingArticles = ({
 }) => {
   if (articles.length === 0 && !brief) return null;
 
-  const dateLabel = formatTrendingDate(trendingDate);
+  const dateLabel = formatUtcCalendarDate(trendingDate);
 
   return (
     <section aria-labelledby="today-trending-heading" className="lg:col-span-2">

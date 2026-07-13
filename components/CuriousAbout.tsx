@@ -4,29 +4,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
+import { formatUtcCalendarDate } from "@/lib/date-only";
 
 const MAX_ARTICLES = 8;
-
-function formatTrendingDate(isoDate: string | null): string {
-  if (!isoDate) return "";
-  try {
-    // Wikipedia returns "YYYY-MM-DDZ"; Safari needs "YYYY-MM-DDTHH:MM:SSZ"
-    const normalized =
-      /^\d{4}-\d{2}-\d{2}Z$/.test(isoDate) && !isoDate.includes("T")
-        ? `${isoDate.slice(0, 10)}T00:00:00Z`
-        : isoDate;
-    const d = new Date(normalized);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-  } catch {
-    return "";
-  }
-}
 
 export const CuriousAbout = () => {
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
@@ -130,7 +110,7 @@ export const CuriousAbout = () => {
       </h2>
       {trendingDate && (
         <p className="text-muted text-xs text-center mb-4" aria-live="polite">
-          Last updated: {formatTrendingDate(trendingDate)}
+          Last updated: {formatUtcCalendarDate(trendingDate)}
         </p>
       )}
       {brief ? (

@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { analytics } from "@/lib/analytics";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
+import { formatUtcCalendarDate } from "@/lib/date-only";
 
 type FeaturedData = {
   title: string;
@@ -25,22 +26,6 @@ function formatFeaturedDate(isoDate: string | null | undefined): string {
       year: "numeric",
       hour: "numeric",
       minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
-
-function formatFeedDate(isoDate: string | null | undefined): string {
-  if (!isoDate) return "";
-  try {
-    const d = new Date(isoDate + "T12:00:00Z");
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: "UTC",
     });
   } catch {
     return "";
@@ -108,7 +93,7 @@ export const FeaturedArticle = () => {
         <p className="text-muted text-xs text-center mb-3" aria-live="polite">
           Last updated:{" "}
           {formatFeaturedDate(featured!.featuredDate) ||
-            formatFeedDate(featured!.feedDate)}
+            formatUtcCalendarDate(featured!.feedDate)}
         </p>
       )}
       <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
