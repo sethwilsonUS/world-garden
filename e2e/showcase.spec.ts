@@ -1,10 +1,17 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const tinyPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+
+const featuredRailImageUrl =
+  "https://upload.wikimedia.org/featured-building.jpg";
+const didYouKnowImageUrl =
+  "https://upload.wikimedia.org/did-you-know-tortilla.jpg";
+const trendingPortraitImageUrl = (index: number) =>
+  `https://upload.wikimedia.org/trending-portrait-${index + 1}.jpg`;
 
 const expectNoSeriousAxeViolations = async (page: Page) => {
   await page.addStyleTag({
@@ -18,18 +25,32 @@ const expectNoSeriousAxeViolations = async (page: Page) => {
   expect(serious).toEqual([]);
 };
 
+const expectVisibleFocusOutline = async (locator: Locator) => {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return (
+          style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
+        );
+      }),
+    )
+    .toBe(true);
+};
+
 const todayFixture = {
   feedDate: "2026-07-10",
   // Wikimedia's featured feed uses this legacy date-only shape. Keep the
   // fixture exact so the browser test exercises our normalization path.
   trendingDate: "2026-07-12Z",
   tfa: {
-    title: "Ada Lovelace",
-    extract: "Ada Lovelace wrote about Charles Babbage's Analytical Engine.",
+    title: "Manufacturers Trust Company Building",
+    extract:
+      "The Manufacturers Trust Company Building is a commercial building in Midtown Manhattan. Its longer featured summary deliberately makes the image rail tall, matching the shape that exposed the letterboxing regression.",
     thumbnail: {
-      source: "https://upload.wikimedia.org/ada.jpg",
-      width: 640,
-      height: 480,
+      source: featuredRailImageUrl,
+      width: 960,
+      height: 672,
       attribution: {
         creator: "Alfred Edward Chalon",
         licenseName: "Public domain",
@@ -40,7 +61,20 @@ const todayFixture = {
   },
   didYouKnow: Array.from({ length: 4 }, (_, index) => ({
     text: `... that accessible fact ${index + 1} invites another question?`,
-    links: [],
+    links:
+      index === 0
+        ? [
+            {
+              title: "Tortilla",
+              slug: "Tortilla",
+              thumbnail: {
+                source: didYouKnowImageUrl,
+                width: 960,
+                height: 540,
+              },
+            },
+          ]
+        : [],
     segments: [
       { type: "text", text: `... that accessible fact ${index + 1} invites another question?` },
     ],
@@ -56,6 +90,11 @@ const todayFixture = {
     title: `Trending topic ${index + 1}`,
     extract: "A concise explanation of the topic.",
     views: 1000 - index,
+    thumbnail: {
+      source: trendingPortraitImageUrl(index),
+      width: 330,
+      height: 495,
+    },
   })),
 };
 
@@ -71,35 +110,102 @@ const mockHomeData = async (page: Page) => {
   );
 };
 
-const mockArticleData = async (page: Page) => {
-  await page.route("https://upload.wikimedia.org/**", (route) =>
-    route.fulfill({ contentType: "image/png", body: tinyPng }),
-  );
+const expectPhotoFirstFrame = async (
+  page: Page,
+  source: string,
+  options: { portrait?: boolean } = {},
+) => {
+  const frame = page.locator("[data-adaptive-image-frame]").filter({
+    has: page.locator(`img[src="${source}"]`),
+  });
 
-  await page.route("https://commons.wikimedia.org/w/api.php**", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        query: {
-          pages: {
-            "1": {
-              title: "File:Ada portrait.jpg",
-              imageinfo: [
-                {
-                  descriptionurl:
-                    "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
-                  extmetadata: {
-                    Artist: { value: "Alfred Edward Chalon" },
-                    LicenseShortName: { value: "Public domain" },
-                  },
+  await expect(frame).toHaveCount(1);
+  await expect(frame).toHaveAttribute("data-adaptive-image-mode", "cover");
+  await expect(frame.locator("img")).toHaveCount(1);
+  await expect(frame.locator("img")).toHaveCSS("object-fit", "cover");
+  if (options.portrait) {
+    await expect(frame.locator("img")).toHaveCSS("object-position", "50% 30%");
+  }
+};
+
+const analyticalThumbnailUrl =
+  "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Analytical_Engine.jpg/330px-Analytical_Engine.jpg";
+const analyticalLightboxUrl =
+  "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Analytical_Engine.jpg/1600px-Analytical_Engine.jpg";
+
+const mockArticleData = async (
+  page: Page,
+  options: {
+    failAnalyticalLightbox?: boolean;
+    failAnalyticalThumbnail?: boolean;
+  } = {},
+) => {
+  const lightboxRequests: string[] = [];
+
+  await page.route("https://upload.wikimedia.org/**", (route) => {
+    const requestUrl = route.request().url();
+    if (requestUrl.includes("/1600px-")) lightboxRequests.push(requestUrl);
+    if (
+      (options.failAnalyticalLightbox &&
+        requestUrl === analyticalLightboxUrl) ||
+      (options.failAnalyticalThumbnail &&
+        requestUrl === analyticalThumbnailUrl)
+    ) {
+      return route.fulfill({
+        status: 404,
+        contentType: "text/plain",
+        body: "Missing test rendition",
+      });
+    }
+    return route.fulfill({ contentType: "image/png", body: tinyPng });
+  });
+
+  await page.route("https://commons.wikimedia.org/w/api.php**", (route) => {
+    const url = new URL(route.request().url());
+    const titles = (url.searchParams.get("titles") ?? "File:Ada portrait.jpg")
+      .split("|")
+      .filter(Boolean);
+    const pages = Object.fromEntries(
+      titles.map((title, index) => {
+        const analytical = title.includes("Analytical Engine");
+        const filename = analytical ? "Analytical_Engine.jpg" : "Ada_portrait.jpg";
+        const directory = analytical ? "c/cf" : "a/ab";
+        const creator = analytical ? "Science Museum" : "Alfred Edward Chalon";
+        const originalWidth = 2400;
+        const originalHeight = analytical ? 1600 : 3200;
+        const thumbHeight = analytical ? 1067 : 2133;
+
+        return [
+          String(index + 1),
+          {
+            title,
+            imagerepository: "shared",
+            imageinfo: [
+              {
+                descriptionurl: `https://commons.wikimedia.org/wiki/File:${filename}`,
+                url: `https://upload.wikimedia.org/wikipedia/commons/${directory}/${filename}`,
+                width: originalWidth,
+                height: originalHeight,
+                thumburl: `https://upload.wikimedia.org/wikipedia/commons/thumb/${directory}/${filename}/1600px-${filename}`,
+                thumbwidth: 1600,
+                thumbheight: thumbHeight,
+                mime: "image/jpeg",
+                extmetadata: {
+                  Artist: { value: creator },
+                  LicenseShortName: { value: "Public domain" },
                 },
-              ],
-            },
+              },
+            ],
           },
-        },
+        ];
       }),
-    }),
-  );
+    );
+
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ query: { pages } }),
+    });
+  });
 
   await page.route("https://en.wikipedia.org/w/api.php**", async (route) => {
     const url = new URL(route.request().url());
@@ -136,7 +242,10 @@ const mockArticleData = async (page: Page) => {
         body: JSON.stringify({
           parse: {
             text: {
-              "*": '<figure typeof="mw:File/Thumb"><a href="/wiki/File:Ada_portrait.jpg"><img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/330px-Ada_portrait.jpg" width="330" height="440" alt="Portrait of Ada Lovelace"></a><figcaption>Portrait of Ada Lovelace</figcaption></figure>',
+              "*": [
+                '<figure typeof="mw:File/Thumb"><a href="/wiki/File:Ada_portrait.jpg"><img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/330px-Ada_portrait.jpg" width="330" height="440" alt="Portrait of Ada Lovelace"></a><figcaption>Portrait of Ada Lovelace</figcaption></figure>',
+                `<figure typeof="mw:File/Thumb"><a href="/wiki/File:Analytical_Engine.jpg"><img src="${analyticalThumbnailUrl}" width="330" height="220" alt="Analytical Engine mechanisms"></a><figcaption>Analytical Engine at the Science Museum</figcaption></figure>`,
+              ].join(""),
             },
             sections: [],
           },
@@ -175,6 +284,8 @@ const mockArticleData = async (page: Page) => {
       }),
     });
   });
+
+  return { lightboxRequests };
 };
 
 test("home presents the product and expands the curated daily preview", async ({ page }) => {
@@ -190,6 +301,45 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(page.getByText("accessible fact 4", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Show fewer facts" })).toBeFocused();
   await expectNoSeriousAxeViolations(page);
+});
+
+test("ordinary editorial photos fill their frames without blurred bars", async ({
+  page,
+}) => {
+  await page.addInitScript(() => window.localStorage.setItem("theme", "dark"));
+  await mockHomeData(page);
+  await page.goto("/");
+
+  // Clicking a client-side control ensures the assertions run after hydration.
+  await page.getByRole("button", { name: "Show all 4 facts" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+
+  const homepageImages = [
+    { source: featuredRailImageUrl },
+    { source: didYouKnowImageUrl },
+    { source: trendingPortraitImageUrl(0), portrait: true },
+  ];
+  for (const image of homepageImages) {
+    await expectPhotoFirstFrame(page, image.source, {
+      portrait: image.portrait,
+    });
+  }
+
+  await page.getByRole("button", { name: "Switch to light theme" }).click();
+  await expect(page.locator("html")).toHaveClass(/light/);
+  for (const image of homepageImages) {
+    await expectPhotoFirstFrame(page, image.source, {
+      portrait: image.portrait,
+    });
+  }
+
+  await page.goto("/trending");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Trending today" }),
+  ).toBeVisible();
+  await expectPhotoFirstFrame(page, trendingPortraitImageUrl(0), {
+    portrait: true,
+  });
 });
 
 test.describe("date-only labels stay on the Wikimedia calendar date", () => {
@@ -225,7 +375,7 @@ test.describe("date-only labels stay on the Wikimedia calendar date", () => {
 });
 
 test("article exposes revision and media provenance in an accessible lightbox", async ({ page }) => {
-  await mockArticleData(page);
+  const { lightboxRequests } = await mockArticleData(page);
   await page.goto("/article/Ada_Lovelace");
 
   await expect(page.getByRole("heading", { level: 1, name: "Ada Lovelace" })).toBeVisible();
@@ -236,12 +386,197 @@ test("article exposes revision and media provenance in an accessible lightbox", 
     name: "View full image for Ada Lovelace",
   });
   await heroLightboxButton.focus();
+  await page.emulateMedia({ forcedColors: "active" });
+  await expectVisibleFocusOutline(heroLightboxButton);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: "Image gallery" })).toBeVisible();
   await expect(page.getByText("Creator: Alfred Edward Chalon")).toBeVisible();
-  await page.getByRole("button", { name: "Close lightbox" }).click();
+  const heroCloseButton = page.getByRole("button", { name: "Close lightbox" });
+  await expect(heroCloseButton).toBeFocused();
+  await expectVisibleFocusOutline(heroCloseButton);
+  await page.emulateMedia({ forcedColors: "none" });
+  await heroCloseButton.click();
   await expect(heroLightboxButton).toBeFocused();
+
+  const additionalPhotoButton = page.getByRole("button", {
+    name: "Open image 2 of 2: Analytical Engine at the Science Museum",
+  });
+  await expect(additionalPhotoButton).toBeVisible();
+  await expect(additionalPhotoButton).toHaveAttribute("aria-haspopup", "dialog");
+  expect(lightboxRequests).not.toContain(analyticalLightboxUrl);
+
+  await additionalPhotoButton.focus();
+  await page.emulateMedia({ forcedColors: "active" });
+  await expectVisibleFocusOutline(additionalPhotoButton);
+  await page.emulateMedia({ forcedColors: "none" });
+  await expect
+    .poll(() =>
+      additionalPhotoButton.evaluate(
+        (element) => getComputedStyle(element).boxShadow,
+      ),
+    )
+    .not.toBe("none");
+  await page.keyboard.press("Enter");
+  const galleryDialog = page.getByRole("dialog", { name: "Image gallery" });
+  await expect(galleryDialog).toBeVisible();
+  await expect(
+    galleryDialog.getByRole("button", { name: "Close lightbox" }),
+  ).toBeFocused();
+  await expect.poll(() => lightboxRequests).toContain(analyticalLightboxUrl);
+
+  const stage = galleryDialog.locator("[data-lightbox-media-stage]");
+  const stageBox = await stage.boundingBox();
+  expect(stageBox?.width).toBeGreaterThan(330);
+  expect(stageBox?.height).toBeGreaterThan(240);
+  const displayedImage = galleryDialog.getByRole("img", {
+    name: "Analytical Engine mechanisms",
+  });
+  const displayedImageBox = await displayedImage.boundingBox();
+  expect(displayedImageBox?.width).toBeGreaterThan(330);
+
+  const previousButton = galleryDialog.getByRole("button", {
+    name: "Previous image",
+  });
+  const nextButton = galleryDialog.getByRole("button", {
+    name: "Next image",
+  });
+  await previousButton.click();
+  await expect(galleryDialog.getByRole("status")).toContainText(
+    "Portrait of Ada Lovelace, image 1 of 2",
+  );
+  await nextButton.click();
+  await expect(galleryDialog.getByRole("status")).toContainText(
+    "Analytical Engine at the Science Museum, image 2 of 2",
+  );
+
+  await stage.evaluate((element) => {
+    const touchStart = new Event("touchstart", { bubbles: true });
+    Object.defineProperty(touchStart, "touches", {
+      value: [{ clientX: 600, clientY: 300 }],
+    });
+    element.dispatchEvent(touchStart);
+
+    const touchEnd = new Event("touchend", { bubbles: true });
+    Object.defineProperty(touchEnd, "changedTouches", {
+      value: [{ clientX: 450, clientY: 305 }],
+    });
+    element.dispatchEvent(touchEnd);
+  });
+  await expect(galleryDialog.getByRole("status")).toContainText(
+    "Portrait of Ada Lovelace, image 1 of 2",
+  );
+
+  await page.keyboard.press("ArrowRight");
+  await expect(galleryDialog.getByRole("status")).toContainText(
+    "Analytical Engine at the Science Museum, image 2 of 2",
+  );
+  await page.keyboard.press("ArrowLeft");
+  await expect(galleryDialog.getByRole("status")).toContainText(
+    "Portrait of Ada Lovelace, image 1 of 2",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(galleryDialog.getByRole("status")).toContainText(
+    "Analytical Engine at the Science Museum, image 2 of 2",
+  );
   await expectNoSeriousAxeViolations(page);
+
+  await page.keyboard.press("Escape");
+  await expect(galleryDialog).toBeHidden();
+  await expect(additionalPhotoButton).toBeFocused();
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and falls back", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  const { lightboxRequests } = await mockArticleData(page, {
+    failAnalyticalLightbox: true,
+  });
+  await page.goto("/article/Ada_Lovelace");
+
+  const opener = page.getByRole("button", {
+    name: "Open image 2 of 2: Analytical Engine at the Science Museum",
+  });
+  await expect(opener).toBeVisible();
+  expect(lightboxRequests).not.toContain(analyticalLightboxUrl);
+  await opener.click();
+
+  const dialog = page.getByRole("dialog", { name: "Image gallery" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => lightboxRequests).toContain(analyticalLightboxUrl);
+  await expect(
+    dialog.getByText(
+      "The larger image was unavailable, so the gallery thumbnail is shown.",
+    ),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("img", { name: "Analytical Engine mechanisms" }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  await expectNoSeriousAxeViolations(page);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+
+  // A 1280×720 viewport at 200% browser zoom has roughly this CSS viewport.
+  await page.setViewportSize({ width: 640, height: 360 });
+  const requestCount = lightboxRequests.length;
+  await opener.focus();
+  await page.keyboard.press("Enter");
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Close lightbox" }),
+  ).toBeFocused();
+  await expect.poll(() => lightboxRequests.length).toBeGreaterThan(requestCount);
+  const details = dialog.getByLabel("Image details");
+  await expect(details).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Previous image" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Next image" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(details).toBeFocused();
+  expect(
+    await dialog.evaluate((element) =>
+      element.contains(document.activeElement),
+    ),
+  ).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(640);
+  await expectNoSeriousAxeViolations(page);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+});
+
+test("gallery lightbox reports a total image failure once", async ({ page }) => {
+  await mockArticleData(page, {
+    failAnalyticalLightbox: true,
+    failAnalyticalThumbnail: true,
+  });
+  await page.goto("/article/Ada_Lovelace");
+
+  await page
+    .getByRole("button", {
+      name: "Open image 2 of 2: Analytical Engine at the Science Museum",
+    })
+    .click();
+
+  const dialog = page.getByRole("dialog", { name: "Image gallery" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByText("This image could not be loaded.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    dialog.getByRole("status").filter({
+      hasText: "This image could not be loaded.",
+    }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByText(
+      "The larger image was unavailable, so the gallery thumbnail is shown.",
+    ),
+  ).toHaveCount(0);
 });
 
 test("mobile navigation, theme, reflow, and project story remain usable", async ({ page }) => {

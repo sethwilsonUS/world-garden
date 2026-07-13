@@ -10,6 +10,7 @@ import {
   toOriginalUrl,
   extractImages,
   fetchArticleByTitle,
+  fetchParsedPageData,
 } from "./wikipedia";
 
 afterEach(() => {
@@ -785,6 +786,78 @@ describe("extractImages", () => {
     const images = extractImages(html);
     expect(images).toHaveLength(1);
     expect(images[0].videoSrc).toBeUndefined();
+  });
+});
+
+describe("fetchParsedPageData gallery media", () => {
+  it("persists canonical and bounded lightbox metadata returned by imageinfo", async () => {
+    const thumbnailUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Gallery.jpg/330px-Gallery.jpg";
+    const canonicalUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Gallery.jpg";
+    const lightboxUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Gallery.jpg/1600px-Gallery.jpg";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.searchParams.get("action") === "parse") {
+          return new Response(
+            JSON.stringify({
+              parse: {
+                text: {
+                  "*":
+                    `<figure typeof="mw:File/Thumb">` +
+                    `<img src="${thumbnailUrl}" width="330" height="220" alt="Gallery image" />` +
+                    `<figcaption>A useful caption</figcaption>` +
+                    `</figure>`,
+                },
+                sections: [],
+              },
+            }),
+          );
+        }
+
+        expect(url.hostname).toBe("commons.wikimedia.org");
+        expect(url.searchParams.get("iiurlwidth")).toBe("1600");
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "1": {
+                  title: "File:Gallery.jpg",
+                  imageinfo: [
+                    {
+                      url: canonicalUrl,
+                      width: 3600,
+                      height: 2400,
+                      thumburl: lightboxUrl,
+                      thumbwidth: 1600,
+                      thumbheight: 1067,
+                      extmetadata: {
+                        LicenseShortName: { value: "CC BY 4.0" },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+        );
+      });
+
+    const parsed = await fetchParsedPageData("42");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(parsed.images).toHaveLength(1);
+    expect(parsed.images[0]).toMatchObject({
+      src: thumbnailUrl,
+      originalSrc: canonicalUrl,
+      lightboxSrc: lightboxUrl,
+      lightboxWidth: 1600,
+      lightboxHeight: 1067,
+      attribution: { licenseName: "CC BY 4.0" },
+    });
   });
 });
 

@@ -10,7 +10,7 @@ import {
 } from "../../lib/badges";
 import {
   buildWikimediaSourceFallback,
-  fetchWikimediaMediaAttributions,
+  fetchWikimediaMediaDetails,
   getAttributionForImageUrl,
   getWikimediaFileTitleFromUrl,
   type WikimediaMediaAttribution,
@@ -383,6 +383,9 @@ export type WikiLinkedArticle = {
 export type WikiArticleImage = {
   src: string;
   originalSrc?: string;
+  lightboxSrc?: string;
+  lightboxWidth?: number;
+  lightboxHeight?: number;
   alt: string;
   caption: string;
   width?: number;
@@ -728,10 +731,12 @@ export const fetchParsedPageData = async (
     data.parse?.sections ?? [];
 
   const images = extractImages(html);
-  const sourceTitles = images
-    .map((image) => image.attribution?.sourceTitle)
-    .filter((title): title is string => Boolean(title));
-  const attributions = await fetchWikimediaMediaAttributions(sourceTitles);
+  const mediaRequests = images.flatMap((image) => {
+    const sourceTitle = image.attribution?.sourceTitle;
+    const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
+    return sourceTitle ? [{ sourceTitle, imageUrl }] : [];
+  });
+  const mediaDetails = await fetchWikimediaMediaDetails(mediaRequests);
 
   return {
     linkCounts: extractLinkCounts(html, sections),
@@ -743,12 +748,28 @@ export const fetchParsedPageData = async (
     })),
     images: images.map((image) => {
       const sourceTitle = image.attribution?.sourceTitle;
-      return sourceTitle
-        ? {
-            ...image,
-            attribution: attributions.get(sourceTitle) ?? image.attribution,
-          }
-        : image;
+      const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
+      const details = sourceTitle ? mediaDetails.get(imageUrl) : undefined;
+      if (!details) return image;
+
+      if (image.videoSrc) {
+        return { ...image, attribution: details.attribution };
+      }
+
+      return {
+        ...image,
+        ...(details.originalSrc ? { originalSrc: details.originalSrc } : {}),
+        ...(details.lightboxSrc &&
+        details.lightboxWidth &&
+        details.lightboxHeight
+          ? {
+              lightboxSrc: details.lightboxSrc,
+              lightboxWidth: details.lightboxWidth,
+              lightboxHeight: details.lightboxHeight,
+            }
+          : {}),
+        attribution: details.attribution,
+      };
     }),
   };
 };

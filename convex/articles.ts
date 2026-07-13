@@ -439,6 +439,49 @@ export const fetchAndCacheBySlug = action({
 /* ── Parse cache (link counts + citations + section index map) ── */
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const ARTICLE_PARSE_MEDIA_CACHE_VERSION = 1;
+
+type CachedParseImageMetadata = {
+  src: string;
+  lightboxSrc?: string;
+  lightboxWidth?: number;
+  lightboxHeight?: number;
+  videoSrc?: string;
+};
+
+/**
+ * Keeps legacy cache rows that are already complete while forcing every
+ * pre-lightbox photo through the parser once. The version marker prevents
+ * repeated refreshes when Wikimedia legitimately cannot supply a rendition.
+ */
+export const isArticleParseMediaCacheCompatible = (
+  images: readonly CachedParseImageMetadata[] | undefined,
+  mediaMetadataVersion?: number,
+): boolean => {
+  if (!images) return false;
+
+  // Preserve the pre-existing invalidation for thumbnails that were rewritten
+  // to 800px instead of trusting the URL returned by Wikimedia.
+  if (images.some((image) => image.src.includes("/800px-"))) return false;
+
+  if (mediaMetadataVersion !== undefined) {
+    return mediaMetadataVersion === ARTICLE_PARSE_MEDIA_CACHE_VERSION;
+  }
+
+  return images.every((image) => {
+    const hasCompleteLightboxMetadata =
+      Boolean(image.lightboxSrc) &&
+      (image.lightboxWidth ?? 0) > 0 &&
+      (image.lightboxHeight ?? 0) > 0;
+    if (hasCompleteLightboxMetadata) return true;
+
+    // Videos do not use the image lightbox. Every legacy photo gets one
+    // refresh, including English-Wikipedia-local and otherwise unqueryable
+    // media; the current version then accepts the result even without a
+    // rendition, so these cases do not create a re-parse loop.
+    return Boolean(image.videoSrc);
+  });
+};
 
 export const getParseCache = internalQuery({
   args: { wikiPageId: v.string() },
@@ -479,6 +522,9 @@ export const upsertParseCache = internalMutation({
         v.object({
           src: v.string(),
           originalSrc: v.optional(v.string()),
+          lightboxSrc: v.optional(v.string()),
+          lightboxWidth: v.optional(v.number()),
+          lightboxHeight: v.optional(v.number()),
           alt: v.string(),
           caption: v.string(),
           width: v.optional(v.number()),
@@ -502,6 +548,7 @@ export const upsertParseCache = internalMutation({
       sectionCitations: args.sectionCitations,
       sectionIndexMap: args.sectionIndexMap,
       images: args.images,
+      mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
       cachedAt: Date.now(),
     };
 
@@ -523,9 +570,10 @@ const getOrFetchParsedData = async (
   const hasCitationCounts =
     cached?.sectionCitations?.some((s: { count: number }) => s.count > 0) ?? false;
   const citationsPopulated = (cached?.citations?.length ?? 0) > 0;
-  const imagesPopulated =
-    cached?.images !== undefined &&
-    !cached.images.some((img: { src: string }) => img.src.includes("/800px-"));
+  const imagesPopulated = isArticleParseMediaCacheCompatible(
+    cached?.images,
+    cached?.mediaMetadataVersion,
+  );
   const cacheValid =
     cached &&
     Date.now() - cached.cachedAt < CACHE_TTL_MS &&

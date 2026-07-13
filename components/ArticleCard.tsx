@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { analytics } from "@/lib/analytics";
+import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
@@ -51,19 +51,17 @@ export const ArticleCard = ({
           className="result-link block flex-1 no-underline"
         >
           {article.thumbnail ? (
-            <div className="relative w-full aspect-[16/9] bg-surface-3 overflow-hidden" aria-hidden="true">
-              {/* Wikimedia thumbnails stay direct instead of proxying broad Commons URLs through Next. */}
-              <Image
-                src={article.thumbnail.source}
-                alt=""
-                fill
-                sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                className="object-cover"
-                loading={imagePriority ? undefined : "lazy"}
-                priority={imagePriority}
-                unoptimized
-              />
-            </div>
+            <AdaptiveImageFrame
+              src={article.thumbnail.source}
+              alt=""
+              width={article.thumbnail.width}
+              height={article.thumbnail.height}
+              sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+              className="aspect-[16/9] w-full"
+              loading={imagePriority ? undefined : "lazy"}
+              priority={imagePriority}
+              unoptimized
+            />
           ) : (
             <div
               aria-hidden="true"

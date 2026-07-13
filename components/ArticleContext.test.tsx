@@ -7,6 +7,7 @@ import type {
   ContextManifest,
   ContextMapBlock,
 } from "@/lib/article-context-types";
+import type { ArticleImage } from "@/lib/data-context";
 import {
   ArticleContextIndex,
   ArticleContextLane,
@@ -280,5 +281,82 @@ describe("ArticleContext", () => {
 
     expect(markup).toContain('preload="metadata"');
     expect(markup).not.toContain("autoplay");
+  });
+
+  it("renders the preferred gallery rendition in a viewport media stage", () => {
+    const image = {
+      src: "https://upload.wikimedia.org/330px-example.jpg",
+      originalSrc: "https://upload.wikimedia.org/original-example.jpg",
+      lightboxSrc: "https://upload.wikimedia.org/1600px-example.jpg",
+      lightboxWidth: 1600,
+      lightboxHeight: 1200,
+      width: 330,
+      height: 248,
+      alt: "A detailed example",
+      caption: "The detailed example.",
+    } satisfies ArticleImage & {
+      lightboxSrc: string;
+      lightboxWidth: number;
+      lightboxHeight: number;
+    };
+    const markup = renderToStaticMarkup(
+      createElement(Lightbox, {
+        images: [image],
+        state: { index: 0 },
+        onClose: () => {},
+      }),
+    );
+
+    expect(markup).toContain("https://upload.wikimedia.org/1600px-example.jpg");
+    expect(markup).toContain("data-lightbox-media-stage");
+    expect(markup).toContain('aria-labelledby="');
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).toContain('aria-atomic="true"');
+    expect(markup).toContain('alt="A detailed example"');
+    expect(markup).toContain("h-11 w-11");
+    expect(markup).toContain("position:absolute");
+    expect(markup).not.toContain('width="330"');
+  });
+
+  it("does not repeat a visible caption as the image alternative", () => {
+    const markup = renderToStaticMarkup(
+      createElement(Lightbox, {
+        images: [
+          {
+            src: "https://upload.wikimedia.org/portrait.jpg",
+            originalSrc: "https://upload.wikimedia.org/portrait.jpg",
+            alt: "Portrait of Ada Lovelace",
+            caption: "Portrait of Ada Lovelace",
+          },
+        ],
+        state: { index: 0 },
+        onClose: () => {},
+      }),
+    );
+
+    expect(markup).toContain('alt=""');
+    expect(markup).toContain(">Portrait of Ada Lovelace</p>");
+  });
+
+  it("uses the known thumbnail when a trusted lightbox rendition is absent", () => {
+    const markup = renderToStaticMarkup(
+      createElement(Lightbox, {
+        images: [
+          {
+            src: "https://upload.wikimedia.org/330px-example.jpg",
+            originalSrc: "https://upload.wikimedia.org/guessed-original-example.jpg",
+            alt: "A cached example",
+            caption: "An image from a legacy cache row.",
+          },
+        ],
+        state: { index: 0 },
+        onClose: () => {},
+      }),
+    );
+
+    expect(markup).toContain("https://upload.wikimedia.org/330px-example.jpg");
+    expect(markup).not.toContain(
+      "https://upload.wikimedia.org/guessed-original-example.jpg",
+    );
   });
 });

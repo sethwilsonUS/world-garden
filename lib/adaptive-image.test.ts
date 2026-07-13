@@ -1,0 +1,353 @@
+// @vitest-environment jsdom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ADAPTIVE_IMAGE_MIN_CROP_RETENTION,
+  analyzeAdaptiveImage,
+  getCropRetention,
+  resetAdaptiveImageAnalysisCacheForTests,
+  resolveAdaptiveImagePresentation,
+} from "./adaptive-image";
+
+const originalImage = window.Image;
+
+const installImageClass = ({
+  width = 4,
+  height = 1,
+  fail = false,
+  onConstruct,
+}: {
+  width?: number;
+  height?: number;
+  fail?: boolean | (() => boolean);
+  onConstruct?: () => void;
+}) => {
+  class TestImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    crossOrigin: string | null = null;
+    decoding = "auto";
+    naturalWidth = width;
+    naturalHeight = height;
+    width = width;
+    height = height;
+
+    constructor() {
+      onConstruct?.();
+    }
+
+    set src(_value: string) {
+      queueMicrotask(() => {
+        const shouldFail = typeof fail === "function" ? fail() : fail;
+        if (shouldFail) this.onerror?.();
+        else this.onload?.();
+      });
+    }
+  }
+
+  Object.defineProperty(window, "Image", {
+    configurable: true,
+    value: TestImage as unknown as typeof window.Image,
+  });
+};
+
+beforeEach(() => resetAdaptiveImageAnalysisCacheForTests());
+
+afterEach(() => {
+  resetAdaptiveImageAnalysisCacheForTests();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  Object.defineProperty(window, "Image", {
+    configurable: true,
+    value: originalImage,
+  });
+});
+
+describe("adaptive image fit", () => {
+  it("uses cover for matching landscape images and the inclusive crop threshold", () => {
+    expect(getCropRetention(1600, 900, 320, 180)).toBe(1);
+    expect(getCropRetention(1200, 900, 320, 180)).toBeCloseTo(0.75);
+
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: 250,
+        sourceHeight: 100,
+        frameWidth: 100,
+        frameHeight: 160,
+        minCropRetention: ADAPTIVE_IMAGE_MIN_CROP_RETENTION,
+      }),
+    ).toMatchObject({
+      mode: "cover",
+      reason: "cover",
+      cropRetention: ADAPTIVE_IMAGE_MIN_CROP_RETENTION,
+    });
+  });
+
+  it.each([
+    {
+      name: "trending portrait",
+      source: { width: 600, height: 800 },
+      frame: { width: 1600, height: 900 },
+    },
+    {
+      name: "square in a landscape frame",
+      source: { width: 1000, height: 1000 },
+      frame: { width: 1600, height: 900 },
+    },
+    {
+      name: "featured landscape in its desktop rail",
+      source: { width: 640, height: 427 },
+      frame: { width: 224, height: 250 },
+    },
+    {
+      name: "Did You Know landscape in its thumbnail",
+      source: { width: 640, height: 360 },
+      frame: { width: 96, height: 80 },
+    },
+    {
+      name: "phone portrait",
+      source: { width: 900, height: 1600 },
+      frame: { width: 1600, height: 900 },
+    },
+    {
+      name: "two-to-one portrait",
+      source: { width: 600, height: 1200 },
+      frame: { width: 1600, height: 900 },
+    },
+  ])("uses full-bleed cover for an ordinary $name", ({ source, frame }) => {
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+        frameWidth: frame.width,
+        frameHeight: frame.height,
+      }),
+    ).toMatchObject({ mode: "cover", reason: "cover" });
+  });
+
+  it.each([
+    {
+      name: "panorama in a landscape card",
+      source: { width: 3000, height: 700 },
+      frame: { width: 1600, height: 900 },
+      reason: "extreme-aspect",
+    },
+    {
+      name: "extremely narrow portrait",
+      source: { width: 320, height: 1600 },
+      frame: { width: 1600, height: 900 },
+      reason: "extreme-aspect",
+    },
+    {
+      name: "square image in a five-to-one frame",
+      source: { width: 1000, height: 1000 },
+      frame: { width: 500, height: 100 },
+      reason: "crop",
+    },
+  ])("preserves all of an $name", ({ source, frame, reason }) => {
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+        frameWidth: frame.width,
+        frameHeight: frame.height,
+      }),
+    ).toMatchObject({ mode: "backdrop", reason });
+  });
+
+  it("keeps matching square and panoramic media full-bleed", () => {
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: 1000,
+        sourceHeight: 1000,
+        frameWidth: 400,
+        frameHeight: 400,
+      }),
+    ).toEqual({ mode: "cover", reason: "cover", cropRetention: 1 });
+
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: 4000,
+        sourceHeight: 1000,
+        frameWidth: 800,
+        frameHeight: 200,
+      }),
+    ).toEqual({ mode: "cover", reason: "cover", cropRetention: 1 });
+  });
+
+  it("prioritizes transparency and safely covers when dimensions are missing", () => {
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: 1600,
+        sourceHeight: 900,
+        frameWidth: 1600,
+        frameHeight: 900,
+        hasTransparency: true,
+      }),
+    ).toMatchObject({ mode: "backdrop", reason: "transparent" });
+
+    expect(resolveAdaptiveImagePresentation({})).toEqual({
+      mode: "cover",
+      reason: "missing-dimensions",
+      cropRetention: null,
+    });
+    expect(getCropRetention(0, 900, 1600, 900)).toBeNull();
+  });
+});
+
+describe("adaptive image appearance analysis", () => {
+  it("detects transparency, derives a color panel, and caches by URL", async () => {
+    let imageConstructions = 0;
+    installImageClass({ onConstruct: () => imageConstructions++ });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({
+        data: new Uint8ClampedArray([
+          0, 0, 0, 0,
+          240, 240, 240, 255,
+          240, 240, 240, 255,
+          240, 240, 240, 255,
+        ]),
+      })),
+    } as never);
+
+    const first = analyzeAdaptiveImage("https://upload.wikimedia.org/logo.png");
+    const second = analyzeAdaptiveImage("https://upload.wikimedia.org/logo.png");
+
+    expect(second).toBe(first);
+    await expect(first).resolves.toMatchObject({
+      url: "https://upload.wikimedia.org/logo.png",
+      hasTransparency: true,
+      panelBorderColor: "rgba(255, 255, 255, 0.12)",
+    });
+    expect(imageConstructions).toBe(1);
+  });
+
+  it("retries after a transient CORS failure, then caches the successful analysis", async () => {
+    let imageConstructions = 0;
+    installImageClass({ onConstruct: () => imageConstructions++ });
+    const getImageData = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new DOMException("Blocked by CORS", "SecurityError");
+      })
+      .mockReturnValue({
+        data: new Uint8ClampedArray([
+          10, 20, 30, 255,
+          10, 20, 30, 255,
+          10, 20, 30, 255,
+          10, 20, 30, 255,
+        ]),
+      });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData,
+    } as never);
+
+    const first = analyzeAdaptiveImage(
+      "https://example.com/cross-origin.jpg",
+    );
+    expect(
+      analyzeAdaptiveImage("https://example.com/cross-origin.jpg"),
+    ).toBe(first);
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/cross-origin.jpg",
+      hasTransparency: false,
+    });
+
+    const retry = analyzeAdaptiveImage(
+      "https://example.com/cross-origin.jpg",
+    );
+    expect(retry).not.toBe(first);
+    await expect(retry).resolves.toEqual({
+      url: "https://example.com/cross-origin.jpg",
+      hasTransparency: false,
+    });
+    expect(
+      analyzeAdaptiveImage("https://example.com/cross-origin.jpg"),
+    ).toBe(retry);
+    expect(imageConstructions).toBe(2);
+    expect(getImageData).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares a failed image request, then retries and caches the next result", async () => {
+    let imageConstructions = 0;
+    let loadAttempts = 0;
+    installImageClass({
+      fail: () => loadAttempts++ === 0,
+      onConstruct: () => imageConstructions++,
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+
+    const first = analyzeAdaptiveImage("https://example.com/transient.jpg");
+    expect(analyzeAdaptiveImage("https://example.com/transient.jpg")).toBe(
+      first,
+    );
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/transient.jpg",
+      hasTransparency: false,
+    });
+
+    const retry = analyzeAdaptiveImage("https://example.com/transient.jpg");
+    expect(retry).not.toBe(first);
+    await expect(retry).resolves.toEqual({
+      url: "https://example.com/transient.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/transient.jpg")).toBe(
+      retry,
+    );
+    expect(imageConstructions).toBe(2);
+  });
+
+  it("caches the safe SSR fallback", async () => {
+    vi.stubGlobal("window", undefined);
+
+    const first = analyzeAdaptiveImage("https://example.com/server.jpg");
+    expect(analyzeAdaptiveImage("https://example.com/server.jpg")).toBe(
+      first,
+    );
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/server.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/server.jpg")).toBe(
+      first,
+    );
+  });
+
+  it("caches the fallback when a loaded image has no dimensions", async () => {
+    let imageConstructions = 0;
+    installImageClass({
+      width: 0,
+      height: 0,
+      onConstruct: () => imageConstructions++,
+    });
+
+    const first = analyzeAdaptiveImage("https://example.com/no-size.jpg");
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/no-size.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/no-size.jpg")).toBe(
+      first,
+    );
+    expect(imageConstructions).toBe(1);
+  });
+
+  it("caches the fallback when canvas analysis is unsupported", async () => {
+    let imageConstructions = 0;
+    installImageClass({ onConstruct: () => imageConstructions++ });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+
+    const first = analyzeAdaptiveImage("https://example.com/no-canvas.jpg");
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/no-canvas.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/no-canvas.jpg")).toBe(
+      first,
+    );
+    expect(imageConstructions).toBe(1);
+  });
+});
