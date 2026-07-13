@@ -63,6 +63,7 @@ const EXACT_MAP_DATA_NOTE =
 const PARTIAL_MAP_STATUS =
   `Some map details could not load. ${EXACT_MAP_DATA_NOTE}`;
 const RICH_MEDIA_ROOT_MARGIN = "400px 0px";
+const MOBILE_CHART_MEDIA_QUERY = "(max-width: 640px)";
 
 type MapInstance = import("maplibre-gl").Map;
 type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
@@ -72,7 +73,9 @@ const isReducedMotion = (): boolean =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const useMediaQuery = (queryText: string): boolean => {
-  const [matches, setMatches] = useState(false);
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia(queryText).matches,
+  );
 
   useEffect(() => {
     const query = window.matchMedia(queryText);
@@ -1104,7 +1107,7 @@ const EChartsGraphic = ({
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const nearViewport = useNearViewport(containerRef);
-  const narrowViewport = useMediaQuery("(max-width: 640px)");
+  const narrowViewport = useMediaQuery(MOBILE_CHART_MEDIA_QUERY);
   const [failed, setFailed] = useState(false);
   const [readyAttempt, setReadyAttempt] = useState<string | null>(null);
   const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key ?? "";
@@ -1124,8 +1127,7 @@ const EChartsGraphic = ({
 
   useEffect(() => {
     const container = containerRef.current;
-    const useMobileBarLayout = horizontalBars &&
-      window.matchMedia("(max-width: 640px)").matches;
+    const useMobileBarLayout = horizontalBars && narrowViewport;
     if (!container || !nearViewport || useMobileBarLayout) return;
     let chart: ECharts | null = null;
     let cancelled = false;
