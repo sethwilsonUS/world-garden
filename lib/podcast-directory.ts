@@ -51,7 +51,7 @@ export const PODCAST_DIRECTORY: PodcastDirectoryEntry[] = [
   },
   {
     slug: "trending",
-    badge: "Public audio briefing feed",
+    badge: "AI-generated public audio briefing feed",
     title: TRENDING_PODCAST_TITLE,
     description: TRENDING_PODCAST_DESCRIPTION,
     feedPath: "/api/podcast/trending.xml",

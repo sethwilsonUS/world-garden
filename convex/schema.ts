@@ -265,6 +265,96 @@ export default defineSchema({
     cachedAt: v.number(),
   }).index("by_wikiPageId", ["wikiPageId"]),
 
+  articleContextCaches: defineTable({
+    wikiPageId: v.string(),
+    revisionId: v.string(),
+    extractorVersion: v.string(),
+    sourceHash: v.string(),
+    schemaVersion: v.number(),
+    manifestJson: v.string(),
+    byteLength: v.number(),
+    blockCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_cache_key", [
+      "wikiPageId",
+      "revisionId",
+      "extractorVersion",
+      "sourceHash",
+    ])
+    .index("by_page_revision_extractor", [
+      "wikiPageId",
+      "revisionId",
+      "extractorVersion",
+    ]),
+
+  articleContextReports: defineTable({
+    wikiPageId: v.string(),
+    revisionId: v.string(),
+    blockId: v.string(),
+    sourceHash: v.string(),
+    reporterKey: v.string(),
+    reason: v.union(
+      v.literal("inaccurate"),
+      v.literal("misleading"),
+      v.literal("accessibility"),
+      v.literal("broken"),
+      v.literal("inappropriate"),
+      v.literal("other"),
+    ),
+    details: v.optional(v.string()),
+    status: v.union(
+      v.literal("open"),
+      v.literal("reviewing"),
+      v.literal("resolved"),
+      v.literal("dismissed"),
+    ),
+    occurrences: v.number(),
+    resolutionNote: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_context_block", [
+      "wikiPageId",
+      "revisionId",
+      "blockId",
+      "sourceHash",
+    ])
+    .index("by_context_block_reporter", [
+      "wikiPageId",
+      "revisionId",
+      "blockId",
+      "sourceHash",
+      "reporterKey",
+    ])
+    .index("by_status", ["status"]),
+
+  articleContextModerations: defineTable({
+    wikiPageId: v.string(),
+    revisionId: v.string(),
+    blockId: v.string(),
+    sourceHash: v.string(),
+    mode: v.union(v.literal("suppress"), v.literal("override")),
+    status: v.union(v.literal("active"), v.literal("cleared")),
+    override: v.optional(
+      v.object({
+        title: v.optional(v.string()),
+        takeaway: v.optional(v.string()),
+        spokenSummary: v.optional(v.string()),
+        longDescription: v.optional(v.string()),
+      }),
+    ),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_context_block", [
+    "wikiPageId",
+    "revisionId",
+    "blockId",
+    "sourceHash",
+  ]),
+
   sectionLinksCache: defineTable({
     wikiPageId: v.string(),
     sectionTitle: v.string(),

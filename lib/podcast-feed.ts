@@ -44,8 +44,17 @@ export const getWikipediaEpisodeDescription = ({
   return `${summary}\n\nSource: Wikipedia${revisionLabel} (${sourceUrl}). Article text is available under CC BY-SA 4.0. Synthetic audio and presentation are provided by Curio Garden, an independent project not endorsed by or affiliated with the Wikimedia Foundation.`;
 };
 
+export const TRENDING_AI_DISCLOSURE =
+  "AI disclosure: Curio Garden generated this briefing with OpenAI from Wikimedia pageview data and linked reporting. It was not written by Wikipedia and may contain errors.";
+
+export const TRENDING_PODCAST_AI_DISCLOSURE =
+  "AI disclosure: This podcast contains daily briefings generated with OpenAI from Wikimedia pageview data and linked reporting. Episodes were not written by Wikipedia and may contain errors.";
+
+export const TRENDING_AI_AUDIO_DISCLOSURE =
+  "AI disclosure. Curio Garden generated this briefing with OpenAI from Wikimedia pageview data and linked reporting, and it may contain errors.";
+
 export const getTrendingEpisodeDescription = (summary: string): string =>
-  `${summary}\n\nThis is an AI-generated Curio Garden briefing based on Wikimedia pageview data and the linked reporting, not Wikipedia article text. Curio Garden is not endorsed by or affiliated with the Wikimedia Foundation.`;
+  `${summary}\n\n${TRENDING_AI_DISCLOSURE} Curio Garden is not endorsed by or affiliated with the Wikimedia Foundation.`;
 
 export const getPodcastSiteUrl = (fallbackOrigin?: string): string =>
   (process.env.NEXT_PUBLIC_SITE_URL || fallbackOrigin || "http://localhost:3000").replace(/\/$/, "");
@@ -137,10 +146,10 @@ export const FEATURED_PODCAST_DESCRIPTION =
   "Daily audio editions of Wikipedia's featured article, presented by Curio Garden. Article content is sourced from Wikipedia and available under CC BY-SA 4.0. Curio Garden is an independent project not endorsed by or affiliated with the Wikimedia Foundation. Wikipedia is a trademark of the Wikimedia Foundation.";
 
 export const TRENDING_PODCAST_TITLE =
-  "Wikipedia Trending Brief Presented by Curio Garden";
+  "AI-Generated Wikipedia Trending Brief Presented by Curio Garden";
 
 export const TRENDING_PODCAST_SUBTITLE =
-  "A daily audio briefing on what is trending across Wikipedia and why.";
+  "An AI-generated daily audio briefing on what is trending across Wikipedia and why.";
 
 export const TRENDING_PODCAST_DESCRIPTION =
   "An AI-generated daily audio briefing on what is trending across Wikipedia and why, presented by Curio Garden. Topic lists come from Wikimedia's public pageview data, and linked reporting is summarized to explain likely trend drivers. Curio Garden is not endorsed by or affiliated with the Wikimedia Foundation.";

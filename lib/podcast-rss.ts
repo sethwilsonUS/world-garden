@@ -1,4 +1,5 @@
 export const PODCAST_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd";
+export const PODCAST_INDEX_NS = "https://podcastindex.org/namespace/1.0";
 export const ATOM_NS = "http://www.w3.org/2005/Atom";
 export const CONTENT_NS = "http://purl.org/rss/1.0/modules/content/";
 

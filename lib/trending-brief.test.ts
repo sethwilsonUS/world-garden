@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildTrendingBriefPrompt,
+  extractTrendingBriefSources,
+  generateTrendingBriefContent,
   getCachedTrendingBriefContent,
   getDailyTrendingBriefState,
+  getTrendingAudioCacheKey,
+  getTrendingAudioScript,
+  getTrendingBriefModel,
   hasCurrentTrendingArtworkVersion,
+  isTrendingBriefEnabled,
   normalizeTrendingBrief,
-  parseGeneratedTrendingBrief,
   selectTrendingArtworkItems,
   shouldReuseExistingTrendingBrief,
 } from "./trending-brief";
-import { getActiveTtsCacheKey } from "./tts-profile";
 
 vi.mock("convex/nextjs", () => ({
   fetchMutation: vi.fn(),
@@ -32,9 +36,11 @@ vi.mock("@/lib/today-snapshot", () => ({
   })),
 }));
 
+const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 const originalAiGatewayApiKey = process.env.AI_GATEWAY_API_KEY;
 const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+const originalTrendingBriefModel = process.env.TRENDING_BRIEF_MODEL;
 
 const restoreEnvValue = (key: string, value: string | undefined) => {
   if (value === undefined) {
@@ -48,9 +54,12 @@ afterEach(async () => {
   const { fetchMutation, fetchQuery } = await import("convex/nextjs");
   vi.mocked(fetchMutation).mockClear();
   vi.mocked(fetchQuery).mockClear();
+  restoreEnvValue("OPENAI_API_KEY", originalOpenAiApiKey);
   restoreEnvValue("AI_GATEWAY_API_KEY", originalAiGatewayApiKey);
   restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
   restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
+  restoreEnvValue("TRENDING_BRIEF_MODEL", originalTrendingBriefModel);
+  vi.restoreAllMocks();
 });
 
 describe("normalizeTrendingBrief", () => {
@@ -96,7 +105,7 @@ describe("buildTrendingBriefPrompt", () => {
     expect(prompt).toContain("2026-03-08");
     expect(prompt).toContain("Example Topic");
     expect(prompt).toContain("12,345 views");
-    expect(prompt).toContain("Return only valid JSON");
+    expect(prompt).toContain("response schema is enforced separately");
   });
 });
 
@@ -165,7 +174,7 @@ describe("cached trending brief reuse", () => {
         status: "ready",
         audioUrl: "https://cdn.example.com/brief.mp3",
         artworkVersion: 2,
-        ttsCacheKey: getActiveTtsCacheKey(),
+        ttsCacheKey: getTrendingAudioCacheKey(),
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(true);
@@ -180,7 +189,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 1,
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsCacheKey: getTrendingAudioCacheKey(),
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { regenArt: true },
@@ -197,7 +206,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 2,
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsCacheKey: getTrendingAudioCacheKey(),
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { regenArt: true },
@@ -214,7 +223,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 2,
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsCacheKey: getTrendingAudioCacheKey(),
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { force: true, regenArt: true },
@@ -239,7 +248,7 @@ describe("cached trending brief reuse", () => {
 
 describe("getDailyTrendingBriefState", () => {
   it("returns disabled without querying Convex in local mode without a Convex URL", async () => {
-    process.env.AI_GATEWAY_API_KEY = "gateway-key";
+    process.env.OPENAI_API_KEY = "openai-key";
     process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
     process.env.NEXT_PUBLIC_CONVEX_URL = "";
 
@@ -272,18 +281,198 @@ describe("hasCurrentTrendingArtworkVersion", () => {
   });
 });
 
-describe("parseGeneratedTrendingBrief", () => {
-  it("parses fenced JSON output from the model", () => {
-    const parsed = parseGeneratedTrendingBrief(
-      [
-        "```json",
-        '{"headline":"H","summary":"S","podcastDescription":"PD","spokenSummary":"SS","keyPoints":["A"],"sources":[{"title":"Reuters","url":"https://reuters.com"}]}',
-        "```",
-      ].join("\n"),
-    );
+describe("direct OpenAI trending generation", () => {
+  it("adds an audible AI disclosure to the generated podcast script", () => {
+    const script = getTrendingAudioScript("Here is today's briefing.");
 
-    expect(parsed.headline).toBe("H");
-    expect(parsed.podcastDescription).toBe("PD");
-    expect(parsed.sources[0]?.url).toBe("https://reuters.com");
+    expect(script).toContain("AI disclosure");
+    expect(script).toContain("generated this briefing with OpenAI");
+    expect(script).toContain("Here is today's briefing.");
+  });
+
+  it("uses Responses web search, Structured Outputs, and cited source metadata", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const create = vi.fn(async () => ({
+      model: "gpt-5.6-luna",
+      output_text: "The topic followed a recent announcement.",
+      output: [
+        {
+          type: "web_search_call",
+          status: "completed",
+          action: {
+            type: "search",
+            sources: [
+              { type: "url", url: "https://www.reuters.com/example" },
+              { type: "url", url: "https://www.bbc.com/example" },
+            ],
+          },
+        },
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              annotations: [
+                {
+                  type: "url_citation",
+                  title: "Reuters report",
+                  url: "https://www.reuters.com/example",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+    }));
+    const parse = vi.fn(async () => ({
+      model: "gpt-5.6-luna",
+      output_parsed: {
+        headline: "  A headline  ",
+        summary: "A sourced summary.",
+        podcastDescription: "A compact description.",
+        spokenSummary: "A natural spoken summary.",
+        keyPoints: ["One", "Two", "Three"],
+      },
+      usage: { input_tokens: 200, output_tokens: 50, total_tokens: 250 },
+    }));
+    const client = {
+      responses: { create, parse },
+    } as unknown as Parameters<typeof generateTrendingBriefContent>[0]["client"];
+
+    const brief = await generateTrendingBriefContent({
+      client,
+      model: "gpt-5.6-luna",
+      trendingDate: "2026-07-13",
+      articles: [
+        {
+          title: "Example Topic",
+          extract: "An example extract.",
+          views: 12_345,
+        },
+      ],
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5.6-luna",
+        tools: [{ type: "web_search", search_context_size: "medium" }],
+        tool_choice: "required",
+        include: ["web_search_call.action.sources"],
+        store: false,
+      }),
+    );
+    expect(parse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5.6-luna",
+        text: expect.objectContaining({ format: expect.any(Object) }),
+        store: false,
+      }),
+    );
+    expect(brief).toMatchObject({
+      headline: "A headline",
+      sources: [
+        {
+          title: "Reuters report",
+          url: "https://www.reuters.com/example",
+        },
+        { title: "bbc.com", url: "https://www.bbc.com/example" },
+      ],
+    });
+  });
+
+  it("rejects normalized output that loses required non-empty key points", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const create = vi.fn(async () => ({
+      model: "gpt-5.6-luna",
+      output_text: "A researched explanation.",
+      output: [
+        {
+          type: "web_search_call",
+          action: {
+            sources: [{ type: "url", url: "https://www.reuters.com/example" }],
+          },
+        },
+      ],
+      usage: null,
+    }));
+    const parse = vi.fn(async () => ({
+      model: "gpt-5.6-luna",
+      output_parsed: {
+        headline: "Headline",
+        summary: "Summary",
+        podcastDescription: "Description",
+        spokenSummary: "Spoken summary",
+        keyPoints: ["One", "   ", "Three"],
+      },
+      usage: null,
+    }));
+    const client = {
+      responses: { create, parse },
+    } as unknown as Parameters<typeof generateTrendingBriefContent>[0]["client"];
+
+    await expect(
+      generateTrendingBriefContent({
+        client,
+        model: "gpt-5.6-luna",
+        trendingDate: "2026-07-13",
+        articles: [
+          { title: "Example", extract: "Example extract", views: 1_000 },
+        ],
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("extracts titled citations before consulted URLs and rejects unsafe URLs", () => {
+    expect(
+      extractTrendingBriefSources([
+        {
+          type: "web_search_call",
+          action: {
+            sources: [
+              { url: "https://example.com/story" },
+              { url: "javascript:alert(1)" },
+            ],
+          },
+        },
+        {
+          type: "message",
+          content: [
+            {
+              annotations: [
+                {
+                  type: "url_citation",
+                  title: "Example story",
+                  url: "https://example.com/story",
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toEqual([
+      { title: "Example story", url: "https://example.com/story" },
+    ]);
+  });
+
+  it("enables Trending from OPENAI_API_KEY rather than AI Gateway", () => {
+    delete process.env.OPENAI_API_KEY;
+    process.env.AI_GATEWAY_API_KEY = "legacy-key";
+    expect(isTrendingBriefEnabled()).toBe(false);
+
+    process.env.OPENAI_API_KEY = "openai-key";
+    expect(isTrendingBriefEnabled()).toBe(true);
+  });
+
+  it("defaults to Luna and translates legacy Gateway model identifiers", () => {
+    delete process.env.TRENDING_BRIEF_MODEL;
+    expect(getTrendingBriefModel()).toBe("gpt-5.6-luna");
+
+    process.env.TRENDING_BRIEF_MODEL = "openai/gpt-5.6-luna";
+    expect(getTrendingBriefModel()).toBe("gpt-5.6-luna");
+
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    process.env.TRENDING_BRIEF_MODEL = "anthropic/claude-opus-4.5";
+    expect(getTrendingBriefModel()).toBe("gpt-5.6-luna");
   });
 });

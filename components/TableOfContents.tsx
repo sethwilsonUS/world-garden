@@ -21,6 +21,13 @@ import {
 } from "@/components/AudioDownloadButton";
 import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadButton";
 import { ArticleLink } from "@/components/ArticleLink";
+import type { ContextBlock } from "@/lib/article-context-types";
+import {
+  ArticleContextIndex,
+  ContextSectionLink,
+  getContextAudioKey,
+  getContextBlocksForSection,
+} from "@/components/ArticleContext";
 
 type LinkedArticle = {
   wikiPageId: string;
@@ -73,6 +80,8 @@ type TableOfContentsProps = {
   onSeek?: (time: number) => void;
   playAllRef?: RefObject<HTMLButtonElement | null>;
   fallbackVoiceNotice?: string | null;
+  contextBlocks?: ContextBlock[];
+  contextLoading?: boolean;
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -259,6 +268,8 @@ export const TableOfContents = ({
   onSeek,
   playAllRef,
   fallbackVoiceNotice,
+  contextBlocks = [],
+  contextLoading = false,
 }: TableOfContentsProps) => {
   const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(
     null,
@@ -332,15 +343,20 @@ export const TableOfContents = ({
     effectivePlayback.status !== "idle" &&
     effectivePlayback.status !== "error";
 
-  const isSummarySelected = activeSectionIndex === null;
+  const isContextAudio = effectivePlayback.sectionKey?.startsWith("context-") === true;
+  const isSummarySelected = effectivePlayback.sectionKey === "summary";
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
   const isSummaryActive = isSummaryPlaying || isSummaryPaused;
   const isSummaryLoading = isGenerating && isSummarySelected;
   const audioSections = sections.filter(hasFullAudio);
   const hasNonAudioSections = audioSections.length < sections.length;
-  const playableCount = audioSections.length + 1;
-  const summaryOnly = sections.length === 0 || audioSections.length === 0;
+  const playableCount = audioSections.length + contextBlocks.length + 1;
+  const playAllSummaryOnly =
+    audioSections.length === 0 && contextBlocks.length === 0;
+  // Context notes join Play All, but the packaged article export currently
+  // contains only the summary and eligible article sections.
+  const downloadSummaryOnly = audioSections.length === 0;
   const isPlayAllLoading = isPlayingAll && isGenerating;
   const canSkipSection = isPlayingAll && (isSpeaking || isGenerating);
 
@@ -366,6 +382,20 @@ export const TableOfContents = ({
       } else {
         total += Math.round(
           sections[i].content.split(/\s+/).filter(Boolean).length /
+            TTS_WORDS_PER_SECOND,
+        );
+        allActual = false;
+      }
+    }
+
+    for (const block of contextBlocks) {
+      const contextKey = getContextAudioKey(block, "summary");
+      const actual = sectionDurations?.[contextKey];
+      if (actual != null) {
+        total += actual;
+      } else {
+        total += Math.round(
+          block.spokenSummary.split(/\s+/).filter(Boolean).length /
             TTS_WORDS_PER_SECOND,
         );
         allActual = false;
@@ -450,23 +480,23 @@ export const TableOfContents = ({
           aria-label={
             isPlayingAll
               ? isPlayAllLoading
-                ? summaryOnly
+                ? playAllSummaryOnly
                   ? "Stop summary"
                   : "Stop playing all sections"
                 : isPaused
-                  ? summaryOnly
+                  ? playAllSummaryOnly
                     ? "Resume playing summary"
                     : "Resume playing all sections"
                   : !isSpeaking
                     ? "Generating audio, please wait"
-                    : summaryOnly
+                    : playAllSummaryOnly
                       ? "Pause summary"
                       : "Pause playing all sections"
               : isGenerating
                 ? "Generating audio, please wait"
-                : summaryOnly
+                : playAllSummaryOnly
                   ? "Play summary"
-                  : `Play all ${playableCount} sections including summary`
+                  : `Play all ${playableCount} audio items including summary${contextBlocks.length > 0 ? " and context notes" : ""}`
           }
         >
           {isPlayingAll ? (
@@ -535,8 +565,8 @@ export const TableOfContents = ({
               >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              {summaryOnly ? "Play" : "Play all"}
-              {!summaryOnly && (
+              {playAllSummaryOnly ? "Play" : "Play all"}
+              {!playAllSummaryOnly && (
                 <span className="text-[0.6875rem] opacity-80 font-medium">
                   ({playableCount})
                 </span>
@@ -550,7 +580,7 @@ export const TableOfContents = ({
             type="button"
             onClick={onStopPlayAll}
             className="inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 cursor-pointer"
-            aria-label={summaryOnly ? "Stop summary" : "Stop playing all sections"}
+            aria-label={playAllSummaryOnly ? "Stop summary" : "Stop playing all sections"}
           >
             <svg
               viewBox="0 0 24 24"
@@ -566,7 +596,7 @@ export const TableOfContents = ({
           </button>
         )}
 
-        {isPlayingAll && !summaryOnly && onSkipSection && (
+        {isPlayingAll && !playAllSummaryOnly && onSkipSection && (
           <button
             onClick={onSkipSection}
             disabled={!canSkipSection}
@@ -595,9 +625,9 @@ export const TableOfContents = ({
             <ManagedAudioDownloadButton
               href={downloadHref}
               title={articleTitle}
-              label={summaryOnly ? "Download" : "Download all"}
+              label={downloadSummaryOnly ? "Download" : "Download all"}
               ariaLabel={
-                summaryOnly
+                downloadSummaryOnly
                   ? "Download summary as audio file"
                   : "Download full article as one audio file"
               }
@@ -606,7 +636,7 @@ export const TableOfContents = ({
             <AudioDownloadButton
               onClick={onDownloadAll}
               disabled={downloading || isGenerating}
-              label={summaryOnly ? "Download" : "Download all"}
+              label={downloadSummaryOnly ? "Download" : "Download all"}
               ariaLabel={
                 downloadStatus === "queued"
                   ? "Article download queued"
@@ -614,7 +644,7 @@ export const TableOfContents = ({
                     ? "Packaging article download"
                     : downloading
                       ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
-                      : summaryOnly
+                      : downloadSummaryOnly
                         ? "Download summary as audio file"
                         : "Download full article as one audio file"
               }
@@ -649,6 +679,21 @@ export const TableOfContents = ({
       <p className="mb-3 text-[0.6875rem] leading-normal text-muted">
         Audio is generated with synthetic speech.
       </p>
+      <p
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {contextLoading
+          ? "Generating accessible context notes."
+          : contextBlocks.length > 0
+            ? `${contextBlocks.length} accessible context ${
+                contextBlocks.length === 1 ? "note" : "notes"
+              } ready.`
+            : ""}
+      </p>
+      <ArticleContextIndex blocks={contextBlocks} loading={contextLoading} />
       {fallbackVoiceNotice ? (
         <p
           className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
@@ -694,6 +739,9 @@ export const TableOfContents = ({
                   onToggle={() =>
                     setOpenPanel((v) => (v === "summary" ? null : "summary"))
                   }
+                />
+                <ContextSectionLink
+                  blocks={getContextBlocksForSection(contextBlocks, null)}
                 />
               </span>
               <button
@@ -775,6 +823,13 @@ export const TableOfContents = ({
                       >
                         {section.title}
                       </span>
+                      <ContextSectionLink
+                        blocks={getContextBlocksForSection(
+                          contextBlocks,
+                          index,
+                          section.title,
+                        )}
+                      />
                     </span>
                     <span className="inline-flex items-center gap-1.5 shrink-0">
                       <span
@@ -826,6 +881,13 @@ export const TableOfContents = ({
                             : `section-${index}`,
                         )
                       }
+                    />
+                    <ContextSectionLink
+                      blocks={getContextBlocksForSection(
+                        contextBlocks,
+                        index,
+                        section.title,
+                      )}
                     />
                   </span>
 
@@ -911,6 +973,7 @@ export const TableOfContents = ({
           `Generating audio for ${sections[activeSectionIndex].title}, please wait.`}
         {isGenerating &&
           activeSectionIndex === null &&
+          !isContextAudio &&
           `Generating summary audio, please wait.`}
       </div>
       <div aria-live="assertive" className="sr-only" role="status">

@@ -20,7 +20,9 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, a small On This Day entry, and a compact Trending teaser. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
-**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through Vercel AI Gateway, converted to synthetic speech, and cached in Convex.
+**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through the OpenAI Responses API with web search, converted to synthetic speech, and cached in Convex.
+
+**Accessible article context** — Articles can add revision-matched maps, timelines, charts, and diagrams when Wikipedia's structured source supports them. Every visual has a useful text equivalent, descriptive caption, keyboard-operable controls, downloadable source data where appropriate, and a spoken summary that joins the article's Play All queue.
 
 **Article images** — Wikipedia thumbnails are displayed in article views with responsive layouts that adapt to portrait and landscape orientations. Images are prefetched for faster display. A Gallery section below the table of contents shows all images from the article with their captions in a card grid, with a keyboard-navigable lightbox for full-size viewing.
 
@@ -40,7 +42,8 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
 - **Auth:** Clerk for sign-in and account sessions, bridged into Convex auth for viewer-scoped data
 - **TTS:** OpenAI `gpt-4o-mini-tts` primary with Edge TTS fallback and Convex-backed variant caching
-- **AI:** Vercel AI Gateway via the AI SDK for daily trend brief generation and web search
+- **AI:** Direct OpenAI Responses API for daily trend brief generation, web search, and optional context-description enhancement
+- **Rich context:** MapLibre GL and Apache ECharts as progressive visual enhancements over semantic HTML views
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
 - **Testing:** Vitest
@@ -67,7 +70,7 @@ This design deliberately keeps the app useful without an account, distinguishes 
 
 Text is normalized before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-**OpenAI TTS** is the canonical provider for `/api/tts`, using direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. The Vercel AI Gateway remains the text-generation path, but the current Gateway probe did not expose `/v1/audio/speech` or `gpt-4o-mini-tts` speech models, so speech generation calls OpenAI directly.
+**OpenAI TTS** is the canonical provider for `/api/tts`, using direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. Text generation also uses OpenAI directly; the daily Trending brief defaults to `gpt-5.6-luna` through the Responses API.
 
 **Edge TTS fallback** remains available through `/api/tts/edge` using Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Default fallback voice is `en-US-AriaNeural`. If OpenAI fails and fallback is enabled, generation retries with Edge and records the resulting Edge provider metadata.
 
@@ -188,7 +191,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `LOCAL_MODE` | No | Server-only flag used by `npm run local` to bypass Clerk middleware outside production |
 | `NEXT_PUBLIC_LOCAL_MODE` | No | Public client/server-render flag used by `npm run local` to run without Convex or account UI |
 | `TTS_PRIMARY_PROVIDER` | No | Primary speech provider for `/api/tts`; defaults to `openai` |
-| `OPENAI_API_KEY` | Yes for OpenAI TTS | Direct OpenAI API key for `/v1/audio/speech` |
+| `OPENAI_API_KEY` | Yes for OpenAI features | Direct OpenAI API key for speech, Trending generation, and optional context-description enhancement |
 | `OPENAI_TTS_MODEL` | No | OpenAI speech model; defaults to `gpt-4o-mini-tts` |
 | `OPENAI_TTS_VOICE` | No | OpenAI voice; defaults to `marin` |
 | `OPENAI_TTS_PROMPT_VERSION` | No | Cache-busting narration prompt version; defaults to `curio-warm-narrator-v1` |
@@ -208,12 +211,16 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
 | `CRON_SECRET` | No | Bearer token expected by the scheduled podcast cron routes and manual sync routes |
-| `AI_GATEWAY_API_KEY` | No | Vercel AI Gateway API key used for the daily AI-generated trending brief |
+| `ARTICLE_CONTEXT_WRITE_SECRET` | Context persistence | Dedicated production secret for context caches, reports, and moderation; use a value distinct from `CRON_SECRET` and set it identically in Vercel and Convex (development alone may fall back to `CRON_SECRET`) |
 | `VERCEL_ANALYTICS_DRAIN_SECRET` | No | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain` |
 | `ANALYTICS_REPORT_SECRET` | No | Bearer token used by the local analytics report command and server routes to read/write compact Convex rollups; set the same value in Vercel and Convex |
 | `VERCEL_PROJECT` | No | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees |
-| `TRENDING_BRIEF_MODEL` | No | Optional primary AI Gateway model override for the daily trending brief |
-| `TRENDING_BRIEF_FALLBACK_MODEL` | No | Optional fallback AI Gateway model override for the daily trending brief |
+| `TRENDING_BRIEF_MODEL` | No | Direct OpenAI model for the daily trending brief; defaults to `gpt-5.6-luna` |
+| `CONTEXT_DESCRIPTION_MODEL` | No | Direct OpenAI model for optional article-context accessibility copy; defaults to `gpt-5.6-luna` |
+| `ARTICLE_CONTEXT_AI_ENABLED` | No | Explicitly set `true` to enable OpenAI copy editing; otherwise context descriptions stay deterministic |
+| `ARTICLE_CONTEXT_AI_DAILY_LIMIT` | No | Cross-instance OpenAI context-copy allowance per window (default `250`) |
+| `ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS` | No | Context-copy allowance window in milliseconds (default 24 hours) |
+| `NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL` | No | MapLibre style URL for maps loaded on explicit request; defaults to OpenFreeMap Liberty |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
@@ -422,7 +429,7 @@ lib/
   local-data-provider.tsx   Local implementation (direct Wikipedia API calls)
   audio-prefetch.ts       Prefetches summary audio and article thumbnails
   featured-article.ts     Shared featured-article lookup helpers
-  trending-brief.ts       AI Gateway + TTS pipeline for the daily trending briefing
+  trending-brief.ts       OpenAI Responses + TTS pipeline for the daily trending briefing
   trending-podcast-artwork.ts  Collage artwork generator for trending podcast episodes
   podcast-directory.ts    Shared podcast-directory metadata and page formatting helpers
   podcast-episode.ts      Server-side featured podcast generation pipeline
@@ -501,6 +508,7 @@ Primary Convex tables:
 - `personalPodcastFeeds` stores one opaque feed token per signed-in viewer for the tokenized Personal Playlist RSS feed.
 - `personalPlaylistEpisodes` stores the ordered personal queue plus generation state, progress, and stored MP3 metadata for each playlist episode.
 - `sectionAudio` stores per-section audio blobs keyed by article, section key, provider, model, voice, prompt version, and TTS normalization version.
+- `articleContextCaches` stores bounded, revision- and extractor-matched context manifests; `articleContextReports` and `articleContextModerations` support reader feedback and owner suppression or accessible-text overrides.
 - `podcastShowAssets` stores cached show artwork for featured, trending, and personal feeds.
 - `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
 - `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.

@@ -37,6 +37,7 @@ export default function TrendingPage() {
     summary?: string;
     keyPoints?: string[];
     sources?: { title: string; url: string }[];
+    model?: string;
     audioUrl: string | null;
   } | null>(null);
   const [briefState, setBriefState] = useState<{
@@ -93,6 +94,7 @@ export default function TrendingPage() {
             summary?: string;
             keyPoints?: string[];
             sources?: { title: string; url: string }[];
+            model?: string;
             audioUrl: string | null;
           };
         };
@@ -190,7 +192,7 @@ export default function TrendingPage() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
-                    Daily audio briefing
+                    AI-generated daily audio briefing
                   </p>
                   <h2
                     id="daily-brief-heading"
@@ -199,8 +201,13 @@ export default function TrendingPage() {
                     {brief.headline || "Why these topics are trending"}
                   </h2>
                   <p className="text-sm text-muted mt-2 leading-[1.7]">
-                    AI-generated summary of the likely reasons behind today&apos;s
-                    Wikipedia trends, informed by recent news search.
+                    <span className="font-semibold text-foreground-2">
+                      AI disclosure:
+                    </span>{" "}
+                    Curio Garden generated this summary
+                    {brief.model ? ` with OpenAI ${brief.model}` : " with OpenAI"}
+                    {" "}from Wikimedia pageview data and linked reporting. It
+                    was not written by Wikipedia and may contain errors.
                   </p>
                 </div>
 
@@ -208,7 +215,7 @@ export default function TrendingPage() {
                   <AudioPlayer
                     audioUrl={brief.audioUrl}
                     title={brief.headline || "Daily trending briefing"}
-                    label="Listen: daily trending briefing"
+                    label="Listen: AI-generated daily trending briefing"
                     playbackRate={rate}
                     onPlaybackRateChange={setRate}
                   />

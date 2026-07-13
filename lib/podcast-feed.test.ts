@@ -71,8 +71,8 @@ describe("podcast provenance descriptions", () => {
   it("labels trending briefings as AI-generated Curio Garden material", () => {
     const description = getTrendingEpisodeDescription("Today in context.");
 
-    expect(description).toContain("AI-generated Curio Garden briefing");
-    expect(description).toContain("not Wikipedia article text");
+    expect(description).toContain("generated this briefing with OpenAI");
+    expect(description).toContain("may contain errors");
   });
 });
 

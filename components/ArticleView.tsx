@@ -68,6 +68,14 @@ import {
 import { hasFullAudio } from "@/lib/audio-suitability";
 import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
 import { MediaAttribution } from "@/components/MediaAttribution";
+import {
+  ArticleContextLane,
+  getContextAudioKey,
+  getContextBlocksForSection,
+  useArticleContext,
+  type ContextAudioDetail,
+} from "@/components/ArticleContext";
+import type { ContextBlock } from "@/lib/article-context-types";
 
 type ArticleData = Article & {
   _id?: string;
@@ -91,6 +99,7 @@ const PLAY_ALL_WARM_WINDOW = 2;
 const PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS = 5_000;
 const SLOW_TTS_LOADING_NUDGE_MS = 8_000;
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+const EMPTY_CONTEXT_BLOCKS: ContextBlock[] = [];
 
 const createIdleAudioPlayback = (): AudioPlaybackState => ({
   status: "idle",
@@ -101,24 +110,43 @@ const createIdleAudioPlayback = (): AudioPlaybackState => ({
   slowLoading: false,
 });
 
-const buildPlayAllQueue = (
+export const buildPlayAllQueue = (
   sections: Section[],
   articleTitle: string,
-): QueueItem[] => [
-  {
+  contextBlocks: ContextBlock[] = [],
+): QueueItem[] => {
+  const queue: QueueItem[] = [{
     sectionKey: "summary",
     label: `${articleTitle} \u2014 Summary`,
     sectionIdx: null,
-  },
-  ...sections
-    .map((section, index) => ({ section, index }))
-    .filter(({ section }) => hasFullAudio(section))
-    .map(({ section, index }) => ({
+  }];
+  const includedContextIds = new Set<string>();
+  const addContext = (block: ContextBlock) => {
+    if (includedContextIds.has(block.id)) return;
+    includedContextIds.add(block.id);
+    queue.push({
+      sectionKey: getContextAudioKey(block, "summary"),
+      label: `${block.title} \u2014 Context for ${articleTitle}`,
+      sectionIdx: null,
+    });
+  };
+
+  getContextBlocksForSection(contextBlocks, null).forEach(addContext);
+  sections.forEach((section, index) => {
+    if (hasFullAudio(section)) {
+      queue.push({
       sectionKey: `section-${index}`,
       label: `${section.title} \u2014 ${articleTitle}`,
       sectionIdx: index,
-    })),
-];
+      });
+    }
+    getContextBlocksForSection(contextBlocks, index, section.title).forEach(addContext);
+  });
+
+  // Preserve valid context whose source section could not be matched locally.
+  contextBlocks.forEach(addContext);
+  return queue;
+};
 
 type CachedTtsMetadata = Record<string, string> | undefined;
 
@@ -435,6 +463,21 @@ const ArticleViewContent = ({
     null,
   );
 
+  const articleContext = useArticleContext(
+    displayArticle
+      ? {
+          wikiPageId: displayArticle.wikiPageId,
+          title: displayArticle.title,
+          revisionId: displayArticle.revisionId,
+          language: displayArticle.language,
+        }
+      : null,
+  );
+  const contextBlocks =
+    articleContext.status === "ready"
+      ? articleContext.manifest.blocks
+      : EMPTY_CONTEXT_BLOCKS;
+
   const activeSectionIndex = audioPlayback.sectionIdx;
   const isPaused = audioPlayback.status === "paused";
   const isSpeaking =
@@ -634,9 +677,12 @@ const ArticleViewContent = ({
   );
 
   const sectionsRef = useRef<Section[]>([]);
+  const contextTextRef = useRef<Map<string, string>>(new Map());
 
   const getTextForSection = useCallback((sectionKey: string): string => {
     if (sectionKey === "summary") return summaryTextRef.current;
+    const contextText = contextTextRef.current.get(sectionKey);
+    if (contextText) return contextText;
     const idx = parseInt(sectionKey.replace("section-", ""), 10);
     const section = sectionsRef.current[idx];
     return section ? `${section.title}. ${section.content}` : "";
@@ -873,9 +919,13 @@ const ArticleViewContent = ({
     warmSummaryForIntent();
     if (!displayArticle) return;
     warmPlayAllQueue(
-      buildPlayAllQueue(displayArticle.sections ?? [], displayArticle.title),
+      buildPlayAllQueue(
+        displayArticle.sections ?? [],
+        displayArticle.title,
+        contextBlocks,
+      ),
     );
-  }, [displayArticle, warmPlayAllQueue, warmSummaryForIntent]);
+  }, [contextBlocks, displayArticle, warmPlayAllQueue, warmSummaryForIntent]);
 
   const audioEndedRef = useRef<() => void>(() => {});
   // Keeps queued "play all" continuations calling the latest generator callback.
@@ -943,6 +993,18 @@ const ArticleViewContent = ({
   useEffect(() => {
     sectionsRef.current = displayArticle?.sections ?? [];
     summaryTextRef.current = displayArticle?.summary ?? "";
+    const contextText = new Map<string, string>();
+    for (const block of contextBlocks) {
+      contextText.set(
+        getContextAudioKey(block, "summary"),
+        `${block.title}. ${block.spokenSummary}`,
+      );
+      contextText.set(
+        getContextAudioKey(block, "description"),
+        `${block.title}. ${block.longDescription}`,
+      );
+    }
+    contextTextRef.current = contextText;
   });
 
   useEffect(() => {
@@ -965,6 +1027,7 @@ const ArticleViewContent = ({
         const queue = buildPlayAllQueue(
           displayArticle.sections ?? [],
           displayArticle.title,
+          contextBlocks,
         );
         const firstSection = queue.find((item) => item.sectionIdx !== null);
         const summaryText = displayArticle.summary ?? "";
@@ -1000,6 +1063,7 @@ const ArticleViewContent = ({
     return () => observer.disconnect();
   }, [
     displayArticle,
+    contextBlocks,
     getTextForSection,
     hasWarmAudioCached,
     slug,
@@ -1051,11 +1115,14 @@ const ArticleViewContent = ({
         mode: playbackMode,
         slowLoading: false,
       });
-      setTrackingSectionKey(sectionKey);
+      const isContextAudio = sectionKey.startsWith("context-");
+      setTrackingSectionKey(isContextAudio ? null : sectionKey);
       setFinishedPlaying(false);
       lastPlayedSectionIdx.current = sectionIdx;
 
-      updateProgress(slug, sectionKey, sectionIdx);
+      if (!isContextAudio) {
+        updateProgress(slug, sectionKey, sectionIdx);
+      }
 
       const memCached = ttsCache.current.get(sectionKey);
       if (memCached) {
@@ -1247,7 +1314,8 @@ const ArticleViewContent = ({
     (sections: Section[], articleTitle: string) => {
       const summaryOnly = sections.filter(hasFullAudio).length === 0;
       analytics.playAll(summaryOnly ? "summary" : "full");
-      const queue = buildPlayAllQueue(sections, articleTitle);
+      // Snapshot context now; blocks arriving later never alter active playback.
+      const queue = buildPlayAllQueue(sections, articleTitle, [...contextBlocks]);
       warmPlayAllQueue(queue);
 
       const first = queue.shift()!;
@@ -1255,7 +1323,7 @@ const ArticleViewContent = ({
       isPlayingAllRef.current = true;
       generateAudio(first.sectionKey, first.label, first.sectionIdx, "play_all");
     },
-    [generateAudio, warmPlayAllQueue],
+    [contextBlocks, generateAudio, warmPlayAllQueue],
   );
 
   const handleStopPlayAll = useCallback(() => {
@@ -1294,11 +1362,11 @@ const ArticleViewContent = ({
   }, [isPlayingAll, generateAudio, audioElPause, clearSlowLoadingTimer, resetAudioPlayback]);
 
   const mediaSessionTitle = isSpeaking || audioElPlaying
-    ? activeSectionIndex != null && displayArticle?.sections?.[activeSectionIndex]
+    ? audioPlayback.label ?? (activeSectionIndex != null && displayArticle?.sections?.[activeSectionIndex]
       ? `${displayArticle.sections[activeSectionIndex].title} \u2014 ${displayArticle.title}`
       : displayArticle
         ? `Summary \u2014 ${displayArticle.title}`
-        : null
+        : null)
     : null;
 
   useMediaSession({
@@ -1421,7 +1489,7 @@ const ArticleViewContent = ({
   const handleListenSummary = useCallback(
     (articleTitle: string) => {
       warmSummaryForIntent();
-      if (activeSectionIndex === null && isSpeaking) {
+      if (audioPlayback.sectionKey === "summary" && isSpeaking) {
         if (audioElPlaying) {
           audioElPause();
           setAudioPlayback((current) =>
@@ -1449,13 +1517,59 @@ const ArticleViewContent = ({
     },
     [
       generateAudio,
-      activeSectionIndex,
       isSpeaking,
       audioElPlaying,
       audioElPlay,
       audioElPause,
       clearSlowLoadingTimer,
       warmSummaryForIntent,
+      audioPlayback.sectionKey,
+    ],
+  );
+
+  const handleListenContext = useCallback(
+    (block: ContextBlock, detail: ContextAudioDetail) => {
+      const sectionKey = getContextAudioKey(block, detail);
+      if (audioPlayback.sectionKey === sectionKey && isSpeaking) {
+        if (audioElPlaying) {
+          audioElPause();
+          setAudioPlayback((current) =>
+            current.status === "playing"
+              ? { ...current, status: "paused", slowLoading: false }
+              : current,
+          );
+        } else {
+          audioElPlay();
+          setAudioPlayback((current) =>
+            current.status === "paused"
+              ? { ...current, status: "playing", slowLoading: false }
+              : current,
+          );
+        }
+        return;
+      }
+
+      playAllQueue.current = [];
+      isPlayingAllRef.current = false;
+      pendingAutoPlay.current = false;
+      clearSlowLoadingTimer();
+      audioElPause();
+      generateAudio(
+        sectionKey,
+        `${block.title} \u2014 Context for ${displayArticle?.title ?? "article"}`,
+        null,
+        "section",
+      );
+    },
+    [
+      audioElPause,
+      audioElPlay,
+      audioElPlaying,
+      audioPlayback.sectionKey,
+      clearSlowLoadingTimer,
+      displayArticle?.title,
+      generateAudio,
+      isSpeaking,
     ],
   );
 
@@ -1889,6 +2003,16 @@ const ArticleViewContent = ({
               <p className="text-sm">{audioError}</p>
               <button
                 onClick={() => {
+                  const retryKey = audioPlayback.sectionKey;
+                  if (retryKey?.startsWith("context-") && getTextForSection(retryKey)) {
+                    generateAudio(
+                      retryKey,
+                      audioPlayback.label ?? `${displayArticle.title} \u2014 Context`,
+                      null,
+                      "retry",
+                    );
+                    return;
+                  }
                   warmSummaryForIntent();
                   generateAudio(
                     "summary",
@@ -1950,22 +2074,39 @@ const ArticleViewContent = ({
           onSeek={audioElSeek}
           playAllRef={playAllRef}
           fallbackVoiceNotice={fallbackVoiceNotice}
+          contextBlocks={contextBlocks}
+          contextLoading={articleContext.status === "loading"}
         />
       </div>
 
-      {/* 4. Gallery */}
+      {/* 4. Accessible contextual maps, timelines, data, and diagrams */}
+      <div className="animate-fade-in-up-delay-2 mb-6">
+        <ArticleContextLane
+          state={articleContext}
+          retry={articleContext.retry}
+          activeAudioKey={
+            audioPlayback.sectionKey?.startsWith("context-")
+              ? audioPlayback.sectionKey
+              : null
+          }
+          playbackStatus={audioPlayback.status}
+          onListen={handleListenContext}
+        />
+      </div>
+
+      {/* 5. Gallery */}
       <div className="animate-fade-in-up-delay-2 mb-6">
         <ArticleGallery wikiPageId={wikiPageId} />
       </div>
 
-      {/* 5. Related articles (shown after playback finishes) */}
+      {/* 6. Related articles (shown after playback finishes) */}
       {finishedPlaying && (
         <div className="animate-fade-in-up mb-6">
           <RelatedArticles wikiPageId={wikiPageId} currentTitle={displayArticle.title} />
         </div>
       )}
 
-      {/* 6. Article metadata */}
+      {/* 7. Article metadata */}
       <ArticleHeader
         title={displayArticle.title}
         language={displayArticle.language}
