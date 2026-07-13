@@ -30,6 +30,7 @@ afterEach(() => {
   restore("ARTICLE_CONTEXT_AI_DAILY_LIMIT", originalEnv.dailyLimit);
   restore("ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS", originalEnv.dailyWindow);
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("article context AI quota", () => {
@@ -71,6 +72,24 @@ describe("article context AI quota", () => {
 
     await expect(consumeArticleContextAIQuota()).resolves.toBe(false);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("fails closed promptly when the distributed quota check stalls", async () => {
+    vi.useFakeTimers();
+    fetchMutation.mockImplementation(() => new Promise(() => undefined));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { consumeArticleContextAIQuota } = await import(
+      "./article-context-ai-quota"
+    );
+
+    const result = consumeArticleContextAIQuota();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(result).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("AI quota check failed"),
+      expect.stringContaining("timed out"),
+    );
   });
 
   it("allows local-mode development without a distributed store", async () => {

@@ -10,8 +10,10 @@ import {
   ArticleContextIndex,
   ArticleContextLane,
   chartToCsv,
+  getContextAudioDetail,
   getContextAudioKey,
   getContextBlocksForSection,
+  isContextAudioKey,
 } from "./ArticleContext";
 import { Lightbox } from "./ArticleGallery";
 
@@ -197,6 +199,19 @@ describe("ArticleContext", () => {
     expect(getContextAudioKey(blocks[0], "description")).toBe(
       "context-description-map-one-abcdef123456",
     );
+  });
+
+  it("recognizes only supported context audio keys and recovers their detail", () => {
+    const summaryKey = getContextAudioKey(blocks[0], "summary");
+    const descriptionKey = getContextAudioKey(blocks[0], "description");
+
+    expect(isContextAudioKey(summaryKey)).toBe(true);
+    expect(isContextAudioKey(descriptionKey)).toBe(true);
+    expect(getContextAudioDetail(summaryKey)).toBe("summary");
+    expect(getContextAudioDetail(descriptionKey)).toBe("description");
+    expect(isContextAudioKey("context-unknown-map-one")).toBe(false);
+    expect(isContextAudioKey("section-0")).toBe(false);
+    expect(isContextAudioKey(null)).toBe(false);
   });
 
   it("neutralizes formula-leading chart strings in client CSV downloads", () => {

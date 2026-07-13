@@ -51,6 +51,8 @@ const manifest: ContextManifest = {
           { id: "part-2", label: "+CMD" },
           { id: "part-3", label: "-10+20" },
           { id: "part-4", label: "@SUM(A1:A2)" },
+          { id: "part-5", label: "\tformula trigger" },
+          { id: "part-6", label: "\rformula trigger" },
         ],
         relationships: [],
         walkthrough: [],
@@ -66,5 +68,7 @@ describe("article context CSV downloads", () => {
     expect(csv).toContain("'+CMD");
     expect(csv).toContain("'-10+20");
     expect(csv).toContain("'@SUM(A1:A2)");
+    expect(csv).toContain("'\tformula trigger");
+    expect(csv).toContain("'\rformula trigger");
   });
 });

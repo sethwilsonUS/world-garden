@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Section } from "@/lib/data-context";
 import type { ContextBlock } from "@/lib/article-context-types";
-import { buildPlayAllQueue } from "./ArticleView";
+import {
+  buildPlayAllQueue,
+  formatContextAudioPlaybackLabel,
+  getAudioRetryAriaLabel,
+  getContextAudioFallbackLabel,
+} from "./ArticleView";
 
 const source = {
   label: "Wikipedia",
@@ -69,6 +74,9 @@ describe("buildPlayAllQueue", () => {
       "context-summary-unmatched-unmatched-ha",
     ]);
     expect(queue[4].sectionIdx).toBeNull();
+    expect(queue[1].label).toBe(
+      "lead-map — Context summary for Example",
+    );
   });
 
   it("does not duplicate a block matched by both section index and title", () => {
@@ -84,5 +92,29 @@ describe("buildPlayAllQueue", () => {
     const context = [contextBlock("history", { index: "1", title: "History" }, 1)];
 
     expect(buildPlayAllQueue(sections, "Example", context)).toHaveLength(3);
+  });
+
+  it("distinguishes context summaries and descriptions in playback labels", () => {
+    const summaryKey = "context-summary-map-hash";
+    const descriptionKey = "context-description-map-hash";
+
+    expect(
+      formatContextAudioPlaybackLabel("Map", "Example", "summary"),
+    ).toBe("Map — Context summary for Example");
+    expect(
+      formatContextAudioPlaybackLabel("Map", "Example", "description"),
+    ).toBe("Map — Context description for Example");
+    expect(getContextAudioFallbackLabel("Example", summaryKey)).toBe(
+      "Example — Context summary",
+    );
+    expect(getContextAudioFallbackLabel("Example", descriptionKey)).toBe(
+      "Example — Context description",
+    );
+    expect(getAudioRetryAriaLabel(summaryKey)).toBe(
+      "Try generating context summary audio again",
+    );
+    expect(getAudioRetryAriaLabel(descriptionKey)).toBe(
+      "Try generating context description audio again",
+    );
   });
 });

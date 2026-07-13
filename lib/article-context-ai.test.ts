@@ -116,20 +116,26 @@ describe("article context AI descriptions", () => {
   });
 
   it("accepts copy-only enhancement and records provenance", async () => {
+    const client = clientWith({
+      blocks: [
+        {
+          id: "timeline-1",
+          takeaway: "Two milestones span 1969 to 1972.",
+          spokenSummary: "Launch came in 1969, followed by return in 1972.",
+          longDescription:
+            "The chronology begins with launch in 1969 and ends with return in 1972.",
+        },
+      ],
+    });
     const enhanced = await enhanceArticleContextManifest(manifest, {
-      client: clientWith({
-        blocks: [
-          {
-            id: "timeline-1",
-            takeaway: "Two milestones span 1969 to 1972.",
-            spokenSummary: "Launch came in 1969, followed by return in 1972.",
-            longDescription:
-              "The chronology begins with launch in 1969 and ends with return in 1972.",
-          },
-        ],
-      }),
+      client,
       model: "gpt-5.6-luna",
     });
+
+    expect(client.responses.parse).toHaveBeenCalledWith(
+      expect.anything(),
+      { timeout: 20_000 },
+    );
 
     expect(enhanced.blocks[0]?.takeaway).toContain("1969");
     expect(enhanced.blocks[0]?.provenance).toMatchObject({
@@ -148,6 +154,23 @@ describe("article context AI descriptions", () => {
             takeaway: "Three milestones are shown.",
             spokenSummary: "An extra milestone appeared in 1975.",
             longDescription: "Events occurred in 1969, 1972, and 1975.",
+          },
+        ],
+      }),
+    });
+
+    expect(enhanced).toBe(manifest);
+  });
+
+  it("does not accept a revision identifier as a content fact", async () => {
+    const enhanced = await enhanceArticleContextManifest(manifest, {
+      client: clientWith({
+        blocks: [
+          {
+            id: "timeline-1",
+            takeaway: "A milestone happened in 100.",
+            spokenSummary: "The chronology starts in 100.",
+            longDescription: "The source chronology records the year 100.",
           },
         ],
       }),

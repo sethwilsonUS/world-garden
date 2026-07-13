@@ -101,6 +101,7 @@ export const GET = async (req: NextRequest) => {
     ${xmlTag("itunes:duration", duration)}
     ${xmlTag("itunes:episodeType", "full")}
     <podcast:txt purpose="ai-disclosure">${escapeXml(TRENDING_AI_DISCLOSURE)}</podcast:txt>
+    <podcast:txt purpose="ai-content">true</podcast:txt>
     <itunes:image href="${escapeXml(itemImageUrl)}" />
   </item>`.trim();
       })
@@ -128,6 +129,7 @@ export const GET = async (req: NextRequest) => {
   <itunes:type>episodic</itunes:type>
   <itunes:category text="News" />
   <podcast:txt purpose="ai-disclosure">${escapeXml(TRENDING_PODCAST_AI_DISCLOSURE)}</podcast:txt>
+  <podcast:txt purpose="ai-content">true</podcast:txt>
   <itunes:image href="${escapeXml(feedImageUrl)}" />
 ${itemsXml}
 </channel>

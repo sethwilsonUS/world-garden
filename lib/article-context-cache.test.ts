@@ -14,6 +14,7 @@ vi.mock("./article-context-extractor", () => ({
 }));
 
 vi.mock("./article-context-ai", () => ({
+  CONTEXT_DESCRIPTION_PROMPT_VERSION: "context-accessibility-v2",
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
 }));

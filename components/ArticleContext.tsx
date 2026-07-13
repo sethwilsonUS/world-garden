@@ -27,6 +27,8 @@ export type ArticleContextLoadState =
   | { status: "ready"; manifest: ContextManifest; error: null }
   | { status: "error"; manifest: null; error: string };
 
+export type ContextAudioDetail = "summary" | "description";
+
 const KIND_LABELS: Record<ContextBlockKind, string> = {
   map: "Map",
   timeline: "Timeline",
@@ -52,11 +54,23 @@ export const getContextBlockDomId = (block: Pick<ContextBlock, "id">): string =>
 
 export const getContextAudioKey = (
   block: ContextBlock,
-  detail: "summary" | "description" = "summary",
+  detail: ContextAudioDetail = "summary",
 ): string => {
   const hash = block.provenance.sourceHash.slice(0, 12);
   return `context-${detail}-${slugify(block.id)}-${hash}`;
 };
+
+export const getContextAudioDetail = (
+  sectionKey: string | null | undefined,
+): ContextAudioDetail | null => {
+  if (sectionKey?.startsWith("context-summary-")) return "summary";
+  if (sectionKey?.startsWith("context-description-")) return "description";
+  return null;
+};
+
+export const isContextAudioKey = (
+  sectionKey: string | null | undefined,
+): sectionKey is string => getContextAudioDetail(sectionKey) !== null;
 
 export const getContextBlocksForSection = (
   blocks: ContextBlock[],
@@ -389,8 +403,6 @@ const ContextReportForm = ({
     </details>
   );
 };
-
-export type ContextAudioDetail = "summary" | "description";
 
 const ContextListenButton = ({
   block,

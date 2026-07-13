@@ -70,8 +70,10 @@ import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider"
 import { MediaAttribution } from "@/components/MediaAttribution";
 import {
   ArticleContextLane,
+  getContextAudioDetail,
   getContextAudioKey,
   getContextBlocksForSection,
+  isContextAudioKey,
   useArticleContext,
   type ContextAudioDetail,
 } from "@/components/ArticleContext";
@@ -110,6 +112,33 @@ const createIdleAudioPlayback = (): AudioPlaybackState => ({
   slowLoading: false,
 });
 
+const contextAudioDetailLabel = (detail: ContextAudioDetail): string =>
+  detail === "summary" ? "Context summary" : "Context description";
+
+export const formatContextAudioPlaybackLabel = (
+  contextTitle: string,
+  articleTitle: string,
+  detail: ContextAudioDetail,
+): string =>
+  `${contextTitle} \u2014 ${contextAudioDetailLabel(detail)} for ${articleTitle}`;
+
+export const getContextAudioFallbackLabel = (
+  articleTitle: string,
+  sectionKey: string | null | undefined,
+): string | null => {
+  const detail = getContextAudioDetail(sectionKey);
+  return detail ? `${articleTitle} \u2014 ${contextAudioDetailLabel(detail)}` : null;
+};
+
+export const getAudioRetryAriaLabel = (
+  sectionKey: string | null | undefined,
+): string => {
+  const detail = getContextAudioDetail(sectionKey);
+  return detail
+    ? `Try generating context ${detail} audio again`
+    : "Try generating audio again";
+};
+
 export const buildPlayAllQueue = (
   sections: Section[],
   articleTitle: string,
@@ -126,7 +155,11 @@ export const buildPlayAllQueue = (
     includedContextIds.add(block.id);
     queue.push({
       sectionKey: getContextAudioKey(block, "summary"),
-      label: `${block.title} \u2014 Context for ${articleTitle}`,
+      label: formatContextAudioPlaybackLabel(
+        block.title,
+        articleTitle,
+        "summary",
+      ),
       sectionIdx: null,
     });
   };
@@ -1005,7 +1038,7 @@ const ArticleViewContent = ({
       );
     }
     contextTextRef.current = contextText;
-  });
+  }, [contextBlocks, displayArticle?.sections, displayArticle?.summary]);
 
   useEffect(() => {
     if (!displayArticle) return;
@@ -1115,7 +1148,7 @@ const ArticleViewContent = ({
         mode: playbackMode,
         slowLoading: false,
       });
-      const isContextAudio = sectionKey.startsWith("context-");
+      const isContextAudio = isContextAudioKey(sectionKey);
       setTrackingSectionKey(isContextAudio ? null : sectionKey);
       setFinishedPlaying(false);
       lastPlayedSectionIdx.current = sectionIdx;
@@ -1361,8 +1394,14 @@ const ArticleViewContent = ({
     }
   }, [isPlayingAll, generateAudio, audioElPause, clearSlowLoadingTimer, resetAudioPlayback]);
 
+  const contextMediaSessionFallback = displayArticle
+    ? getContextAudioFallbackLabel(
+        displayArticle.title,
+        audioPlayback.sectionKey,
+      )
+    : null;
   const mediaSessionTitle = isSpeaking || audioElPlaying
-    ? audioPlayback.label ?? (activeSectionIndex != null && displayArticle?.sections?.[activeSectionIndex]
+    ? audioPlayback.label ?? contextMediaSessionFallback ?? (activeSectionIndex != null && displayArticle?.sections?.[activeSectionIndex]
       ? `${displayArticle.sections[activeSectionIndex].title} \u2014 ${displayArticle.title}`
       : displayArticle
         ? `Summary \u2014 ${displayArticle.title}`
@@ -1556,7 +1595,11 @@ const ArticleViewContent = ({
       audioElPause();
       generateAudio(
         sectionKey,
-        `${block.title} \u2014 Context for ${displayArticle?.title ?? "article"}`,
+        formatContextAudioPlaybackLabel(
+          block.title,
+          displayArticle?.title ?? "article",
+          detail,
+        ),
         null,
         "section",
       );
@@ -2004,10 +2047,15 @@ const ArticleViewContent = ({
               <button
                 onClick={() => {
                   const retryKey = audioPlayback.sectionKey;
-                  if (retryKey?.startsWith("context-") && getTextForSection(retryKey)) {
+                  if (isContextAudioKey(retryKey) && getTextForSection(retryKey)) {
                     generateAudio(
                       retryKey,
-                      audioPlayback.label ?? `${displayArticle.title} \u2014 Context`,
+                      audioPlayback.label ??
+                        getContextAudioFallbackLabel(
+                          displayArticle.title,
+                          retryKey,
+                        ) ??
+                        `${displayArticle.title} \u2014 Context audio`,
                       null,
                       "retry",
                     );
@@ -2022,7 +2070,7 @@ const ArticleViewContent = ({
                   );
                 }}
                 className="btn-secondary mt-3 px-4 py-2 text-sm"
-                aria-label="Try generating audio again"
+                aria-label={getAudioRetryAriaLabel(audioPlayback.sectionKey)}
               >
                 Try again
               </button>
@@ -2085,7 +2133,7 @@ const ArticleViewContent = ({
           state={articleContext}
           retry={articleContext.retry}
           activeAudioKey={
-            audioPlayback.sectionKey?.startsWith("context-")
+            isContextAudioKey(audioPlayback.sectionKey)
               ? audioPlayback.sectionKey
               : null
           }

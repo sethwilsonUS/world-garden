@@ -14,6 +14,7 @@ import type {
 const DEFAULT_CONTEXT_DESCRIPTION_MODEL = "gpt-5.6-luna";
 export const CONTEXT_DESCRIPTION_PROMPT_VERSION = "context-accessibility-v2";
 const MAX_CONTEXT_DESCRIPTION_SOURCE_CHARS = 120_000;
+const CONTEXT_DESCRIPTION_TIMEOUT_MS = 20_000;
 
 const ContextDescriptionSchema = z.object({
   blocks: z
@@ -123,17 +124,34 @@ const numericTokens = (value: string): Set<string> =>
  */
 const hasOnlySourceNumbers = (
   description: ContextDescriptionResult,
-  sourceBlocks: Array<{ id: string }>,
+  sourceBlocks: Array<{
+    id: string;
+    deterministicCopy?: unknown;
+    extractedFacts?: unknown;
+  }>,
 ): boolean => {
   const sourcesById = new Map(
-    sourceBlocks.map((block) => [block.id, numericTokens(JSON.stringify(block))]),
+    sourceBlocks.map((block) => [
+      block.id,
+      numericTokens(
+        JSON.stringify({
+          deterministicCopy: block.deterministicCopy,
+          extractedFacts: block.extractedFacts,
+        }),
+      ),
+    ]),
   );
   return description.blocks.every((block) => {
     const allowed = sourcesById.get(block.id);
     if (!allowed) return false;
-    return [...numericTokens(JSON.stringify(block))].every((token) =>
-      allowed.has(token),
+    const generated = numericTokens(
+      JSON.stringify({
+        takeaway: block.takeaway,
+        spokenSummary: block.spokenSummary,
+        longDescription: block.longDescription,
+      }),
     );
+    return [...generated].every((token) => allowed.has(token));
   });
 };
 
@@ -182,27 +200,30 @@ export const enhanceArticleContextManifest = async (
 
   try {
     const client = options.client ?? getOpenAIClient();
-    const response = await client.responses.parse({
-      model,
-      store: false,
-      input: [
-        {
-          role: "system",
-          content:
-            "You are the accessibility copy editor for Curio Garden, an audio-first Wikipedia reader. Rewrite only the supplied deterministic descriptions so they are concise, concrete, neutral, and useful without sight. Preserve every fact exactly. Never add, infer, round, or omit dates, coordinates, measurements, values, labels, relationships, or uncertainty. For charts, call minimum and maximum values the lowest and highest; do not use from-to wording that could imply chronological endpoints. For diagrams, mention a walkthrough, named parts, or relationships only when the extracted facts actually include them; otherwise describe the static source image and its caption. Do not describe colors or visual position unless the source explicitly gives them. Spoken summaries must sound natural when read aloud and must not include URLs. Return one item for every supplied block ID.",
+    const response = await client.responses.parse(
+      {
+        model,
+        store: false,
+        input: [
+          {
+            role: "system",
+            content:
+              "You are the accessibility copy editor for Curio Garden, an audio-first Wikipedia reader. Rewrite only the supplied deterministic descriptions so they are concise, concrete, neutral, and useful without sight. Preserve every fact exactly. Never add, infer, round, or omit dates, coordinates, measurements, values, labels, relationships, or uncertainty. For charts, call minimum and maximum values the lowest and highest; do not use from-to wording that could imply chronological endpoints. For diagrams, mention a walkthrough, named parts, or relationships only when the extracted facts actually include them; otherwise describe the static source image and its caption. Do not describe colors or visual position unless the source explicitly gives them. Spoken summaries must sound natural when read aloud and must not include URLs. Return one item for every supplied block ID.",
+          },
+          {
+            role: "user",
+            content: `Article: ${manifest.title}\nRevision: ${manifest.revisionId}\n\nContext blocks:\n${sourcePayload}`,
+          },
+        ],
+        text: {
+          format: zodTextFormat(
+            ContextDescriptionSchema,
+            "article_context_descriptions",
+          ),
         },
-        {
-          role: "user",
-          content: `Article: ${manifest.title}\nRevision: ${manifest.revisionId}\n\nContext blocks:\n${sourcePayload}`,
-        },
-      ],
-      text: {
-        format: zodTextFormat(
-          ContextDescriptionSchema,
-          "article_context_descriptions",
-        ),
       },
-    });
+      { timeout: CONTEXT_DESCRIPTION_TIMEOUT_MS },
+    );
 
     const description = response.output_parsed;
     if (

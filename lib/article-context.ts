@@ -5,6 +5,7 @@ import {
   type ArticleContextExtractorOptions,
 } from "./article-context-extractor";
 import {
+  CONTEXT_DESCRIPTION_PROMPT_VERSION,
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
 } from "./article-context-ai";
@@ -58,7 +59,7 @@ const deterministicKey = (request: ArticleContextRequest): string =>
 const enhancementVariant = (): string =>
   [
     process.env.CONTEXT_DESCRIPTION_MODEL?.trim() || "gpt-5.6-luna",
-    "context-accessibility-v1",
+    CONTEXT_DESCRIPTION_PROMPT_VERSION,
     process.env.ARTICLE_CONTEXT_AI_ENABLED?.trim() || "default",
     process.env.OPENAI_API_KEY?.trim() ? "configured" : "unconfigured",
   ].join(":");
