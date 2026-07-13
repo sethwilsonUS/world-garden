@@ -51,6 +51,13 @@ type AdaptiveImagePresentationInput = {
 
 const analysisCache = new Map<string, Promise<AdaptiveImageAnalysis>>();
 
+class RetryableAdaptiveImageAnalysisError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "RetryableAdaptiveImageAnalysisError";
+  }
+}
+
 const isPositiveDimension = (value: number | undefined): value is number =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
 
@@ -210,86 +217,95 @@ const analyzeImageWithoutCache = async (
     return fallbackAnalysis(url);
   }
 
+  const image = new window.Image();
+  image.crossOrigin = "anonymous";
+  image.decoding = "async";
+
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () =>
+      reject(
+        new RetryableAdaptiveImageAnalysisError(
+          "Adaptive image appearance analysis failed",
+        ),
+      );
+    image.src = url;
+  });
+
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (!width || !height) return fallbackAnalysis(url);
+
+  const scale = Math.min(
+    1,
+    TRANSPARENCY_SAMPLE_SIZE / Math.max(width, height),
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return fallbackAnalysis(url);
+
+  let data: Uint8ClampedArray;
   try {
-    const image = new window.Image();
-    image.crossOrigin = "anonymous";
-    image.decoding = "async";
-
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () =>
-        reject(new Error("Adaptive image appearance analysis failed"));
-      image.src = url;
-    });
-
-    const width = image.naturalWidth || image.width;
-    const height = image.naturalHeight || image.height;
-    if (!width || !height) return fallbackAnalysis(url);
-
-    const scale = Math.min(
-      1,
-      TRANSPARENCY_SAMPLE_SIZE / Math.max(width, height),
-    );
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(width * scale));
-    canvas.height = Math.max(1, Math.round(height * scale));
-
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    if (!context) return fallbackAnalysis(url);
-
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const { data } = context.getImageData(
+    data = context.getImageData(
       0,
       0,
       canvas.width,
       canvas.height,
-    );
-
-    let transparentPixels = 0;
-    const totalPixels = data.length / 4;
-    let visiblePixels = 0;
-    let redTotal = 0;
-    let greenTotal = 0;
-    let blueTotal = 0;
-    let alphaWeightTotal = 0;
-
-    for (let index = 0; index < data.length; index += 4) {
-      const alpha = data[index + 3];
-      if (alpha < TRANSPARENCY_ALPHA_THRESHOLD) transparentPixels += 1;
-      if (alpha <= VISIBLE_PIXEL_ALPHA_THRESHOLD) continue;
-
-      const weight = alpha / 255;
-      redTotal += data[index] * weight;
-      greenTotal += data[index + 1] * weight;
-      blueTotal += data[index + 2] * weight;
-      alphaWeightTotal += weight;
-      visiblePixels += 1;
+    ).data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "SecurityError") {
+      throw new RetryableAdaptiveImageAnalysisError(
+        "Adaptive image pixels are temporarily unavailable",
+        { cause: error },
+      );
     }
-
-    if (totalPixels === 0) return fallbackAnalysis(url);
-
-    const hasTransparency =
-      transparentPixels / totalPixels >= TRANSPARENCY_MIN_RATIO;
-    if (!hasTransparency || visiblePixels === 0 || alphaWeightTotal === 0) {
-      return { url, hasTransparency };
-    }
-
-    const averageColor: RgbColor = [
-      clamp(Math.round(redTotal / alphaWeightTotal), 0, 255),
-      clamp(Math.round(greenTotal / alphaWeightTotal), 0, 255),
-      clamp(Math.round(blueTotal / alphaWeightTotal), 0, 255),
-    ];
-
-    return {
-      url,
-      hasTransparency,
-      ...buildTransparentImagePanel(averageColor),
-    };
-  } catch {
-    // Image loading, canvas support, and cross-origin pixel access are all
-    // opportunistic. A normal cover image is the safe fallback.
-    return fallbackAnalysis(url);
+    throw error;
   }
+
+  let transparentPixels = 0;
+  const totalPixels = data.length / 4;
+  let visiblePixels = 0;
+  let redTotal = 0;
+  let greenTotal = 0;
+  let blueTotal = 0;
+  let alphaWeightTotal = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3];
+    if (alpha < TRANSPARENCY_ALPHA_THRESHOLD) transparentPixels += 1;
+    if (alpha <= VISIBLE_PIXEL_ALPHA_THRESHOLD) continue;
+
+    const weight = alpha / 255;
+    redTotal += data[index] * weight;
+    greenTotal += data[index + 1] * weight;
+    blueTotal += data[index + 2] * weight;
+    alphaWeightTotal += weight;
+    visiblePixels += 1;
+  }
+
+  if (totalPixels === 0) return fallbackAnalysis(url);
+
+  const hasTransparency =
+    transparentPixels / totalPixels >= TRANSPARENCY_MIN_RATIO;
+  if (!hasTransparency || visiblePixels === 0 || alphaWeightTotal === 0) {
+    return { url, hasTransparency };
+  }
+
+  const averageColor: RgbColor = [
+    clamp(Math.round(redTotal / alphaWeightTotal), 0, 255),
+    clamp(Math.round(greenTotal / alphaWeightTotal), 0, 255),
+    clamp(Math.round(blueTotal / alphaWeightTotal), 0, 255),
+  ];
+
+  return {
+    url,
+    hasTransparency,
+    ...buildTransparentImagePanel(averageColor),
+  };
 };
 
 export const analyzeAdaptiveImage = (
@@ -298,7 +314,22 @@ export const analyzeAdaptiveImage = (
   const cached = analysisCache.get(url);
   if (cached) return cached;
 
-  const analysis = analyzeImageWithoutCache(url);
+  const analysis = analyzeImageWithoutCache(url).catch((error: unknown) => {
+    // A failed request or a temporary CORS denial may succeed later. Remove
+    // only this failed attempt after it has been installed in the cache so
+    // concurrent callers still share it and the next call can retry.
+    if (
+      error instanceof RetryableAdaptiveImageAnalysisError &&
+      analysisCache.get(url) === analysis
+    ) {
+      analysisCache.delete(url);
+    }
+
+    // Appearance analysis is opportunistic. Unsupported or unexpected
+    // failures retain the safe fallback in the cache rather than retrying on
+    // every render.
+    return fallbackAnalysis(url);
+  });
   analysisCache.set(url, analysis);
   return analysis;
 };

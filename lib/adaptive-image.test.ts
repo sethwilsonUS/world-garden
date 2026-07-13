@@ -19,7 +19,7 @@ const installImageClass = ({
 }: {
   width?: number;
   height?: number;
-  fail?: boolean;
+  fail?: boolean | (() => boolean);
   onConstruct?: () => void;
 }) => {
   class TestImage {
@@ -38,7 +38,8 @@ const installImageClass = ({
 
     set src(_value: string) {
       queueMicrotask(() => {
-        if (fail) this.onerror?.();
+        const shouldFail = typeof fail === "function" ? fail() : fail;
+        if (shouldFail) this.onerror?.();
         else this.onload?.();
       });
     }
@@ -55,6 +56,7 @@ beforeEach(() => resetAdaptiveImageAnalysisCacheForTests());
 afterEach(() => {
   resetAdaptiveImageAnalysisCacheForTests();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   Object.defineProperty(window, "Image", {
     configurable: true,
     value: originalImage,
@@ -221,31 +223,131 @@ describe("adaptive image appearance analysis", () => {
     expect(imageConstructions).toBe(1);
   });
 
-  it("falls back without rejecting when canvas pixels are unavailable", async () => {
-    installImageClass({});
+  it("retries after a transient CORS failure, then caches the successful analysis", async () => {
+    let imageConstructions = 0;
+    installImageClass({ onConstruct: () => imageConstructions++ });
+    const getImageData = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new DOMException("Blocked by CORS", "SecurityError");
+      })
+      .mockReturnValue({
+        data: new Uint8ClampedArray([
+          10, 20, 30, 255,
+          10, 20, 30, 255,
+          10, 20, 30, 255,
+          10, 20, 30, 255,
+        ]),
+      });
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
       drawImage: vi.fn(),
-      getImageData: vi.fn(() => {
-        throw new DOMException("Blocked by CORS", "SecurityError");
-      }),
+      getImageData,
     } as never);
 
-    await expect(
+    const first = analyzeAdaptiveImage(
+      "https://example.com/cross-origin.jpg",
+    );
+    expect(
       analyzeAdaptiveImage("https://example.com/cross-origin.jpg"),
-    ).resolves.toEqual({
+    ).toBe(first);
+    await expect(first).resolves.toEqual({
       url: "https://example.com/cross-origin.jpg",
       hasTransparency: false,
     });
-  });
 
-  it("falls back without rejecting when the image cannot load", async () => {
-    installImageClass({ fail: true });
-
-    await expect(
-      analyzeAdaptiveImage("https://example.com/missing.jpg"),
-    ).resolves.toEqual({
-      url: "https://example.com/missing.jpg",
+    const retry = analyzeAdaptiveImage(
+      "https://example.com/cross-origin.jpg",
+    );
+    expect(retry).not.toBe(first);
+    await expect(retry).resolves.toEqual({
+      url: "https://example.com/cross-origin.jpg",
       hasTransparency: false,
     });
+    expect(
+      analyzeAdaptiveImage("https://example.com/cross-origin.jpg"),
+    ).toBe(retry);
+    expect(imageConstructions).toBe(2);
+    expect(getImageData).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares a failed image request, then retries and caches the next result", async () => {
+    let imageConstructions = 0;
+    let loadAttempts = 0;
+    installImageClass({
+      fail: () => loadAttempts++ === 0,
+      onConstruct: () => imageConstructions++,
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+
+    const first = analyzeAdaptiveImage("https://example.com/transient.jpg");
+    expect(analyzeAdaptiveImage("https://example.com/transient.jpg")).toBe(
+      first,
+    );
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/transient.jpg",
+      hasTransparency: false,
+    });
+
+    const retry = analyzeAdaptiveImage("https://example.com/transient.jpg");
+    expect(retry).not.toBe(first);
+    await expect(retry).resolves.toEqual({
+      url: "https://example.com/transient.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/transient.jpg")).toBe(
+      retry,
+    );
+    expect(imageConstructions).toBe(2);
+  });
+
+  it("caches the safe SSR fallback", async () => {
+    vi.stubGlobal("window", undefined);
+
+    const first = analyzeAdaptiveImage("https://example.com/server.jpg");
+    expect(analyzeAdaptiveImage("https://example.com/server.jpg")).toBe(
+      first,
+    );
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/server.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/server.jpg")).toBe(
+      first,
+    );
+  });
+
+  it("caches the fallback when a loaded image has no dimensions", async () => {
+    let imageConstructions = 0;
+    installImageClass({
+      width: 0,
+      height: 0,
+      onConstruct: () => imageConstructions++,
+    });
+
+    const first = analyzeAdaptiveImage("https://example.com/no-size.jpg");
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/no-size.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/no-size.jpg")).toBe(
+      first,
+    );
+    expect(imageConstructions).toBe(1);
+  });
+
+  it("caches the fallback when canvas analysis is unsupported", async () => {
+    let imageConstructions = 0;
+    installImageClass({ onConstruct: () => imageConstructions++ });
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+
+    const first = analyzeAdaptiveImage("https://example.com/no-canvas.jpg");
+    await expect(first).resolves.toEqual({
+      url: "https://example.com/no-canvas.jpg",
+      hasTransparency: false,
+    });
+    expect(analyzeAdaptiveImage("https://example.com/no-canvas.jpg")).toBe(
+      first,
+    );
+    expect(imageConstructions).toBe(1);
   });
 });

@@ -135,7 +135,10 @@ const analyticalLightboxUrl =
 
 const mockArticleData = async (
   page: Page,
-  options: { failAnalyticalLightbox?: boolean } = {},
+  options: {
+    failAnalyticalLightbox?: boolean;
+    failAnalyticalThumbnail?: boolean;
+  } = {},
 ) => {
   const lightboxRequests: string[] = [];
 
@@ -143,8 +146,10 @@ const mockArticleData = async (
     const requestUrl = route.request().url();
     if (requestUrl.includes("/1600px-")) lightboxRequests.push(requestUrl);
     if (
-      options.failAnalyticalLightbox &&
-      requestUrl === analyticalLightboxUrl
+      (options.failAnalyticalLightbox &&
+        requestUrl === analyticalLightboxUrl) ||
+      (options.failAnalyticalThumbnail &&
+        requestUrl === analyticalThumbnailUrl)
     ) {
       return route.fulfill({
         status: 404,
@@ -542,6 +547,36 @@ test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and fall
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
+});
+
+test("gallery lightbox reports a total image failure once", async ({ page }) => {
+  await mockArticleData(page, {
+    failAnalyticalLightbox: true,
+    failAnalyticalThumbnail: true,
+  });
+  await page.goto("/article/Ada_Lovelace");
+
+  await page
+    .getByRole("button", {
+      name: "Open image 2 of 2: Analytical Engine at the Science Museum",
+    })
+    .click();
+
+  const dialog = page.getByRole("dialog", { name: "Image gallery" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByText("This image could not be loaded.", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    dialog.getByRole("status").filter({
+      hasText: "This image could not be loaded.",
+    }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByText(
+      "The larger image was unavailable, so the gallery thumbnail is shown.",
+    ),
+  ).toHaveCount(0);
 });
 
 test("mobile navigation, theme, reflow, and project story remain usable", async ({ page }) => {

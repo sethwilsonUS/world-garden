@@ -231,9 +231,8 @@ export const Lightbox = ({
     preferredSource !== image.src && failedSources.has(preferredSource);
   const displayedSource = preferredSourceFailed ? image.src : preferredSource;
   const displayedSourceFailed = failedSources.has(displayedSource);
-  const imageStatus = displayedSourceFailed
-    ? "This image could not be loaded."
-    : preferredSourceFailed
+  const imageStatus =
+    preferredSourceFailed && !displayedSourceFailed
       ? "The larger image was unavailable, so the gallery thumbnail is shown."
       : null;
   const hasDetails = Boolean(

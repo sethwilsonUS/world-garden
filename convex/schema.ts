@@ -265,6 +265,7 @@ export default defineSchema({
         }),
       ),
     ),
+    mediaMetadataVersion: v.optional(v.number()),
     cachedAt: v.number(),
   }).index("by_wikiPageId", ["wikiPageId"]),
 
