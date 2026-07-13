@@ -33,6 +33,24 @@ const shouldIgnoreGalleryNavigation = (target: EventTarget | null): boolean => {
   );
 };
 
+const normalizeAlternativeText = (value: string): string =>
+  value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+
+const getLightboxImageAlt = (image: ArticleImage): string => {
+  const alt = image.alt?.trim() ?? "";
+  const caption = image.caption?.trim() ?? "";
+
+  if (
+    !alt ||
+    (caption &&
+      normalizeAlternativeText(alt) === normalizeAlternativeText(caption))
+  ) {
+    return "";
+  }
+
+  return alt;
+};
+
 const ImageCard = ({
   image,
   index,
@@ -55,7 +73,7 @@ const ImageCard = ({
           onClick={(event) => onOpen(index, event.currentTarget)}
           aria-label={`Open image ${index + 1} of ${total}: ${description}`}
           aria-haspopup="dialog"
-          className="group block w-full cursor-zoom-in border-0 bg-transparent text-left transition-all duration-200 hover:bg-surface-3 focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
+          className="group block w-full cursor-zoom-in border-0 bg-transparent text-left transition-all duration-200 hover:bg-surface-3 focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
         >
           {!error ? (
             <AdaptiveImageFrame
@@ -222,6 +240,7 @@ export const Lightbox = ({
     imageStatus || image.caption || image.attribution,
   );
   const slideDescription = image.caption || image.alt || "Image";
+  const imageAlternative = getLightboxImageAlt(image);
 
   const handleImageError = () => {
     setFailedSources((sources) => {
@@ -276,7 +295,7 @@ export const Lightbox = ({
               ref={closeButtonRef}
               type="button"
               onClick={onClose}
-              className="ml-auto inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              className="ml-auto inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               aria-label="Close lightbox"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={24} height={24} aria-hidden="true">
@@ -297,7 +316,7 @@ export const Lightbox = ({
                 <button
                   type="button"
                   onClick={showPrevious}
-                  className="absolute left-1 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white/80 transition-colors hover:bg-black/75 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black sm:left-3"
+                  className="absolute left-1 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white/80 transition-colors hover:bg-black/75 hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black sm:left-3"
                   aria-label="Previous image"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28} aria-hidden="true">
@@ -307,7 +326,7 @@ export const Lightbox = ({
                 <button
                   type="button"
                   onClick={showNext}
-                  className="absolute right-1 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white/80 transition-colors hover:bg-black/75 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black sm:right-3"
+                  className="absolute right-1 top-1/2 z-10 inline-flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white/80 transition-colors hover:bg-black/75 hover:text-white focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black sm:right-3"
                   aria-label="Next image"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} width={28} height={28} aria-hidden="true">
@@ -337,7 +356,7 @@ export const Lightbox = ({
               <Image
                 key={`${current}:${displayedSource}`}
                 src={displayedSource}
-                alt={image.alt || image.caption || ""}
+                alt={imageAlternative}
                 fill
                 sizes="100vw"
                 className="rounded-lg object-contain"

@@ -1685,7 +1685,7 @@ const ArticleViewContent = ({
                 type="button"
                 onClick={openHeroLightbox}
                 aria-label={`View full image for ${displayArticle.title}`}
-                className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
+                className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
               />
               {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
               <Image
@@ -1761,7 +1761,7 @@ const ArticleViewContent = ({
               type="button"
               onClick={openHeroLightbox}
               aria-label={`View full image for ${displayArticle.title}`}
-              className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
+              className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
             />
           </div>
         );

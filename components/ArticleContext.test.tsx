@@ -312,9 +312,30 @@ describe("ArticleContext", () => {
     expect(markup).toContain('aria-labelledby="');
     expect(markup).toContain('aria-live="polite"');
     expect(markup).toContain('aria-atomic="true"');
+    expect(markup).toContain('alt="A detailed example"');
     expect(markup).toContain("h-11 w-11");
     expect(markup).toContain("position:absolute");
     expect(markup).not.toContain('width="330"');
+  });
+
+  it("does not repeat a visible caption as the image alternative", () => {
+    const markup = renderToStaticMarkup(
+      createElement(Lightbox, {
+        images: [
+          {
+            src: "https://upload.wikimedia.org/portrait.jpg",
+            originalSrc: "https://upload.wikimedia.org/portrait.jpg",
+            alt: "Portrait of Ada Lovelace",
+            caption: "Portrait of Ada Lovelace",
+          },
+        ],
+        state: { index: 0 },
+        onClose: () => {},
+      }),
+    );
+
+    expect(markup).toContain('alt=""');
+    expect(markup).toContain(">Portrait of Ada Lovelace</p>");
   });
 
   it("uses the known thumbnail when a trusted lightbox rendition is absent", () => {

@@ -27,9 +27,9 @@ describe("ArticleCard", () => {
           extract: "A quiet and well-tended part of Middle-earth.",
           views: 144000,
           thumbnail: {
-            source: "https://upload.wikimedia.org/shire.jpg",
-            width: 1200,
-            height: 900,
+            source: "https://upload.wikimedia.org/shire-portrait.jpg",
+            width: 330,
+            height: 495,
           },
         },
         imageLoading: "eager",
@@ -38,9 +38,17 @@ describe("ArticleCard", () => {
 
     expect(markup).toContain("data-adaptive-image-frame");
     expect(markup).toContain('data-adaptive-image-mode="cover"');
-    expect(markup).toMatch(
-      /<img[^>]*(?=[^>]*alt="")(?=[^>]*class="[^"]*\bobject-cover\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/shire\.jpg")[^>]*>/,
+    const portraitImages = Array.from(
+      markup.matchAll(/<img\b[^>]*>/g),
+      ([tag]) => tag,
+    ).filter((tag) =>
+      tag.includes('src="https://upload.wikimedia.org/shire-portrait.jpg"'),
     );
+    expect(portraitImages).toHaveLength(1);
+    expect(portraitImages[0]).toMatch(/\bobject-cover\b/);
+    expect(portraitImages[0]).toContain("object-[50%_30%]");
+    expect(portraitImages[0]).not.toMatch(/\bobject-contain\b/);
+    expect(markup).not.toContain('data-adaptive-image-mode="backdrop"');
     expect(markup).not.toContain('loading="lazy"');
   });
 });

@@ -3,6 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { analyzeAdaptiveImage } from "@/lib/adaptive-image";
 import { AdaptiveImageFrame } from "./AdaptiveImageFrame";
 
 vi.mock("@/lib/adaptive-image", async (importOriginal) => {
@@ -24,6 +25,11 @@ describe("AdaptiveImageFrame", () => {
   let frameRect: { width: number; height: number };
 
   beforeEach(() => {
+    vi.mocked(analyzeAdaptiveImage).mockReset();
+    vi.mocked(analyzeAdaptiveImage).mockImplementation(async (url) => ({
+      url,
+      hasTransparency: false,
+    }));
     frameRect = { width: 160, height: 90 };
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       () =>
@@ -81,7 +87,7 @@ describe("AdaptiveImageFrame", () => {
     )!;
     expect(frame.dataset.adaptiveImageMode).toBe("cover");
 
-    frameRect = { width: 100, height: 100 };
+    frameRect = { width: 1000, height: 100 };
     await act(async () => triggerResize?.());
 
     expect(frame.dataset.adaptiveImageMode).toBe("backdrop");
@@ -107,12 +113,12 @@ describe("AdaptiveImageFrame", () => {
     )!;
     expect(frame.dataset.adaptiveImageMode).toBe("cover");
 
-    frameRect = { width: 100, height: 100 };
+    frameRect = { width: 1000, height: 100 };
     await act(async () => window.dispatchEvent(new Event("resize")));
     expect(frame.dataset.adaptiveImageMode).toBe("backdrop");
   });
 
-  it("uses the measured wide article-hero frame instead of a 16:9 assumption", async () => {
+  it("keeps an ordinary landscape full-bleed in a wide article hero", async () => {
     frameRect = { width: 800, height: 256 };
     vi.stubGlobal(
       "ResizeObserver",
@@ -139,15 +145,20 @@ describe("AdaptiveImageFrame", () => {
     const frame = container.querySelector<HTMLElement>(
       "[data-adaptive-image-frame]",
     )!;
-    expect(frame.dataset.adaptiveImageMode).toBe("backdrop");
-    expect(frame.dataset.adaptiveImageReason).toBe("crop");
+    expect(frame.dataset.adaptiveImageMode).toBe("cover");
+    expect(frame.dataset.adaptiveImageReason).toBe("cover");
     expect(
       container.querySelector<HTMLImageElement>('img[alt="Article hero"]')
         ?.className,
-    ).toContain("md:pb-24");
+    ).toContain("object-cover");
+    expect(
+      container.querySelector<HTMLImageElement>('img[alt="Article hero"]')
+        ?.className,
+    ).not.toContain("md:pb-24");
+    expect(container.querySelectorAll("img")).toHaveLength(1);
   });
 
-  it("exposes one meaningful image and hides its blurred portrait copy", async () => {
+  it("fills the frame with an ordinary portrait and favors its upper subject", async () => {
     await act(async () => {
       root.render(
         <AdaptiveImageFrame
@@ -161,11 +172,75 @@ describe("AdaptiveImageFrame", () => {
     });
 
     const images = Array.from(container.querySelectorAll("img"));
+    expect(images).toHaveLength(1);
+    expect(images[0].alt).toBe("Portrait of a botanist");
+    expect(images[0].className).toContain("object-cover");
+    expect(images[0].className).toContain("object-[50%_30%]");
+  });
+
+  it("exposes one meaningful image and hides the copy for extreme media", async () => {
+    await act(async () => {
+      root.render(
+        <AdaptiveImageFrame
+          src="https://upload.wikimedia.org/extreme-portrait.jpg"
+          alt="A very tall historical scroll"
+          width={320}
+          height={1600}
+          sizes="320px"
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      "[data-adaptive-image-frame]",
+    )!;
+    const images = Array.from(container.querySelectorAll("img"));
+    expect(frame.dataset.adaptiveImageMode).toBe("backdrop");
+    expect(frame.dataset.adaptiveImageReason).toBe("extreme-aspect");
     expect(images).toHaveLength(2);
-    expect(images.filter((image) => image.alt === "Portrait of a botanist"))
-      .toHaveLength(1);
-    expect(images[0].getAttribute("alt")).toBe("");
+    expect(images[0].alt).toBe("");
     expect(images[0].getAttribute("aria-hidden")).toBe("true");
+    expect(images[1].alt).toBe("A very tall historical scroll");
     expect(images[1].className).toContain("object-contain");
+    expect(images[1].className).not.toContain("p-1.5");
+  });
+
+  it("preserves transparent media on its analyzed panel", async () => {
+    vi.mocked(analyzeAdaptiveImage).mockResolvedValueOnce({
+      url: "https://upload.wikimedia.org/transparent.png",
+      hasTransparency: true,
+      panelBackground: "rgb(10, 20, 30)",
+      panelBorderColor: "rgb(40, 50, 60)",
+    });
+
+    await act(async () => {
+      root.render(
+        <AdaptiveImageFrame
+          src="https://upload.wikimedia.org/transparent.png"
+          alt="Transparent botanical illustration"
+          width={1600}
+          height={900}
+          sizes="320px"
+          backdropImageClassName="md:pb-24"
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      "[data-adaptive-image-frame]",
+    )!;
+    const images = Array.from(container.querySelectorAll("img"));
+    const analyzedPanel = Array.from(container.querySelectorAll("span")).find(
+      (element) => element.style.background === "rgb(10, 20, 30)",
+    );
+    expect(frame.dataset.adaptiveImageMode).toBe("backdrop");
+    expect(frame.dataset.adaptiveImageReason).toBe("transparent");
+    expect(images).toHaveLength(2);
+    expect(images[0].getAttribute("aria-hidden")).toBe("true");
+    expect(images[1].alt).toBe("Transparent botanical illustration");
+    expect(images[1].className).toContain("object-contain");
+    expect(images[1].className).toContain("p-1.5");
+    expect(images[1].className).toContain("md:pb-24");
+    expect(analyzedPanel).toBeTruthy();
   });
 });

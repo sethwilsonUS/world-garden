@@ -29,6 +29,21 @@ vi.mock("@/components/AudioPlayer", () => ({
     ),
 }));
 
+const imageTagsFor = (markup: string, source: string): string[] =>
+  Array.from(markup.matchAll(/<img\b[^>]*>/g), ([tag]) => tag).filter((tag) =>
+    tag.includes(`src="${source}"`),
+  );
+
+const expectSingleCoverImage = (markup: string, source: string): string => {
+  const imageTags = imageTagsFor(markup, source);
+
+  expect(imageTags).toHaveLength(1);
+  expect(imageTags[0]).toMatch(/\bobject-cover\b/);
+  expect(imageTags[0]).not.toMatch(/\bobject-contain\b/);
+
+  return imageTags[0];
+};
+
 describe("TodayOnWikipediaContent", () => {
   it("renders the daily digest with full Did You Know, thumbnails, stale callout, and compact trending", () => {
     const markup = renderToStaticMarkup(
@@ -43,8 +58,8 @@ describe("TodayOnWikipediaContent", () => {
               "The First Treaty of London was formally agreed on 8 May 1358 at Windsor Castle in England.",
             thumbnail: {
               source: "https://upload.wikimedia.org/tfa.jpg",
-              width: 640,
-              height: 360,
+              width: 960,
+              height: 672,
             },
           },
           inTheNews: [
@@ -76,8 +91,8 @@ describe("TodayOnWikipediaContent", () => {
                   wikiPageId: "123",
                   thumbnail: {
                     source: "https://upload.wikimedia.org/lenox.jpg",
-                    width: 320,
-                    height: 240,
+                    width: 960,
+                    height: 540,
                   },
                 },
               ],
@@ -121,8 +136,8 @@ describe("TodayOnWikipediaContent", () => {
               views: 373000,
               thumbnail: {
                 source: "https://upload.wikimedia.org/trending-vijay.jpg",
-                width: 640,
-                height: 360,
+                width: 330,
+                height: 495,
               },
             },
             {
@@ -164,7 +179,7 @@ describe("TodayOnWikipediaContent", () => {
                   thumbnail: {
                     source: "https://upload.wikimedia.org/on-this-day.jpg",
                     width: 330,
-                    height: 440,
+                    height: 495,
                   },
                 },
               ],
@@ -199,9 +214,12 @@ describe("TodayOnWikipediaContent", () => {
     );
 
     expect(markup).toContain("Today on Wikipedia");
-    expect(markup).toContain("Showing the latest cached edition from May 7, 2026");
+    expect(markup).toContain(
+      "Showing the latest cached edition from May 7, 2026",
+    );
     expect(markup).toContain("Featured article");
     expect(markup).toContain("First Treaty of London");
+    expectSingleCoverImage(markup, "https://upload.wikimedia.org/tfa.jpg");
     expect(
       markup.match(/href="\/article\/First_Treaty_of_London"/g)?.length,
     ).toBe(1);
@@ -211,6 +229,7 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Did You Know?");
     expect(markup).toContain("Lenox Lyceum");
     expect(markup).toContain("https://upload.wikimedia.org/lenox.jpg");
+    expectSingleCoverImage(markup, "https://upload.wikimedia.org/lenox.jpg");
     expect(markup).not.toContain("Image for ");
     expect(markup).not.toContain(">Daily audio</p>");
     expect(markup).not.toContain("Audio: Did You Know? May 7, 2026 @1");
@@ -219,9 +238,12 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Why these topics are trending today");
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
-    expect(markup).toMatch(
-      /<img[^>]*(?=[^>]*class="[^"]*\bobject-cover\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/trending-vijay\.jpg")[^>]*>/,
-    );
+    expect(
+      expectSingleCoverImage(
+        markup,
+        "https://upload.wikimedia.org/trending-vijay.jpg",
+      ),
+    ).toContain("object-[50%_30%]");
     expect(markup).toContain("Fourth trend");
     expect(markup).not.toContain("Fifth trend should be hidden");
     expect(markup).toContain("373 thousand");
@@ -236,18 +258,23 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain('data-can-change-rate="true"');
     expect(markup).toContain("1984");
     expect(markup).toContain("https://upload.wikimedia.org/on-this-day.jpg");
-    expect(markup).toContain('data-adaptive-image-reason="portrait"');
-    expect(markup).toMatch(
-      /<img[^>]*(?=[^>]*alt="")(?=[^>]*class="[^"]*\bobject-contain\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/on-this-day\.jpg")[^>]*>/,
-    );
-    expect(markup).toContain("object-contain");
+    expect(
+      expectSingleCoverImage(
+        markup,
+        "https://upload.wikimedia.org/on-this-day.jpg",
+      ),
+    ).toContain("object-[50%_30%]");
+    expect(markup).not.toContain('data-adaptive-image-mode="backdrop"');
+    expect(markup).not.toContain("object-contain");
 
     const featuredIndex = markup.indexOf("Featured article");
     const didYouKnowIndex = markup.indexOf("Did You Know?");
     const pictureIndex = markup.indexOf("Picture of the Day");
     const newsIndex = markup.indexOf("In the News");
     const onThisDayIndex = markup.indexOf("On This Day");
-    const trendingHeadingIndex = markup.indexOf("What people are curious about");
+    const trendingHeadingIndex = markup.indexOf(
+      "What people are curious about",
+    );
     const trendingAudioIndex = markup.indexOf(
       "AI-generated daily audio briefing",
     );

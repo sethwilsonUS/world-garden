@@ -1,10 +1,17 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const tinyPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+
+const featuredRailImageUrl =
+  "https://upload.wikimedia.org/featured-building.jpg";
+const didYouKnowImageUrl =
+  "https://upload.wikimedia.org/did-you-know-tortilla.jpg";
+const trendingPortraitImageUrl = (index: number) =>
+  `https://upload.wikimedia.org/trending-portrait-${index + 1}.jpg`;
 
 const expectNoSeriousAxeViolations = async (page: Page) => {
   await page.addStyleTag({
@@ -18,18 +25,32 @@ const expectNoSeriousAxeViolations = async (page: Page) => {
   expect(serious).toEqual([]);
 };
 
+const expectVisibleFocusOutline = async (locator: Locator) => {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return (
+          style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
+        );
+      }),
+    )
+    .toBe(true);
+};
+
 const todayFixture = {
   feedDate: "2026-07-10",
   // Wikimedia's featured feed uses this legacy date-only shape. Keep the
   // fixture exact so the browser test exercises our normalization path.
   trendingDate: "2026-07-12Z",
   tfa: {
-    title: "Ada Lovelace",
-    extract: "Ada Lovelace wrote about Charles Babbage's Analytical Engine.",
+    title: "Manufacturers Trust Company Building",
+    extract:
+      "The Manufacturers Trust Company Building is a commercial building in Midtown Manhattan. Its longer featured summary deliberately makes the image rail tall, matching the shape that exposed the letterboxing regression.",
     thumbnail: {
-      source: "https://upload.wikimedia.org/ada.jpg",
-      width: 640,
-      height: 480,
+      source: featuredRailImageUrl,
+      width: 960,
+      height: 672,
       attribution: {
         creator: "Alfred Edward Chalon",
         licenseName: "Public domain",
@@ -40,7 +61,20 @@ const todayFixture = {
   },
   didYouKnow: Array.from({ length: 4 }, (_, index) => ({
     text: `... that accessible fact ${index + 1} invites another question?`,
-    links: [],
+    links:
+      index === 0
+        ? [
+            {
+              title: "Tortilla",
+              slug: "Tortilla",
+              thumbnail: {
+                source: didYouKnowImageUrl,
+                width: 960,
+                height: 540,
+              },
+            },
+          ]
+        : [],
     segments: [
       { type: "text", text: `... that accessible fact ${index + 1} invites another question?` },
     ],
@@ -56,6 +90,11 @@ const todayFixture = {
     title: `Trending topic ${index + 1}`,
     extract: "A concise explanation of the topic.",
     views: 1000 - index,
+    thumbnail: {
+      source: trendingPortraitImageUrl(index),
+      width: 330,
+      height: 495,
+    },
   })),
 };
 
@@ -69,6 +108,24 @@ const mockHomeData = async (page: Page) => {
   await page.route("https://upload.wikimedia.org/**", (route) =>
     route.fulfill({ contentType: "image/png", body: tinyPng }),
   );
+};
+
+const expectPhotoFirstFrame = async (
+  page: Page,
+  source: string,
+  options: { portrait?: boolean } = {},
+) => {
+  const frame = page.locator("[data-adaptive-image-frame]").filter({
+    has: page.locator(`img[src="${source}"]`),
+  });
+
+  await expect(frame).toHaveCount(1);
+  await expect(frame).toHaveAttribute("data-adaptive-image-mode", "cover");
+  await expect(frame.locator("img")).toHaveCount(1);
+  await expect(frame.locator("img")).toHaveCSS("object-fit", "cover");
+  if (options.portrait) {
+    await expect(frame.locator("img")).toHaveCSS("object-position", "50% 30%");
+  }
 };
 
 const analyticalThumbnailUrl =
@@ -241,6 +298,45 @@ test("home presents the product and expands the curated daily preview", async ({
   await expectNoSeriousAxeViolations(page);
 });
 
+test("ordinary editorial photos fill their frames without blurred bars", async ({
+  page,
+}) => {
+  await page.addInitScript(() => window.localStorage.setItem("theme", "dark"));
+  await mockHomeData(page);
+  await page.goto("/");
+
+  // Clicking a client-side control ensures the assertions run after hydration.
+  await page.getByRole("button", { name: "Show all 4 facts" }).click();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+
+  const homepageImages = [
+    { source: featuredRailImageUrl },
+    { source: didYouKnowImageUrl },
+    { source: trendingPortraitImageUrl(0), portrait: true },
+  ];
+  for (const image of homepageImages) {
+    await expectPhotoFirstFrame(page, image.source, {
+      portrait: image.portrait,
+    });
+  }
+
+  await page.getByRole("button", { name: "Switch to light theme" }).click();
+  await expect(page.locator("html")).toHaveClass(/light/);
+  for (const image of homepageImages) {
+    await expectPhotoFirstFrame(page, image.source, {
+      portrait: image.portrait,
+    });
+  }
+
+  await page.goto("/trending");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Trending today" }),
+  ).toBeVisible();
+  await expectPhotoFirstFrame(page, trendingPortraitImageUrl(0), {
+    portrait: true,
+  });
+});
+
 test.describe("date-only labels stay on the Wikimedia calendar date", () => {
   test.describe("west of UTC", () => {
     test.use({ timezoneId: "America/Chicago" });
@@ -285,10 +381,16 @@ test("article exposes revision and media provenance in an accessible lightbox", 
     name: "View full image for Ada Lovelace",
   });
   await heroLightboxButton.focus();
+  await page.emulateMedia({ forcedColors: "active" });
+  await expectVisibleFocusOutline(heroLightboxButton);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog", { name: "Image gallery" })).toBeVisible();
   await expect(page.getByText("Creator: Alfred Edward Chalon")).toBeVisible();
-  await page.getByRole("button", { name: "Close lightbox" }).click();
+  const heroCloseButton = page.getByRole("button", { name: "Close lightbox" });
+  await expect(heroCloseButton).toBeFocused();
+  await expectVisibleFocusOutline(heroCloseButton);
+  await page.emulateMedia({ forcedColors: "none" });
+  await heroCloseButton.click();
   await expect(heroLightboxButton).toBeFocused();
 
   const additionalPhotoButton = page.getByRole("button", {
@@ -299,6 +401,9 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   expect(lightboxRequests).not.toContain(analyticalLightboxUrl);
 
   await additionalPhotoButton.focus();
+  await page.emulateMedia({ forcedColors: "active" });
+  await expectVisibleFocusOutline(additionalPhotoButton);
+  await page.emulateMedia({ forcedColors: "none" });
   await expect
     .poll(() =>
       additionalPhotoButton.evaluate(

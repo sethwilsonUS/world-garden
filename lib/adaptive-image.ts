@@ -1,5 +1,10 @@
-export const ADAPTIVE_IMAGE_MIN_CROP_RETENTION = 0.72;
+// Editorial photography should read as a cover image. Only fall back to the
+// complete-image treatment when cover would discard nearly all of the source.
+export const ADAPTIVE_IMAGE_MIN_CROP_RETENTION = 0.25;
 export const DEFAULT_ADAPTIVE_FRAME_ASPECT_RATIO = 16 / 9;
+
+const EXTREME_SOURCE_ASPECT_RATIO = 3;
+const EXTREME_SOURCE_MIN_CROP_RETENTION = 0.72;
 
 const TRANSPARENCY_SAMPLE_SIZE = 64;
 const TRANSPARENCY_ALPHA_THRESHOLD = 245;
@@ -24,8 +29,8 @@ export type AdaptiveImageMode = "cover" | "backdrop";
 export type AdaptiveImagePresentationReason =
   | "cover"
   | "crop"
+  | "extreme-aspect"
   | "missing-dimensions"
-  | "portrait"
   | "transparent";
 
 export type AdaptiveImagePresentation = {
@@ -164,8 +169,18 @@ export const resolveAdaptiveImagePresentation = ({
     return { mode: "backdrop", reason: "transparent", cropRetention };
   }
 
-  if (hasSourceDimensions && sourceHeight > sourceWidth) {
-    return { mode: "backdrop", reason: "portrait", cropRetention };
+  if (hasSourceDimensions && cropRetention !== null) {
+    const sourceAspectRatio = sourceWidth / sourceHeight;
+    const hasExtremeSourceAspect =
+      sourceAspectRatio <= 1 / EXTREME_SOURCE_ASPECT_RATIO ||
+      sourceAspectRatio >= EXTREME_SOURCE_ASPECT_RATIO;
+
+    if (
+      hasExtremeSourceAspect &&
+      cropRetention < EXTREME_SOURCE_MIN_CROP_RETENTION
+    ) {
+      return { mode: "backdrop", reason: "extreme-aspect", cropRetention };
+    }
   }
 
   if (cropRetention !== null && cropRetention < minCropRetention) {

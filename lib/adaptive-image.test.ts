@@ -68,20 +68,11 @@ describe("adaptive image fit", () => {
 
     expect(
       resolveAdaptiveImagePresentation({
-        sourceWidth: 72,
+        sourceWidth: 250,
         sourceHeight: 100,
         frameWidth: 100,
-        frameHeight: 100,
+        frameHeight: 160,
         minCropRetention: ADAPTIVE_IMAGE_MIN_CROP_RETENTION,
-      }),
-    ).toMatchObject({ mode: "backdrop", reason: "portrait" });
-
-    expect(
-      resolveAdaptiveImagePresentation({
-        sourceWidth: 100,
-        sourceHeight: 72,
-        frameWidth: 100,
-        frameHeight: 100,
       }),
     ).toMatchObject({
       mode: "cover",
@@ -92,37 +83,92 @@ describe("adaptive image fit", () => {
 
   it.each([
     {
-      name: "portrait",
-      input: { sourceWidth: 900, sourceHeight: 1200 },
-      reason: "portrait",
+      name: "trending portrait",
+      source: { width: 600, height: 800 },
+      frame: { width: 1600, height: 900 },
     },
     {
       name: "square in a landscape frame",
-      input: { sourceWidth: 1000, sourceHeight: 1000 },
-      reason: "crop",
+      source: { width: 1000, height: 1000 },
+      frame: { width: 1600, height: 900 },
     },
     {
-      name: "panoramic",
-      input: { sourceWidth: 3000, sourceHeight: 700 },
-      reason: "crop",
+      name: "featured landscape in its desktop rail",
+      source: { width: 640, height: 427 },
+      frame: { width: 224, height: 250 },
     },
-  ])("uses a backdrop for $name media", ({ input, reason }) => {
+    {
+      name: "Did You Know landscape in its thumbnail",
+      source: { width: 640, height: 360 },
+      frame: { width: 96, height: 80 },
+    },
+    {
+      name: "phone portrait",
+      source: { width: 900, height: 1600 },
+      frame: { width: 1600, height: 900 },
+    },
+    {
+      name: "two-to-one portrait",
+      source: { width: 600, height: 1200 },
+      frame: { width: 1600, height: 900 },
+    },
+  ])("uses full-bleed cover for an ordinary $name", ({ source, frame }) => {
     expect(
       resolveAdaptiveImagePresentation({
-        ...input,
-        frameWidth: 1600,
-        frameHeight: 900,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+        frameWidth: frame.width,
+        frameHeight: frame.height,
+      }),
+    ).toMatchObject({ mode: "cover", reason: "cover" });
+  });
+
+  it.each([
+    {
+      name: "panorama in a landscape card",
+      source: { width: 3000, height: 700 },
+      frame: { width: 1600, height: 900 },
+      reason: "extreme-aspect",
+    },
+    {
+      name: "extremely narrow portrait",
+      source: { width: 320, height: 1600 },
+      frame: { width: 1600, height: 900 },
+      reason: "extreme-aspect",
+    },
+    {
+      name: "square image in a five-to-one frame",
+      source: { width: 1000, height: 1000 },
+      frame: { width: 500, height: 100 },
+      reason: "crop",
+    },
+  ])("preserves all of an $name", ({ source, frame, reason }) => {
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+        frameWidth: frame.width,
+        frameHeight: frame.height,
       }),
     ).toMatchObject({ mode: "backdrop", reason });
   });
 
-  it("keeps a square image full-bleed in a square frame", () => {
+  it("keeps matching square and panoramic media full-bleed", () => {
     expect(
       resolveAdaptiveImagePresentation({
         sourceWidth: 1000,
         sourceHeight: 1000,
         frameWidth: 400,
         frameHeight: 400,
+      }),
+    ).toEqual({ mode: "cover", reason: "cover", cropRetention: 1 });
+
+    expect(
+      resolveAdaptiveImagePresentation({
+        sourceWidth: 4000,
+        sourceHeight: 1000,
+        frameWidth: 800,
+        frameHeight: 200,
       }),
     ).toEqual({ mode: "cover", reason: "cover", cropRetention: 1 });
   });

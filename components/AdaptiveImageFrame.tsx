@@ -150,6 +150,10 @@ export const AdaptiveImageFrame = ({
     ],
   );
   const usesBackdrop = presentation.mode === "backdrop";
+  const isPortraitSource =
+    typeof sourceWidth === "number" &&
+    typeof sourceHeight === "number" &&
+    sourceHeight > sourceWidth;
   const transparentPanelStyle = hasTransparency
     ? {
         background:
@@ -167,8 +171,16 @@ export const AdaptiveImageFrame = ({
       fill
       sizes={sizes}
       className={joinClasses(
-        usesBackdrop ? "z-[2] object-contain p-1.5 sm:p-2" : "object-cover",
-        usesBackdrop ? backdropImageClassName : undefined,
+        usesBackdrop
+          ? joinClasses(
+              "z-[2] object-contain",
+              hasTransparency ? "p-1.5 sm:p-2" : undefined,
+              backdropImageClassName,
+            )
+          : joinClasses(
+              "object-cover",
+              isPortraitSource ? "object-[50%_30%]" : "object-center",
+            ),
       )}
       priority={priority}
       loading={loading}

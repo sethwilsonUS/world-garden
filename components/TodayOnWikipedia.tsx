@@ -193,14 +193,20 @@ const FeaturedArticleCard = ({
 
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
-      <div className={article.thumbnail ? "grid gap-0 sm:grid-cols-[150px_minmax(0,1fr)]" : ""}>
+      <div
+        className={
+          article.thumbnail
+            ? "grid gap-0 sm:grid-cols-[minmax(180px,40%)_minmax(0,1fr)]"
+            : ""
+        }
+      >
         {article.thumbnail && (
           <AdaptiveImageFrame
             src={article.thumbnail.source}
             alt=""
             width={article.thumbnail.width}
             height={article.thumbnail.height}
-            sizes="(min-width: 1024px) 150px, 100vw"
+            sizes="(min-width: 1024px) 224px, (min-width: 640px) 40vw, 100vw"
             className="aspect-[16/9] sm:aspect-auto sm:min-h-[148px]"
             priority
             unoptimized
