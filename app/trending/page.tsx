@@ -6,26 +6,7 @@ import { analytics } from "@/lib/analytics";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
-
-function formatTrendingDate(isoDate: string | null): string {
-  if (!isoDate) return "";
-  try {
-    // Wikipedia returns "YYYY-MM-DDZ"; Safari needs "YYYY-MM-DDTHH:MM:SSZ"
-    const normalized =
-      /^\d{4}-\d{2}-\d{2}Z$/.test(isoDate) && !isoDate.includes("T")
-        ? `${isoDate.slice(0, 10)}T00:00:00Z`
-        : isoDate;
-    const d = new Date(normalized);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return "";
-  }
-}
+import { formatUtcCalendarDate } from "@/lib/date-format";
 
 export default function TrendingPage() {
   const { rate, setRate } = usePlaybackRate();
@@ -159,7 +140,7 @@ export default function TrendingPage() {
             </p>
             {trendingDate && (
               <p className="text-muted text-xs mt-1" aria-live="polite">
-                Most-read data from: {formatTrendingDate(trendingDate)}
+                Most-read data from: {formatUtcCalendarDate(trendingDate)}
                 {trendingIsStale ? " (latest available from Wikipedia)" : ""}
               </p>
             )}

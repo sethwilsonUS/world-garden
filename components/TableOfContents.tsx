@@ -231,7 +231,8 @@ const SoundIcon = () => {
   );
 };
 
-const rowClass = "flex items-center justify-between gap-4 w-full py-2.5 px-3 rounded-xl text-left";
+const rowClass =
+  "toc-row flex flex-col items-stretch justify-between gap-2 w-full py-2.5 px-3 rounded-xl text-left sm:flex-row sm:items-center sm:gap-4";
 
 const pillClass = "inline-flex items-center gap-[5px] px-3 py-[5px] rounded-full font-semibold text-xs leading-none whitespace-nowrap shrink-0";
 
@@ -751,7 +752,7 @@ export const TableOfContents = ({
                 onTouchStart={onWarmSummary}
                 onClick={(e) => { onListenSummary(); e.currentTarget.focus(); }}
                 aria-label={`Listen to summary of ${articleTitle}`}
-                className={`${pillClass} border cursor-pointer pointer-events-auto ${
+                className={`${pillClass} self-start sm:self-auto border cursor-pointer pointer-events-auto ${
                   isSummaryActive && !isSummaryLoading
                     ? "bg-accent-bg text-accent border-accent-border"
                     : "bg-btn-primary text-btn-primary-text border-transparent"
@@ -819,7 +820,7 @@ export const TableOfContents = ({
                   >
                     <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
                       <span
-                        className={`${section.level === 2 ? "font-semibold text-[0.9375rem]" : "font-normal text-sm"} text-muted leading-[1.4]`}
+                        className={`${section.level === 2 ? "font-semibold text-[0.9375rem]" : "font-normal text-sm"} min-w-0 [overflow-wrap:anywhere] text-muted leading-[1.4]`}
                       >
                         {section.title}
                       </span>
@@ -831,7 +832,7 @@ export const TableOfContents = ({
                         )}
                       />
                     </span>
-                    <span className="inline-flex items-center gap-1.5 shrink-0">
+                    <span className="inline-flex self-start sm:self-auto items-center gap-1.5 shrink-0">
                       <span
                         className={`${pillClass} bg-transparent text-muted border border-border`}
                         aria-hidden="true"
@@ -862,7 +863,7 @@ export const TableOfContents = ({
                 >
                   <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
                     <span
-                      className={`${section.level === 2 ? "font-semibold text-[0.9375rem]" : "font-normal text-sm"} leading-[1.4] ${isActive ? "text-accent" : "text-foreground"}`}
+                      className={`${section.level === 2 ? "font-semibold text-[0.9375rem]" : "font-normal text-sm"} min-w-0 [overflow-wrap:anywhere] leading-[1.4] ${isActive ? "text-accent" : "text-foreground"}`}
                     >
                       {section.title}
                     </span>
@@ -903,7 +904,7 @@ export const TableOfContents = ({
                         ? `Generating audio for ${section.title}`
                         : `Listen to ${section.title}`
                     }
-                    className={`${pillClass} border pointer-events-auto ${
+                    className={`${pillClass} self-start sm:self-auto border pointer-events-auto ${
                       isLoading ? "cursor-wait" : "cursor-pointer"
                     } ${
                       isActive && !isLoading
