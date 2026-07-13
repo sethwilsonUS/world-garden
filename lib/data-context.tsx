@@ -53,6 +53,9 @@ export type LinkCount = { title: string; count: number };
 export type ArticleImage = {
   src: string;
   originalSrc?: string;
+  lightboxSrc?: string;
+  lightboxWidth?: number;
+  lightboxHeight?: number;
   alt: string;
   caption: string;
   width?: number;

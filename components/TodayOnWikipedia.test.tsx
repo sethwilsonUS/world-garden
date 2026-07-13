@@ -208,11 +208,10 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("In the News");
     expect(markup).toContain("Ted Turner");
     expect(markup).toContain("https://upload.wikimedia.org/ted.jpg");
-    expect(markup).toContain("Image for Ted Turner");
     expect(markup).toContain("Did You Know?");
     expect(markup).toContain("Lenox Lyceum");
     expect(markup).toContain("https://upload.wikimedia.org/lenox.jpg");
-    expect(markup).toContain("Image for Lenox Lyceum");
+    expect(markup).not.toContain("Image for ");
     expect(markup).not.toContain(">Daily audio</p>");
     expect(markup).not.toContain("Audio: Did You Know? May 7, 2026 @1");
     expect(markup).toContain("Trending");
@@ -221,7 +220,7 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Vijay (actor)");
     expect(markup).toContain("https://upload.wikimedia.org/trending-vijay.jpg");
     expect(markup).toMatch(
-      /<img[^>]*(?=[^>]*class="[^"]*\bobject-contain\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/trending-vijay\.jpg")[^>]*>/,
+      /<img[^>]*(?=[^>]*class="[^"]*\bobject-cover\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/trending-vijay\.jpg")[^>]*>/,
     );
     expect(markup).toContain("Fourth trend");
     expect(markup).not.toContain("Fifth trend should be hidden");
@@ -229,7 +228,7 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Last updated: May 7, 2026");
     expect(markup).toContain("A Marmelade fly on flight.");
     expect(markup).toMatch(
-      /<img[^>]*(?=[^>]*class="[^"]*\bobject-contain\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/thumb\.jpg")[^>]*>/,
+      /<img[^>]*(?=[^>]*alt="A Marmelade fly on flight\.")(?=[^>]*class="[^"]*\bobject-cover\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/thumb\.jpg")[^>]*>/,
     );
     expect(markup).toContain("Alvesgaspar");
     expect(markup).toContain("CC BY-SA 3.0");
@@ -237,9 +236,10 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain('data-can-change-rate="true"');
     expect(markup).toContain("1984");
     expect(markup).toContain("https://upload.wikimedia.org/on-this-day.jpg");
-    expect(markup).toContain("Image for 1984 Summer Olympics boycott");
-    expect(markup).toContain('width="330"');
-    expect(markup).toContain('height="440"');
+    expect(markup).toContain('data-adaptive-image-reason="portrait"');
+    expect(markup).toMatch(
+      /<img[^>]*(?=[^>]*alt="")(?=[^>]*class="[^"]*\bobject-contain\b[^"]*")(?=[^>]*src="https:\/\/upload\.wikimedia\.org\/on-this-day\.jpg")[^>]*>/,
+    );
     expect(markup).toContain("object-contain");
 
     const featuredIndex = markup.indexOf("Featured article");

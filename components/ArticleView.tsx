@@ -1,7 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, useCallback, useRef } from "react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useData, type Article, type Section } from "@/lib/data-context";
 import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider";
@@ -68,6 +74,7 @@ import {
 import { hasFullAudio } from "@/lib/audio-suitability";
 import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
 import { MediaAttribution } from "@/components/MediaAttribution";
+import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
 import {
   ArticleContextLane,
   getContextAudioDetail,
@@ -78,6 +85,10 @@ import {
   type ContextAudioDetail,
 } from "@/components/ArticleContext";
 import type { ContextBlock } from "@/lib/article-context-types";
+import {
+  analyzeAdaptiveImage,
+  type AdaptiveImageAnalysis,
+} from "@/lib/adaptive-image";
 
 type ArticleData = Article & {
   _id?: string;
@@ -263,153 +274,6 @@ const buildCachedTtsResult = (
   };
 };
 
-const HERO_TRANSPARENCY_SAMPLE_SIZE = 64;
-const HERO_TRANSPARENCY_ALPHA_THRESHOLD = 245;
-const HERO_TRANSPARENCY_MIN_RATIO = 0.08;
-const HERO_VISIBLE_PIXEL_ALPHA_THRESHOLD = 24;
-const HERO_DARK_SURFACE_TOP: [number, number, number] = [56, 64, 64];
-const HERO_DARK_SURFACE_BOTTOM: [number, number, number] = [34, 40, 42];
-const HERO_LIGHT_SURFACE_TOP: [number, number, number] = [238, 235, 226];
-const HERO_LIGHT_SURFACE_BOTTOM: [number, number, number] = [220, 224, 216];
-
-type HeroImageAnalysis = {
-  url: string;
-  hasTransparency: boolean;
-  panelBackground?: string;
-  panelBorderColor?: string;
-};
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.min(max, Math.max(min, value));
-
-const mixChannel = (a: number, b: number, amount: number): number =>
-  Math.round(a * (1 - amount) + b * amount);
-
-const mixRgb = (
-  color: [number, number, number],
-  target: [number, number, number],
-  amount: number,
-): [number, number, number] => [
-  mixChannel(color[0], target[0], amount),
-  mixChannel(color[1], target[1], amount),
-  mixChannel(color[2], target[2], amount),
-];
-
-const rgbToCss = (
-  [r, g, b]: [number, number, number],
-  alpha = 1,
-): string => `rgba(${r}, ${g}, ${b}, ${alpha})`;
-
-const toLinearSrgb = (channel: number): number => {
-  const value = channel / 255;
-  return value <= 0.04045
-    ? value / 12.92
-    : Math.pow((value + 0.055) / 1.055, 2.4);
-};
-
-const getRelativeLuminance = ([r, g, b]: [number, number, number]): number =>
-  0.2126 * toLinearSrgb(r) +
-  0.7152 * toLinearSrgb(g) +
-  0.0722 * toLinearSrgb(b);
-
-const buildTransparentImagePanel = (
-  averageColor: [number, number, number],
-): Pick<HeroImageAnalysis, "panelBackground" | "panelBorderColor"> => {
-  const luminance = getRelativeLuminance(averageColor);
-
-  if (luminance > 0.58) {
-    const top = mixRgb(averageColor, HERO_DARK_SURFACE_TOP, 0.8);
-    const bottom = mixRgb(averageColor, HERO_DARK_SURFACE_BOTTOM, 0.88);
-    return {
-      panelBackground: `linear-gradient(180deg, ${rgbToCss(top, 0.98)}, ${rgbToCss(bottom, 0.94)})`,
-      panelBorderColor: "rgba(255, 255, 255, 0.12)",
-    };
-  }
-
-  const top = mixRgb(averageColor, HERO_LIGHT_SURFACE_TOP, 0.88);
-  const bottom = mixRgb(averageColor, HERO_LIGHT_SURFACE_BOTTOM, 0.78);
-  return {
-    panelBackground: `linear-gradient(180deg, ${rgbToCss(top, 0.98)}, ${rgbToCss(bottom, 0.92)})`,
-    panelBorderColor: "rgba(32, 40, 38, 0.12)",
-  };
-};
-
-const analyzeHeroImage = async (url: string): Promise<HeroImageAnalysis> => {
-  if (typeof window === "undefined") {
-    return { url, hasTransparency: false };
-  }
-
-  const image = new window.Image();
-  image.crossOrigin = "anonymous";
-  image.decoding = "async";
-
-  await new Promise<void>((resolve, reject) => {
-    image.onload = () => resolve();
-    image.onerror = () => reject(new Error("Thumbnail transparency analysis failed"));
-    image.src = url;
-  });
-
-  const width = image.naturalWidth || image.width;
-  const height = image.naturalHeight || image.height;
-  if (!width || !height) {
-    return { url, hasTransparency: false };
-  }
-
-  const scale = Math.min(1, HERO_TRANSPARENCY_SAMPLE_SIZE / Math.max(width, height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(width * scale));
-  canvas.height = Math.max(1, Math.round(height * scale));
-
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    return { url, hasTransparency: false };
-  }
-
-  context.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-
-  let transparentPixels = 0;
-  const totalPixels = data.length / 4;
-  let visiblePixels = 0;
-  let redTotal = 0;
-  let greenTotal = 0;
-  let blueTotal = 0;
-  let alphaWeightTotal = 0;
-
-  for (let index = 0; index < data.length; index += 4) {
-    const alpha = data[index + 3];
-    if (alpha < HERO_TRANSPARENCY_ALPHA_THRESHOLD) {
-      transparentPixels += 1;
-    }
-
-    if (alpha <= HERO_VISIBLE_PIXEL_ALPHA_THRESHOLD) continue;
-
-    const weight = alpha / 255;
-    redTotal += data[index] * weight;
-    greenTotal += data[index + 1] * weight;
-    blueTotal += data[index + 2] * weight;
-    alphaWeightTotal += weight;
-    visiblePixels += 1;
-  }
-
-  const hasTransparency = transparentPixels / totalPixels >= HERO_TRANSPARENCY_MIN_RATIO;
-  if (!hasTransparency || visiblePixels === 0 || alphaWeightTotal === 0) {
-    return { url, hasTransparency };
-  }
-
-  const averageColor: [number, number, number] = [
-    clamp(Math.round(redTotal / alphaWeightTotal), 0, 255),
-    clamp(Math.round(greenTotal / alphaWeightTotal), 0, 255),
-    clamp(Math.round(blueTotal / alphaWeightTotal), 0, 255),
-  ];
-
-  return {
-    url,
-    hasTransparency,
-    ...buildTransparentImagePanel(averageColor),
-  };
-};
-
 const AuthenticatedArticleView = ({ slug }: { slug: string }) => {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
 
@@ -490,7 +354,7 @@ const ArticleViewContent = ({
     sectionIndex?: number | null;
   } | null>(null);
   const [heroLightbox, setHeroLightbox] = useState<LightboxState>(null);
-  const [heroImageAnalysis, setHeroImageAnalysis] = useState<HeroImageAnalysis | null>(null);
+  const [heroImageAnalysis, setHeroImageAnalysis] = useState<AdaptiveImageAnalysis | null>(null);
   const [trackingSectionKey, setTrackingSectionKey] = useState<string | null>(null);
   const [fallbackVoiceNotice, setFallbackVoiceNotice] = useState<string | null>(
     null,
@@ -635,7 +499,7 @@ const ArticleViewContent = ({
     if (!thumbnailUrl) return;
 
     let cancelled = false;
-    analyzeHeroImage(thumbnailUrl)
+    analyzeAdaptiveImage(thumbnailUrl)
       .then((analysis) => {
         if (!cancelled) {
           setHeroImageAnalysis(analysis);
@@ -1794,10 +1658,10 @@ const ArticleViewContent = ({
         const thumbnailWidth = hasThumbnailDimensions ? w : 1200;
         const thumbnailHeight = hasThumbnailDimensions ? h : 675;
         const isPortrait = w > 0 && h >= w;
-        const needsImageBackdrop =
+        const hasTransparentHero =
           heroImageAnalysis?.url === displayArticle.thumbnailUrl &&
           heroImageAnalysis.hasTransparency;
-        const imagePanelStyle = needsImageBackdrop
+        const imagePanelStyle = hasTransparentHero
           ? {
               background:
                 heroImageAnalysis?.panelBackground ??
@@ -1806,7 +1670,11 @@ const ArticleViewContent = ({
                 heroImageAnalysis?.panelBorderColor ?? "rgba(255, 255, 255, 0.14)",
             }
           : undefined;
-        const openHeroLightbox = () => setHeroLightbox({ index: 0 });
+        const openHeroLightbox = (
+          event: ReactMouseEvent<HTMLButtonElement>,
+        ) => {
+          setHeroLightbox({ index: 0, opener: event.currentTarget });
+        };
 
         if (isPortrait) {
           return (
@@ -1817,7 +1685,7 @@ const ArticleViewContent = ({
                 type="button"
                 onClick={openHeroLightbox}
                 aria-label={`View full image for ${displayArticle.title}`}
-                className="absolute inset-0 z-10 cursor-zoom-in rounded-xl border-0 bg-transparent"
+                className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
               />
               {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
               <Image
@@ -1833,7 +1701,7 @@ const ArticleViewContent = ({
               <div className="absolute inset-0 bg-black/45" />
               <div className="relative flex items-center justify-center gap-16 p-6 sm:p-10">
                 <div
-                  className={needsImageBackdrop
+                  className={hasTransparentHero
                     ? "shrink-0 rounded-[1.25rem] border border-white/15 p-3 sm:p-4 shadow-2xl"
                     : "shrink-0"}
                   style={imagePanelStyle}
@@ -1867,66 +1735,34 @@ const ArticleViewContent = ({
           <div
             className="relative mb-4 overflow-hidden rounded-xl"
           >
+            <AdaptiveImageFrame
+              src={displayArticle.thumbnailUrl}
+              alt={displayArticle.title}
+              width={w}
+              height={h}
+              sizes="100vw"
+              className="h-48 w-full sm:h-64"
+              backdropImageClassName={displayArticle.summary ? "md:pb-24" : undefined}
+              priority
+              unoptimized
+            >
+              {displayArticle.summary && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 bottom-0 hidden rounded-b-xl bg-black/70 px-5 py-4 md:block"
+                  style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+                >
+                  <p className="text-sm leading-relaxed text-white line-clamp-3">
+                    {displayArticle.summary}
+                  </p>
+                </div>
+              )}
+            </AdaptiveImageFrame>
             <button
               type="button"
               onClick={openHeroLightbox}
               aria-label={`View full image for ${displayArticle.title}`}
-              className="absolute inset-0 z-10 cursor-zoom-in rounded-xl border-0 bg-transparent"
+              className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:outline-none focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
             />
-            {needsImageBackdrop ? (
-              <>
-                {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
-                <Image
-                  src={displayArticle.thumbnailUrl}
-                  alt=""
-                  aria-hidden="true"
-                  fill
-                  sizes="100vw"
-                  className="object-cover"
-                  style={{ transform: 'scale(1.8)', filter: 'blur(80px) brightness(0.65)' }}
-                  unoptimized
-                />
-                <div className="absolute inset-0 bg-black/45" />
-                <div className={`relative flex items-center justify-center p-6 sm:p-8${displayArticle.summary ? " md:pb-24" : ""}`}>
-                  <div
-                    className="w-full rounded-[1.25rem] border border-white/15 p-3 sm:p-4 shadow-2xl"
-                    style={imagePanelStyle}
-                  >
-                    <Image
-                      src={displayArticle.thumbnailUrl}
-                      alt={displayArticle.title}
-                      width={thumbnailWidth}
-                      height={thumbnailHeight}
-                      className="w-full max-h-48 sm:max-h-64 object-contain rounded-lg"
-                      priority
-                      unoptimized
-                    />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
-                <Image
-                  src={displayArticle.thumbnailUrl}
-                  alt={displayArticle.title}
-                  width={thumbnailWidth}
-                  height={thumbnailHeight}
-                  className="w-full max-h-48 sm:max-h-64 object-cover"
-                  priority
-                  unoptimized
-                />
-              </>
-            )}
-            {displayArticle.summary && (
-              <div className="absolute inset-x-0 bottom-0 z-20 hidden rounded-b-xl bg-black/70 px-5 py-4 md:block"
-                style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
-              >
-                <p className="text-sm leading-relaxed text-white line-clamp-3">
-                  {displayArticle.summary}
-                </p>
-              </div>
-            )}
           </div>
         );
       })() : displayArticle.summary && (

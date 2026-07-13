@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
 import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
@@ -164,17 +164,16 @@ const LinkedItemThumbnail = ({ link }: { link: FeedArticleLink }) => {
   if (!link.thumbnail) return null;
 
   return (
-    <div className="mt-1 flex h-20 w-24 shrink-0 items-center justify-center rounded-md bg-surface-3 p-1 sm:h-24">
-      <Image
-        src={link.thumbnail.source}
-        alt={`Image for ${link.title}`}
-        width={link.thumbnail.width}
-        height={link.thumbnail.height}
-        sizes="96px"
-        className="h-auto max-h-full w-auto max-w-full rounded object-contain"
-        unoptimized
-      />
-    </div>
+    <AdaptiveImageFrame
+      src={link.thumbnail.source}
+      alt=""
+      width={link.thumbnail.width}
+      height={link.thumbnail.height}
+      sizes="96px"
+      fallbackFrameAspectRatio={1}
+      className="mt-1 h-20 w-24 shrink-0 rounded-md sm:h-24"
+      unoptimized
+    />
   );
 };
 
@@ -196,17 +195,16 @@ const FeaturedArticleCard = ({
     <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
       <div className={article.thumbnail ? "grid gap-0 sm:grid-cols-[150px_minmax(0,1fr)]" : ""}>
         {article.thumbnail && (
-          <div className="relative aspect-[16/9] overflow-hidden bg-surface-3 sm:aspect-auto sm:min-h-[148px]">
-            <Image
-              src={article.thumbnail.source}
-              alt=""
-              fill
-              sizes="(min-width: 1024px) 150px, 100vw"
-              className="object-cover"
-              priority
-              unoptimized
-            />
-          </div>
+          <AdaptiveImageFrame
+            src={article.thumbnail.source}
+            alt=""
+            width={article.thumbnail.width}
+            height={article.thumbnail.height}
+            sizes="(min-width: 1024px) 150px, 100vw"
+            className="aspect-[16/9] sm:aspect-auto sm:min-h-[148px]"
+            priority
+            unoptimized
+          />
         )}
         <div className="min-w-0 px-5 py-4">
           <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
@@ -551,19 +549,15 @@ const TrendingArticles = ({
                       className="result-link flex flex-1 flex-col border-0 bg-transparent no-underline transition-all duration-200"
                     >
                     {article.thumbnail ? (
-                      <span
-                        className="relative block aspect-[16/9] overflow-hidden bg-surface-3"
-                        aria-hidden="true"
-                      >
-                        <Image
-                          src={article.thumbnail.source}
-                          alt=""
-                          fill
-                          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                          className="object-contain"
-                          unoptimized
-                        />
-                      </span>
+                      <AdaptiveImageFrame
+                        src={article.thumbnail.source}
+                        alt=""
+                        width={article.thumbnail.width}
+                        height={article.thumbnail.height}
+                        sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                        className="block aspect-[16/9]"
+                        unoptimized
+                      />
                     ) : (
                       <span
                         className="flex aspect-[16/9] items-center justify-center bg-surface-3 text-muted opacity-40"
@@ -688,18 +682,18 @@ const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
   return (
     <figure className="m-0 overflow-hidden rounded-2xl border border-border bg-surface-2">
       {image && (
-        <div className="relative aspect-[16/10] overflow-hidden bg-surface-3">
-          <Image
-            src={image.source}
-            alt={picture.altText || "Wikipedia picture of the day"}
-            fill
-            sizes="(min-width: 1024px) 38vw, 100vw"
-            className="object-contain"
-            loading="eager"
-            fetchPriority="high"
-            unoptimized
-          />
-        </div>
+        <AdaptiveImageFrame
+          src={image.source}
+          alt={picture.altText || "Wikipedia picture of the day"}
+          width={image.width}
+          height={image.height}
+          sizes="(min-width: 1024px) 38vw, 100vw"
+          fallbackFrameAspectRatio={16 / 10}
+          className="aspect-[16/10]"
+          loading="eager"
+          fetchPriority="high"
+          unoptimized
+        />
       )}
 
       <figcaption className="px-5 py-4">

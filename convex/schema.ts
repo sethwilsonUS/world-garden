@@ -253,6 +253,9 @@ export default defineSchema({
         v.object({
           src: v.string(),
           originalSrc: v.optional(v.string()),
+          lightboxSrc: v.optional(v.string()),
+          lightboxWidth: v.optional(v.number()),
+          lightboxHeight: v.optional(v.number()),
           alt: v.string(),
           caption: v.string(),
           width: v.optional(v.number()),
