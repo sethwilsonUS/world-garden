@@ -173,7 +173,12 @@ describe("ArticleContext", () => {
       }),
     );
 
-    expect(markup).toContain("Load interactive map");
+    expect(markup).toContain("Show interactive street map");
+    expect(markup).toContain("Coordinate overview — not a street map");
+    expect(markup.indexOf("Show interactive street map")).toBeLessThan(
+      markup.indexOf("Coordinate overview — not a street map"),
+    );
+    expect(markup).toContain('transform="translate(320 150)"');
     expect(markup).toContain("Latitude 41.9000, longitude 12.5000");
     expect(markup).toContain('<time dateTime="1969-07-20">20 July 1969</time>');
     expect(markup).toContain("Exact data for Population over time");

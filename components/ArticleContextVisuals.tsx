@@ -38,11 +38,17 @@ const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
   const maxLongitude = Math.max(...longitudes);
   const minLatitude = Math.min(...latitudes);
   const maxLatitude = Math.max(...latitudes);
-  const longitudeSpan = Math.max(maxLongitude - minLongitude, 0.01);
-  const latitudeSpan = Math.max(maxLatitude - minLatitude, 0.01);
+  const longitudeSpan = maxLongitude - minLongitude;
+  const latitudeSpan = maxLatitude - minLatitude;
   const project = (point: ContextCoordinate) => ({
-    x: 32 + ((point.longitude - minLongitude) / longitudeSpan) * 576,
-    y: 24 + ((maxLatitude - point.latitude) / latitudeSpan) * 252,
+    x:
+      longitudeSpan === 0
+        ? 320
+        : 32 + ((point.longitude - minLongitude) / longitudeSpan) * 576,
+    y:
+      latitudeSpan === 0
+        ? 150
+        : 24 + ((maxLatitude - point.latitude) / latitudeSpan) * 252,
   });
 
   return (
@@ -96,7 +102,8 @@ const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
         })}
       </svg>
       <figcaption>
-        A schematic overview. Exact locations and descriptions follow in the place and route lists.
+        Coordinate overview — not a street map. Exact locations and descriptions
+        follow in the place and route lists.
       </figcaption>
     </figure>
   );
@@ -160,6 +167,9 @@ const InteractiveMap = ({ block }: { block: ContextMapBlock }) => {
           attributionControl: false,
           cooperativeGestures: true,
         });
+        instance
+          .getCanvas()
+          .setAttribute("aria-label", `Interactive street map for ${block.title}`);
         mapRef.current = instance;
 
         instance.once("load", () => {
@@ -260,7 +270,10 @@ const InteractiveMap = ({ block }: { block: ContextMapBlock }) => {
 
   return (
     <div className="context-interactive-map">
-      <div ref={containerRef} className="context-map-canvas" role="region" aria-label="Interactive visual map" />
+      <div
+        ref={containerRef}
+        className="context-map-canvas"
+      />
       <div className="context-map-toolbar">
         <MapControls map={map} onAction={setStatus} />
         <button type="button" onClick={reset} disabled={!map} className="context-map-reset">
@@ -303,10 +316,49 @@ const InteractiveMap = ({ block }: { block: ContextMapBlock }) => {
 export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
   const [interactive, setInteractive] = useState(false);
   const centerUrl = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(block.map.center.latitude)}&mlon=${encodeURIComponent(block.map.center.longitude)}#map=${Math.round(block.map.suggestedZoom ?? 5)}/${encodeURIComponent(block.map.center.latitude)}/${encodeURIComponent(block.map.center.longitude)}`;
+  const loadNoteId = `${block.id}-map-load-note`;
 
   return (
     <div className="context-kind-view">
-      <MapSchematic block={block} />
+      <div className="context-map-prompt">
+        <div>
+          <strong>
+            {interactive
+              ? "Interactive street map shown"
+              : "Interactive street map available"}
+          </strong>
+          <p id={loadNoteId}>
+            {interactive
+              ? "The exact place, route, and area information remains available in the semantic lists below."
+              : "Showing the street map requests tiles from OpenFreeMap. The coordinate overview and semantic lists work without it."}
+          </p>
+        </div>
+        <button
+          type="button"
+          className={`${interactive ? "btn-secondary" : "btn-primary"} context-load-map`}
+          aria-controls={`${block.id}-map-view`}
+          aria-describedby={loadNoteId}
+          onClick={() => setInteractive((value) => !value)}
+        >
+          {interactive
+            ? "Show coordinate overview"
+            : "Show interactive street map"}
+        </button>
+      </div>
+
+      <div id={`${block.id}-map-view`}>
+        {interactive ? (
+          <InteractiveMap block={block} />
+        ) : (
+          <MapSchematic block={block} />
+        )}
+      </div>
+
+      <div className="context-map-actions">
+        <a href={centerUrl} target="_blank" rel="noopener noreferrer" className="context-text-link">
+          Open area in OpenStreetMap<span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      </div>
 
       {block.map.places.length > 0 ? (
         <section aria-labelledby={`${block.id}-places-heading`}>
@@ -355,23 +407,6 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
         </section>
       ) : null}
 
-      <div className="context-map-actions">
-        {!interactive ? (
-          <button type="button" className="btn-secondary context-load-map" onClick={() => setInteractive(true)}>
-            Load interactive map
-          </button>
-        ) : null}
-        <a href={centerUrl} target="_blank" rel="noopener noreferrer" className="context-text-link">
-          Open area in OpenStreetMap<span className="sr-only"> (opens in a new tab)</span>
-        </a>
-      </div>
-      {!interactive ? (
-        <p className="context-load-note">
-          Loading the interactive map requests tiles from OpenFreeMap. The place, route, and area information above works without it.
-        </p>
-      ) : (
-        <InteractiveMap block={block} />
-      )}
     </div>
   );
 };
