@@ -351,7 +351,7 @@ describe("ArticleContext", () => {
           ...Array.from({ length: 13 }, (_, index) => ({
             age: `${index * 5}–${index * 5 + 4}`,
             total: 30_000 - index * 1_000,
-            male: 15_000 - index * 500,
+            male: index === 0 ? null : 15_000 - index * 500,
             share: 9 - index * 0.4,
             ratio: 1.05 - index * 0.02,
           })),
@@ -419,6 +419,14 @@ describe("ArticleContext", () => {
       "Showing the first 12 of 13 categories in meaningful source order; 1 more remain in Exact chart data. 1 aggregate row kept in Exact chart data.",
     );
     expect(markup.match(/<section class="context-standard-chart-panel"/g)).toHaveLength(1);
+    expect(markup).toContain(
+      'aria-label="Total (thousands) and Males (thousands) by category for Age and sex distribution"',
+    );
+    expect(markup.match(/class="context-mobile-bar-track"/g)).toHaveLength(24);
+    expect(markup).toContain("context-mobile-bar-fill-positive");
+    expect(markup).toContain(">30,000</strong><span> thousands</span>");
+    expect(markup).toContain(">Not available</strong>");
+    expect(markup).not.toContain(">Not available</strong><span> thousands</span>");
     expect(markup).toContain('<th scope="row">Total</th>');
     expect(markup).toContain(
       '<span class="context-data-disclosure-meta">14 rows, 5 columns</span>',

@@ -23,6 +23,7 @@ import type {
 } from "@/lib/article-context-types";
 import {
   formatContextChartCell,
+  getContextChartPayloadKey,
   getRankedBarGeometry,
   getRankedChartPresentation,
   getStandardChartFamilyView,
@@ -63,6 +64,7 @@ const EXACT_MAP_DATA_NOTE =
 const PARTIAL_MAP_STATUS =
   `Some map details could not load. ${EXACT_MAP_DATA_NOTE}`;
 const RICH_MEDIA_ROOT_MARGIN = "400px 0px";
+const MOBILE_CHART_MEDIA_QUERY = "(max-width: 640px)";
 
 type MapInstance = import("maplibre-gl").Map;
 type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
@@ -70,6 +72,30 @@ type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COL
 const isReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const useMediaQuery = (queryText: string): {
+  matches: boolean;
+  revision: number;
+} => {
+  const [state, setState] = useState(() => ({
+    matches: typeof window !== "undefined" && window.matchMedia(queryText).matches,
+    revision: 0,
+  }));
+
+  useEffect(() => {
+    const query = window.matchMedia(queryText);
+    const update = () => setState((current) =>
+      current.matches === query.matches
+        ? current
+        : { matches: query.matches, revision: current.revision + 1 },
+    );
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, [queryText]);
+
+  return state;
+};
 
 const useNearViewport = (ref: RefObject<HTMLElement | null>): boolean => {
   const [nearViewport, setNearViewport] = useState(false);
@@ -1090,6 +1116,10 @@ const EChartsGraphic = ({
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const nearViewport = useNearViewport(containerRef);
+  const {
+    matches: narrowViewport,
+    revision: viewportRevision,
+  } = useMediaQuery(MOBILE_CHART_MEDIA_QUERY);
   const [failed, setFailed] = useState(false);
   const [readyAttempt, setReadyAttempt] = useState<string | null>(null);
   const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key ?? "";
@@ -1104,12 +1134,14 @@ const EChartsGraphic = ({
   const chartHeight = horizontalBars
     ? Math.min(560, Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)))
     : 300;
-  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${selectedSeries.map((series) => series.id).join(",")}:${rows.length}:${String(rows[0]?.[xColumn])}:${String(rows.at(-1)?.[xColumn])}:${horizontalBars}:${renderKind}:${zeroBaseline}`;
+  const chartPayloadKey = getContextChartPayloadKey(rows, selectedSeries);
+  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${chartPayloadKey}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
   const ready = readyAttempt === chartAttempt;
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !nearViewport) return;
+    const useMobileBarLayout = horizontalBars && narrowViewport;
+    if (!container || !nearViewport || useMobileBarLayout) return;
     let chart: ECharts | null = null;
     let cancelled = false;
 
@@ -1228,35 +1260,133 @@ const EChartsGraphic = ({
       resizeObserver?.disconnect();
       chart?.dispose();
     };
-  }, [block, chartAttempt, horizontalBars, nearViewport, renderKind, rows, selectedSeries, theme, xLabels, zeroBaseline]);
+  }, [block, chartAttempt, horizontalBars, narrowViewport, nearViewport, renderKind, rows, selectedSeries, theme, xLabels, zeroBaseline]);
 
-  if (failed) {
-    return (
-      <ChartGraphic
-        block={block}
-        rows={rows}
-        renderKind={renderKind}
-        selectedSeries={selectedSeries}
-        zeroBaseline={zeroBaseline}
-      />
-    );
-  }
   return (
-      <div className="context-echarts-surface" aria-busy={!ready}>
-        <div
-          ref={containerRef}
-          className="context-echarts"
-          aria-hidden="true"
-          style={{ minHeight: chartHeight }}
-        />
-        {!ready ? (
-          <p className="context-rich-media-placeholder">
-            {nearViewport
-              ? "Loading chart."
-              : "Chart will load as it approaches the viewport."}
-          </p>
-        ) : null}
+    <div className={horizontalBars ? "context-responsive-horizontal-bars" : undefined}>
+      <div className="context-desktop-chart">
+        {failed ? (
+          <ChartGraphic
+            block={block}
+            rows={rows}
+            renderKind={renderKind}
+            selectedSeries={selectedSeries}
+            zeroBaseline={zeroBaseline}
+          />
+        ) : (
+          <div className="context-echarts-surface" aria-busy={!ready}>
+            <div
+              ref={containerRef}
+              className="context-echarts"
+              aria-hidden="true"
+              style={{ minHeight: chartHeight }}
+            />
+            {!ready ? (
+              <p className="context-rich-media-placeholder">
+                {nearViewport
+                  ? "Loading chart."
+                  : "Chart will load as it approaches the viewport."}
+              </p>
+            ) : null}
+          </div>
+        )}
       </div>
+      {horizontalBars ? (
+        <MobileCategoryBars
+          block={block}
+          rows={rows}
+          selectedSeries={selectedSeries}
+          xColumn={xColumn}
+          theme={theme}
+        />
+      ) : null}
+    </div>
+  );
+};
+
+const MobileCategoryBars = ({
+  block,
+  rows,
+  selectedSeries,
+  xColumn,
+  theme,
+}: {
+  block: ContextChartBlock;
+  rows: ContextChartBlock["chart"]["rows"];
+  selectedSeries: ContextChartSeries[];
+  xColumn: string;
+  theme: "light" | "dark";
+}) => {
+  const values = selectedSeries.flatMap((series) =>
+    rows.map((row) => row[series.yColumn]),
+  );
+  const categoryColumn = block.chart.columns.find(
+    (column) => column.key === xColumn,
+  );
+  const showSeriesLabels = selectedSeries.length > 1;
+
+  return (
+    <ol
+      className="context-mobile-category-bars"
+      aria-label={`${selectedSeries.map((series) => series.label).join(" and ")} by category for ${block.title}`}
+    >
+      {rows.map((row, rowIndex) => (
+        <li key={`${String(row[xColumn] ?? "category")}-${rowIndex}`}>
+          <strong className="context-mobile-bar-category">
+            {formatContextChartCell(row[xColumn], categoryColumn)}
+          </strong>
+          <span className="context-mobile-bar-series">
+            {selectedSeries.map((series, seriesIndex) => {
+              const value = row[series.yColumn];
+              const geometry = getRankedBarGeometry(values, value);
+              const measureColumn = block.chart.columns.find(
+                (column) => column.key === series.yColumn,
+              );
+              const unit = series.unit ?? measureColumn?.unit;
+              return (
+                <span
+                  className="context-mobile-bar-measure"
+                  key={series.id}
+                  style={{
+                    "--context-mobile-bar-color": CHART_COLORS[theme][seriesIndex % CHART_COLORS[theme].length],
+                  } as CSSProperties}
+                >
+                  <span className="context-mobile-bar-value">
+                    {showSeriesLabels ? <span>{series.label}</span> : null}
+                    <strong>{formatContextChartCell(value, measureColumn)}</strong>
+                    {unit && geometry ? <span> {unit}</span> : null}
+                  </span>
+                  <span className="context-mobile-bar-track" aria-hidden="true">
+                    {geometry ? (
+                      <>
+                        <span
+                          className="context-mobile-bar-zero-line"
+                          style={{ left: `${geometry.zeroPercent}%` }}
+                        />
+                        {geometry.direction === "zero" ? (
+                          <span
+                            className="context-mobile-bar-zero-value"
+                            style={{ left: `${geometry.zeroPercent}%` }}
+                          />
+                        ) : (
+                          <span
+                            className={`context-mobile-bar-fill context-mobile-bar-fill-${geometry.direction}`}
+                            style={{
+                              left: `${geometry.startPercent}%`,
+                              width: `${geometry.widthPercent}%`,
+                            }}
+                          />
+                        )}
+                      </>
+                    ) : null}
+                  </span>
+                </span>
+              );
+            })}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 };
 
