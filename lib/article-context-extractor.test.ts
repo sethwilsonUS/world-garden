@@ -294,6 +294,180 @@ describe("article context deterministic extraction", () => {
     expect(JSON.stringify(block)).not.toContain("javascript:");
   });
 
+  it("extracts all FIFA venues from an OSM Location map instead of treating its viewport center as a place", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Venues">Venues</h2>
+        <a class="mw-kartographer-map" data-mw-kartographer="mapframe"
+           data-zoom="3" data-lat="34" data-lon="-99.5"><img alt="Map"></a>`,
+      sections: [
+        { index: "9", line: "Venues", anchor: "Venues", level: "2" },
+      ],
+      wikitext: `==Venues==
+        {{OSM Location map
+        | coord              = {{coord|34|-99.5}}
+        | zoom               = 3
+        | caption            = Location map of the 2026 FIFA World Cup venues
+        | label1             = '''[[Greater Los Angeles|Los Angeles]]'''
+        | mark-coord1        = {{Coord|33.95340|-118.33902}}
+        | mark-title1        = [[Greater Los Angeles|Los Angeles]]
+        | mark-description1  = [[SoFi Stadium]]
+        | label2             = '''[[San Francisco Bay Area|SF Bay Area]]'''
+        | mark-coord2        = {{Coord|37.40317|-121.96979}}
+        | mark-title2        = [[San Francisco Bay Area]]
+        | mark-description2  = [[Levi's Stadium]]
+        | label3             = '''[[Seattle]]'''
+        | mark-coord3        = {{Coord|47.59515|-122.33163}}
+        | mark-title3        = [[Seattle]]
+        | mark-description3  = [[Lumen Field]]
+        | label4             = '''[[Vancouver]]'''
+        | mark-coord4        = {{Coord|49.27669|-123.11202}}
+        | mark-title4        = [[Vancouver]]
+        | mark-description4  = [[BC Place]]
+        | label5             = '''[[Dallas–Fort Worth metroplex|Dallas]]'''
+        | mark-coord5        = {{Coord|32.74785|-97.09283}}
+        | mark-title5        = [[Dallas–Fort Worth metroplex|Dallas]]
+        | mark-description5  = [[AT&T Stadium]]
+        | label6             = '''[[Guadalajara metropolitan area|Guadalajara]]'''
+        | mark-coord6        = {{Coord|20.68182|-103.46241}}
+        | mark-title6        = [[Guadalajara metropolitan area|Guadalajara]]
+        | mark-description6  = [[Estadio Akron]]
+        | label7             = '''[[Houston]]'''
+        | mark-coord7        = {{Coord|29.68486|-95.41080}}
+        | mark-title7        = [[Houston]]
+        | mark-description7  = [[NRG Stadium]]
+        | label8             = '''[[Kansas City, Missouri|Kansas City]]'''
+        | mark-coord8        = {{Coord|39.04893|-94.48401}}
+        | mark-title8        = [[Kansas City, Missouri|Kansas City]]
+        | mark-description8  = [[Arrowhead Stadium]]
+        | label9             = '''[[Mexico City]]'''
+        | mark-coord9        = {{Coord|19.30295|-99.15047}}
+        | mark-title9        = [[Mexico City]]
+        | mark-description9  = [[Estadio Azteca]]
+        | label10            = '''[[Monterrey metropolitan area|Monterrey]]'''
+        | mark-coord10       = {{Coord|25.66911|-100.24437}}
+        | mark-title10       = [[Monterrey metropolitan area|Monterrey]]
+        | mark-description10 = [[Estadio BBVA]]
+        | label11            = '''[[Atlanta]]'''
+        | mark-coord11       = {{Coord|33.4520|-84.24}}
+        | mark-title11       = [[Atlanta]]
+        | mark-description11 = [[Mercedes-Benz Stadium]]
+        | label12            = '''[[Greater Boston|Boston]]'''
+        | mark-coord12       = {{Coord|42.09093|-71.26436}}
+        | mark-title12       = [[Greater Boston|Boston]]
+        | mark-description12 = [[Gillette Stadium]]
+        | label13            = '''[[Miami metropolitan area|Miami]]'''
+        | mark-coord13       = {{Coord|25.95795|-80.23885}}
+        | mark-title13       = [[Miami metropolitan area|Miami]]
+        | mark-description13 = [[Hard Rock Stadium]]
+        | label14            = '''[[New York metropolitan area|New York<br />New Jersey]]'''
+        | mark-coord14       = {{Coord|40.81352|-74.07435}}
+        | mark-title14       = [[New York metropolitan area|New York/New Jersey]]
+        | mark-description14 = [[MetLife Stadium]]
+        | label15            = '''[[Philadelphia]]'''
+        | mark-coord15       = {{Coord|39.90081|-75.16747}}
+        | mark-title15       = [[Philadelphia]]
+        | mark-description15 = [[Lincoln Financial Field]]
+        | label16            = '''[[Toronto]]'''
+        | mark-coord16       = {{Coord|43.63322|-79.41858}}
+        | mark-title16       = [[Toronto]]
+        | mark-description16 = [[BMO Field]]
+        }}`,
+    };
+
+    const manifest = extractArticleContextFromSource(source, request);
+    const map = manifest.blocks.find((block) => block.kind === "map");
+
+    expect(map?.kind).toBe("map");
+    if (map?.kind !== "map") return;
+    expect(map.map.places).toHaveLength(16);
+    expect(map.map.places[0]).toMatchObject({
+      name: "Los Angeles",
+      latitude: 33.9534,
+      longitude: -118.33902,
+      description: "SoFi Stadium",
+    });
+    expect(map.map.places.at(-1)).toMatchObject({
+      name: "Toronto",
+      latitude: 43.63322,
+      longitude: -79.41858,
+      description: "BMO Field",
+    });
+    expect(map.map.places).not.toContainEqual(
+      expect.objectContaining({ name: "Venues", latitude: 34, longitude: -99.5 }),
+    );
+    expect(map.caption).toBe(
+      "The source map identifies 16 places associated with Venues.",
+    );
+    expect(map.longDescription).toContain("The source identifies 16 places.");
+
+    const download = createArticleContextDownload(manifest, "json");
+    const downloaded = JSON.parse(download.body) as typeof manifest;
+    const downloadedMap = downloaded.blocks.find((block) => block.kind === "map");
+    expect(downloadedMap?.kind === "map" && downloadedMap.map.places).toHaveLength(16);
+    expect(
+      downloadedMap?.kind === "map" && downloadedMap.map.places.at(-1),
+    ).toMatchObject({ name: "Toronto", description: "BMO Field" });
+  });
+
+  it("parses compact OSM Location map parameters with non-contiguous marker indices", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Locations">Locations</h2>
+        <a data-mw-kartographer="mapframe" data-zoom="6" data-lat="23" data-lon="112"><img alt="Map"></a>`,
+      sections: [
+        { index: "1", line: "Locations", anchor: "Locations", level: "2" },
+      ],
+      wikitext: `== Locations ==
+        {{OSM Location map
+        | coord = {{coord|23|112}}
+        | mark-coord2 = {{coord|22.252|112.794}} | label2 = [[Taishan, Guangdong|Taishan]] | mark-description2 = Southern point
+        | mark-coord9 = {{coord|23.477|111.279}} | mark-title9 = [[Wuzhou]] | mark-description9 = Northern point
+        | zoom = 6
+        }}`,
+    };
+
+    const map = extractArticleContextFromSource(source, request).blocks.find(
+      (block) => block.kind === "map",
+    );
+
+    expect(map?.kind).toBe("map");
+    expect(map?.kind === "map" && map.map.places).toMatchObject([
+      {
+        name: "Taishan",
+        latitude: 22.252,
+        longitude: 112.794,
+        description: "Southern point",
+      },
+      {
+        name: "Wuzhou",
+        latitude: 23.477,
+        longitude: 111.279,
+        description: "Northern point",
+      },
+    ]);
+  });
+
+  it("suppresses a generic HTML viewport-center fallback for a malformed OSM Location map", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Venues">Venues</h2>
+        <a data-mw-kartographer="mapframe" data-zoom="3" data-lat="34" data-lon="-99.5"><img alt="Map"></a>`,
+      sections: [
+        { index: "9", line: "Venues", anchor: "Venues", level: "2" },
+      ],
+      wikitext: `== Venues ==
+        {{OSM Location map
+        | coord = {{coord|34|-99.5}}
+        | mark-coord1 = {{coord|not-a-latitude|-118.33902}}
+        | mark-title1 = [[Greater Los Angeles|Los Angeles]]
+        | zoom = 3
+        }}`,
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+  });
+
   it("uses a circular longitude mean for features spanning the dateline", () => {
     const source: MediaWikiParsedSource = {
       ...richSource(),

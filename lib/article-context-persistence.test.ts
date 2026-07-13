@@ -173,6 +173,49 @@ describe("published article context persistence", () => {
     expect(getEnhancedArticleContext).toHaveBeenCalledOnce();
   });
 
+  it("treats rows from an older extractor as inert and rebuilds them", async () => {
+    const staleManifest = {
+      ...manifest,
+      extractorVersion: "2.0.0",
+      blocks: manifest.blocks.map((block) => ({
+        ...block,
+        provenance: { ...block.provenance, extractorVersion: "2.0.0" },
+      })),
+    };
+    fetchQuery
+      .mockResolvedValueOnce({
+        manifestJson: JSON.stringify(staleManifest),
+        sourceHash: staleManifest.sourceHash,
+        updatedAt: Date.now(),
+      })
+      .mockResolvedValueOnce(null);
+    getEnhancedArticleContext.mockResolvedValue({
+      context: manifest,
+      cacheStatus: "miss",
+    });
+
+    const { getPublishedArticleContext } = await import(
+      "./article-context-persistence"
+    );
+    const result = await getPublishedArticleContext({
+      wikiPageId: "42",
+      title: "Example",
+      revisionId: "100",
+    });
+
+    expect(fetchQuery).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+      }),
+    );
+    expect(result.context.extractorVersion).toBe(
+      ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+    );
+    expect(getEnhancedArticleContext).toHaveBeenCalledOnce();
+  });
+
   it("persists a generated miss with the server secret", async () => {
     fetchQuery.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
     getEnhancedArticleContext.mockResolvedValue({

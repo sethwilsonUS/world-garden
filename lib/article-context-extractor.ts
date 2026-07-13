@@ -562,6 +562,207 @@ type NormalizedMapData = {
   suggestedZoom?: number;
 };
 
+type WikitextTemplate = {
+  start: number;
+  raw: string;
+  parameters: Map<string, string>;
+};
+
+const skipWikitextComment = (value: string, index: number): number | null => {
+  if (!value.startsWith("<!--", index)) return null;
+  const end = value.indexOf("-->", index + 4);
+  return end < 0 ? value.length : end + 3;
+};
+
+const findBalancedTemplateEnd = (
+  value: string,
+  start: number,
+): number | null => {
+  if (!value.startsWith("{{", start)) return null;
+  let depth = 0;
+  for (let index = start; index < value.length - 1; index += 1) {
+    const commentEnd = skipWikitextComment(value, index);
+    if (commentEnd != null) {
+      index = commentEnd - 1;
+      continue;
+    }
+    if (value.startsWith("{{", index)) {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("}}", index)) {
+      depth -= 1;
+      index += 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return null;
+};
+
+const topLevelDelimiterIndex = (
+  value: string,
+  delimiter: string,
+): number => {
+  let templateDepth = 0;
+  let linkDepth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const commentEnd = skipWikitextComment(value, index);
+    if (commentEnd != null) {
+      index = commentEnd - 1;
+      continue;
+    }
+    if (value.startsWith("{{", index)) {
+      templateDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("}}", index) && templateDepth > 0) {
+      templateDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("[[", index)) {
+      linkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("]]", index) && linkDepth > 0) {
+      linkDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (
+      value.startsWith(delimiter, index) &&
+      templateDepth === 0 &&
+      linkDepth === 0
+    ) {
+      return index;
+    }
+  }
+  return -1;
+};
+
+const splitTopLevelWikitext = (
+  value: string,
+  delimiter: string,
+): string[] => {
+  const parts: string[] = [];
+  let partStart = 0;
+  let templateDepth = 0;
+  let linkDepth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const commentEnd = skipWikitextComment(value, index);
+    if (commentEnd != null) {
+      index = commentEnd - 1;
+      continue;
+    }
+    if (value.startsWith("{{", index)) {
+      templateDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("}}", index) && templateDepth > 0) {
+      templateDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("[[", index)) {
+      linkDepth += 1;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("]]", index) && linkDepth > 0) {
+      linkDepth -= 1;
+      index += 1;
+      continue;
+    }
+    if (
+      value.startsWith(delimiter, index) &&
+      templateDepth === 0 &&
+      linkDepth === 0
+    ) {
+      parts.push(value.slice(partStart, index));
+      partStart = index + delimiter.length;
+      index += delimiter.length - 1;
+    }
+  }
+  parts.push(value.slice(partStart));
+  return parts;
+};
+
+const normalizeTemplateParameter = (value: string): string =>
+  value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+
+const parseWikitextTemplate = (
+  wikitext: string,
+  start: number,
+): WikitextTemplate | null => {
+  const end = findBalancedTemplateEnd(wikitext, start);
+  if (end == null) return null;
+  const raw = wikitext.slice(start, end);
+  const parts = splitTopLevelWikitext(raw.slice(2, -2), "|");
+  const parameters = new Map<string, string>();
+  parts.slice(1).forEach((part) => {
+    const equals = topLevelDelimiterIndex(part, "=");
+    if (equals < 0) return;
+    const name = normalizeTemplateParameter(part.slice(0, equals));
+    if (name) parameters.set(name, part.slice(equals + 1).trim());
+  });
+  return { start, raw, parameters };
+};
+
+const findOsmLocationMapTemplates = (wikitext: string): WikitextTemplate[] => {
+  const searchable = wikitext.replace(/<!--[\s\S]*?-->/g, (comment) =>
+    " ".repeat(comment.length),
+  );
+  const pattern =
+    /\{\{\s*(?:template\s*:\s*)?osm[\s_]+location[\s_]+map(?=\s*(?:\||\}\}))/gi;
+  const templates: WikitextTemplate[] = [];
+  for (const match of searchable.matchAll(pattern)) {
+    const template = parseWikitextTemplate(wikitext, match.index ?? 0);
+    if (template) templates.push(template);
+  }
+  return templates;
+};
+
+const parseDecimalCoordTemplate = (
+  value: string,
+): ContextCoordinate | null => {
+  const searchable = value.replace(/<!--[\s\S]*?-->/g, (comment) =>
+    " ".repeat(comment.length),
+  );
+  const match = /\{\{\s*(?:template\s*:\s*)?coord(?=\s*(?:\||\}\}))/i.exec(
+    searchable,
+  );
+  if (!match) return null;
+  const template = parseWikitextTemplate(value, match.index);
+  if (!template) return null;
+  const parts = splitTopLevelWikitext(template.raw.slice(2, -2), "|")
+    .slice(1)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+  if (!decimal.test(parts[0]) || !decimal.test(parts[1])) return null;
+  // Reject degree/minute/second forms rather than interpreting their first two
+  // components as latitude and longitude. Named Coord metadata remains safe.
+  if (
+    parts.slice(2).some(
+      (part) => decimal.test(part) || /^[NSEW]$/i.test(part),
+    )
+  ) {
+    return null;
+  }
+  const latitude = finiteNumber(parts[0]);
+  const longitude = finiteNumber(parts[1]);
+  return latitude != null &&
+    longitude != null &&
+    validCoordinate(latitude, longitude)
+    ? { latitude, longitude }
+    : null;
+};
+
 const dedupeMapData = (data: NormalizedMapData): NormalizedMapData => {
   const placeKeys = new Set<string>();
   const places = data.places.filter((place) => {
@@ -746,6 +947,86 @@ const createMapCandidate = ({
   return { block, position, priority };
 };
 
+const extractOsmLocationMapCandidates = ({
+  source,
+  request,
+  sourceHash,
+  generatedAt,
+}: {
+  source: MediaWikiParsedSource;
+  request: ArticleContextRequest;
+  sourceHash: string;
+  generatedAt: string;
+}): { candidates: BlockCandidate[]; sectionIndexes: Set<string> } => {
+  const candidates: BlockCandidate[] = [];
+  const sectionIndexes = new Set<string>();
+  findOsmLocationMapTemplates(source.wikitext).forEach((template, templateIndex) => {
+    const section = findWikitextSection(
+      source.wikitext,
+      template.start,
+      source.sections,
+    );
+    sectionIndexes.add(section.index);
+    const markerIndexes = [...template.parameters.keys()]
+      .flatMap((name) => {
+        const match = /^mark-coord(\d+)$/.exec(name);
+        return match ? [Number.parseInt(match[1], 10)] : [];
+      })
+      .filter((index) => Number.isSafeInteger(index) && index >= 0)
+      .sort((a, b) => a - b);
+    const places = markerIndexes.flatMap((markerIndex, placeIndex) => {
+      const coordinateValue = template.parameters.get(`mark-coord${markerIndex}`);
+      const coordinate = coordinateValue
+        ? parseDecimalCoordTemplate(coordinateValue)
+        : null;
+      if (!coordinate) return [];
+      const rawDescription =
+        template.parameters.get(`mark-description${markerIndex}`) ?? "";
+      const description = cleanWikitext(rawDescription, 600);
+      const name =
+        cleanWikitext(
+          template.parameters.get(`mark-title${markerIndex}`) ??
+            template.parameters.get(`label${markerIndex}`) ??
+            rawDescription,
+          200,
+        ) || `${section.title} location ${markerIndex}`;
+      return [
+        {
+          id: uniqueId(
+            "place",
+            `${name}:${coordinate.latitude}:${coordinate.longitude}`,
+            placeIndex,
+          ),
+          name,
+          ...coordinate,
+          ...(description ? { description } : {}),
+        } satisfies ContextMapPlace,
+      ];
+    });
+    if (places.length === 0) return;
+    const zoom = finiteNumber(template.parameters.get("zoom"));
+    const candidate = createMapCandidate({
+      data: {
+        places,
+        routes: [],
+        areas: [],
+        ...(zoom != null
+          ? { suggestedZoom: Math.min(18, Math.max(1, Math.round(zoom))) }
+          : {}),
+      },
+      request,
+      sourceHash,
+      generatedAt,
+      section,
+      position: template.start,
+      priority: 97,
+      sourceIdentity: `osm-location-map:${templateIndex}:${sha256(template.raw)}`,
+    });
+    if (candidate) candidates.push(candidate);
+  });
+  return { candidates, sectionIndexes };
+};
+
 const extractGeoCoordinates = (
   html: string,
   boundaries: SectionBoundary[],
@@ -783,12 +1064,14 @@ const extractHtmlMapCandidates = ({
   sourceHash,
   generatedAt,
   boundaries,
+  suppressedSectionIndexes = new Set<string>(),
 }: {
   source: MediaWikiParsedSource;
   request: ArticleContextRequest;
   sourceHash: string;
   generatedAt: string;
   boundaries: SectionBoundary[];
+  suppressedSectionIndexes?: ReadonlySet<string>;
 }): BlockCandidate[] => {
   const candidates: BlockCandidate[] = [];
   const geos = extractGeoCoordinates(source.html, boundaries);
@@ -796,6 +1079,8 @@ const extractHtmlMapCandidates = ({
     /<(?:a|span)\b([^>]*\bdata-mw-kartographer=(?:"(?:mapframe|maplink)"|'(?:mapframe|maplink)')[^>]*)>([\s\S]*?)<\/(?:a|span)>/gi;
   let mapIndex = 0;
   for (const match of source.html.matchAll(mapTagPattern)) {
+    const currentMapIndex = mapIndex;
+    mapIndex += 1;
     const attrs = parseAttributes(match[1]);
     const position = match.index ?? 0;
     const section = sectionAtOffset(boundaries, position);
@@ -823,17 +1108,24 @@ const extractHtmlMapCandidates = ({
     }
     const innerLabel = sanitizeContextText(match[2], 200);
     const subject = section.index === "__summary__" ? request.title : section.title;
-    const name =
-      innerLabel && !/^(map|click for interactive|\u00a0)+$/i.test(innerLabel)
-        ? innerLabel
-        : subject;
+    const hasSemanticLabel = Boolean(
+      innerLabel && !/^(map|click for interactive|\u00a0)+$/i.test(innerLabel),
+    );
+    // An OSM Location map frame's unlabeled coordinate is its viewport, not a
+    // place. Its numbered source markers are semantic; if they are malformed,
+    // omission is more accurate than announcing the viewport center. Preserve
+    // independently labeled map links that happen to share the same section.
+    if (suppressedSectionIndexes.has(section.index) && !hasSemanticLabel) {
+      continue;
+    }
+    const name = hasSemanticLabel ? innerLabel : subject;
     const zoomNumber = finiteNumber(attrs["data-zoom"]);
     const suggestedZoom =
       zoomNumber != null
         ? Math.min(18, Math.max(1, Math.round(zoomNumber)))
         : undefined;
     const place: ContextMapPlace = {
-      id: uniqueId("place", `${name}:${latitude}:${longitude}`, mapIndex),
+      id: uniqueId("place", `${name}:${latitude}:${longitude}`, currentMapIndex),
       name,
       latitude,
       longitude,
@@ -852,10 +1144,9 @@ const extractHtmlMapCandidates = ({
       section,
       position,
       priority: attrs["data-mw-kartographer"] === "mapframe" ? 95 : 93,
-      sourceIdentity: `kartographer:${mapIndex}:${latitude}:${longitude}`,
+      sourceIdentity: `kartographer:${currentMapIndex}:${latitude}:${longitude}`,
     });
     if (candidate) candidates.push(candidate);
-    mapIndex += 1;
   }
   return candidates;
 };
@@ -2506,10 +2797,16 @@ export const extractArticleContextFromSource = (
   );
   const boundaries = findHtmlSectionBoundaries(source.html, source.sections);
   const shared = { source, request, sourceHash, generatedAt };
+  const osmLocationMaps = extractOsmLocationMapCandidates(shared);
   const candidates = [
     ...extractChartExtensionCandidates({ ...shared, boundaries }),
     ...extractWikitextMapCandidates(shared),
-    ...extractHtmlMapCandidates({ ...shared, boundaries }),
+    ...osmLocationMaps.candidates,
+    ...extractHtmlMapCandidates({
+      ...shared,
+      boundaries,
+      suppressedSectionIndexes: osmLocationMaps.sectionIndexes,
+    }),
     ...extractEasyTimelineCandidates(shared),
     ...extractTableCandidates({ ...shared, boundaries }),
     ...extractDiagramCandidates({ ...shared, boundaries }),
