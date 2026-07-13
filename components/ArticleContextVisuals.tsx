@@ -1,7 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useTheme } from "./ThemeProvider";
 import type {
   ContextChartBlock,
   ContextChartSeries,
@@ -13,11 +21,31 @@ import type {
 import type { Feature } from "geojson";
 import type { ECharts, EChartsOption } from "echarts";
 
-const MAP_STYLE_URL =
-  process.env.NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL ??
-  "https://tiles.openfreemap.org/styles/liberty";
+const CUSTOM_MAP_STYLE_URL = process.env.NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL;
+const MAP_STYLE_URLS = {
+  light: CUSTOM_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty",
+  dark: CUSTOM_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/fiord",
+};
+const MAP_OVERLAY_COLORS = {
+  light: {
+    area: "#0f766e",
+    route: "#b45309",
+    marker: "#047857",
+    casing: "#111827",
+    markerStroke: "#ffffff",
+  },
+  dark: {
+    area: "#34d399",
+    route: "#f2ad5d",
+    marker: "#34d399",
+    casing: "#111827",
+    markerStroke: "#111827",
+  },
+} as const;
+const MAP_LOAD_TIMEOUT_MS = 15_000;
 
 type MapInstance = import("maplibre-gl").Map;
+type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
 
 const isReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
@@ -30,7 +58,7 @@ const allMapCoordinates = (block: ContextMapBlock): ContextCoordinate[] => [
   ...block.map.areas.flatMap((area) => area.rings.flat()),
 ];
 
-const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
+export const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
   const coordinates = allMapCoordinates(block);
   const longitudes = coordinates.map((point) => point.longitude);
   const latitudes = coordinates.map((point) => point.latitude);
@@ -147,109 +175,196 @@ const MapControls = ({
   );
 };
 
-const InteractiveMap = ({ block }: { block: ContextMapBlock }) => {
+const InteractiveMap = ({
+  block,
+  styleUrl,
+  overlayColors,
+  attemptKey,
+  onUnavailable,
+}: {
+  block: ContextMapBlock;
+  styleUrl: string;
+  overlayColors: MapOverlayColors;
+  attemptKey: string;
+  onUnavailable: (failedAttemptKey: string) => void;
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapInstance | null>(null);
   const [map, setMap] = useState<MapInstance | null>(null);
   const [status, setStatus] = useState("Loading interactive map");
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const disclosure = container.closest("details");
     let cancelled = false;
+    let started = false;
+    let ready = false;
+    let failureReported = false;
+    let loadTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    import("maplibre-gl")
-      .then((maplibre) => {
-        if (cancelled || !containerRef.current) return;
-        const instance = new maplibre.Map({
-          container: containerRef.current,
-          style: MAP_STYLE_URL,
-          center: [block.map.center.longitude, block.map.center.latitude],
-          zoom: block.map.suggestedZoom ?? 5,
-          attributionControl: false,
-          cooperativeGestures: true,
-        });
-        instance
-          .getCanvas()
-          .setAttribute("aria-label", `Interactive street map for ${block.title}`);
-        mapRef.current = instance;
+    const reportUnavailable = () => {
+      if (cancelled || ready || failureReported) return;
+      failureReported = true;
+      onUnavailable(attemptKey);
+    };
 
-        instance.once("load", () => {
-          if (cancelled) return;
-          const features: Feature[] = [
-            ...block.map.areas.flatMap((area) =>
-              area.rings.map((ring) => ({
-                type: "Feature" as const,
-                properties: { kind: "area", name: area.name },
-                geometry: {
-                  type: "Polygon" as const,
-                  coordinates: [ring.map((point) => [point.longitude, point.latitude])],
+    const start = () => {
+      if (started || (disclosure && !disclosure.open)) return;
+      started = true;
+      setMap(null);
+      setStatus("Loading interactive map");
+      loadTimeout = setTimeout(reportUnavailable, MAP_LOAD_TIMEOUT_MS);
+
+      import("maplibre-gl")
+        .then((maplibre) => {
+          if (cancelled || failureReported) return;
+          const instance = new maplibre.Map({
+            container,
+            style: styleUrl,
+            center: [block.map.center.longitude, block.map.center.latitude],
+            zoom: block.map.suggestedZoom ?? 5,
+            attributionControl: false,
+            cooperativeGestures: true,
+          });
+          instance
+            .getCanvas()
+            .setAttribute("aria-label", `Interactive street map for ${block.title}`);
+          mapRef.current = instance;
+
+          instance.once("load", () => {
+            if (cancelled || failureReported) return;
+            try {
+              const features: Feature[] = [
+                ...block.map.areas.flatMap((area) =>
+                  area.rings.map((ring) => ({
+                    type: "Feature" as const,
+                    properties: { kind: "area", name: area.name },
+                    geometry: {
+                      type: "Polygon" as const,
+                      coordinates: [ring.map((point) => [point.longitude, point.latitude])],
+                    },
+                  })),
+                ),
+                ...block.map.routes.map((route) => ({
+                  type: "Feature" as const,
+                  properties: { kind: "route", name: route.name },
+                  geometry: {
+                    type: "LineString" as const,
+                    coordinates: route.points.map((point) => [point.longitude, point.latitude]),
+                  },
+                })),
+                ...block.map.places.map((place) => ({
+                  type: "Feature" as const,
+                  properties: { kind: "place", id: place.id, name: place.name },
+                  geometry: {
+                    type: "Point" as const,
+                    coordinates: [place.longitude, place.latitude],
+                  },
+                })),
+              ];
+
+              instance.addSource("article-context", {
+                type: "geojson",
+                data: { type: "FeatureCollection", features },
+              });
+              instance.addLayer({
+                id: "context-areas",
+                type: "fill",
+                source: "article-context",
+                filter: ["==", ["get", "kind"], "area"],
+                paint: { "fill-color": overlayColors.area, "fill-opacity": 0.22 },
+              });
+              instance.addLayer({
+                id: "context-areas-casing",
+                type: "line",
+                source: "article-context",
+                filter: ["==", ["get", "kind"], "area"],
+                paint: {
+                  "line-color": overlayColors.casing,
+                  "line-width": 7,
+                  "line-opacity": 0.9,
                 },
-              })),
-            ),
-            ...block.map.routes.map((route) => ({
-              type: "Feature" as const,
-              properties: { kind: "route", name: route.name },
-              geometry: {
-                type: "LineString" as const,
-                coordinates: route.points.map((point) => [point.longitude, point.latitude]),
-              },
-            })),
-            ...block.map.places.map((place) => ({
-              type: "Feature" as const,
-              properties: { kind: "place", id: place.id, name: place.name },
-              geometry: {
-                type: "Point" as const,
-                coordinates: [place.longitude, place.latitude],
-              },
-            })),
-          ];
+              });
+              instance.addLayer({
+                id: "context-areas-outline",
+                type: "line",
+                source: "article-context",
+                filter: ["==", ["get", "kind"], "area"],
+                paint: { "line-color": overlayColors.area, "line-width": 3 },
+              });
+              instance.addLayer({
+                id: "context-routes-casing",
+                type: "line",
+                source: "article-context",
+                filter: ["==", ["get", "kind"], "route"],
+                paint: {
+                  "line-color": overlayColors.casing,
+                  "line-width": 8,
+                  "line-opacity": 0.9,
+                },
+              });
+              instance.addLayer({
+                id: "context-routes",
+                type: "line",
+                source: "article-context",
+                filter: ["==", ["get", "kind"], "route"],
+                paint: {
+                  "line-color": overlayColors.route,
+                  "line-width": 4,
+                  "line-dasharray": [2, 1],
+                },
+              });
+              instance.addLayer({
+                id: "context-places",
+                type: "circle",
+                source: "article-context",
+                filter: ["==", ["get", "kind"], "place"],
+                paint: {
+                  "circle-color": overlayColors.marker,
+                  "circle-radius": 7,
+                  "circle-stroke-color": overlayColors.markerStroke,
+                  "circle-stroke-width": 3,
+                },
+              });
+            } catch {
+              reportUnavailable();
+              return;
+            }
+            ready = true;
+            if (loadTimeout) clearTimeout(loadTimeout);
+            setMap(instance);
+            setStatus("Interactive map ready");
+          });
 
-          instance.addSource("article-context", {
-            type: "geojson",
-            data: { type: "FeatureCollection", features },
+          instance.on("error", (event) => {
+            if (cancelled || failureReported) return;
+            const mapError = event as typeof event & { tile?: unknown };
+            if (!ready && !mapError.tile) {
+              reportUnavailable();
+              return;
+            }
+            setStatus(
+              ready
+                ? "Some map details could not load. The exact place and route lists remain available."
+                : "The interactive map is still loading. The exact place and route lists remain available.",
+            );
           });
-          instance.addLayer({
-            id: "context-areas",
-            type: "fill",
-            source: "article-context",
-            filter: ["==", ["get", "kind"], "area"],
-            paint: { "fill-color": "#0f766e", "fill-opacity": 0.2 },
-          });
-          instance.addLayer({
-            id: "context-routes",
-            type: "line",
-            source: "article-context",
-            filter: ["==", ["get", "kind"], "route"],
-            paint: { "line-color": "#b45309", "line-width": 4, "line-dasharray": [2, 1] },
-          });
-          instance.addLayer({
-            id: "context-places",
-            type: "circle",
-            source: "article-context",
-            filter: ["==", ["get", "kind"], "place"],
-            paint: {
-              "circle-color": "#047857",
-              "circle-radius": 7,
-              "circle-stroke-color": "#ffffff",
-              "circle-stroke-width": 2,
-            },
-          });
-          setMap(instance);
-          setStatus("Interactive map ready");
-        });
-        instance.on("error", () => {
-          if (!cancelled) setStatus("The interactive map could not load. The place and route lists remain available.");
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("The interactive map could not load. The place and route lists remain available.");
-      });
+        })
+        .catch(reportUnavailable);
+    };
+
+    disclosure?.addEventListener("toggle", start);
+    start();
 
     return () => {
       cancelled = true;
+      if (loadTimeout) clearTimeout(loadTimeout);
+      disclosure?.removeEventListener("toggle", start);
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [block]);
+  }, [attemptKey, block, onUnavailable, overlayColors, styleUrl]);
 
   const centerOnPlace = (name: string, longitude: number, latitude: number) => {
     if (!map) return;
@@ -314,41 +429,100 @@ const InteractiveMap = ({ block }: { block: ContextMapBlock }) => {
 };
 
 export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
-  const [interactive, setInteractive] = useState(false);
+  const { theme } = useTheme();
+  const [view, setView] = useState<"interactive" | "schematic" | "unavailable">(
+    "interactive",
+  );
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const mapViewRef = useRef<HTMLDivElement>(null);
   const centerUrl = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(block.map.center.latitude)}&mlon=${encodeURIComponent(block.map.center.longitude)}#map=${Math.round(block.map.suggestedZoom ?? 5)}/${encodeURIComponent(block.map.center.latitude)}/${encodeURIComponent(block.map.center.longitude)}`;
   const loadNoteId = `${block.id}-map-load-note`;
+  const mapAttemptKey = `${block.id}:${theme}:${MAP_STYLE_URLS[theme]}`;
+  const activeMapAttemptRef = useRef(mapAttemptKey);
+  useLayoutEffect(() => {
+    activeMapAttemptRef.current = mapAttemptKey;
+    return () => {
+      if (activeMapAttemptRef.current === mapAttemptKey) {
+        activeMapAttemptRef.current = "";
+      }
+    };
+  }, [mapAttemptKey]);
+  const showUnavailable = useCallback((failedAttemptKey: string) => {
+    if (activeMapAttemptRef.current !== failedAttemptKey) return;
+    const restoreFocus = mapViewRef.current?.contains(document.activeElement) ?? false;
+    setView((current) =>
+      activeMapAttemptRef.current === failedAttemptKey && current === "interactive"
+        ? "unavailable"
+        : current,
+    );
+    if (restoreFocus) {
+      requestAnimationFrame(() => {
+        if (activeMapAttemptRef.current !== failedAttemptKey) return;
+        const activeElement = document.activeElement;
+        if (
+          activeElement === document.body ||
+          (activeElement instanceof Node && mapViewRef.current?.contains(activeElement))
+        ) {
+          toggleRef.current?.focus();
+        }
+      });
+    }
+  }, []);
+  const interactive = view === "interactive";
+  const promptTitle = interactive
+    ? "Interactive street map"
+    : view === "unavailable"
+      ? "Street map unavailable"
+      : "Coordinate overview shown";
+  const promptDescription = interactive
+    ? "Street map tiles load from OpenFreeMap. Exact place, route, and area information remains available in the semantic lists below."
+    : view === "unavailable"
+      ? "The coordinate overview is shown instead. Exact place, route, and area information remains available below."
+      : "This coordinate overview is not a street map. Exact place, route, and area information remains available below.";
+  const buttonLabel = interactive
+    ? "Show coordinate overview"
+    : view === "unavailable"
+      ? "Retry interactive street map"
+      : "Show interactive street map";
 
   return (
     <div className="context-kind-view">
       <div className="context-map-prompt">
         <div>
-          <strong>
-            {interactive
-              ? "Interactive street map shown"
-              : "Interactive street map available"}
-          </strong>
-          <p id={loadNoteId}>
-            {interactive
-              ? "The exact place, route, and area information remains available in the semantic lists below."
-              : "Showing the street map requests tiles from OpenFreeMap. The coordinate overview and semantic lists work without it."}
-          </p>
+          <strong>{promptTitle}</strong>
+          <p id={loadNoteId}>{promptDescription}</p>
         </div>
         <button
+          ref={toggleRef}
           type="button"
           className={`${interactive ? "btn-secondary" : "btn-primary"} context-load-map`}
           aria-controls={`${block.id}-map-view`}
           aria-describedby={loadNoteId}
-          onClick={() => setInteractive((value) => !value)}
+          onClick={() => setView(interactive ? "schematic" : "interactive")}
         >
-          {interactive
-            ? "Show coordinate overview"
-            : "Show interactive street map"}
+          {buttonLabel}
         </button>
       </div>
+      <p
+        className="sr-only context-map-failure-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {view === "unavailable"
+          ? `Street map unavailable. ${promptDescription}`
+          : ""}
+      </p>
 
-      <div id={`${block.id}-map-view`}>
+      <div id={`${block.id}-map-view`} ref={mapViewRef}>
         {interactive ? (
-          <InteractiveMap block={block} />
+          <InteractiveMap
+            block={block}
+            styleUrl={MAP_STYLE_URLS[theme]}
+            overlayColors={MAP_OVERLAY_COLORS[theme]}
+            attemptKey={mapAttemptKey}
+            onUnavailable={showUnavailable}
+          />
         ) : (
           <MapSchematic block={block} />
         )}

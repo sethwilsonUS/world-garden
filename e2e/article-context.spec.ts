@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import type { ContextManifest } from "../lib/article-context-types";
 
 const tinyPng = Buffer.from(
@@ -236,8 +236,26 @@ const openDetailsWithKeyboard = async (page: Page, details: Locator) => {
   await expect(details).toHaveJSProperty("open", true);
 };
 
-const mockArticleAndContext = async (page: Page) => {
+const mockArticleAndContext = async (
+  page: Page,
+  {
+    mapStyleFailures = 0,
+    mapStyleFailureDelayMs = 0,
+    mapStyleSuccessDelayMs = 0,
+    mapSourceFailures = 0,
+    mapSourceFailureDelayMs = 0,
+  }: {
+    mapStyleFailures?: number;
+    mapStyleFailureDelayMs?: number;
+    mapStyleSuccessDelayMs?: number;
+    mapSourceFailures?: number;
+    mapSourceFailureDelayMs?: number;
+  } = {},
+) => {
   let reportPayload: unknown = null;
+  let mapStyleRequests = 0;
+  let mapSourceRequests = 0;
+  let mapTileRequests = 0;
 
   // Article audio may be warmed as the table of contents enters the viewport.
   // Keep that unrelated prefetch fully local to this context-focused spec.
@@ -249,16 +267,87 @@ const mockArticleAndContext = async (page: Page) => {
     }),
   );
 
-  await page.route("https://tiles.openfreemap.org/styles/liberty", (route) =>
-    route.fulfill({
+  await page.route("https://map-tiles.test/context/*/tiles/**", (route) => {
+    mapTileRequests += 1;
+    return route.fulfill({
+      contentType: "image/png",
+      headers: { "access-control-allow-origin": "*" },
+      body: tinyPng,
+    });
+  });
+
+  await page.route("https://map-tiles.test/context/*/source.json", async (route) => {
+    mapSourceRequests += 1;
+    if (mapSourceRequests <= mapSourceFailures) {
+      if (mapSourceFailureDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, mapSourceFailureDelayMs));
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify({ error: "Map source metadata unavailable in this fixture." }),
+      });
+      return;
+    }
+    const styleName = new URL(route.request().url()).pathname.split("/").at(-2);
+    await route.fulfill({
       contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
+      body: JSON.stringify({
+        tiles: [
+          `https://map-tiles.test/context/${styleName}/tiles/{z}/{x}/{y}.png`,
+        ],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 22,
+      }),
+    });
+  });
+
+  const handleMapStyle = async (route: Route) => {
+    mapStyleRequests += 1;
+    if (mapStyleRequests <= mapStyleFailures) {
+      if (mapStyleFailureDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, mapStyleFailureDelayMs));
+      }
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify({ error: "Map style unavailable in this fixture." }),
+      });
+      return;
+    }
+    if (mapStyleSuccessDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, mapStyleSuccessDelayMs));
+    }
+    const styleName = new URL(route.request().url()).pathname.split("/").at(-1);
+    await route.fulfill({
+      contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
       body: JSON.stringify({
         version: 8,
-        sources: {},
-        layers: [],
+        sources: {
+          fixture: {
+            type: "raster",
+            url: `https://map-tiles.test/context/${styleName}/source.json`,
+            tileSize: 256,
+          },
+        },
+        layers: [
+          {
+            id: "fixture-background",
+            type: "background",
+            paint: { "background-color": "#45516e" },
+          },
+          { id: "fixture-tiles", type: "raster", source: "fixture" },
+        ],
       }),
-    }),
-  );
+    });
+  };
+  await page.route("https://tiles.openfreemap.org/styles/liberty", handleMapStyle);
+  await page.route("https://tiles.openfreemap.org/styles/fiord", handleMapStyle);
 
   await page.route("**/api/article-context/report", async (route) => {
     reportPayload = route.request().postDataJSON();
@@ -392,13 +481,19 @@ const mockArticleAndContext = async (page: Page) => {
     });
   });
 
-  return { getReportPayload: () => reportPayload };
+  return {
+    getReportPayload: () => reportPayload,
+    getMapTileRequests: () => mapTileRequests,
+  };
 };
 
 test("article context exposes equivalent semantics, provenance, and reporting", async ({
   page,
 }) => {
-  const reports = await mockArticleAndContext(page);
+  await page.emulateMedia({ colorScheme: "dark" });
+  const reports = await mockArticleAndContext(page, {
+    mapStyleSuccessDelayMs: 500,
+  });
   await page.goto("/article/Ada_Lovelace");
 
   await expect(
@@ -434,35 +529,29 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   );
 
   const mapCard = page.locator("#article-context-map-journey");
+  const darkStyleRequest = page.waitForRequest(
+    "https://tiles.openfreemap.org/styles/fiord",
+  );
   await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
   await expect(mapCard.getByRole("list").first()).toContainText("London");
   await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Routes" })).toBeVisible();
   await expect(mapCard.getByText("Correspondence route")).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Areas" })).toBeVisible();
-  const showMapButton = mapCard.getByRole("button", {
-    name: "Show interactive street map",
-  });
-  const schematic = mapCard.locator(".context-map-schematic");
-  await expect(showMapButton).toBeVisible();
-  await expect(mapCard.getByText("Coordinate overview — not a street map")).toBeVisible();
-  expect(
-    await showMapButton.evaluate(
-      (button, schematicTop) =>
-        button.getBoundingClientRect().bottom <= Number(schematicTop),
-      await schematic.evaluate((element) => element.getBoundingClientRect().top),
-    ),
-  ).toBe(true);
-
-  await showMapButton.focus();
-  await page.keyboard.press("Enter");
   const showSchematicButton = mapCard.getByRole("button", {
     name: "Show coordinate overview",
   });
-  await expect(showSchematicButton).toBeFocused();
+  const schematic = mapCard.locator(".context-map-schematic");
   await expect(schematic).toHaveCount(0);
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
-  await expect(mapCard.getByRole("status")).toHaveText("Interactive map ready");
+  await darkStyleRequest;
+  const interactiveStatus = mapCard
+    .locator(".context-interactive-map")
+    .getByRole("status");
+  await expect(interactiveStatus).toHaveText("Loading interactive map");
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
+  await expect(interactiveStatus).toHaveText("Interactive map ready");
+  await expect.poll(reports.getMapTileRequests).toBeGreaterThan(0);
   await expect(
     mapCard.getByRole("region", {
       name: "Interactive street map for Places in the correspondence",
@@ -472,6 +561,48 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
     mapCard.locator('canvas[aria-label="Interactive street map for Places in the correspondence"]'),
   ).toBeVisible();
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
+
+  await showSchematicButton.focus();
+  await page.keyboard.press("Enter");
+  const showMapButton = mapCard.getByRole("button", {
+    name: "Show interactive street map",
+  });
+  await expect(showMapButton).toBeFocused();
+  await expect(mapCard.locator(".context-interactive-map")).toHaveCount(0);
+  await expect(schematic).toBeVisible();
+  await expect(mapCard.getByText("Coordinate overview — not a street map")).toBeVisible();
+  await expect(schematic.locator(".context-map-marker")).toHaveCount(2);
+
+  await showMapButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(showSchematicButton).toBeFocused();
+  await expect(schematic).toHaveCount(0);
+  await expect(interactiveStatus).toHaveText("Interactive map ready");
+  const mapCanvas = mapCard.locator(
+    'canvas[aria-label="Interactive street map for Places in the correspondence"]',
+  );
+  await mapCanvas.evaluate((canvas) => canvas.setAttribute("data-map-attempt", "dark"));
+  const darkTileCount = reports.getMapTileRequests();
+
+  const lightStyleRequest = page.waitForRequest(
+    "https://tiles.openfreemap.org/styles/liberty",
+  );
+  const switchToLightTheme = page.locator(
+    'button[aria-label="Switch to light theme"]:visible',
+  );
+  await switchToLightTheme.focus();
+  await page.keyboard.press("Enter");
+  await lightStyleRequest;
+  await expect(interactiveStatus).toHaveText("Loading interactive map");
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
+  await expect(mapCard.locator('canvas[data-map-attempt="dark"]')).toHaveCount(0);
+  await expect.poll(reports.getMapTileRequests).toBeGreaterThan(darkTileCount);
+  await expect(
+    page.locator('button[aria-label="Switch to dark theme"]:visible'),
+  ).toBeVisible();
+  await expect(interactiveStatus).toHaveText("Interactive map ready");
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
+  await expect(schematic).toHaveCount(0);
 
   const timelineCard = page.locator("#article-context-timeline-engine");
   await openDetailsWithKeyboard(
@@ -545,6 +676,80 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   });
 
   await expectNoSeriousAxeViolations(page);
+});
+
+test("article map falls back accessibly and can retry after a style failure", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await mockArticleAndContext(page, {
+    mapStyleFailures: 1,
+    mapStyleFailureDelayMs: 1_000,
+  });
+  await page.goto("/article/Ada_Lovelace");
+
+  const mapCard = page.locator("#article-context-map-journey");
+  const failureStatus = mapCard.locator(".context-map-failure-status");
+  await expect(failureStatus).toHaveText("");
+  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+  const mapCanvas = mapCard.locator(
+    'canvas[aria-label="Interactive street map for Places in the correspondence"]',
+  );
+  await expect(mapCanvas).toBeVisible();
+  await mapCanvas.focus();
+  await expect(mapCanvas).toBeFocused();
+
+  await expect(mapCard.getByText("Street map unavailable", { exact: true })).toBeVisible();
+  await expect(failureStatus).toHaveText(
+    "Street map unavailable. The coordinate overview is shown instead. Exact place, route, and area information remains available below.",
+  );
+  await expect(mapCard.locator(".context-map-schematic")).toBeVisible();
+  const retryButton = mapCard.getByRole("button", {
+    name: "Retry interactive street map",
+  });
+  await expect(retryButton).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  const showSchematicButton = mapCard.getByRole("button", {
+    name: "Show coordinate overview",
+  });
+  await expect(showSchematicButton).toBeFocused();
+  await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
+  await expect(
+    mapCard.locator(".context-interactive-map").getByRole("status"),
+  ).toHaveText("Interactive map ready");
+  await expect(failureStatus).toHaveText("");
+  await expect(
+    mapCard.getByRole("region", {
+      name: "Interactive street map for Places in the correspondence",
+    }),
+  ).toBeVisible();
+});
+
+test("article map falls back when its source metadata cannot load", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await mockArticleAndContext(page, { mapSourceFailures: 1 });
+  await page.goto("/article/Ada_Lovelace");
+
+  const mapCard = page.locator("#article-context-map-journey");
+  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+
+  await expect(mapCard.getByText("Street map unavailable", { exact: true })).toBeVisible();
+  await expect(mapCard.locator(".context-map-failure-status")).toContainText(
+    "Street map unavailable",
+  );
+  await expect(mapCard.locator(".context-map-schematic")).toBeVisible();
+  await mapCard
+    .getByRole("button", { name: "Retry interactive street map" })
+    .click();
+
+  await expect(
+    mapCard.locator(".context-interactive-map").getByRole("status"),
+  ).toHaveText("Interactive map ready");
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
+  await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
 });
 
 test("article context reflows at a narrow viewport and honors reduced motion", async ({
