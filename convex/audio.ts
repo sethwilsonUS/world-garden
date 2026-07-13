@@ -12,6 +12,22 @@ type SectionAudioVariantRecord = {
   promptVersion?: string;
 };
 
+const QUARANTINED_CONTEXT_AUDIO_PREFIXES = [
+  "context-summary-",
+  "context-description-",
+] as const;
+
+export const isQuarantinedContextAudioKey = (sectionKey: string): boolean =>
+  QUARANTINED_CONTEXT_AUDIO_PREFIXES.some((prefix) =>
+    sectionKey.startsWith(prefix),
+  );
+
+export const assertSectionAudioKeyCanBeSaved = (sectionKey: string): void => {
+  if (isQuarantinedContextAudioKey(sectionKey)) {
+    throw new Error("Context narration audio is no longer supported.");
+  }
+};
+
 export const selectSectionAudioVariant = <
   TRecord extends SectionAudioVariantRecord,
 >(
@@ -22,6 +38,8 @@ export const selectSectionAudioVariant = <
     ttsCacheKey?: string;
   },
 ): TRecord | null => {
+  if (isQuarantinedContextAudioKey(args.sectionKey)) return null;
+
   const matchingSectionRecords = records.filter(
     (record) => record.sectionKey === args.sectionKey,
   );
@@ -56,7 +74,11 @@ export const getAllSectionAudio = query({
     const urls: Record<string, string> = {};
     const durations: Record<string, number> = {};
     const metadata: Record<string, Record<string, string>> = {};
-    const sectionKeys = new Set(records.map((record) => record.sectionKey));
+    const sectionKeys = new Set(
+      records
+        .map((record) => record.sectionKey)
+        .filter((sectionKey) => !isQuarantinedContextAudioKey(sectionKey)),
+    );
 
     for (const sectionKey of sectionKeys) {
       const r = selectSectionAudioVariant(records, {
@@ -106,6 +128,8 @@ export const saveSectionAudioRecord = mutation({
     durationSeconds: v.optional(v.number()),
   },
   async handler(ctx, args) {
+    assertSectionAudioKeyCanBeSaved(args.sectionKey);
+
     const existing = args.ttsCacheKey
       ? await ctx.db
           .query("sectionAudio")

@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from "react";
 import { useTheme } from "./ThemeProvider";
 import type {
@@ -45,13 +46,45 @@ const MAP_OVERLAY_COLORS = {
 const MAP_LOAD_TIMEOUT_MS = 15_000;
 const PARTIAL_MAP_STATUS =
   "Some map details could not load. The exact place and route lists remain available.";
+const RICH_MEDIA_ROOT_MARGIN = "400px 0px";
 
 type MapInstance = import("maplibre-gl").Map;
 type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
 
 const isReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const useNearViewport = (ref: RefObject<HTMLElement | null>): boolean => {
+  const [nearViewport, setNearViewport] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || nearViewport) return;
+    if (typeof IntersectionObserver === "undefined") {
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (!cancelled) setNearViewport(true);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNearViewport(true);
+        observer.disconnect();
+      },
+      { rootMargin: RICH_MEDIA_ROOT_MARGIN },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nearViewport, ref]);
+
+  return nearViewport;
+};
 
 const allMapCoordinates = (block: ContextMapBlock): ContextCoordinate[] => [
   block.map.center,
@@ -60,7 +93,15 @@ const allMapCoordinates = (block: ContextMapBlock): ContextCoordinate[] => [
   ...block.map.areas.flatMap((area) => area.rings.flat()),
 ];
 
-export const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
+export const MapSchematic = ({
+  block,
+  captionId,
+  descriptionId,
+}: {
+  block: ContextMapBlock;
+  captionId?: string;
+  descriptionId?: string;
+}) => {
   const coordinates = allMapCoordinates(block);
   const longitudes = coordinates.map((point) => point.longitude);
   const latitudes = coordinates.map((point) => point.latitude);
@@ -82,7 +123,12 @@ export const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
   });
 
   return (
-    <figure className="context-visual context-map-schematic">
+    <figure
+      className="context-visual context-map-schematic"
+      role="img"
+      aria-label={`Coordinate overview for ${block.title}`}
+      aria-describedby={[captionId, descriptionId].filter(Boolean).join(" ") || undefined}
+    >
       <svg
         viewBox="0 0 640 300"
         aria-hidden="true"
@@ -131,10 +177,6 @@ export const MapSchematic = ({ block }: { block: ContextMapBlock }) => {
           );
         })}
       </svg>
-      <figcaption>
-        Coordinate overview — not a street map. Exact locations and descriptions
-        follow in the place and route lists.
-      </figcaption>
     </figure>
   );
 };
@@ -183,24 +225,27 @@ const InteractiveMap = ({
   overlayColors,
   attemptKey,
   onUnavailable,
+  captionId,
+  descriptionId,
 }: {
   block: ContextMapBlock;
   styleUrl: string;
   overlayColors: MapOverlayColors;
   attemptKey: string;
   onUnavailable: (failedAttemptKey: string) => void;
+  captionId: string;
+  descriptionId: string;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const nearViewport = useNearViewport(containerRef);
   const mapRef = useRef<MapInstance | null>(null);
   const [map, setMap] = useState<MapInstance | null>(null);
-  const [status, setStatus] = useState("Loading interactive map");
+  const [status, setStatus] = useState("Interactive map waiting to load");
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const disclosure = container.closest("details");
+    if (!container || !nearViewport) return;
     let cancelled = false;
-    let started = false;
     let ready = false;
     let partialFailure = false;
     let failureReported = false;
@@ -212,14 +257,11 @@ const InteractiveMap = ({
       onUnavailable(attemptKey);
     };
 
-    const start = () => {
-      if (started || (disclosure && !disclosure.open)) return;
-      started = true;
-      setMap(null);
-      setStatus("Loading interactive map");
-      loadTimeout = setTimeout(reportUnavailable, MAP_LOAD_TIMEOUT_MS);
+    setMap(null);
+    setStatus("Loading interactive map");
+    loadTimeout = setTimeout(reportUnavailable, MAP_LOAD_TIMEOUT_MS);
 
-      import("maplibre-gl")
+    import("maplibre-gl")
         .then((maplibre) => {
           if (cancelled || failureReported) return;
           const instance = new maplibre.Map({
@@ -230,9 +272,9 @@ const InteractiveMap = ({
             attributionControl: false,
             cooperativeGestures: true,
           });
-          instance
-            .getCanvas()
-            .setAttribute("aria-label", `Interactive street map for ${block.title}`);
+          const canvas = instance.getCanvas();
+          canvas.setAttribute("aria-label", `Interactive street map for ${block.title}`);
+          canvas.setAttribute("aria-describedby", `${captionId} ${descriptionId}`);
           mapRef.current = instance;
 
           instance.once("load", () => {
@@ -364,19 +406,14 @@ const InteractiveMap = ({
           });
         })
         .catch(reportUnavailable);
-    };
-
-    disclosure?.addEventListener("toggle", start);
-    start();
 
     return () => {
       cancelled = true;
       if (loadTimeout) clearTimeout(loadTimeout);
-      disclosure?.removeEventListener("toggle", start);
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [attemptKey, block, onUnavailable, overlayColors, styleUrl]);
+  }, [attemptKey, block, captionId, descriptionId, nearViewport, onUnavailable, overlayColors, styleUrl]);
 
   const centerOnPlace = (name: string, longitude: number, latitude: number) => {
     if (!map) return;
@@ -398,9 +435,21 @@ const InteractiveMap = ({
   return (
     <div className="context-interactive-map">
       <div
-        ref={containerRef}
-        className="context-map-canvas"
-      />
+        className="context-map-surface"
+        role="region"
+        aria-label={`Interactive street map for ${block.title}`}
+        aria-describedby={`${captionId} ${descriptionId}`}
+        aria-busy={!map}
+      >
+        <div ref={containerRef} className="context-map-canvas" />
+        {!map ? (
+          <p className="context-rich-media-placeholder">
+            {nearViewport
+              ? "Loading interactive street map."
+              : "Street map will load as it approaches the viewport."}
+          </p>
+        ) : null}
+      </div>
       <div className="context-map-toolbar">
         <MapControls map={map} onAction={setStatus} />
         <button type="button" onClick={reset} disabled={!map} className="context-map-reset">
@@ -440,7 +489,17 @@ const InteractiveMap = ({
   );
 };
 
-export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
+export const ContextMapView = ({
+  block,
+  caption,
+  captionId,
+  descriptionId,
+}: {
+  block: ContextMapBlock;
+  caption: string;
+  captionId: string;
+  descriptionId: string;
+}) => {
   const { theme } = useTheme();
   const [view, setView] = useState<"interactive" | "schematic" | "unavailable">(
     "interactive",
@@ -499,6 +558,29 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
 
   return (
     <div className="context-kind-view">
+      <div id={`${block.id}-map-view`} ref={mapViewRef}>
+        {interactive ? (
+          <InteractiveMap
+            block={block}
+            styleUrl={MAP_STYLE_URLS[theme]}
+            overlayColors={MAP_OVERLAY_COLORS[theme]}
+            attemptKey={mapAttemptKey}
+            onUnavailable={showUnavailable}
+            captionId={captionId}
+            descriptionId={descriptionId}
+          />
+        ) : (
+          <MapSchematic
+            block={block}
+            captionId={captionId}
+            descriptionId={descriptionId}
+          />
+        )}
+      </div>
+      <p id={captionId} className="context-visual-caption">
+        {caption}
+      </p>
+
       <div className="context-map-prompt">
         <div>
           <strong>{promptTitle}</strong>
@@ -525,20 +607,6 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
           ? `Street map unavailable. ${promptDescription}`
           : ""}
       </p>
-
-      <div id={`${block.id}-map-view`} ref={mapViewRef}>
-        {interactive ? (
-          <InteractiveMap
-            block={block}
-            styleUrl={MAP_STYLE_URLS[theme]}
-            overlayColors={MAP_OVERLAY_COLORS[theme]}
-            attemptKey={mapAttemptKey}
-            onUnavailable={showUnavailable}
-          />
-        ) : (
-          <MapSchematic block={block} />
-        )}
-      </div>
 
       <div className="context-map-actions">
         <a href={centerUrl} target="_blank" rel="noopener noreferrer" className="context-text-link">
@@ -597,7 +665,15 @@ export const ContextMapView = ({ block }: { block: ContextMapBlock }) => {
   );
 };
 
-export const ContextTimelineView = ({ block }: { block: ContextTimelineBlock }) => {
+export const ContextTimelineView = ({
+  block,
+  caption,
+  captionId,
+}: {
+  block: ContextTimelineBlock;
+  caption: string;
+  captionId: string;
+}) => {
   const categories = useMemo(
     () => Array.from(new Set(block.timeline.events.map((event) => event.category).filter((value): value is string => Boolean(value)))),
     [block.timeline.events],
@@ -651,6 +727,9 @@ export const ContextTimelineView = ({ block }: { block: ContextTimelineBlock }) 
           </li>
         ))}
       </ol>
+      <p id={captionId} className="context-visual-caption">
+        {caption}
+      </p>
     </div>
   );
 };
@@ -675,7 +754,12 @@ const buildLinePath = (
   }, "");
 };
 
-const CHART_COLORS = ["#047857", "#b45309", "#2563eb", "#a21caf", "#be123c", "#4d7c0f"];
+const CHART_COLORS = {
+  light: ["#047857", "#b45309", "#2563eb", "#a21caf", "#be123c", "#4d7c0f"],
+  dark: ["#34d399", "#f2ad5d", "#75a7e8", "#c99ae0", "#fb7185", "#a3e635"],
+} as const;
+const CHART_LINE_STYLES = ["solid", "dashed", "dotted"] as const;
+const CHART_SYMBOLS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"] as const;
 const FALLBACK_CHART_TOP = 24;
 const FALLBACK_CHART_HEIGHT = 190;
 
@@ -704,10 +788,16 @@ export const getFallbackBarGeometry = (
 const ChartGraphic = ({
   block,
   selectedSeries,
+  caption,
+  captionId,
 }: {
   block: ContextChartBlock;
   selectedSeries: ContextChartSeries[];
+  caption: string;
+  captionId: string;
 }) => {
+  const { theme } = useTheme();
+  const chartColors = CHART_COLORS[theme];
   const values = selectedSeries.flatMap((series) =>
     block.chart.rows.map((row) => numericValue(row[series.yColumn])).filter((value): value is number => value !== null),
   );
@@ -718,6 +808,31 @@ const ChartGraphic = ({
   return (
     <figure className="context-visual context-chart-graphic">
       <svg viewBox="0 0 640 260" aria-hidden="true" focusable="false" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          {selectedSeries.map((series, seriesIndex) => {
+            const color = chartColors[seriesIndex % chartColors.length];
+            return (
+              <pattern
+                key={series.id}
+                id={`context-chart-pattern-${block.id}-${series.id}`}
+                width="8"
+                height="8"
+                patternUnits="userSpaceOnUse"
+                patternTransform={`rotate(${seriesIndex * 45})`}
+              >
+                <rect width="8" height="8" fill={color} />
+                {seriesIndex > 0 ? (
+                  <path
+                    d="M 0 0 L 0 8"
+                    stroke={theme === "dark" ? "#111827" : "#ffffff"}
+                    strokeOpacity="0.62"
+                    strokeWidth={Math.min(3, seriesIndex + 1)}
+                  />
+                ) : null}
+              </pattern>
+            );
+          })}
+        </defs>
         <rect width="640" height="260" rx="14" className="context-chart-paper" />
         {[0, 1, 2, 3, 4].map((line) => (
           <line key={line} x1="54" x2="604" y1={24 + line * 47.5} y2={24 + line * 47.5} className="context-chart-grid" />
@@ -725,7 +840,7 @@ const ChartGraphic = ({
         <line x1="54" x2="54" y1="24" y2="214" className="context-chart-axis" />
         <line x1="54" x2="604" y1={zeroY} y2={zeroY} className="context-chart-axis" />
         {selectedSeries.map((series, seriesIndex) => {
-          const color = CHART_COLORS[seriesIndex % CHART_COLORS.length];
+          const color = chartColors[seriesIndex % chartColors.length];
           if (series.type === "bar" || series.type === "pie") {
             const slotWidth = 550 / Math.max(block.chart.rows.length, 1);
             const barWidth = Math.max(2, (slotWidth * 0.72) / Math.max(selectedSeries.length, 1));
@@ -740,7 +855,7 @@ const ChartGraphic = ({
                   y={geometry.y}
                   width={barWidth}
                   height={geometry.height}
-                  fill={color}
+                  fill={`url(#context-chart-pattern-${block.id}-${series.id})`}
                   className={series.type === "pie" ? "context-chart-pie-bar" : undefined}
                 />
               );
@@ -752,13 +867,21 @@ const ChartGraphic = ({
               {series.type === "area" ? (
                 <path d={`${path} L604 ${zeroY} L54 ${zeroY} Z`} fill={color} opacity="0.18" />
               ) : null}
-              <path d={path} fill="none" stroke={color} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
+              <path
+                d={path}
+                fill="none"
+                stroke={color}
+                strokeWidth="4"
+                strokeDasharray={seriesIndex === 0 ? undefined : seriesIndex % 2 === 0 ? "3 5" : "10 6"}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
             </g>
           );
         })}
       </svg>
-      <figcaption>
-        Visual overview of the selected series. The exact values are available in the data table below.
+      <figcaption id={captionId} className="context-visual-caption">
+        {caption}
       </figcaption>
     </figure>
   );
@@ -767,77 +890,113 @@ const ChartGraphic = ({
 const EChartsGraphic = ({
   block,
   selectedSeries,
+  caption,
+  captionId,
 }: {
   block: ContextChartBlock;
   selectedSeries: ContextChartSeries[];
+  caption: string;
+  captionId: string;
 }) => {
+  const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const nearViewport = useNearViewport(containerRef);
   const [failed, setFailed] = useState(false);
+  const [readyAttempt, setReadyAttempt] = useState<string | null>(null);
+  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${selectedSeries.map((series) => series.id).join(",")}`;
+  const ready = readyAttempt === chartAttempt;
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const disclosure = container.closest("details");
+    if (!container || !nearViewport) return;
     let chart: ECharts | null = null;
     let cancelled = false;
-    let started = false;
 
-    const start = () => {
-      if (started || (disclosure && !disclosure.open)) return;
-      started = true;
-      import("echarts")
-        .then((echarts) => {
-          if (cancelled) return;
-          chart = echarts.init(container, undefined, { renderer: "svg" });
-          const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key;
-          const xLabels = block.chart.rows.map((row) => String(row[xColumn] ?? "Not available"));
-          const option: EChartsOption = {
-            animation: !isReducedMotion(),
-            animationDuration: 350,
-            color: CHART_COLORS,
-            backgroundColor: "transparent",
-            grid: { left: 54, right: 22, top: 28, bottom: 54, containLabel: true },
-            legend: { show: false },
-            tooltip: { show: false },
-            xAxis: { type: "category", data: xLabels, axisLabel: { hideOverlap: true } },
-            yAxis: { type: "value", scale: true },
-            series: selectedSeries.map((series) => {
-              if (series.type === "pie") {
-                return {
-                  id: series.id,
-                  name: series.label,
-                  type: "pie" as const,
-                  radius: ["35%", "68%"],
-                  data: block.chart.rows
-                    .map((row, index): { name: string; value: number } | null => {
-                      const value = numericValue(row[series.yColumn]);
-                      return value === null ? null : { name: xLabels[index], value };
-                    })
-                    .filter((item): item is { name: string; value: number } => item !== null),
-                  label: { show: true, formatter: "{b}" },
-                };
-              }
+    import("echarts")
+      .then((echarts) => {
+        if (cancelled) return;
+        chart = echarts.init(container, undefined, { renderer: "svg" });
+        const styles = getComputedStyle(container);
+        const textColor = styles.getPropertyValue("--color-foreground-2").trim() ||
+          (theme === "dark" ? "#d1d5db" : "#374151");
+        const borderColor = styles.getPropertyValue("--color-border").trim() ||
+          (theme === "dark" ? "#374151" : "#d1d5db");
+        const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key;
+        const xLabels = block.chart.rows.map((row) => String(row[xColumn] ?? "Not available"));
+        const option: EChartsOption = {
+          animation: !isReducedMotion(),
+          animationDuration: 350,
+          color: [...CHART_COLORS[theme]],
+          backgroundColor: "transparent",
+          textStyle: { color: textColor },
+          grid: { left: 54, right: 22, top: 28, bottom: 54, containLabel: true },
+          legend: { show: false },
+          tooltip: { show: false },
+          xAxis: {
+            type: "category",
+            data: xLabels,
+            axisLabel: { hideOverlap: true, color: textColor },
+            axisLine: { lineStyle: { color: borderColor } },
+            axisTick: { lineStyle: { color: borderColor } },
+          },
+          yAxis: {
+            type: "value",
+            scale: true,
+            axisLabel: { color: textColor },
+            axisLine: { lineStyle: { color: borderColor } },
+            splitLine: { lineStyle: { color: borderColor } },
+          },
+          series: selectedSeries.map((series, seriesIndex) => {
+            const decal = {
+              symbol: CHART_SYMBOLS[seriesIndex % CHART_SYMBOLS.length],
+              symbolSize: 0.65,
+              color: theme === "dark"
+                ? "rgba(17, 24, 39, 0.55)"
+                : "rgba(255, 255, 255, 0.62)",
+              dashArrayX: [1, 0],
+              dashArrayY: [3 + (seriesIndex % 3), 3],
+              rotation: (seriesIndex * Math.PI) / 4,
+            };
+            if (series.type === "pie") {
               return {
                 id: series.id,
                 name: series.label,
-                type: series.type === "bar" ? "bar" as const : "line" as const,
-                data: block.chart.rows.map((row) => numericValue(row[series.yColumn])),
-                connectNulls: false,
-                showSymbol: block.chart.rows.length <= 30,
-                areaStyle: series.type === "area" ? { opacity: 0.18 } : undefined,
-                emphasis: { disabled: true },
+                type: "pie" as const,
+                radius: ["35%", "68%"],
+                data: block.chart.rows
+                  .map((row, index): { name: string; value: number } | null => {
+                    const value = numericValue(row[series.yColumn]);
+                    return value === null ? null : { name: xLabels[index], value };
+                  })
+                  .filter((item): item is { name: string; value: number } => item !== null),
+                label: { show: true, formatter: "{b}", color: textColor },
+                itemStyle: { decal },
               };
-            }),
-          };
-          chart.setOption(option);
-        })
-        .catch(() => {
-          if (!cancelled) setFailed(true);
-        });
-    };
+            }
+            return {
+              id: series.id,
+              name: series.label,
+              type: series.type === "bar" ? "bar" as const : "line" as const,
+              data: block.chart.rows.map((row) => numericValue(row[series.yColumn])),
+              connectNulls: false,
+              showSymbol: block.chart.rows.length <= 30,
+              symbol: CHART_SYMBOLS[seriesIndex % CHART_SYMBOLS.length],
+              lineStyle: {
+                type: CHART_LINE_STYLES[seriesIndex % CHART_LINE_STYLES.length],
+              },
+              itemStyle: series.type === "bar" ? { decal } : undefined,
+              areaStyle: series.type === "area" ? { opacity: 0.18 } : undefined,
+              emphasis: { disabled: true },
+            };
+          }),
+        };
+        chart.setOption(option);
+        if (!cancelled) setReadyAttempt(chartAttempt);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
 
-    disclosure?.addEventListener("toggle", start);
-    start();
     const resize = () => chart?.resize();
     window.addEventListener("resize", resize);
     const resizeObserver = typeof ResizeObserver !== "undefined"
@@ -847,25 +1006,50 @@ const EChartsGraphic = ({
 
     return () => {
       cancelled = true;
-      disclosure?.removeEventListener("toggle", start);
       window.removeEventListener("resize", resize);
       resizeObserver?.disconnect();
       chart?.dispose();
     };
-  }, [block, selectedSeries]);
+  }, [block, chartAttempt, nearViewport, selectedSeries, theme]);
 
-  if (failed) return <ChartGraphic block={block} selectedSeries={selectedSeries} />;
+  if (failed) {
+    return (
+      <ChartGraphic
+        block={block}
+        selectedSeries={selectedSeries}
+        caption={caption}
+        captionId={captionId}
+      />
+    );
+  }
   return (
     <figure className="context-visual context-chart-graphic">
-      <div ref={containerRef} className="context-echarts" aria-hidden="true" />
-      <figcaption>
-        Visual overview of the selected series. The exact values are available in the data table below.
+      <div className="context-echarts-surface" aria-busy={!ready}>
+        <div ref={containerRef} className="context-echarts" aria-hidden="true" />
+        {!ready ? (
+          <p className="context-rich-media-placeholder">
+            {nearViewport
+              ? "Loading chart."
+              : "Chart will load as it approaches the viewport."}
+          </p>
+        ) : null}
+      </div>
+      <figcaption id={captionId} className="context-visual-caption">
+        {caption}
       </figcaption>
     </figure>
   );
 };
 
-export const ContextChartView = ({ block }: { block: ContextChartBlock }) => {
+export const ContextChartView = ({
+  block,
+  caption,
+  captionId,
+}: {
+  block: ContextChartBlock;
+  caption: string;
+  captionId: string;
+}) => {
   const [selectedIds, setSelectedIds] = useState(() => new Set(block.chart.series.map((series) => series.id)));
   const selectedSeries = useMemo(
     () => block.chart.series.filter((series) => selectedIds.has(series.id)),
@@ -893,7 +1077,12 @@ export const ContextChartView = ({ block }: { block: ContextChartBlock }) => {
           ))}
         </fieldset>
       ) : null}
-      <EChartsGraphic block={block} selectedSeries={selectedSeries} />
+      <EChartsGraphic
+        block={block}
+        selectedSeries={selectedSeries}
+        caption={caption}
+        captionId={captionId}
+      />
       <div className="context-table-wrap" role="region" aria-labelledby={`${block.id}-table-caption`} tabIndex={0}>
         <table className="context-data-table">
           <caption id={`${block.id}-table-caption`}>Exact data for {block.title}</caption>
@@ -925,7 +1114,17 @@ export const ContextChartView = ({ block }: { block: ContextChartBlock }) => {
   );
 };
 
-export const ContextDiagramView = ({ block }: { block: ContextDiagramBlock }) => {
+export const ContextDiagramView = ({
+  block,
+  caption,
+  captionId,
+  descriptionId,
+}: {
+  block: ContextDiagramBlock;
+  caption: string;
+  captionId: string;
+  descriptionId: string;
+}) => {
   const [zoom, setZoom] = useState(1);
   const image = block.diagram.image;
   return (
@@ -940,6 +1139,7 @@ export const ContextDiagramView = ({ block }: { block: ContextDiagramBlock }) =>
           <Image
             src={image.src}
             alt={image.alt}
+            aria-describedby={`${captionId} ${descriptionId}`}
             width={image.width ?? 1200}
             height={image.height ?? 800}
             unoptimized
@@ -947,7 +1147,9 @@ export const ContextDiagramView = ({ block }: { block: ContextDiagramBlock }) =>
             style={{ width: `${zoom * 100}%`, maxWidth: "none", height: "auto" }}
           />
         </div>
-        <figcaption>{block.diagram.caption}</figcaption>
+        <figcaption id={captionId} className="context-visual-caption">
+          {caption}
+        </figcaption>
       </figure>
       <div className="context-diagram-controls" aria-label="Diagram zoom controls">
         <button type="button" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} disabled={zoom >= 3}>

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
   type ContextManifest,
 } from "./article-context-types";
 
@@ -12,7 +13,7 @@ vi.mock("convex/nextjs", () => ({ fetchAction, fetchQuery }));
 vi.mock("@/lib/article-context", () => ({ getEnhancedArticleContext }));
 
 const manifest: ContextManifest = {
-  schemaVersion: 1,
+  schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
   wikiPageId: "42",
   title: "Example",
   revisionId: "100",
@@ -25,8 +26,7 @@ const manifest: ContextManifest = {
       id: "context-timeline-example",
       kind: "timeline",
       title: "History timeline",
-      takeaway: "Three events are shown.",
-      spokenSummary: "The timeline contains three dated events.",
+      caption: "Three events are shown.",
       longDescription: "The events are ordered from 1969 through 1972.",
       section: { index: "1", title: "History" },
       order: 0,
@@ -147,6 +147,32 @@ describe("published article context persistence", () => {
     expect(fetchAction).not.toHaveBeenCalled();
   });
 
+  it("treats schema-v1 durable cache rows as inert", async () => {
+    fetchQuery
+      .mockResolvedValueOnce({
+        manifestJson: JSON.stringify({ ...manifest, schemaVersion: 1 }),
+        sourceHash: manifest.sourceHash,
+        updatedAt: Date.now(),
+      })
+      .mockResolvedValueOnce(null);
+    getEnhancedArticleContext.mockResolvedValue({
+      context: manifest,
+      cacheStatus: "miss",
+    });
+
+    const { getPublishedArticleContext } = await import(
+      "./article-context-persistence"
+    );
+    const result = await getPublishedArticleContext({
+      wikiPageId: "42",
+      title: "Example",
+      revisionId: "100",
+    });
+
+    expect(result.context.schemaVersion).toBe(ARTICLE_CONTEXT_SCHEMA_VERSION);
+    expect(getEnhancedArticleContext).toHaveBeenCalledOnce();
+  });
+
   it("persists a generated miss with the server secret", async () => {
     fetchQuery.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
     getEnhancedArticleContext.mockResolvedValue({
@@ -185,7 +211,7 @@ describe("published article context persistence", () => {
       })
       .mockResolvedValueOnce({
         mode: "override",
-        override: { spokenSummary: "Owner-reviewed spoken summary." },
+        override: { caption: "Owner-reviewed visual caption." },
         updatedAt: Date.UTC(2026, 6, 13),
       });
 
@@ -198,12 +224,43 @@ describe("published article context persistence", () => {
       revisionId: "100",
     });
 
-    expect(result.context.blocks[0]?.spokenSummary).toBe(
-      "Owner-reviewed spoken summary.",
+    expect(result.context.blocks[0]?.caption).toBe(
+      "Owner-reviewed visual caption.",
     );
     expect(result.context.blocks[0]?.provenance).toMatchObject({
       editorialOverride: { kind: "owner-accessibility-copy" },
     });
+  });
+
+  it("maps legacy takeaway moderation to caption and ignores spokenSummary", async () => {
+    fetchQuery
+      .mockResolvedValueOnce({
+        manifestJson: JSON.stringify(manifest),
+        sourceHash: manifest.sourceHash,
+        updatedAt: Date.now(),
+      })
+      .mockResolvedValueOnce({
+        mode: "override",
+        override: {
+          takeaway: "Owner-reviewed legacy caption.",
+          spokenSummary: "Do not reintroduce context audio.",
+        },
+        updatedAt: Date.UTC(2026, 6, 13),
+      });
+
+    const { getPublishedArticleContext } = await import(
+      "./article-context-persistence"
+    );
+    const result = await getPublishedArticleContext({
+      wikiPageId: "42",
+      title: "Example",
+      revisionId: "100",
+    });
+
+    expect(result.context.blocks[0]?.caption).toBe(
+      "Owner-reviewed legacy caption.",
+    );
+    expect(result.context.blocks[0]).not.toHaveProperty("spokenSummary");
   });
 
   it("removes a suppressed block", async () => {

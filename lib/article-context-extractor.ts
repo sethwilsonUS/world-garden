@@ -143,9 +143,9 @@ export const sanitizeContextText = (
 
 /**
  * Captions often contain presentational arrows and spacing artifacts that are
- * awkward when read aloud. Keep this narrower than the general source-text
- * sanitizer so proper names such as “Drive-Thru Records” remain untouched in
- * titles, places, and labels.
+ * awkward in prose and assistive technology. Keep this narrower than the
+ * general source-text sanitizer so proper names such as “Drive-Thru Records”
+ * remain untouched in titles, places, and labels.
  */
 export const sanitizeContextCaption = (
   value: string,
@@ -517,8 +517,7 @@ const buildBaseBlock = ({
   kind,
   section,
   title,
-  takeaway,
-  spokenSummary,
+  caption,
   longDescription,
   sourceIdentity,
   extraSources,
@@ -529,8 +528,7 @@ const buildBaseBlock = ({
   kind: ContextBlock["kind"];
   section: ContextSection;
   title: string;
-  takeaway: string;
-  spokenSummary: string;
+  caption: string;
   longDescription: string;
   sourceIdentity: string;
   extraSources?: ContextSource[];
@@ -540,8 +538,7 @@ const buildBaseBlock = ({
   ).slice(0, 16)}`,
   kind,
   title: sanitizeContextText(title, 240),
-  takeaway: sanitizeContextText(takeaway, 800),
-  spokenSummary: sanitizeContextText(spokenSummary, 1_200),
+  caption: sanitizeContextText(caption, 800),
   longDescription: sanitizeContextText(longDescription, MAX_TEXT_LENGTH),
   section,
   order: 0,
@@ -721,8 +718,7 @@ const createMapCandidate = ({
       ? `${data.areas.length} ${data.areas.length === 1 ? "area" : "areas"}`
       : null,
   ].filter((part): part is string => Boolean(part));
-  const takeaway = `The source map identifies ${overview.join(", ")} associated with ${subject}.`;
-  const spokenSummary = `${takeaway} Its semantic place and route list can be explored without loading an interactive map.`;
+  const caption = `The source map identifies ${overview.join(", ")} associated with ${subject}.`;
   const base = buildBaseBlock({
     request,
     sourceHash,
@@ -730,8 +726,7 @@ const createMapCandidate = ({
     kind: "map",
     section,
     title: `Map of ${subject}`,
-    takeaway,
-    spokenSummary,
+    caption,
     longDescription: mapLongDescription(data),
     sourceIdentity,
   });
@@ -1385,7 +1380,7 @@ const createTimelineCandidate = ({
   const subject = section.index === "__summary__" ? request.title : section.title;
   const first = events[0];
   const finalDate = timelineFinalDate(events);
-  const takeaway = `This chronology follows ${events.length} events from ${first.start.display} through ${
+  const caption = `This chronology follows ${events.length} events from ${first.start.display} through ${
     finalDate.display
   }.`;
   const base = buildBaseBlock({
@@ -1395,8 +1390,7 @@ const createTimelineCandidate = ({
     kind: "timeline",
     section,
     title: `Timeline of ${subject}`,
-    takeaway,
-    spokenSummary: `${takeaway} Events are available as an ordered, searchable list with their source dates.`,
+    caption,
     longDescription: timelineLongDescription(events),
     sourceIdentity,
   });
@@ -1624,7 +1618,7 @@ const formatChartValue = (value: number): string =>
 
 const chartSeriesDescription = (
   chart: ContextChartBlock["chart"],
-): { takeaway: string; longDescription: string } | null => {
+): { caption: string; longDescription: string } | null => {
   const descriptions: string[] = [];
   for (const series of chart.series) {
     const values = chart.rows.flatMap((row) => {
@@ -1652,7 +1646,7 @@ const chartSeriesDescription = (
   }
   if (descriptions.length === 0) return null;
   return {
-    takeaway: `${descriptions[0]}.`,
+    caption: `${descriptions[0]}.`,
     longDescription: `${descriptions.join(". ")}. The exact source values are available in the accompanying data table.`,
   };
 };
@@ -1698,8 +1692,7 @@ const createChartCandidate = ({
     kind: "chart",
     section,
     title: title || `${subject} data`,
-    takeaway: description.takeaway,
-    spokenSummary: `${description.takeaway} The exact values, units, and source are available in a semantic data table.`,
+    caption: description.caption,
     longDescription: description.longDescription,
     sourceIdentity,
   });
@@ -2275,36 +2268,8 @@ const extractDiagramCandidates = ({
     const relationships: ContextDiagramBlock["diagram"]["relationships"] = [];
     const section = sectionAtOffset(boundaries, match.index ?? 0);
     const subject = section.index === "__summary__" ? request.title : section.title;
-    const takeaway = sanitizeContextText(walkthrough[0] || caption, 800);
+    const blockCaption = sanitizeContextText(walkthrough[0] || caption, 800);
     const fileSource = commonsFileSource(figureHtml, generatedAt);
-    const hasStructuredDescription =
-      parts.length > 0 || relationships.length > 0;
-    const availableDescriptions = [
-      ...(walkthrough.length > 0 && hasStructuredDescription
-        ? ["A source-caption walkthrough"]
-        : []),
-      ...(parts.length > 0
-        ? [`${parts.length} named ${parts.length === 1 ? "part" : "parts"}`]
-        : []),
-      ...(relationships.length > 0
-        ? [
-            `${relationships.length} described ${
-              relationships.length === 1 ? "relationship" : "relationships"
-            }`,
-          ]
-        : []),
-    ];
-    const availableDescriptionList =
-      availableDescriptions.length < 2
-        ? availableDescriptions[0] ?? ""
-        : `${availableDescriptions.slice(0, -1).join(", ")}${
-            availableDescriptions.length > 2 ? "," : ""
-          } and ${availableDescriptions.at(-1)}`;
-    const diagramAvailability = hasStructuredDescription
-      ? `${availableDescriptionList} ${
-          availableDescriptions.length === 1 ? "is" : "are"
-        } available alongside the image.`
-      : "The static source image and its caption are available alongside this description.";
     const base = buildBaseBlock({
       request,
       sourceHash,
@@ -2312,8 +2277,7 @@ const extractDiagramCandidates = ({
       kind: "diagram",
       section,
       title: `${subject} diagram`,
-      takeaway,
-      spokenSummary: `${takeaway} ${diagramAvailability}`,
+      caption: blockCaption,
       longDescription: `${caption}${
         parts.length > 0
           ? ` Named regions in the source image are ${parts
@@ -2348,8 +2312,7 @@ const extractDiagramCandidates = ({
 
 const blockTextFields = (block: ContextBlock): string[] => [
   block.title,
-  block.takeaway,
-  block.spokenSummary,
+  block.caption,
   block.longDescription,
   block.section.title,
   ...block.sources.flatMap((source) => [source.label, source.url]),
@@ -2376,18 +2339,12 @@ export const validateContextManifest = (manifest: ContextManifest): string[] => 
     errors.push("Too many context blocks");
   }
   const ids = new Set<string>();
-  const sectionIndexes = new Set<string>();
   for (const block of manifest.blocks) {
     if (!block.id || ids.has(block.id)) errors.push(`Duplicate or empty block ID: ${block.id}`);
     ids.add(block.id);
-    if (sectionIndexes.has(block.section.index)) {
-      errors.push(`More than one context block in section ${block.section.index}`);
-    }
-    sectionIndexes.add(block.section.index);
     if (
       !block.title ||
-      !block.takeaway ||
-      !block.spokenSummary ||
+      !block.caption ||
       !block.longDescription ||
       block.sources.length === 0
     ) {
@@ -2478,29 +2435,46 @@ const selectCandidates = (
   candidates: BlockCandidate[],
   sections: MediaWikiSectionSource[],
 ): ContextBlock[] => {
-  const perSection = new Map<string, BlockCandidate>();
-  for (const candidate of candidates) {
-    const existing = perSection.get(candidate.block.section.index);
+  const perSectionKind = new Map<
+    string,
+    { candidate: BlockCandidate; candidateIndex: number }
+  >();
+  candidates.forEach((candidate, candidateIndex) => {
+    const key = `${candidate.block.section.index}\u0000${candidate.block.kind}`;
+    const existing = perSectionKind.get(key);
     if (
       !existing ||
-      candidate.priority > existing.priority ||
-      (candidate.priority === existing.priority && candidate.position < existing.position)
+      candidate.priority > existing.candidate.priority ||
+      (candidate.priority === existing.candidate.priority &&
+        (candidate.position < existing.candidate.position ||
+          (candidate.position === existing.candidate.position &&
+            candidate.block.id.localeCompare(existing.candidate.block.id) < 0)))
     ) {
-      perSection.set(candidate.block.section.index, candidate);
+      perSectionKind.set(key, { candidate, candidateIndex });
     }
-  }
+  });
   const articleOrder = new Map<string, number>([["__summary__", 0]]);
   sections.forEach((section, index) => articleOrder.set(section.index, index + 1));
-  return [...perSection.values()]
+  return [...perSectionKind.values()]
     .sort(
-      (a, b) =>
-        (articleOrder.get(a.block.section.index) ?? Number.MAX_SAFE_INTEGER) -
-          (articleOrder.get(b.block.section.index) ?? Number.MAX_SAFE_INTEGER) ||
-        a.position - b.position ||
-        b.priority - a.priority,
+      (a, b) => {
+        const candidateOrder =
+          (articleOrder.get(a.candidate.block.section.index) ??
+            Number.MAX_SAFE_INTEGER) -
+            (articleOrder.get(b.candidate.block.section.index) ??
+              Number.MAX_SAFE_INTEGER) ||
+          a.candidate.position - b.candidate.position;
+        if (candidateOrder !== 0) return candidateOrder;
+        return (
+          b.candidate.priority - a.candidate.priority ||
+          a.candidate.block.kind.localeCompare(b.candidate.block.kind) ||
+          a.candidate.block.id.localeCompare(b.candidate.block.id) ||
+          a.candidateIndex - b.candidateIndex
+        );
+      },
     )
     .slice(0, MAX_BLOCKS_PER_ARTICLE)
-    .map((candidate, order) => ({ ...candidate.block, order }));
+    .map(({ candidate }, order) => ({ ...candidate.block, order }));
 };
 
 /** Pure extraction entry point used by fixtures, persistence jobs, and local mode. */

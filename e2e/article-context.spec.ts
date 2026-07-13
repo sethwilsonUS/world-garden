@@ -20,28 +20,27 @@ const provenance = {
   articleRevisionUrl:
     "https://en.wikipedia.org/w/index.php?title=Ada_Lovelace&oldid=123456789",
   sourceHash: "0123456789abcdef0123456789abcdef",
-  extractorVersion: "1.0.0",
+  extractorVersion: "2.0.0",
   descriptionMethod: "ai-assisted" as const,
   model: "gpt-5.6-luna",
-  promptVersion: "article-context-v1",
+  promptVersion: "context-accessibility-v3",
 };
 
 const contextManifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   wikiPageId: "974",
   title: "Ada Lovelace",
   revisionId: "123456789",
   language: "en",
   sourceHash: "manifest-source-hash",
-  extractorVersion: "1.0.0",
+  extractorVersion: "2.0.0",
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [
     {
       id: "map-journey",
       kind: "map",
       title: "Places in the correspondence",
-      takeaway: "The two places show the physical distance crossed by the correspondence.",
-      spokenSummary:
+      caption:
         "The correspondence connects London, England, with Turin, Italy.",
       longDescription:
         "The map begins in London and follows a southeast route to Turin. London is at latitude 51.5074 and longitude negative 0.1278. Turin is at latitude 45.0703 and longitude 7.6869.",
@@ -101,9 +100,8 @@ const contextManifest = {
       id: "timeline-engine",
       kind: "timeline",
       title: "Analytical Engine milestones",
-      takeaway: "The sequence connects Babbage's proposal with Lovelace's published notes.",
-      spokenSummary:
-        "Charles Babbage proposed the Analytical Engine in 1837, and Ada Lovelace published her notes in 1843.",
+      caption:
+        "Babbage proposed the Analytical Engine in 1837, followed by Lovelace's published notes in 1843.",
       longDescription:
         "There are two milestones in chronological order. The Analytical Engine was proposed in 1837. Lovelace's notes were published in 1843.",
       section: { index: "1", title: "Early life", anchor: "Early_life" },
@@ -144,8 +142,7 @@ const contextManifest = {
       id: "chart-note-length",
       kind: "chart",
       title: "Notes compared with the source article",
-      takeaway: "The notes are longer than the article they accompany.",
-      spokenSummary:
+      caption:
         "The source article has 8 thousand words, while Lovelace's notes have 20 thousand words.",
       longDescription:
         "The exact data table compares two documents. The source article has 8 thousand words and the notes have 20 thousand words.",
@@ -179,8 +176,7 @@ const contextManifest = {
       id: "diagram-engine",
       kind: "diagram",
       title: "Analytical Engine data flow",
-      takeaway: "Input cards feed instructions into the mill before results are printed.",
-      spokenSummary:
+      caption:
         "Punched cards provide input to the mill, and the mill sends results to the printer.",
       longDescription:
         "The diagram has three named parts arranged from input to output: punched cards, the mill, and the printer. Cards feed the mill, and the mill sends results to the printer.",
@@ -245,6 +241,7 @@ const mockArticleAndContext = async (
     mapSourceFailures = 0,
     mapSourceFailureDelayMs = 0,
     mapSpriteFailure = false,
+    manifest = contextManifest,
   }: {
     mapStyleFailures?: number;
     mapStyleFailureDelayMs?: number;
@@ -252,6 +249,7 @@ const mockArticleAndContext = async (
     mapSourceFailures?: number;
     mapSourceFailureDelayMs?: number;
     mapSpriteFailure?: boolean;
+    manifest?: ContextManifest;
   } = {},
 ) => {
   let reportPayload: unknown = null;
@@ -383,7 +381,7 @@ const mockArticleAndContext = async (
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ context: contextManifest, cacheStatus: "miss" }),
+      body: JSON.stringify({ context: manifest, cacheStatus: "miss" }),
     });
   });
 
@@ -497,6 +495,7 @@ const mockArticleAndContext = async (
 
   return {
     getReportPayload: () => reportPayload,
+    getMapStyleRequests: () => mapStyleRequests,
     getMapTileRequests: () => mapTileRequests,
   };
 };
@@ -508,6 +507,9 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   const reports = await mockArticleAndContext(page, {
     mapStyleSuccessDelayMs: 500,
   });
+  const darkStyleRequest = page.waitForRequest(
+    "https://tiles.openfreemap.org/styles/fiord",
+  );
   await page.goto("/article/Ada_Lovelace");
 
   await expect(
@@ -517,19 +519,8 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
     }),
   ).toBeVisible();
   await expect(page.locator("article.context-card")).toHaveCount(4);
-
-  const contextIndex = page.locator("#article-context-index");
-  await openDetailsWithKeyboard(page, contextIndex);
-  const contextNav = page.getByRole("navigation", {
-    name: "Context notes in this article",
-  });
-  await expect(contextNav.getByRole("listitem")).toHaveCount(4);
-  const mapIndexLink = contextNav.getByRole("link", {
-    name: /Places in the correspondence/,
-  });
-  await mapIndexLink.focus();
-  await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/#article-context-map-journey$/);
+  await expect(page.locator("#article-context-index")).toHaveCount(0);
+  await expect(page.locator("details.context-explorer")).toHaveCount(0);
 
   const sectionLinks = page.locator("a.context-section-link");
   await expect(sectionLinks).toHaveCount(2);
@@ -537,16 +528,56 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
     "href",
     "#article-context-map-journey",
   );
+  await expect(sectionLinks.nth(0)).toHaveAccessibleName(
+    "1 visual: jump to map: Places in the correspondence",
+  );
   await expect(sectionLinks.nth(1)).toHaveAttribute(
     "href",
     "#article-context-timeline-engine",
   );
-
-  const mapCard = page.locator("#article-context-map-journey");
-  const darkStyleRequest = page.waitForRequest(
-    "https://tiles.openfreemap.org/styles/fiord",
+  await expect(sectionLinks.nth(1)).toHaveAccessibleName(
+    "3 visuals: jump to timeline: Analytical Engine milestones, plus 2 more",
   );
-  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+  const mapCard = page.locator("#article-context-map-journey");
+  await sectionLinks.nth(0).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#article-context-map-journey$/);
+  await expect(mapCard).toBeFocused();
+
+  await expect(mapCard).toHaveAttribute(
+    "aria-describedby",
+    "article-context-map-journey-caption article-context-map-journey-description",
+  );
+  await expect(
+    mapCard.getByText(
+      "The correspondence connects London, England, with Turin, Italy.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(mapCard.locator("#article-context-map-journey-description")).toHaveClass(
+    /sr-only/,
+  );
+  await expect(mapCard.locator("#article-context-map-journey-description")).toContainText(
+    "The map begins in London and follows a southeast route to Turin.",
+  );
+  expect(
+    await mapCard.evaluate((card) => {
+      const visual = card.querySelector("#map-journey-map-view");
+      const caption = card.querySelector("#article-context-map-journey-caption");
+      const places = card.querySelector("#map-journey-places-heading");
+      return Boolean(
+        visual &&
+          caption &&
+          places &&
+          (visual.compareDocumentPosition(caption) &
+            Node.DOCUMENT_POSITION_FOLLOWING) &&
+          (caption.compareDocumentPosition(places) &
+            Node.DOCUMENT_POSITION_FOLLOWING),
+      );
+    }),
+  ).toBe(true);
+  await expect(mapCard.getByRole("button", { name: /listen/i })).toHaveCount(0);
+  await expect(mapCard.locator("audio")).toHaveCount(0);
   await expect(mapCard.getByRole("list").first()).toContainText("London");
   await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Routes" })).toBeVisible();
@@ -559,21 +590,27 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(schematic).toHaveCount(0);
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
   await darkStyleRequest;
+  await expect.poll(reports.getMapStyleRequests).toBeGreaterThan(0);
   const interactiveStatus = mapCard
     .locator(".context-interactive-map")
-    .getByRole("status");
+    .locator(".context-status");
   await expect(interactiveStatus).toHaveText("Loading interactive map");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
   await expect(interactiveStatus).toHaveText("Interactive map ready");
   await expect.poll(reports.getMapTileRequests).toBeGreaterThan(0);
   await expect(
-    mapCard.getByRole("region", {
-      name: "Interactive street map for Places in the correspondence",
-    }),
+    mapCard.locator(".context-map-surface"),
   ).toBeVisible();
+  await expect(mapCard.locator(".context-map-surface")).toHaveAttribute(
+    "aria-label",
+    "Interactive street map for Places in the correspondence",
+  );
   await expect(
     mapCard.locator('canvas[aria-label="Interactive street map for Places in the correspondence"]'),
-  ).toBeVisible();
+  ).toHaveAttribute(
+    "aria-describedby",
+    "article-context-map-journey-caption article-context-map-journey-description",
+  );
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
 
   await showSchematicButton.focus();
@@ -584,7 +621,7 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(showMapButton).toBeFocused();
   await expect(mapCard.locator(".context-interactive-map")).toHaveCount(0);
   await expect(schematic).toBeVisible();
-  await expect(mapCard.getByText("Coordinate overview — not a street map")).toBeVisible();
+  await expect(mapCard.getByText(/This coordinate overview is not a street map/)).toBeVisible();
   await expect(schematic.locator(".context-map-marker")).toHaveCount(2);
 
   await showMapButton.focus();
@@ -619,10 +656,13 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(schematic).toHaveCount(0);
 
   const timelineCard = page.locator("#article-context-timeline-engine");
-  await openDetailsWithKeyboard(
-    page,
-    timelineCard.locator("details.context-explorer"),
-  );
+  await timelineCard.scrollIntoViewIfNeeded();
+  await expect(
+    timelineCard.getByText(
+      "Babbage proposed the Analytical Engine in 1837, followed by Lovelace's published notes in 1843.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(timelineCard.locator('time[datetime="1837"]')).toHaveText("1837");
   await expect(timelineCard.locator('time[datetime="1843"]')).toHaveText("1843");
   await expect(timelineCard.getByRole("listitem")).toHaveCount(2);
@@ -636,7 +676,9 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   );
 
   const chartCard = page.locator("#article-context-chart-note-length");
-  await openDetailsWithKeyboard(page, chartCard.locator("details.context-explorer"));
+  await chartCard.scrollIntoViewIfNeeded();
+  await expect(chartCard.locator(".context-echarts")).toBeVisible();
+  await expect(chartCard.locator(".context-echarts svg")).toBeVisible();
   const dataTable = chartCard.getByRole("table", {
     name: "Exact data for Notes compared with the source article",
   });
@@ -645,9 +687,10 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(dataTable.getByRole("cell", { name: "20" })).toBeVisible();
 
   const diagramCard = page.locator("#article-context-diagram-engine");
-  await openDetailsWithKeyboard(
-    page,
-    diagramCard.locator("details.context-explorer"),
+  await diagramCard.scrollIntoViewIfNeeded();
+  await expect(diagramCard).toHaveAttribute(
+    "aria-describedby",
+    "article-context-diagram-engine-caption article-context-diagram-engine-description",
   );
   await expect(
     diagramCard.getByRole("img", {
@@ -660,6 +703,30 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   ).toBeVisible();
   await expect(diagramCard.getByText(/Punched cards feed instructions into Mill/)).toBeVisible();
   await expect(diagramCard.getByRole("heading", { name: "Walkthrough" })).toBeVisible();
+
+  const contextLane = page.locator("section.context-lane");
+  await expect(contextLane.getByRole("button", { name: /listen/i })).toHaveCount(0);
+  const gallery = page.getByRole("heading", { name: "Gallery" }).locator("..");
+  await expect(gallery).toBeVisible();
+  const [contextBox, galleryBox] = await Promise.all([
+    contextLane.boundingBox(),
+    gallery.boundingBox(),
+  ]);
+  expect(contextBox).not.toBeNull();
+  expect(galleryBox).not.toBeNull();
+  expect(Math.abs((contextBox?.x ?? 0) - (galleryBox?.x ?? 0))).toBeLessThanOrEqual(1);
+  expect(Math.abs((contextBox?.width ?? 0) - (galleryBox?.width ?? 0))).toBeLessThanOrEqual(1);
+  expect(
+    await page.evaluate(() => {
+      const lane = document.querySelector("section.context-lane");
+      const galleryHeading = document.querySelector("#gallery-heading");
+      return Boolean(
+        lane &&
+          galleryHeading &&
+          lane.nextElementSibling?.contains(galleryHeading),
+      );
+    }),
+  ).toBe(true);
 
   const provenanceDetails = mapCard.locator("details.context-sources");
   await openDetailsWithKeyboard(page, provenanceDetails);
@@ -705,7 +772,7 @@ test("article map falls back accessibly and can retry after a style failure", as
   const mapCard = page.locator("#article-context-map-journey");
   const failureStatus = mapCard.locator(".context-map-failure-status");
   await expect(failureStatus).toHaveText("");
-  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+  await mapCard.scrollIntoViewIfNeeded();
   const mapCanvas = mapCard.locator(
     'canvas[aria-label="Interactive street map for Places in the correspondence"]',
   );
@@ -730,13 +797,11 @@ test("article map falls back accessibly and can retry after a style failure", as
   await expect(showSchematicButton).toBeFocused();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
   await expect(
-    mapCard.locator(".context-interactive-map").getByRole("status"),
+    mapCard.locator(".context-interactive-map .context-status"),
   ).toHaveText("Interactive map ready");
   await expect(failureStatus).toHaveText("");
   await expect(
-    mapCard.getByRole("region", {
-      name: "Interactive street map for Places in the correspondence",
-    }),
+    mapCard.locator(".context-map-surface"),
   ).toBeVisible();
 });
 
@@ -748,7 +813,7 @@ test("article map falls back when its source metadata cannot load", async ({
   await page.goto("/article/Ada_Lovelace");
 
   const mapCard = page.locator("#article-context-map-journey");
-  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+  await mapCard.scrollIntoViewIfNeeded();
 
   await expect(mapCard.getByText("Street map unavailable", { exact: true })).toBeVisible();
   await expect(mapCard.locator(".context-map-failure-status")).toContainText(
@@ -760,7 +825,7 @@ test("article map falls back when its source metadata cannot load", async ({
     .click();
 
   await expect(
-    mapCard.locator(".context-interactive-map").getByRole("status"),
+    mapCard.locator(".context-interactive-map .context-status"),
   ).toHaveText("Interactive map ready");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
@@ -774,10 +839,10 @@ test("article map remains usable when decorative sprite resources fail", async (
   await page.goto("/article/Ada_Lovelace");
 
   const mapCard = page.locator("#article-context-map-journey");
-  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+  await mapCard.scrollIntoViewIfNeeded();
 
   await expect(
-    mapCard.locator(".context-interactive-map").getByRole("status"),
+    mapCard.locator(".context-interactive-map .context-status"),
   ).toHaveText(
     "Some map details could not load. The exact place and route lists remain available.",
   );
@@ -785,6 +850,100 @@ test("article map remains usable when decorative sprite resources fail", async (
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
   await expect(mapCard.locator(".context-map-failure-status")).toHaveText("");
+});
+
+test("rich visuals initialize without IntersectionObserver or a disclosure click", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "IntersectionObserver", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  await mockArticleAndContext(page);
+  const mapStyleRequest = page.waitForRequest(
+    "https://tiles.openfreemap.org/styles/liberty",
+  );
+
+  await page.goto("/article/Ada_Lovelace");
+  await mapStyleRequest;
+
+  await expect(
+    page.locator(
+      "#article-context-map-journey .context-interactive-map .context-status",
+    ),
+  ).toHaveText("Interactive map ready");
+  await expect(
+    page.locator("#article-context-chart-note-length .context-echarts svg"),
+  ).toBeAttached();
+  await expect(page.locator("details.context-explorer")).toHaveCount(0);
+});
+
+test("an article with no visual context leaves no empty lane or spacer", async ({
+  page,
+}) => {
+  const emptyManifest: ContextManifest = {
+    ...contextManifest,
+    blocks: [],
+  };
+  await mockArticleAndContext(page, { manifest: emptyManifest });
+  const contextResponse = page.waitForResponse("**/api/article-context");
+
+  await page.goto("/article/Ada_Lovelace");
+  await contextResponse;
+  await expect(page.getByRole("heading", { name: "Gallery" })).toBeVisible();
+
+  await expect(page.locator("section.context-lane")).toHaveCount(0);
+  await expect(page.locator("a.context-section-link")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => {
+      const tableOfContentsShell =
+        document.querySelector(".toc-section")?.parentElement;
+      const galleryHeading = document.querySelector("#gallery-heading");
+      return Boolean(
+        tableOfContentsShell &&
+          galleryHeading &&
+          tableOfContentsShell.nextElementSibling?.contains(galleryHeading),
+      );
+    }),
+  ).toBe(true);
+});
+
+test("visual context remains usable at 200 percent zoom with forced colors", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 640, height: 900 });
+  await page.emulateMedia({ forcedColors: "active" });
+  await mockArticleAndContext(page);
+  await page.goto("/article/Ada_Lovelace");
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("zoom", "2");
+  });
+
+  const mapCard = page.locator("#article-context-map-journey");
+  await mapCard.scrollIntoViewIfNeeded();
+  await expect(
+    mapCard.getByText(
+      "The correspondence connects London, England, with Turin, Italy.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(mapCard.getByRole("button", { name: "Show coordinate overview" })).toBeVisible();
+  await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
+
+  const chartCard = page.locator("#article-context-chart-note-length");
+  await chartCard.scrollIntoViewIfNeeded();
+  await expect(
+    chartCard.getByRole("table", {
+      name: "Exact data for Notes compared with the source article",
+    }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
 });
 
 test("article context reflows at a narrow viewport and honors reduced motion", async ({
@@ -820,10 +979,7 @@ test("article context reflows at a narrow viewport and honors reduced motion", a
   );
   expect(tocRowLayoutViolations).toEqual([]);
   const diagramCard = page.locator("#article-context-diagram-engine");
-  await openDetailsWithKeyboard(
-    page,
-    diagramCard.locator("details.context-explorer"),
-  );
+  await diagramCard.scrollIntoViewIfNeeded();
   const zoomIn = diagramCard.getByRole("button", { name: "Zoom in" });
   await zoomIn.focus();
   await page.keyboard.press("Enter");

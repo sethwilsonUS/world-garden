@@ -19,6 +19,10 @@ import {
   createArticleContextDownload,
   serializeArticleContextCsv,
 } from "./article-context-download";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+} from "./article-context-types";
 
 const request = {
   wikiPageId: "123",
@@ -128,6 +132,12 @@ describe("article context deterministic extraction", () => {
     });
 
     expect(validateContextManifest(manifest)).toEqual([]);
+    expect(manifest).toMatchObject({
+      schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
+      extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+    });
+    expect(JSON.stringify(manifest)).not.toContain('"takeaway"');
+    expect(JSON.stringify(manifest)).not.toContain('"spokenSummary"');
     expect(manifest.blocks.map((block) => block.kind)).toEqual([
       "map",
       "chart",
@@ -135,9 +145,6 @@ describe("article context deterministic extraction", () => {
       "diagram",
       "timeline",
     ]);
-    expect(new Set(manifest.blocks.map((block) => block.section.index)).size).toBe(
-      manifest.blocks.length,
-    );
 
     const map = manifest.blocks.find((block) => block.kind === "map");
     expect(map?.kind === "map" && map.map.places[0]).toMatchObject({
@@ -155,7 +162,7 @@ describe("article context deterministic extraction", () => {
     expect(JSON.stringify(chart)).not.toContain("formatter");
     expect(JSON.stringify(chart)).not.toContain("<script");
     expect(JSON.stringify(chart)).not.toContain("steal()");
-    expect(chart?.takeaway).toBe(
+    expect(chart?.caption).toBe(
       "Residents has 3 values; the lowest is 100 at 2020, and the highest is 120 at 2021.",
     );
     expect(chart?.longDescription).not.toContain("ranging from");
@@ -180,11 +187,8 @@ describe("article context deterministic extraction", () => {
     expect(diagram?.kind === "diagram" && diagram.diagram.caption).not.toMatch(
       /[←→]|\s[.,]/,
     );
-    expect(diagram?.spokenSummary).toContain(
-      "The static source image and its caption are available alongside this description.",
-    );
-    expect(diagram?.spokenSummary).not.toContain("walkthrough");
-    expect(diagram?.spokenSummary).not.toContain("named parts");
+    expect(diagram).not.toHaveProperty("takeaway");
+    expect(diagram).not.toHaveProperty("spokenSummary");
 
     const storms = manifest.blocks.find(
       (block) => block.kind === "timeline" && block.section.index === "4",
@@ -209,7 +213,43 @@ describe("article context deterministic extraction", () => {
     ).toBe("1 June 2024");
   });
 
-  it("promises diagram structure only when the source image supplies named parts", () => {
+  it("keeps distinct visual kinds from one section in source order", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      sections: [
+        {
+          index: "1",
+          line: "System overview",
+          anchor: "System_overview",
+          level: "2",
+        },
+      ],
+      html: `<h2 id="System_overview">System overview</h2>
+        <figure typeof="mw:File/Thumb">
+          <a href="/wiki/File:System_flow.png" class="mw-file-description">
+            <img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/System_flow.png/640px-System_flow.png" width="640" height="480">
+          </a>
+          <figcaption>A process diagram showing source material entering the first stage, flowing through the transformation stage, and leaving through the final output.</figcaption>
+        </figure>
+        <wiki-chart data-mw-chart="${chartPayload}"></wiki-chart>`,
+      wikitext: "",
+    };
+
+    const manifest = extractArticleContextFromSource(source, request);
+
+    expect(validateContextManifest(manifest)).toEqual([]);
+    expect(manifest.blocks.map((block) => block.kind)).toEqual([
+      "diagram",
+      "chart",
+    ]);
+    expect(manifest.blocks.map((block) => block.section.index)).toEqual([
+      "1",
+      "1",
+    ]);
+    expect(manifest.blocks.map((block) => block.order)).toEqual([0, 1]);
+  });
+
+  it("includes source-supplied diagram parts in the nonvisual description", () => {
     const source = richSource();
     source.html = source.html.replace(
       "<figcaption>",
@@ -221,10 +261,10 @@ describe("article context deterministic extraction", () => {
 
     expect(diagram?.kind).toBe("diagram");
     expect(diagram?.kind === "diagram" && diagram.diagram.parts).toHaveLength(1);
-    expect(diagram?.spokenSummary).toContain(
-      "A source-caption walkthrough and 1 named part are available alongside the image.",
+    expect(diagram?.longDescription).toContain(
+      "Named regions in the source image are First reservoir.",
     );
-    expect(diagram?.spokenSummary).not.toContain("static source image");
+    expect(diagram).not.toHaveProperty("spokenSummary");
   });
 
   it("normalizes source GeoJSON into safe places and routes without exposing properties", () => {
@@ -359,7 +399,7 @@ describe("article context deterministic extraction", () => {
 
     const manifest = extractArticleContextFromSource(source, request);
     const timeline = manifest.blocks.find((block) => block.kind === "timeline");
-    expect(timeline?.takeaway).toContain("through December 31, 2022");
+    expect(timeline?.caption).toContain("through December 31, 2022");
     expect(timeline?.longDescription).toContain(
       "through December 31, 2022",
     );
@@ -431,7 +471,7 @@ describe("article context deterministic extraction", () => {
     expect(mixed?.kind === "chart" && mixed.chart.series[0].unit).toBeUndefined();
   });
 
-  it("allows at most one promoted block per section and six per article", () => {
+  it("caps selected visual blocks at six per article", () => {
     const sections = Array.from({ length: 8 }, (_, index) => ({
       index: String(index + 1),
       line: `Process ${index + 1}`,
@@ -614,7 +654,7 @@ describe("article context dates and sanitization", () => {
     ).toBe("Useful & clear text");
   });
 
-  it("validates identifiers and locks v1 to English Wikipedia", () => {
+  it("validates identifiers and limits extraction to English Wikipedia", () => {
     expect(() =>
       normalizeArticleContextRequest({ ...request, wikiPageId: "1 OR 1=1" }),
     ).toThrow(ArticleContextInputError);

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { selectSectionAudioVariant } from "./audio";
+import {
+  assertSectionAudioKeyCanBeSaved,
+  isQuarantinedContextAudioKey,
+  selectSectionAudioVariant,
+} from "./audio";
 
 const openAiKey =
   "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2";
@@ -72,5 +76,46 @@ describe("selectSectionAudioVariant", () => {
     );
 
     expect(selected).toBeNull();
+  });
+
+  it.each([
+    "context-summary-map-hash",
+    "context-description-timeline-hash",
+  ])("quarantines legacy context narration reads for %s", (sectionKey) => {
+    const selected = selectSectionAudioVariant(
+      [
+        {
+          sectionKey,
+          storageId: "legacy-context-storage",
+          ttsNormVersion: "ttsNorm:2",
+          ttsCacheKey: openAiKey,
+        },
+      ],
+      {
+        sectionKey,
+        ttsNormVersion: "ttsNorm:2",
+        ttsCacheKey: openAiKey,
+      },
+    );
+
+    expect(selected).toBeNull();
+    expect(isQuarantinedContextAudioKey(sectionKey)).toBe(true);
+  });
+
+  it.each(["summary", "section-0", "contextual-history"])(
+    "continues to allow ordinary article audio for %s",
+    (sectionKey) => {
+      expect(isQuarantinedContextAudioKey(sectionKey)).toBe(false);
+      expect(() => assertSectionAudioKeyCanBeSaved(sectionKey)).not.toThrow();
+    },
+  );
+
+  it.each([
+    "context-summary-map-hash",
+    "context-description-timeline-hash",
+  ])("rejects future context narration saves for %s", (sectionKey) => {
+    expect(() => assertSectionAudioKeyCanBeSaved(sectionKey)).toThrow(
+      "Context narration audio is no longer supported.",
+    );
   });
 });

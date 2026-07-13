@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { serializeArticleContextCsv } from "./article-context-download";
+import {
+  serializeArticleContextCsv,
+  serializeArticleContextJson,
+} from "./article-context-download";
 import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
   type ContextManifest,
 } from "./article-context-types";
 
 const manifest: ContextManifest = {
-  schemaVersion: 1,
+  schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
   wikiPageId: "42",
   title: "Formula safety",
   revisionId: "100",
@@ -19,8 +23,7 @@ const manifest: ContextManifest = {
       id: "context-diagram-formula-safety",
       kind: "diagram",
       title: "Formula safety diagram",
-      takeaway: "Four labels are shown.",
-      spokenSummary: "Four externally sourced labels are listed.",
+      caption: "Four labels are shown.",
       longDescription: "The source labels are preserved as data.",
       section: { index: "1", title: "Example" },
       order: 0,
@@ -62,6 +65,13 @@ const manifest: ContextManifest = {
 };
 
 describe("article context CSV downloads", () => {
+  it("keeps the structured CSV contract unchanged for schema v2", () => {
+    const [header] = serializeArticleContextCsv(manifest).split("\r\n");
+    expect(header).toBe(
+      "block_id,kind,section_index,section_title,item_type,item_id,label,start,end,latitude,longitude,series,x,value,unit,description,source_url,revision_id",
+    );
+  });
+
   it("neutralizes spreadsheet formulas from source-controlled strings", () => {
     const csv = serializeArticleContextCsv(manifest);
     expect(csv).toContain("'=2+2");
@@ -70,5 +80,14 @@ describe("article context CSV downloads", () => {
     expect(csv).toContain("'@SUM(A1:A2)");
     expect(csv).toContain("'\tformula trigger");
     expect(csv).toContain("'\rformula trigger");
+  });
+
+  it("serializes the schema-v2 caption contract without legacy audio copy", () => {
+    const json = JSON.parse(serializeArticleContextJson(manifest));
+
+    expect(json.schemaVersion).toBe(2);
+    expect(json.blocks[0].caption).toBe("Four labels are shown.");
+    expect(json.blocks[0]).not.toHaveProperty("takeaway");
+    expect(json.blocks[0]).not.toHaveProperty("spokenSummary");
   });
 });

@@ -26,7 +26,7 @@ type ArticleContextCache = {
   enhanced: Map<string, CacheEntry>;
 };
 
-const CACHE_KEY = "__curioGardenArticleContextCacheV1" as const;
+const CACHE_KEY = "__curioGardenArticleContextCacheV2" as const;
 
 const getCache = (): ArticleContextCache => {
   const shared = globalThis as typeof globalThis & {

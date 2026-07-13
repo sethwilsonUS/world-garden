@@ -6,8 +6,8 @@
  * Wikipedia HTML, SVG, GeoJSON, or chart-library options.
  */
 
-export const ARTICLE_CONTEXT_SCHEMA_VERSION = 1 as const;
-export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "1.0.2";
+export const ARTICLE_CONTEXT_SCHEMA_VERSION = 2 as const;
+export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "2.0.0";
 
 export type ContextBlockKind = "map" | "timeline" | "chart" | "diagram";
 
@@ -45,10 +45,9 @@ export type ContextBlockBase = {
   id: string;
   kind: ContextBlockKind;
   title: string;
-  takeaway: string;
-  /** Short, abbreviation-expanded copy suitable for the main audio queue. */
-  spokenSummary: string;
-  /** Visible structured prose that stands alone without the visual view. */
+  /** Concise visible copy that explains the visual's central point. */
+  caption: string;
+  /** Fuller prose programmatically associated with the visual. */
   longDescription: string;
   section: ContextSection;
   /** Stable display position within the article revision. */

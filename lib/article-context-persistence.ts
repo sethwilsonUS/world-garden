@@ -15,6 +15,7 @@ import {
 } from "@/lib/article-context-extractor";
 import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
   type ArticleContextApiResponse,
   type ArticleContextRequest,
   type ContextBlock,
@@ -32,11 +33,13 @@ type PersistentCacheRecord = {
 type ContextModeration = {
   mode: "suppress" | "override";
   override?: Partial<
-    Pick<
-      ContextBlock,
-      "title" | "takeaway" | "spokenSummary" | "longDescription"
-    >
-  >;
+    Pick<ContextBlock, "title" | "caption" | "longDescription">
+  > & {
+    /** Read-only compatibility for moderation records created before schema v2. */
+    takeaway?: string;
+    /** Deliberately ignored; visual context no longer participates in audio. */
+    spokenSummary?: string;
+  };
   updatedAt: number;
 };
 
@@ -63,6 +66,7 @@ const parseCachedManifest = (
   }
 
   if (
+    manifest.schemaVersion !== ARTICLE_CONTEXT_SCHEMA_VERSION ||
     manifest.wikiPageId !== request.wikiPageId ||
     manifest.revisionId !== request.revisionId ||
     manifest.language !== request.language ||
@@ -124,7 +128,14 @@ const readPersistentContext = async (
 
 const savePersistentContext = async (manifest: ContextManifest): Promise<void> => {
   const adminSecret = getArticleContextWriteSecret();
-  if (!hasConvex() || !adminSecret) return;
+  if (
+    !hasConvex() ||
+    !adminSecret ||
+    manifest.schemaVersion !== ARTICLE_CONTEXT_SCHEMA_VERSION ||
+    validateContextManifest(manifest).length > 0
+  ) {
+    return;
+  }
   try {
     await fetchAction(anyApi.articleContexts.saveArticleContextCache, {
       adminSecret,
@@ -173,10 +184,21 @@ const applyModeration = async (
       const rule = moderation[index];
       if (rule?.mode === "suppress") return [];
       if (rule?.mode !== "override" || !rule.override) return [block];
+      const override: Partial<
+        Pick<ContextBlock, "title" | "caption" | "longDescription">
+      > = {};
+      if (rule.override.title) override.title = rule.override.title;
+      const caption = rule.override.caption || rule.override.takeaway;
+      if (caption) override.caption = caption;
+      if (rule.override.longDescription) {
+        override.longDescription = rule.override.longDescription;
+      }
+      // A legacy spokenSummary-only override has no visual-context equivalent.
+      if (Object.keys(override).length === 0) return [block];
       return [
         {
           ...block,
-          ...rule.override,
+          ...override,
           provenance: {
             ...block.provenance,
             editorialOverride: {
@@ -200,7 +222,7 @@ export const getPublishedArticleContext = async (
     enhance?: (manifest: ContextManifest) => Promise<ContextManifest>;
   } = {},
 ): Promise<ArticleContextApiResponse> => {
-  // V1 rejects non-English input here, before any Convex read or write. The
+  // V2 rejects non-English input here, before any Convex read or write. The
   // durable cache key can therefore omit language without cross-wiki
   // collisions; add language to the schema when extraction becomes multilingual.
   const request = normalizeArticleContextRequest(input);

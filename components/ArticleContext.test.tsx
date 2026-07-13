@@ -9,21 +9,17 @@ import type {
 } from "@/lib/article-context-types";
 import type { ArticleImage } from "@/lib/data-context";
 import {
-  ArticleContextIndex,
   ArticleContextLane,
+  ContextSectionLink,
   chartToCsv,
-  getContextAudioDetail,
-  getContextAudioKey,
   getContextBlocksForSection,
-  isContextAudioKey,
 } from "./ArticleContext";
 import { Lightbox } from "./ArticleGallery";
 import { MapSchematic } from "./ArticleContextVisuals";
 import { ThemeProvider } from "./ThemeProvider";
 
 const base = {
-  takeaway: "This makes the article easier to understand.",
-  spokenSummary: "A concise description suitable for synthetic speech.",
+  caption: "This makes the visual easier to understand.",
   longDescription: "A complete long description that does not depend on the visual view.",
   section: { index: "1", title: "History", anchor: "History" },
   order: 1,
@@ -40,7 +36,7 @@ const base = {
     articleUrl: "https://en.wikipedia.org/wiki/Example",
     articleRevisionUrl: "https://en.wikipedia.org/w/index.php?oldid=123",
     sourceHash: "abcdef1234567890",
-    extractorVersion: "1.0.0",
+    extractorVersion: "2.0.0",
     descriptionMethod: "deterministic" as const,
   },
 };
@@ -51,6 +47,7 @@ const blocks: ContextBlock[] = [
     id: "map-one",
     kind: "map",
     title: "Places in the journey",
+    caption: "Rome is the single place identified for this journey.",
     section: { index: "__summary__", title: "Summary" },
     map: {
       center: { latitude: 41.9, longitude: 12.5 },
@@ -73,6 +70,7 @@ const blocks: ContextBlock[] = [
     id: "timeline-one",
     kind: "timeline",
     title: "Key events",
+    caption: "The expedition began on 20 July 1969.",
     order: 2,
     timeline: {
       chronological: true,
@@ -97,6 +95,7 @@ const blocks: ContextBlock[] = [
     id: "chart-one",
     kind: "chart",
     title: "Population over time",
+    caption: "Population rises from 100 to 250 between 1900 and 2000.",
     order: 3,
     chart: {
       columns: [
@@ -125,6 +124,7 @@ const blocks: ContextBlock[] = [
     id: "diagram-one",
     kind: "diagram",
     title: "How the system connects",
+    caption: "The first part flows into the second part.",
     order: 4,
     diagram: {
       image: {
@@ -145,30 +145,31 @@ const blocks: ContextBlock[] = [
 ];
 
 const manifest: ContextManifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   wikiPageId: "123",
   title: "Example",
   revisionId: "123",
   language: "en",
   sourceHash: "manifesthash",
-  extractorVersion: "1.0.0",
+  extractorVersion: "2.0.0",
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks,
 };
 
 describe("ArticleContext", () => {
-  it("renders a compact section-linked context index", () => {
+  it("renders compact direct links to the associated first visual", () => {
     const markup = renderToStaticMarkup(
-      createElement(ArticleContextIndex, { blocks }),
+      createElement(ContextSectionLink, { blocks: [blocks[0]] }),
     );
 
-    expect(markup).toContain('aria-label="Context notes in this article"');
-    expect(markup).toContain("Places in the journey");
-    expect(markup).toContain("article-context-map-one");
-    expect(markup).toContain("Article summary");
+    expect(markup).toContain('href="#article-context-map-one"');
+    expect(markup).toContain(
+      'aria-label="1 visual: jump to map: Places in the journey"',
+    );
+    expect(markup).toContain("1 visual");
   });
 
-  it("renders semantic equivalents alongside the default interactive map", () => {
+  it("renders every visual directly with captions, fuller descriptions, and semantic equivalents", () => {
     const markup = renderToStaticMarkup(
       createElement(
         ThemeProvider,
@@ -176,14 +177,25 @@ describe("ArticleContext", () => {
         createElement(ArticleContextLane, {
           state: { status: "ready", manifest, error: null },
           retry: () => {},
-          onListen: () => {},
         }),
       ),
     );
 
     expect(markup).toContain("Show coordinate overview");
-    expect(markup).toContain("Loading interactive map");
-    expect(markup).not.toContain("Coordinate overview — not a street map");
+    expect(markup).toContain("Street map will load as it approaches the viewport.");
+    expect(markup).not.toContain("context-explorer");
+    expect(markup).not.toContain("Listen to context");
+    expect(markup).not.toContain("Listen to full description");
+    expect(markup).toContain('id="article-context-map-one" tabindex="-1"');
+    expect(markup).toContain(
+      'aria-describedby="article-context-map-one-caption article-context-map-one-description"',
+    );
+    expect(markup).toContain(
+      '<p id="article-context-map-one-caption" class="context-visual-caption">Rome is the single place identified for this journey.</p>',
+    );
+    expect(markup).toContain(
+      '<p id="article-context-map-one-description" class="sr-only">A complete long description that does not depend on the visual view.</p>',
+    );
     expect(markup).toContain("Latitude 41.9000, longitude 12.5000");
     expect(markup).toContain('<time dateTime="1969-07-20">20 July 1969</time>');
     expect(markup).toContain("Exact data for Population over time");
@@ -193,6 +205,29 @@ describe("ArticleContext", () => {
     expect(markup).toContain("flows into");
     expect(markup).toContain("Report a problem");
     expect(markup).not.toContain('role="application"');
+
+    const mapPosition = markup.indexOf("article-context-map-one");
+    const timelinePosition = markup.indexOf("article-context-timeline-one");
+    const chartPosition = markup.indexOf("article-context-chart-one");
+    const diagramPosition = markup.indexOf("article-context-diagram-one");
+    expect(mapPosition).toBeLessThan(timelinePosition);
+    expect(timelinePosition).toBeLessThan(chartPosition);
+    expect(chartPosition).toBeLessThan(diagramPosition);
+  });
+
+  it("renders no lane or placeholder spacing for a ready manifest with no visuals", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ArticleContextLane, {
+        state: {
+          status: "ready",
+          manifest: { ...manifest, blocks: [] },
+          error: null,
+        },
+        retry: () => {},
+      }),
+    );
+
+    expect(markup).toBe("");
   });
 
   it("centers a single place in the coordinate overview fallback", () => {
@@ -200,7 +235,9 @@ describe("ArticleContext", () => {
       createElement(MapSchematic, { block: blocks[0] as ContextMapBlock }),
     );
 
-    expect(markup).toContain("Coordinate overview — not a street map");
+    expect(markup).toContain(
+      'role="img" aria-label="Coordinate overview for Places in the journey"',
+    );
     expect(markup).toContain('transform="translate(320 150)"');
   });
 
@@ -211,26 +248,6 @@ describe("ArticleContext", () => {
       "chart-one",
       "diagram-one",
     ]);
-  });
-
-  it("versions context audio keys with the source hash and description kind", () => {
-    expect(getContextAudioKey(blocks[0])).toBe("context-summary-map-one-abcdef123456");
-    expect(getContextAudioKey(blocks[0], "description")).toBe(
-      "context-description-map-one-abcdef123456",
-    );
-  });
-
-  it("recognizes only supported context audio keys and recovers their detail", () => {
-    const summaryKey = getContextAudioKey(blocks[0], "summary");
-    const descriptionKey = getContextAudioKey(blocks[0], "description");
-
-    expect(isContextAudioKey(summaryKey)).toBe(true);
-    expect(isContextAudioKey(descriptionKey)).toBe(true);
-    expect(getContextAudioDetail(summaryKey)).toBe("summary");
-    expect(getContextAudioDetail(descriptionKey)).toBe("description");
-    expect(isContextAudioKey("context-unknown-map-one")).toBe(false);
-    expect(isContextAudioKey("section-0")).toBe(false);
-    expect(isContextAudioKey(null)).toBe(false);
   });
 
   it("neutralizes formula-leading chart strings in client CSV downloads", () => {
