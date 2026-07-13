@@ -5,7 +5,10 @@ import { useState, useEffect } from "react";
 import { analytics } from "@/lib/analytics";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
-import { formatUtcCalendarDate } from "@/lib/date-only";
+import {
+  formatLocalDateTime,
+  formatUtcCalendarDate,
+} from "@/lib/date-format";
 
 type FeaturedData = {
   title: string;
@@ -14,23 +17,6 @@ type FeaturedData = {
   featuredDate?: string | null;
   feedDate?: string | null;
 };
-
-function formatFeaturedDate(isoDate: string | null | undefined): string {
-  if (!isoDate) return "";
-  try {
-    const d = new Date(isoDate);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
 
 export const FeaturedArticle = () => {
   const [featured, setFeatured] = useState<FeaturedData | null>(null);
@@ -77,6 +63,9 @@ export const FeaturedArticle = () => {
     featured!.extract.length > 200
       ? featured!.extract.slice(0, 200).replace(/\s+\S*$/, "") + "\u2026"
       : featured!.extract;
+  const dateLabel =
+    formatLocalDateTime(featured!.featuredDate) ||
+    formatUtcCalendarDate(featured!.feedDate);
 
   return (
     <section
@@ -89,11 +78,9 @@ export const FeaturedArticle = () => {
       >
         Today&rsquo;s featured article
       </h2>
-      {(featured!.featuredDate || featured!.feedDate) && (
+      {dateLabel && (
         <p className="text-muted text-xs text-center mb-3" aria-live="polite">
-          Last updated:{" "}
-          {formatFeaturedDate(featured!.featuredDate) ||
-            formatUtcCalendarDate(featured!.feedDate)}
+          Last updated: {dateLabel}
         </p>
       )}
       <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">

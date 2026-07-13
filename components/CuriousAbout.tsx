@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
-import { formatUtcCalendarDate } from "@/lib/date-only";
+import { formatUtcCalendarDate } from "@/lib/date-format";
 
 const MAX_ARTICLES = 8;
 

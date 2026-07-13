@@ -7,7 +7,10 @@ import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
-import { formatUtcCalendarDate } from "@/lib/date-only";
+import {
+  formatLocalDateTime,
+  formatUtcCalendarDate,
+} from "@/lib/date-format";
 import { HOMEPAGE_PREVIEW_LIMITS } from "@/lib/homepage-articles";
 import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 import { MediaAttribution } from "./MediaAttribution";
@@ -128,23 +131,6 @@ const truncate = (text: string, max: number): string =>
     ? text.slice(0, max).replace(/\s+\S*$/, "") + "\u2026"
     : text;
 
-function formatFeaturedDate(isoDate: string | null | undefined): string {
-  if (!isoDate) return "";
-  try {
-    const d = new Date(isoDate);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
-
 const formatViews = (views: number): string => {
   if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)} million`;
   if (views >= 1_000) return `${Math.round(views / 1_000)} thousand`;
@@ -203,7 +189,7 @@ const FeaturedArticleCard = ({
 
   const slug = toArticleSlug(article.title);
   const dateLabel =
-    formatFeaturedDate(article.featuredDate) ||
+    formatLocalDateTime(article.featuredDate) ||
     formatUtcCalendarDate(article.feedDate ?? feedDate);
 
   return (

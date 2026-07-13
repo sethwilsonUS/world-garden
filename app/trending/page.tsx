@@ -6,7 +6,7 @@ import { analytics } from "@/lib/analytics";
 import { ArticleCard, type TrendingArticle } from "@/components/ArticleCard";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
-import { formatUtcCalendarDate } from "@/lib/date-only";
+import { formatUtcCalendarDate } from "@/lib/date-format";
 
 export default function TrendingPage() {
   const { rate, setRate } = usePlaybackRate();

@@ -37,3 +37,26 @@ export const formatUtcCalendarDate = (
     return "";
   }
 };
+
+/** Formats an instant in the listener's locale and timezone. */
+export const formatLocalDateTime = (
+  value: string | null | undefined,
+  locales?: string | string[],
+): string => {
+  if (!value) return "";
+
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+
+    return date.toLocaleString(locales, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+};
