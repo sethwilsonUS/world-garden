@@ -249,6 +249,17 @@ const mockArticleAndContext = async (page: Page) => {
     }),
   );
 
+  await page.route("https://tiles.openfreemap.org/styles/liberty", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        version: 8,
+        sources: {},
+        layers: [],
+      }),
+    }),
+  );
+
   await page.route("**/api/article-context/report", async (route) => {
     reportPayload = route.request().postDataJSON();
     await route.fulfill({
@@ -429,7 +440,38 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(mapCard.getByRole("heading", { name: "Routes" })).toBeVisible();
   await expect(mapCard.getByText("Correspondence route")).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Areas" })).toBeVisible();
-  await expect(mapCard.getByRole("button", { name: "Load interactive map" })).toBeVisible();
+  const showMapButton = mapCard.getByRole("button", {
+    name: "Show interactive street map",
+  });
+  const schematic = mapCard.locator(".context-map-schematic");
+  await expect(showMapButton).toBeVisible();
+  await expect(mapCard.getByText("Coordinate overview — not a street map")).toBeVisible();
+  expect(
+    await showMapButton.evaluate(
+      (button, schematicTop) =>
+        button.getBoundingClientRect().bottom <= Number(schematicTop),
+      await schematic.evaluate((element) => element.getBoundingClientRect().top),
+    ),
+  ).toBe(true);
+
+  await showMapButton.focus();
+  await page.keyboard.press("Enter");
+  const showSchematicButton = mapCard.getByRole("button", {
+    name: "Show coordinate overview",
+  });
+  await expect(showSchematicButton).toBeFocused();
+  await expect(schematic).toHaveCount(0);
+  await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
+  await expect(mapCard.getByRole("status")).toHaveText("Interactive map ready");
+  await expect(
+    mapCard.getByRole("region", {
+      name: "Interactive street map for Places in the correspondence",
+    }),
+  ).toBeVisible();
+  await expect(
+    mapCard.locator('canvas[aria-label="Interactive street map for Places in the correspondence"]'),
+  ).toBeVisible();
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
 
   const timelineCard = page.locator("#article-context-timeline-engine");
   await openDetailsWithKeyboard(
