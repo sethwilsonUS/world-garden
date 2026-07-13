@@ -244,12 +244,14 @@ const mockArticleAndContext = async (
     mapStyleSuccessDelayMs = 0,
     mapSourceFailures = 0,
     mapSourceFailureDelayMs = 0,
+    mapSpriteFailure = false,
   }: {
     mapStyleFailures?: number;
     mapStyleFailureDelayMs?: number;
     mapStyleSuccessDelayMs?: number;
     mapSourceFailures?: number;
     mapSourceFailureDelayMs?: number;
+    mapSpriteFailure?: boolean;
   } = {},
 ) => {
   let reportPayload: unknown = null;
@@ -275,6 +277,15 @@ const mockArticleAndContext = async (
       body: tinyPng,
     });
   });
+
+  await page.route("https://map-tiles.test/context/sprite**", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      headers: { "access-control-allow-origin": "*" },
+      body: JSON.stringify({ error: "Map sprite unavailable in this fixture." }),
+    }),
+  );
 
   await page.route("https://map-tiles.test/context/*/source.json", async (route) => {
     mapSourceRequests += 1;
@@ -328,6 +339,9 @@ const mockArticleAndContext = async (
       headers: { "access-control-allow-origin": "*" },
       body: JSON.stringify({
         version: 8,
+        sprite: mapSpriteFailure
+          ? "https://map-tiles.test/context/sprite"
+          : undefined,
         sources: {
           fixture: {
             type: "raster",
@@ -750,6 +764,27 @@ test("article map falls back when its source metadata cannot load", async ({
   ).toHaveText("Interactive map ready");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
+});
+
+test("article map remains usable when decorative sprite resources fail", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await mockArticleAndContext(page, { mapSpriteFailure: true });
+  await page.goto("/article/Ada_Lovelace");
+
+  const mapCard = page.locator("#article-context-map-journey");
+  await openDetailsWithKeyboard(page, mapCard.locator("details.context-explorer"));
+
+  await expect(
+    mapCard.locator(".context-interactive-map").getByRole("status"),
+  ).toHaveText(
+    "Some map details could not load. The exact place and route lists remain available.",
+  );
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
+  await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
+  await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
+  await expect(mapCard.locator(".context-map-failure-status")).toHaveText("");
 });
 
 test("article context reflows at a narrow viewport and honors reduced motion", async ({

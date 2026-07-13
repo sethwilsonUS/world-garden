@@ -43,6 +43,8 @@ const MAP_OVERLAY_COLORS = {
   },
 } as const;
 const MAP_LOAD_TIMEOUT_MS = 15_000;
+const PARTIAL_MAP_STATUS =
+  "Some map details could not load. The exact place and route lists remain available.";
 
 type MapInstance = import("maplibre-gl").Map;
 type MapOverlayColors = (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
@@ -200,6 +202,7 @@ const InteractiveMap = ({
     let cancelled = false;
     let started = false;
     let ready = false;
+    let partialFailure = false;
     let failureReported = false;
     let loadTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -334,20 +337,29 @@ const InteractiveMap = ({
             ready = true;
             if (loadTimeout) clearTimeout(loadTimeout);
             setMap(instance);
-            setStatus("Interactive map ready");
+            setStatus(partialFailure ? PARTIAL_MAP_STATUS : "Interactive map ready");
           });
 
           instance.on("error", (event) => {
             if (cancelled || failureReported) return;
-            const mapError = event as typeof event & { tile?: unknown };
-            if (!ready && !mapError.tile) {
+            const mapError = event as typeof event & {
+              sourceId?: string;
+              tile?: unknown;
+            };
+            const resourceError = event.error as Error & { url?: string };
+            const fatalBeforeLoad =
+              !ready &&
+              (resourceError.url === styleUrl ||
+                Boolean(mapError.sourceId && !mapError.tile));
+            if (fatalBeforeLoad) {
               reportUnavailable();
               return;
             }
+            partialFailure = true;
             setStatus(
               ready
-                ? "Some map details could not load. The exact place and route lists remain available."
-                : "The interactive map is still loading. The exact place and route lists remain available.",
+                ? PARTIAL_MAP_STATUS
+                : "The interactive map is still loading. Some visual details may be unavailable; the exact place and route lists remain available.",
             );
           });
         })
