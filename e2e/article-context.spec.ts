@@ -1219,23 +1219,23 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(share).not.toBeChecked();
   await expect(card.locator(".context-standard-chart-panel")).toHaveCount(1);
   await expect(card.getByRole("heading", { name: "Counts (people)" })).toBeVisible();
-  const initialChart = card.locator(".context-echarts").first();
-  await initialChart.scrollIntoViewIfNeeded();
-  await expect(initialChart.locator("svg")).toBeVisible();
-  expect((await initialChart.boundingBox())?.height ?? 0).toBeGreaterThan(440);
+  const mobileBars = card.locator(".context-mobile-category-bars").first();
+  await mobileBars.scrollIntoViewIfNeeded();
+  await expect(mobileBars).toBeVisible();
+  await expect(card.locator(".context-echarts").first()).toBeHidden();
+  await expect(mobileBars.getByRole("listitem")).toHaveCount(12);
+  const firstCategory = mobileBars.getByRole("listitem").first();
+  await expect(firstCategory).toContainText(
+    "A deliberately long regional name for narrow-screen reflow",
+  );
+  await expect(firstCategory).toContainText("Population1,500,000 people");
+  await expect(firstCategory).toContainText(
+    "Working-age population960,000 people",
+  );
+  await expect(mobileBars.locator(".context-mobile-bar-track")).toHaveCount(24);
   expect(
-    await initialChart.locator("svg").evaluate((svg) =>
-      Array.from(svg.querySelectorAll("path, rect")).every(
-        (mark) => getComputedStyle(mark).cursor !== "pointer",
-      ),
-    ),
-  ).toBe(true);
-  await expect(
-    card.locator(".context-echarts text").filter({ hasText: /^Population$/ }),
-  ).toBeVisible();
-  await expect(
-    card.locator(".context-echarts text").filter({ hasText: /^Working-age population$/ }),
-  ).toBeVisible();
+    (await mobileBars.locator(".context-mobile-bar-track").first().boundingBox())?.width ?? 0,
+  ).toBeGreaterThan(240);
   await expect(
     card.getByText(
       "Showing the top 12 of 15 categories by Population; 3 more remain in Exact chart data. 1 aggregate row kept in Exact chart data.",
@@ -1249,6 +1249,7 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(population).toBeEnabled();
   await expect(card.locator(".context-standard-chart-panel")).toHaveCount(2);
   await expect(card.getByRole("heading", { name: "Percent (%)" })).toBeVisible();
+  await expect(card.locator(".context-mobile-category-bars")).toHaveCount(2);
   await expect(card.getByRole("status")).toHaveText(
     "Population, Working-age population, and Share of world shown across 2 separate scales.",
   );
@@ -1262,6 +1263,7 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(share).toBeDisabled();
   await expect(card.locator(".context-standard-chart-panel")).toHaveCount(1);
   await expect(card.getByRole("heading", { name: "Counts (people)" })).toHaveCount(0);
+  await expect(card.locator(".context-mobile-category-bars")).toHaveCount(1);
   await expect(card.getByRole("status")).toHaveText(
     "Share of world shown on one compatible scale.",
   );
@@ -1271,6 +1273,27 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
       { exact: true },
     ),
   ).toBeVisible();
+
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 900, height: 760 });
+  await expect(card.locator(".context-mobile-category-bars")).toBeHidden();
+  const desktopChart = card.locator(".context-echarts").first();
+  await expect(desktopChart.locator("svg")).toBeVisible();
+  expect(
+    await desktopChart.locator("svg").evaluate((svg) =>
+      Array.from(svg.querySelectorAll("path, rect")).every(
+        (mark) => getComputedStyle(mark).cursor !== "pointer",
+      ),
+    ),
+  ).toBe(true);
+
+  await page.setViewportSize({ width: 320, height: 760 });
+  await expect(card.locator(".context-mobile-category-bars")).toBeVisible();
 
   const exactData = card.locator("details.context-data-disclosure");
   await expect(exactData).toHaveJSProperty("open", false);
