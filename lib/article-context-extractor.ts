@@ -70,6 +70,12 @@ type BlockCandidate = {
   priority: number;
 };
 
+type CandidatePositionSpace = "html" | "wikitext";
+
+type ArticleOrderedBlockCandidate = BlockCandidate & {
+  positionSpace: CandidatePositionSpace;
+};
+
 const isRecord = (value: unknown): value is JsonRecord =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -3335,10 +3341,73 @@ export const validateContextManifest = (manifest: ContextManifest): string[] => 
   return errors;
 };
 
-const selectCandidates = (
+const withPositionSpace = (
   candidates: BlockCandidate[],
-  sections: MediaWikiSectionSource[],
+  positionSpace: CandidatePositionSpace,
+): ArticleOrderedBlockCandidate[] =>
+  candidates.map((candidate) => ({ ...candidate, positionSpace }));
+
+const maskNonSectionContent = (value: string): string =>
+  value
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, (match) => " ".repeat(match.length))
+    .replace(
+      /<(nowiki|pre|syntaxhighlight)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi,
+      (match) => " ".repeat(match.length),
+    );
+
+const sourceSectionStarts = (
+  value: string,
+  positionSpace: CandidatePositionSpace,
+): number[] => {
+  const searchable = maskNonSectionContent(value);
+  const headingPattern =
+    positionSpace === "html"
+      ? /<h[2-6]\b[^>]*>/gi
+      : /^[ \t]*={2,6}[ \t]*.*?[ \t]*={2,6}[ \t]*$/gm;
+  return [
+    0,
+    ...[...searchable.matchAll(headingPattern)]
+      .map((match) => match.index ?? 0)
+      .filter((start) => start > 0),
+  ];
+};
+
+const normalizedSectionPosition = (
+  candidate: ArticleOrderedBlockCandidate,
+  sourceText: string,
+  sectionStarts: number[],
+): number => {
+  const position = Math.max(0, Math.min(candidate.position, sourceText.length));
+  let sectionStart = 0;
+  let sectionEnd = sourceText.length;
+  for (const start of sectionStarts) {
+    if (start > position) {
+      sectionEnd = start;
+      break;
+    }
+    sectionStart = start;
+  }
+  return (position - sectionStart) / Math.max(1, sectionEnd - sectionStart);
+};
+
+const selectCandidates = (
+  candidates: ArticleOrderedBlockCandidate[],
+  source: Pick<MediaWikiParsedSource, "html" | "wikitext" | "sections">,
 ): ContextBlock[] => {
+  const sectionStarts = {
+    html: sourceSectionStarts(source.html, "html"),
+    wikitext: sourceSectionStarts(source.wikitext, "wikitext"),
+  };
+  const sourceText = {
+    html: source.html,
+    wikitext: source.wikitext,
+  };
+  const articlePosition = (candidate: ArticleOrderedBlockCandidate): number =>
+    normalizedSectionPosition(
+      candidate,
+      sourceText[candidate.positionSpace],
+      sectionStarts[candidate.positionSpace],
+    );
   const isRankedChartCandidate = (candidate: BlockCandidate): boolean =>
     candidate.block.kind === "chart" &&
     candidate.block.chart.columns.some((column) =>
@@ -3365,33 +3434,49 @@ const selectCandidates = (
     : candidates;
   const perSectionKind = new Map<
     string,
-    { candidate: BlockCandidate; candidateIndex: number }
+    {
+      candidate: ArticleOrderedBlockCandidate;
+      candidateIndex: number;
+      articlePosition: number;
+    }
   >();
   eligibleCandidates.forEach((candidate, candidateIndex) => {
     const key = `${candidate.block.section.index}\u0000${candidate.block.kind}`;
     const existing = perSectionKind.get(key);
+    const candidateArticlePosition = articlePosition(candidate);
     if (
       !existing ||
       candidate.priority > existing.candidate.priority ||
       (candidate.priority === existing.candidate.priority &&
-        (candidate.position < existing.candidate.position ||
-          (candidate.position === existing.candidate.position &&
+        (candidateArticlePosition < existing.articlePosition ||
+          (candidateArticlePosition === existing.articlePosition &&
             candidate.block.id.localeCompare(existing.candidate.block.id) < 0)))
     ) {
-      perSectionKind.set(key, { candidate, candidateIndex });
+      perSectionKind.set(key, {
+        candidate,
+        candidateIndex,
+        articlePosition: candidateArticlePosition,
+      });
     }
   });
   const articleOrder = new Map<string, number>([["__summary__", 0]]);
-  sections.forEach((section, index) => articleOrder.set(section.index, index + 1));
+  source.sections.forEach((section, index) =>
+    articleOrder.set(section.index, index + 1),
+  );
   return [...perSectionKind.values()]
     .sort(
       (a, b) => {
-        const candidateOrder =
+        const sectionOrder =
           (articleOrder.get(a.candidate.block.section.index) ??
             Number.MAX_SAFE_INTEGER) -
-            (articleOrder.get(b.candidate.block.section.index) ??
-              Number.MAX_SAFE_INTEGER) ||
-          a.candidate.position - b.candidate.position;
+          (articleOrder.get(b.candidate.block.section.index) ??
+            Number.MAX_SAFE_INTEGER);
+        const candidateOrder =
+          sectionOrder ||
+          // HTML and wikitext offsets are different byte spaces. Comparing
+          // their section-relative progress keeps cross-source blocks in one
+          // normalized article-order space without weakening section order.
+          a.articlePosition - b.articlePosition;
         if (candidateOrder !== 0) return candidateOrder;
         return (
           b.candidate.priority - a.candidate.priority ||
@@ -3436,17 +3521,29 @@ export const extractArticleContextFromSource = (
   const shared = { source, request, sourceHash, generatedAt };
   const osmLocationMaps = extractOsmLocationMapCandidates(shared);
   const candidates = [
-    ...extractChartExtensionCandidates({ ...shared, boundaries }),
-    ...extractWikitextMapCandidates(shared),
-    ...osmLocationMaps.candidates,
-    ...extractHtmlMapCandidates({
-      ...shared,
-      boundaries,
-      suppressedSectionIndexes: osmLocationMaps.sectionIndexes,
-    }),
-    ...extractEasyTimelineCandidates(shared),
-    ...extractTableCandidates({ ...shared, boundaries }),
-    ...extractDiagramCandidates({ ...shared, boundaries }),
+    ...withPositionSpace(
+      extractChartExtensionCandidates({ ...shared, boundaries }),
+      "html",
+    ),
+    ...withPositionSpace(extractWikitextMapCandidates(shared), "wikitext"),
+    ...withPositionSpace(osmLocationMaps.candidates, "wikitext"),
+    ...withPositionSpace(
+      extractHtmlMapCandidates({
+        ...shared,
+        boundaries,
+        suppressedSectionIndexes: osmLocationMaps.sectionIndexes,
+      }),
+      "html",
+    ),
+    ...withPositionSpace(extractEasyTimelineCandidates(shared), "wikitext"),
+    ...withPositionSpace(
+      extractTableCandidates({ ...shared, boundaries }),
+      "html",
+    ),
+    ...withPositionSpace(
+      extractDiagramCandidates({ ...shared, boundaries }),
+      "html",
+    ),
   ];
   const manifest: ContextManifest = {
     schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
@@ -3457,7 +3554,7 @@ export const extractArticleContextFromSource = (
     sourceHash,
     extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
     generatedAt,
-    blocks: selectCandidates(candidates, source.sections),
+    blocks: selectCandidates(candidates, source),
   };
   const errors = validateContextManifest(manifest);
   if (errors.length > 0) {

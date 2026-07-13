@@ -5,6 +5,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
   useRef,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -78,6 +79,7 @@ import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
 import {
   ArticleContextLane,
   useArticleContext,
+  type ArticleContextLoadState,
 } from "@/components/ArticleContext";
 import type { ContextBlock } from "@/lib/article-context-types";
 import {
@@ -95,6 +97,10 @@ type QueueItem = {
   sectionKey: string;
   label: string;
   sectionIdx: number | null;
+};
+
+type AudioRetryTarget = QueueItem & {
+  ariaLabel: string;
 };
 
 type GenerateAudio = (
@@ -138,6 +144,33 @@ export const buildPlayAllQueue = (
     }
   });
   return queue;
+};
+
+export const getAudioRetryTarget = (
+  playback: AudioPlaybackState,
+  articleTitle: string,
+): AudioRetryTarget => {
+  if (
+    playback.status === "error" &&
+    playback.sectionKey &&
+    playback.sectionKey !== "summary" &&
+    playback.sectionIdx !== null
+  ) {
+    const label = playback.label ?? `${articleTitle} \u2014 Section`;
+    return {
+      sectionKey: playback.sectionKey,
+      sectionIdx: playback.sectionIdx,
+      label,
+      ariaLabel: `Try generating audio for ${label} again`,
+    };
+  }
+
+  return {
+    sectionKey: "summary",
+    sectionIdx: null,
+    label: `${articleTitle} \u2014 Summary`,
+    ariaLabel: "Try generating summary audio again",
+  };
 };
 
 type CachedTtsMetadata = Record<string, string> | undefined;
@@ -318,21 +351,47 @@ const ArticleViewContent = ({
         }
       : null,
   );
-  const contextBlocks =
-    articleContext.status === "ready"
-      ? getVisibleArticleContextBlocks(
-          articleContext.manifest.blocks,
-          displayArticle?.thumbnailUrl,
-        )
-      : EMPTY_CONTEXT_BLOCKS;
-  const visibleArticleContext =
-    articleContext.status === "ready" &&
-    contextBlocks !== articleContext.manifest.blocks
-      ? {
-          ...articleContext,
-          manifest: { ...articleContext.manifest, blocks: contextBlocks },
-        }
-      : articleContext;
+  const articleContextStatus = articleContext.status;
+  const articleContextError = articleContext.error;
+  const articleContextManifest =
+    articleContextStatus === "ready" ? articleContext.manifest : null;
+  const articleContextBlocks = articleContextManifest?.blocks ?? null;
+  const contextBlocks = useMemo(
+    () =>
+      articleContextBlocks
+        ? getVisibleArticleContextBlocks(
+            articleContextBlocks,
+            displayArticle?.thumbnailUrl,
+          )
+        : EMPTY_CONTEXT_BLOCKS,
+    [articleContextBlocks, displayArticle?.thumbnailUrl],
+  );
+  const visibleArticleContext = useMemo<ArticleContextLoadState>(() => {
+    if (articleContextStatus === "ready") {
+      const manifest = articleContextManifest!;
+      return {
+        status: "ready",
+        error: null,
+        manifest:
+          contextBlocks === manifest.blocks
+            ? manifest
+            : { ...manifest, blocks: contextBlocks },
+      };
+    }
+    if (articleContextStatus === "error") {
+      return {
+        status: "error",
+        manifest: null,
+        error: articleContextError!,
+      };
+    }
+    return { status: articleContextStatus, manifest: null, error: null };
+  }, [
+    articleContextError,
+    articleContextManifest,
+    articleContextStatus,
+    contextBlocks,
+  ]);
 
   const activeSectionIndex = audioPlayback.sectionIdx;
   const isPaused = audioPlayback.status === "paused";
@@ -1475,6 +1534,10 @@ const ArticleViewContent = ({
   if (!displayArticle) return null;
 
   const sections = displayArticle.sections ?? [];
+  const audioRetryTarget = getAudioRetryTarget(
+    audioPlayback,
+    displayArticle.title,
+  );
 
   const handleResume = () => {
     const sp = savedProgressState;
@@ -1762,16 +1825,18 @@ const ArticleViewContent = ({
               <p className="text-sm">{audioError}</p>
               <button
                 onClick={() => {
-                  warmSummaryForIntent();
+                  if (audioRetryTarget.sectionKey === "summary") {
+                    warmSummaryForIntent();
+                  }
                   generateAudio(
-                    "summary",
-                    `${displayArticle.title} \u2014 Summary`,
-                    null,
+                    audioRetryTarget.sectionKey,
+                    audioRetryTarget.label,
+                    audioRetryTarget.sectionIdx,
                     "retry",
                   );
                 }}
                 className="btn-secondary mt-3 px-4 py-2 text-sm"
-                aria-label="Try generating audio again"
+                aria-label={audioRetryTarget.ariaLabel}
               >
                 Try again
               </button>

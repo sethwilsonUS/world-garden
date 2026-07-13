@@ -249,6 +249,100 @@ describe("article context deterministic extraction", () => {
     expect(manifest.blocks.map((block) => block.order)).toEqual([0, 1]);
   });
 
+  it("ignores heading-shaped text in comments and non-rendered HTML", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      sections: [
+        {
+          index: "1",
+          line: "System overview",
+          anchor: "System_overview",
+          level: "2",
+        },
+      ],
+      html: `<h2 id="System_overview">System overview</h2>
+        <p>${"Rendered overview prose. ".repeat(120)}</p>
+        <figure typeof="mw:File/Thumb">
+          <a href="/wiki/File:System_flow.png" class="mw-file-description">
+            <img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/System_flow.png/640px-System_flow.png" width="640" height="480">
+          </a>
+          <figcaption>A process diagram showing source material entering the first stage, flowing through the transformation stage, and leaving through the final output.</figcaption>
+        </figure>
+        <!-- <h3 id="Comment_example">Comment example</h3> -->
+        <nowiki><h3 id="Nowiki_example">Nowiki example</h3></nowiki>
+        <pre><h3 id="Pre_example">Pre example</h3></pre>
+        <syntaxhighlight><h3 id="Code_example">Code example</h3></syntaxhighlight>
+        <wiki-chart data-mw-chart="${chartPayload}"></wiki-chart>
+        <p>${"More rendered overview prose. ".repeat(120)}</p>`,
+      wikitext: "",
+    };
+
+    const manifest = extractArticleContextFromSource(source, request);
+
+    expect(validateContextManifest(manifest)).toEqual([]);
+    expect(manifest.blocks.map((block) => block.kind)).toEqual([
+      "diagram",
+      "chart",
+    ]);
+    expect(manifest.blocks.map((block) => block.section.index)).toEqual([
+      "1",
+      "1",
+    ]);
+  });
+
+  it("normalizes wikitext and HTML positions without weakening section order", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      sections: [
+        {
+          index: "1",
+          line: "System overview",
+          anchor: "System_overview",
+          level: "2",
+        },
+        { index: "2", line: "Later data", anchor: "Later_data", level: "2" },
+      ],
+      html: `<h2 id="System_overview">System overview</h2>
+        <p>${"Rendered overview prose. ".repeat(200)}</p>
+        <figure typeof="mw:File/Thumb">
+          <a href="/wiki/File:System_flow.png" class="mw-file-description">
+            <img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/System_flow.png/640px-System_flow.png" width="640" height="480">
+          </a>
+          <figcaption>A process diagram showing source material entering the first stage, flowing through the transformation stage, and leaving through the final output.</figcaption>
+        </figure>
+        <h2 id="Later_data">Later data</h2>
+        <wiki-chart data-mw-chart="${chartPayload}"></wiki-chart>`,
+      wikitext: `${"A much longer wikitext lead. ".repeat(800)}
+        == System overview ==
+        <timeline>
+        DateFormat = yyyy
+        BarData =
+          barset:Milestones
+        PlotData =
+          barset:Milestones
+          from:2001 till:2002 text:"Foundation"
+          from:2003 till:2004 text:"Expansion"
+          from:2005 till:2006 text:"Completion"
+        </timeline>
+        == Later data ==
+        Chart.`,
+    };
+
+    const manifest = extractArticleContextFromSource(source, request);
+
+    expect(validateContextManifest(manifest)).toEqual([]);
+    expect(manifest.blocks.map((block) => block.kind)).toEqual([
+      "timeline",
+      "diagram",
+      "chart",
+    ]);
+    expect(manifest.blocks.map((block) => block.section.index)).toEqual([
+      "1",
+      "1",
+      "2",
+    ]);
+  });
+
   it("includes source-supplied diagram parts in the nonvisual description", () => {
     const source = richSource();
     source.html = source.html.replace(

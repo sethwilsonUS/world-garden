@@ -127,4 +127,27 @@ describe("article media identity and Gallery policy", () => {
       isArticleGalleryImageCandidate({ src: waterDiagram, width: 301, height: 100 }),
     ).toBe(false);
   });
+
+  it("excludes SVG source segments and MediaWiki math images", () => {
+    expect(
+      isArticleGalleryImageCandidate({
+        src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Process.svg",
+      }),
+    ).toBe(false);
+    expect(
+      isArticleGalleryImageCandidate({
+        src: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Process.svg/500px-Process.svg.png",
+      }),
+    ).toBe(false);
+    expect(
+      isArticleGalleryImageCandidate({
+        src: "https://wikimedia.org/api/rest_v1/media/math/render/png/example",
+      }),
+    ).toBe(false);
+    expect(
+      isArticleGalleryImageCandidate({
+        src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Process.svg.png",
+      }),
+    ).toBe(true);
+  });
 });

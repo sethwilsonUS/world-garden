@@ -26,7 +26,10 @@ export const isArticleGalleryImageCandidate = ({
     // existing dimension policy here rather than guessing at its path.
   }
 
-  if (/\.svg$/i.test(pathname) || /\/math\//i.test(pathname)) return false;
+  const hasSvgPathSegment = pathname
+    .split("/")
+    .some((segment) => /\.svg$/i.test(segment));
+  if (hasSvgPathSegment || /\/math\//i.test(pathname)) return false;
   if (
     (typeof width === "number" && width > 0 && width < ARTICLE_GALLERY_MIN_IMAGE_DIMENSION) ||
     (typeof height === "number" && height > 0 && height < ARTICLE_GALLERY_MIN_IMAGE_DIMENSION)
