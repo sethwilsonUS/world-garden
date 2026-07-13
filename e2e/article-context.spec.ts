@@ -1284,6 +1284,23 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(card.locator(".context-mobile-category-bars")).toBeHidden();
   const desktopChart = card.locator(".context-echarts").first();
   await expect(desktopChart.locator("svg")).toBeVisible();
+  const desktopSurface = card.locator(".context-echarts-surface").first();
+  await expect(desktopSurface).toHaveAttribute("aria-busy", "false");
+  await desktopSurface.evaluate((surface) => {
+    const testWindow = window as typeof window & {
+      __contextChartBusyObserver?: MutationObserver;
+      __contextChartBusyStates?: string[];
+    };
+    testWindow.__contextChartBusyStates = [];
+    testWindow.__contextChartBusyObserver = new MutationObserver(() => {
+      testWindow.__contextChartBusyStates?.push(
+        surface.getAttribute("aria-busy") ?? "missing",
+      );
+    });
+    testWindow.__contextChartBusyObserver.observe(surface, {
+      attributeFilter: ["aria-busy"],
+    });
+  });
   expect(
     await desktopChart.locator("svg").evaluate((svg) =>
       Array.from(svg.querySelectorAll("path, rect")).every(
@@ -1291,6 +1308,21 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
       ),
     ),
   ).toBe(true);
+
+  await page.setViewportSize({ width: 320, height: 760 });
+  await expect(card.locator(".context-mobile-category-bars")).toBeVisible();
+
+  await page.setViewportSize({ width: 900, height: 760 });
+  await expect(desktopChart.locator("svg")).toBeVisible();
+  await expect(desktopSurface).toHaveAttribute("aria-busy", "false");
+  expect(
+    await page.evaluate(() => {
+      const testWindow = window as typeof window & {
+        __contextChartBusyStates?: string[];
+      };
+      return testWindow.__contextChartBusyStates;
+    }),
+  ).toEqual(["true", "false"]);
 
   await page.setViewportSize({ width: 320, height: 760 });
   await expect(card.locator(".context-mobile-category-bars")).toBeVisible();

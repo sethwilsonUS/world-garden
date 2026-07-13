@@ -72,20 +72,28 @@ const isReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const useMediaQuery = (queryText: string): boolean => {
-  const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia(queryText).matches,
-  );
+const useMediaQuery = (queryText: string): {
+  matches: boolean;
+  revision: number;
+} => {
+  const [state, setState] = useState(() => ({
+    matches: typeof window !== "undefined" && window.matchMedia(queryText).matches,
+    revision: 0,
+  }));
 
   useEffect(() => {
     const query = window.matchMedia(queryText);
-    const update = () => setMatches(query.matches);
+    const update = () => setState((current) =>
+      current.matches === query.matches
+        ? current
+        : { matches: query.matches, revision: current.revision + 1 },
+    );
     update();
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, [queryText]);
 
-  return matches;
+  return state;
 };
 
 const useNearViewport = (ref: RefObject<HTMLElement | null>): boolean => {
@@ -1107,7 +1115,10 @@ const EChartsGraphic = ({
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const nearViewport = useNearViewport(containerRef);
-  const narrowViewport = useMediaQuery(MOBILE_CHART_MEDIA_QUERY);
+  const {
+    matches: narrowViewport,
+    revision: viewportRevision,
+  } = useMediaQuery(MOBILE_CHART_MEDIA_QUERY);
   const [failed, setFailed] = useState(false);
   const [readyAttempt, setReadyAttempt] = useState<string | null>(null);
   const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key ?? "";
@@ -1122,7 +1133,7 @@ const EChartsGraphic = ({
   const chartHeight = horizontalBars
     ? Math.min(560, Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)))
     : 300;
-  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${selectedSeries.map((series) => series.id).join(",")}:${rows.length}:${String(rows[0]?.[xColumn])}:${String(rows.at(-1)?.[xColumn])}:${horizontalBars}:${renderKind}:${zeroBaseline}`;
+  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${selectedSeries.map((series) => series.id).join(",")}:${rows.length}:${String(rows[0]?.[xColumn])}:${String(rows.at(-1)?.[xColumn])}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
   const ready = readyAttempt === chartAttempt;
 
   useEffect(() => {
