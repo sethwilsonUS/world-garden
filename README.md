@@ -220,7 +220,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `ARTICLE_CONTEXT_AI_ENABLED` | No | Explicitly set `true` to enable OpenAI copy editing; otherwise context descriptions stay deterministic |
 | `ARTICLE_CONTEXT_AI_DAILY_LIMIT` | No | Cross-instance OpenAI context-copy allowance per window (default `250`) |
 | `ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS` | No | Context-copy allowance window in milliseconds (default 24 hours) |
-| `NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL` | No | MapLibre style URL for maps loaded on explicit request; defaults to OpenFreeMap Liberty |
+| `NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL` | No | MapLibre style URL override for article maps; without an override, light mode uses OpenFreeMap Liberty and dark mode uses OpenFreeMap Fiord |
 | `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.

@@ -5,6 +5,7 @@ import type {
   ContextBlock,
   ContextChartBlock,
   ContextManifest,
+  ContextMapBlock,
 } from "@/lib/article-context-types";
 import {
   ArticleContextIndex,
@@ -16,6 +17,8 @@ import {
   isContextAudioKey,
 } from "./ArticleContext";
 import { Lightbox } from "./ArticleGallery";
+import { MapSchematic } from "./ArticleContextVisuals";
+import { ThemeProvider } from "./ThemeProvider";
 
 const base = {
   takeaway: "This makes the article easier to understand.",
@@ -164,21 +167,22 @@ describe("ArticleContext", () => {
     expect(markup).toContain("Article summary");
   });
 
-  it("renders semantic equivalents before optional visual enhancements", () => {
+  it("renders semantic equivalents alongside the default interactive map", () => {
     const markup = renderToStaticMarkup(
-      createElement(ArticleContextLane, {
-        state: { status: "ready", manifest, error: null },
-        retry: () => {},
-        onListen: () => {},
-      }),
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(ArticleContextLane, {
+          state: { status: "ready", manifest, error: null },
+          retry: () => {},
+          onListen: () => {},
+        }),
+      ),
     );
 
-    expect(markup).toContain("Show interactive street map");
-    expect(markup).toContain("Coordinate overview — not a street map");
-    expect(markup.indexOf("Show interactive street map")).toBeLessThan(
-      markup.indexOf("Coordinate overview — not a street map"),
-    );
-    expect(markup).toContain('transform="translate(320 150)"');
+    expect(markup).toContain("Show coordinate overview");
+    expect(markup).toContain("Loading interactive map");
+    expect(markup).not.toContain("Coordinate overview — not a street map");
     expect(markup).toContain("Latitude 41.9000, longitude 12.5000");
     expect(markup).toContain('<time dateTime="1969-07-20">20 July 1969</time>');
     expect(markup).toContain("Exact data for Population over time");
@@ -188,6 +192,15 @@ describe("ArticleContext", () => {
     expect(markup).toContain("flows into");
     expect(markup).toContain("Report a problem");
     expect(markup).not.toContain('role="application"');
+  });
+
+  it("centers a single place in the coordinate overview fallback", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MapSchematic, { block: blocks[0] as ContextMapBlock }),
+    );
+
+    expect(markup).toContain("Coordinate overview — not a street map");
+    expect(markup).toContain('transform="translate(320 150)"');
   });
 
   it("matches context to summary and article sections without relying only on titles", () => {
