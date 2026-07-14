@@ -282,5 +282,11 @@ describe("bookmark providers", () => {
     expect(
       JSON.parse(localStorage.getItem(getClaimedImportStorageKey("user-1"))!),
     ).toEqual(["Guest_article"]);
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    expect(mocks.importGuest).toHaveBeenCalledTimes(2);
   });
 });
