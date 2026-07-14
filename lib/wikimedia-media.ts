@@ -204,11 +204,37 @@ const retryDelayMs = (response: Response): number | undefined => {
   return delay <= MAX_RETRY_DELAY_MS ? delay : undefined;
 };
 
+const waitForRetryDelay = (
+  delay: number,
+  signal?: AbortSignal,
+): Promise<void> => {
+  if (!signal) {
+    return new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  if (signal.aborted) return Promise.reject(signal.reason);
+
+  return new Promise((resolve, reject) => {
+    const handleAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", handleAbort);
+      resolve();
+    }, delay);
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+};
+
 const fetchWithTimeout = async (
   url: string,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<Response> => {
   const controller = new AbortController();
+  const requestSignal = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal;
   const timeout = setTimeout(
     () => controller.abort(),
     WIKIMEDIA_MEDIA_TIMEOUT_MS,
@@ -216,7 +242,7 @@ const fetchWithTimeout = async (
   try {
     return await fetchImpl(url, {
       headers: { "User-Agent": USER_AGENT },
-      signal: controller.signal,
+      signal: requestSignal,
     });
   } finally {
     clearTimeout(timeout);
@@ -227,7 +253,7 @@ const fetchImageInfoBatch = async (
   actionApi: string,
   sourceTitles: string[],
   fetchImpl: typeof fetch,
-  options: { includeRendition: boolean },
+  options: { includeRendition: boolean; signal?: AbortSignal },
 ): Promise<ImageInfoPage[]> => {
   const params = new URLSearchParams({
     action: "query",
@@ -245,12 +271,12 @@ const fetchImageInfoBatch = async (
 
   const url = `${actionApi}?${params}`;
   try {
-    let response = await fetchWithTimeout(url, fetchImpl);
+    let response = await fetchWithTimeout(url, fetchImpl, options.signal);
     if (response.status === 429 || response.status === 503) {
       const delay = retryDelayMs(response);
       if (delay !== undefined) {
-        await new Promise<void>((resolve) => setTimeout(resolve, delay));
-        response = await fetchWithTimeout(url, fetchImpl);
+        await waitForRetryDelay(delay, options.signal);
+        response = await fetchWithTimeout(url, fetchImpl, options.signal);
       }
     }
     if (!response.ok) return [];
@@ -264,7 +290,8 @@ const fetchImageInfoBatch = async (
       (page): page is ImageInfoPage =>
         Boolean(page) && typeof page === "object",
     );
-  } catch {
+  } catch (error: unknown) {
+    if (options.signal?.aborted) throw error;
     return [];
   }
 };
@@ -342,6 +369,7 @@ export const fetchWikimediaMediaAttributions = async (
 export const fetchWikimediaMediaDetails = async (
   requests: WikimediaMediaRequest[],
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<Map<string, WikimediaMediaDetails>> => {
   type RequestedMedia = {
     sourceTitle: string;
@@ -391,7 +419,7 @@ export const fetchWikimediaMediaDetails = async (
         actionApiForRepository(repository),
         batch.map((item) => item.sourceTitle),
         fetchImpl,
-        { includeRendition: true },
+        { includeRendition: true, signal },
       );
 
       for (const page of pages) {

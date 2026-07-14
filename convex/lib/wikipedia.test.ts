@@ -850,9 +850,10 @@ describe("fetchParsedPageData gallery media", () => {
     const parsed = await fetchParsedPageData("42", controller.signal);
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    for (const [, init] of fetchSpy.mock.calls) {
-      expect(init).toMatchObject({ signal: controller.signal });
-    }
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({
+      signal: controller.signal,
+    });
+    expect(fetchSpy.mock.calls[1][1]?.signal).toBeInstanceOf(AbortSignal);
     expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0]).toMatchObject({
       src: thumbnailUrl,
@@ -862,6 +863,52 @@ describe("fetchParsedPageData gallery media", () => {
       lightboxHeight: 1067,
       attribution: { licenseName: "CC BY 4.0" },
     });
+  });
+
+  it("aborts the follow-up gallery media request", async () => {
+    const thumbnailUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Gallery.jpg/330px-Gallery.jpg";
+    let mediaSignal: AbortSignal | null = null;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (url.searchParams.get("action") === "parse") {
+          return new Response(
+            JSON.stringify({
+              parse: {
+                text: {
+                  "*":
+                    `<figure typeof="mw:File/Thumb">` +
+                    `<img src="${thumbnailUrl}" alt="Gallery image" />` +
+                    `<figcaption>A useful caption</figcaption>` +
+                    `</figure>`,
+                },
+                sections: [],
+              },
+            }),
+          );
+        }
+
+        mediaSignal = init?.signal as AbortSignal;
+        return new Promise<Response>((_resolve, reject) => {
+          mediaSignal?.addEventListener(
+            "abort",
+            () => reject(mediaSignal?.reason),
+            { once: true },
+          );
+        });
+      });
+    const controller = new AbortController();
+    const pending = fetchParsedPageData("42", controller.signal);
+
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(mediaSignal).not.toBeNull();
+    expect(mediaSignal!.aborted).toBe(false);
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(mediaSignal!.aborted).toBe(true);
   });
 });
 

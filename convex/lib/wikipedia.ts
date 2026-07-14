@@ -728,7 +728,11 @@ export const fetchParsedPageData = async (
     const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
     return sourceTitle ? [{ sourceTitle, imageUrl }] : [];
   });
-  const mediaDetails = await fetchWikimediaMediaDetails(mediaRequests);
+  const mediaDetails = await fetchWikimediaMediaDetails(
+    mediaRequests,
+    fetch,
+    signal,
+  );
 
   return {
     linkCounts: extractLinkCounts(html, sections),
