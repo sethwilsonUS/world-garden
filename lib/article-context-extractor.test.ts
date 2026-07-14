@@ -23,6 +23,12 @@ import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   ARTICLE_CONTEXT_SCHEMA_VERSION,
 } from "./article-context-types";
+import {
+  fetchRevisionMatchedMediaWikiSource as fetchRevisionMatchedMediaWikiSourceFromFoundations,
+  normalizeArticleContextRequest as normalizeArticleContextRequestFromFoundations,
+  sanitizeContextCaption as sanitizeContextCaptionFromFoundations,
+  sanitizeContextText as sanitizeContextTextFromFoundations,
+} from "./article-context-foundations";
 
 const request = {
   wikiPageId: "123",
@@ -126,6 +132,18 @@ const richSource = (): MediaWikiParsedSource => ({
 });
 
 describe("article context deterministic extraction", () => {
+  it("keeps the extractor facade wired to the extracted foundations", () => {
+    expect(fetchRevisionMatchedMediaWikiSource).toBe(
+      fetchRevisionMatchedMediaWikiSourceFromFoundations,
+    );
+    expect(normalizeArticleContextRequest).toBe(
+      normalizeArticleContextRequestFromFoundations,
+    );
+    expect(sanitizeContextCaption).toBe(sanitizeContextCaptionFromFoundations);
+    expect(sanitizeContextText).toBe(sanitizeContextTextFromFoundations);
+    expect(ARTICLE_CONTEXT_EXTRACTOR_VERSION).toBe("2.0.7");
+  });
+
   it("extracts complete semantic map, chart, timeline, diagram, and EasyTimeline blocks", () => {
     const manifest = extractArticleContextFromSource(richSource(), request, {
       now: () => new Date("2026-07-13T12:00:00.000Z"),
@@ -601,6 +619,57 @@ describe("article context deterministic extraction", () => {
     };
 
     expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+  });
+
+  it("caps map features and rejects excessive or invalid coordinates", () => {
+    const features = Array.from({ length: 201 }, (_, index) => ({
+      type: "Feature",
+      properties: { name: `Place ${index + 1}` },
+      geometry: {
+        type: "Point",
+        coordinates: [-120 + (index % 100) / 100, 35 + (index % 50) / 100],
+      },
+    }));
+    const cappedSource: MediaWikiParsedSource = {
+      ...richSource(),
+      html: '<h2 id="Locations">Locations</h2>',
+      sections: [
+        { index: "1", line: "Locations", anchor: "Locations", level: "2" },
+      ],
+      wikitext: `== Locations ==
+        <mapframe>${JSON.stringify({ type: "FeatureCollection", features })}</mapframe>`,
+    };
+
+    const cappedMap = extractArticleContextFromSource(
+      cappedSource,
+      request,
+    ).blocks.find((block) => block.kind === "map");
+    expect(cappedMap?.kind === "map" && cappedMap.map.places).toHaveLength(200);
+
+    const excessiveCoordinates = Array.from({ length: 2_001 }, (_, index) => [
+      -120 + (index % 100) / 100,
+      35 + (index % 50) / 100,
+    ]);
+    const excessiveSource: MediaWikiParsedSource = {
+      ...cappedSource,
+      wikitext: `== Locations ==
+        <mapframe>${JSON.stringify({
+          type: "LineString",
+          coordinates: excessiveCoordinates,
+        })}</mapframe>`,
+    };
+    expect(
+      extractArticleContextFromSource(excessiveSource, request).blocks,
+    ).toEqual([]);
+
+    const invalidSource: MediaWikiParsedSource = {
+      ...cappedSource,
+      wikitext: `== Locations ==
+        <mapframe>{"type":"Point","coordinates":[181,91]}</mapframe>`,
+    };
+    expect(extractArticleContextFromSource(invalidSource, request).blocks).toEqual(
+      [],
+    );
   });
 
   it("rejects oversized charts rather than truncating their semantic table", () => {
