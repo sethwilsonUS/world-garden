@@ -64,6 +64,8 @@ import {
 const PLAY_ALL_WARM_WINDOW = 2;
 const PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS = 5_000;
 const SLOW_TTS_LOADING_NUDGE_MS = 8_000;
+const AUDIO_CACHE_DOWNLOAD_TIMEOUT_MS = 5_000;
+const AUDIO_CACHE_UPLOAD_TIMEOUT_MS = 10_000;
 
 type ArticleAudioArticle = Article & {
   _id?: string;
@@ -109,6 +111,20 @@ const awaitAudioResultWithTimeout = (
   return Promise.race([promise.catch(() => null), timeout]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);
   });
+};
+
+const fetchWithTimeout = async (
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
 
 const shouldBypassAudioCacheForStress = (): boolean =>
@@ -327,7 +343,11 @@ export const useArticleAudioController = ({
       if (!articleId || bypassAudioCacheForStress) return;
       try {
         const [blob, durationSeconds] = await Promise.all([
-          fetch(blobUrl).then((response) => response.blob()),
+          fetchWithTimeout(
+            blobUrl,
+            undefined,
+            AUDIO_CACHE_DOWNLOAD_TIMEOUT_MS,
+          ).then((response) => response.blob()),
           new Promise<number | undefined>((resolve) => {
             const audio = new Audio();
             let settled = false;
@@ -354,11 +374,15 @@ export const useArticleAudioController = ({
           }),
         ]);
         const uploadUrl = await getUploadUrl();
-        const result = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": blob.type || "audio/mpeg" },
-          body: blob,
-        });
+        const result = await fetchWithTimeout(
+          uploadUrl,
+          {
+            method: "POST",
+            headers: { "Content-Type": blob.type || "audio/mpeg" },
+            body: blob,
+          },
+          AUDIO_CACHE_UPLOAD_TIMEOUT_MS,
+        );
         const { storageId } = await result.json();
         await saveAudioRecord({
           articleId,

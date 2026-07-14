@@ -96,6 +96,8 @@ type Deferred<T> = {
   reject: (reason: unknown) => void;
 };
 
+type TestArticle = Article & { _id?: string };
+
 const deferred = <T,>(): Deferred<T> => {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -111,7 +113,7 @@ const audioResult = (url: string): TtsAudioUrlResult => ({
   metadata: getTtsMetadata(getActiveTtsProfile()),
 });
 
-const article: Article = {
+const article: TestArticle = {
   wikiPageId: "42",
   title: "An Unexpected Journey",
   language: "en",
@@ -150,8 +152,10 @@ const captureController = (value: ObservedController) => {
 
 const Harness = ({
   onChange,
+  articleValue = article,
 }: {
   onChange: (value: ObservedController) => void;
+  articleValue?: TestArticle;
 }) => {
   const {
     state,
@@ -159,7 +163,7 @@ const Harness = ({
     audioElement: { ref: audioRef, src: audioSrc },
   } = useArticleAudioController({
     slug: "An_Unexpected_Journey",
-    article,
+    article: articleValue,
     badgeTrackingEnabled: false,
     updateProgress: mocks.updateProgress,
     shouldFocusPlayAll: false,
@@ -177,10 +181,16 @@ const controller = (): ObservedController => {
   return latest;
 };
 
-const flushMicrotasks = async (count = 12) => {
-  for (let index = 0; index < count; index += 1) {
-    await Promise.resolve();
-  }
+const waitForExpectation = async (assertion: () => void) => {
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      assertion();
+    },
+    { interval: 1, timeout: 1_000 },
+  );
 };
 
 describe("useArticleAudioController", () => {
@@ -191,7 +201,7 @@ describe("useArticleAudioController", () => {
 
   beforeEach(async () => {
     vi.useFakeTimers();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.mutation.mockResolvedValue(undefined);
     mocks.query.mockResolvedValue({ badges: [] });
     mocks.queueExport.mockResolvedValue({ exportId: "export-1", status: "queued" });
@@ -215,8 +225,8 @@ describe("useArticleAudioController", () => {
     mounted = true;
     await act(async () => {
       root.render(<Harness onChange={captureController} />);
-      await flushMicrotasks();
     });
+    await waitForExpectation(() => expect(latest).not.toBeNull());
   });
 
   afterEach(() => {
@@ -226,6 +236,7 @@ describe("useArticleAudioController", () => {
     latest = null;
     container.remove();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -236,25 +247,30 @@ describe("useArticleAudioController", () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
 
-    await act(async () => {
+    act(() => {
       controller().actions.listenSection(0);
-      await flushMicrotasks();
     });
-    await act(async () => {
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(1),
+    );
+    act(() => {
       controller().actions.listenSection(1);
-      await flushMicrotasks();
     });
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(2),
+    );
 
     await act(async () => {
       second.resolve(audioResult("blob:newer"));
-      await flushMicrotasks();
     });
-    expect(controller().state.playback.sectionKey).toBe("section-1");
-    expect(controller().audioSrc).toBe("blob:newer");
+    await waitForExpectation(() => {
+      expect(controller().state.playback.sectionKey).toBe("section-1");
+      expect(controller().audioSrc).toBe("blob:newer");
+    });
 
     await act(async () => {
       first.resolve(audioResult("blob:stale"));
-      await flushMicrotasks();
+      await first.promise;
     });
     expect(controller().state.playback.sectionKey).toBe("section-1");
     expect(controller().audioSrc).toBe("blob:newer");
@@ -264,9 +280,8 @@ describe("useArticleAudioController", () => {
     const request = deferred<TtsAudioUrlResult>();
     mocks.generateTts.mockReturnValueOnce(request.promise);
 
-    await act(async () => {
+    act(() => {
       controller().actions.listenSummary();
-      await flushMicrotasks();
     });
     expect(controller().state.playback.slowLoading).toBe(false);
 
@@ -277,10 +292,11 @@ describe("useArticleAudioController", () => {
 
     await act(async () => {
       request.resolve(audioResult("blob:summary"));
-      await flushMicrotasks();
     });
-    expect(controller().state.playback.slowLoading).toBe(false);
-    expect(controller().state.playback.status).toBe("playing");
+    await waitForExpectation(() => {
+      expect(controller().state.playback.slowLoading).toBe(false);
+      expect(controller().state.playback.status).toBe("playing");
+    });
   });
 
   it("retains generated audio in a paused state when autoplay is rejected", async () => {
@@ -288,18 +304,23 @@ describe("useArticleAudioController", () => {
     mocks.generateTts.mockReturnValueOnce(request.promise);
     playSpy.mockImplementationOnce(() => Promise.reject(new Error("blocked")));
 
-    await act(async () => {
+    act(() => {
       controller().actions.listenSummary();
-      await flushMicrotasks();
+    });
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(1),
+    );
+    await act(async () => {
       request.resolve(audioResult("blob:blocked"));
-      await flushMicrotasks();
     });
 
-    expect(controller().audioSrc).toBe("blob:blocked");
-    expect(controller().state.playback).toMatchObject({
-      status: "paused",
-      sectionKey: "summary",
-      slowLoading: false,
+    await waitForExpectation(() => {
+      expect(controller().audioSrc).toBe("blob:blocked");
+      expect(controller().state.playback).toMatchObject({
+        status: "paused",
+        sectionKey: "summary",
+        slowLoading: false,
+      });
     });
   });
 
@@ -314,35 +335,39 @@ describe("useArticleAudioController", () => {
       ),
     );
 
-    await act(async () => {
+    act(() => {
       controller().actions.playAll();
-      await flushMicrotasks(24);
     });
-    expect(controller().state.playback).toMatchObject({
-      status: "playing",
-      mode: "play_all",
-      sectionKey: "summary",
+    await waitForExpectation(() => {
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        mode: "play_all",
+        sectionKey: "summary",
+      });
     });
 
     const audio = container.querySelector("audio")!;
-    await act(async () => {
+    act(() => {
       audio.dispatchEvent(new Event("ended"));
-      await flushMicrotasks(24);
     });
-    expect(controller().state.playback.sectionKey).toBe("section-0");
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
 
-    await act(async () => {
+    act(() => {
       audio.dispatchEvent(new Event("ended"));
-      await flushMicrotasks(24);
     });
-    expect(controller().state.playback.sectionKey).toBe("section-1");
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-1"),
+    );
 
-    await act(async () => {
+    act(() => {
       audio.dispatchEvent(new Event("ended"));
-      await flushMicrotasks();
     });
-    expect(controller().state.playback.status).toBe("idle");
-    expect(controller().state.finishedPlaying).toBe(true);
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("idle");
+      expect(controller().state.finishedPlaying).toBe(true);
+    });
     expect(mocks.updateProgress).not.toHaveBeenCalledWith(
       expect.anything(),
       "section-2",
@@ -357,9 +382,8 @@ describe("useArticleAudioController", () => {
       text.includes("hobbit leaves") ? summary.promise : firstSection.promise,
     );
 
-    await act(async () => {
+    act(() => {
       controller().actions.playAll();
-      await flushMicrotasks();
     });
     expect(controller().state.playback).toMatchObject({
       status: "loading",
@@ -367,18 +391,27 @@ describe("useArticleAudioController", () => {
       mode: "play_all",
     });
 
-    await act(async () => {
+    act(() => {
       controller().actions.skipSection();
-      await flushMicrotasks();
-      firstSection.resolve(audioResult("blob:first-section"));
-      await flushMicrotasks();
     });
-    expect(controller().state.playback.sectionKey).toBe("section-0");
-    expect(controller().audioSrc).toBe("blob:first-section");
+    await waitForExpectation(() => {
+      expect(controller().state.playback).toMatchObject({
+        status: "loading",
+        sectionKey: "section-0",
+        mode: "play_all",
+      });
+    });
+    await act(async () => {
+      firstSection.resolve(audioResult("blob:first-section"));
+    });
+    await waitForExpectation(() => {
+      expect(controller().state.playback.sectionKey).toBe("section-0");
+      expect(controller().audioSrc).toBe("blob:first-section");
+    });
 
     await act(async () => {
       summary.resolve(audioResult("blob:late-summary"));
-      await flushMicrotasks();
+      await summary.promise;
     });
     expect(controller().state.playback.sectionKey).toBe("section-0");
     expect(controller().audioSrc).toBe("blob:first-section");
@@ -398,24 +431,27 @@ describe("useArticleAudioController", () => {
       );
     });
 
-    await act(async () => {
+    act(() => {
       controller().actions.playAll();
-      await flushMicrotasks(24);
     });
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("summary"),
+    );
 
     const audio = container.querySelector("audio")!;
-    await act(async () => {
+    act(() => {
       audio.dispatchEvent(new Event("ended"));
-      await flushMicrotasks(36);
     });
 
-    expect(controller().state.error).toBeNull();
-    expect(controller().state.playback).toMatchObject({
-      status: "playing",
-      mode: "play_all",
-      sectionKey: "section-1",
+    await waitForExpectation(() => {
+      expect(controller().state.error).toBeNull();
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        mode: "play_all",
+        sectionKey: "section-1",
+      });
+      expect(controller().audioSrc).toBe("blob:section-1");
     });
-    expect(controller().audioSrc).toBe("blob:section-1");
   });
 
   it("exposes a single-item failure and retries it successfully", async () => {
@@ -425,33 +461,45 @@ describe("useArticleAudioController", () => {
       .mockReturnValueOnce(failed.promise)
       .mockReturnValueOnce(retried.promise);
 
-    await act(async () => {
+    act(() => {
       controller().actions.listenSection(0);
-      await flushMicrotasks();
-      failed.reject(new Error("The road goes ever on"));
-      await flushMicrotasks();
     });
-    expect(controller().state.error).toBe("The road goes ever on");
-    expect(controller().state.playback.status).toBe("error");
-
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(1),
+    );
     await act(async () => {
-      controller().actions.retry();
-      await flushMicrotasks();
-      retried.resolve(audioResult("blob:retried"));
-      await flushMicrotasks();
+      failed.reject(new Error("The road goes ever on"));
     });
-    expect(controller().state.error).toBeNull();
-    expect(controller().audioSrc).toBe("blob:retried");
-    expect(controller().state.playback.status).toBe("playing");
+    await waitForExpectation(() => {
+      expect(controller().state.error).toBe("The road goes ever on");
+      expect(controller().state.playback.status).toBe("error");
+    });
+
+    act(() => {
+      controller().actions.retry();
+    });
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(2),
+    );
+    await act(async () => {
+      retried.resolve(audioResult("blob:retried"));
+    });
+    await waitForExpectation(() => {
+      expect(controller().state.error).toBeNull();
+      expect(controller().audioSrc).toBe("blob:retried");
+      expect(controller().state.playback.status).toBe("playing");
+    });
   });
 
   it("falls back to the summary when saved progress points outside the article", async () => {
     mocks.generateTts.mockResolvedValueOnce(audioResult("blob:summary-fallback"));
 
-    await act(async () => {
+    act(() => {
       controller().actions.resume("section-99", 99);
-      await flushMicrotasks();
     });
+    await waitForExpectation(() =>
+      expect(controller().audioSrc).toBe("blob:summary-fallback"),
+    );
 
     expect(mocks.warmSummary).toHaveBeenCalled();
     expect(mocks.updateProgress).toHaveBeenCalledWith(
@@ -467,17 +515,19 @@ describe("useArticleAudioController", () => {
     const request = deferred<TtsAudioUrlResult>();
     mocks.generateTts.mockReturnValueOnce(request.promise);
 
-    await act(async () => {
+    act(() => {
       controller().actions.listenSection(0);
-      await flushMicrotasks();
     });
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(1),
+    );
     act(() => controller().actions.stopPlayAll());
     expect(controller().state.playback.status).toBe("idle");
     expect(controller().audioSrc).toBeNull();
 
     await act(async () => {
       request.resolve(audioResult("blob:too-late"));
-      await flushMicrotasks();
+      await request.promise;
     });
     expect(controller().state.playback.status).toBe("idle");
     expect(controller().audioSrc).toBeNull();
@@ -486,24 +536,105 @@ describe("useArticleAudioController", () => {
 
   it("invalidates pending work and clears delayed analytics on unmount", async () => {
     const request = deferred<TtsAudioUrlResult>();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.generateTts.mockReturnValueOnce(request.promise);
 
-    await act(async () => {
+    act(() => {
       controller().actions.listenSection(0);
       controller().actions.changePlaybackRate(1.25);
-      await flushMicrotasks();
     });
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(1),
+    );
 
     act(() => root.unmount());
     mounted = false;
     await act(async () => {
       request.resolve(audioResult("blob:too-late"));
-      await flushMicrotasks();
+      await request.promise;
       vi.advanceTimersByTime(2_000);
     });
 
+    expect(errorSpy).not.toHaveBeenCalled();
     expect(mocks.audioStartup).not.toHaveBeenCalled();
     expect(mocks.playbackSpeed).not.toHaveBeenCalled();
     expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts a stalled cache-audio download", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let downloadSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          downloadSignal = init?.signal ?? undefined;
+          downloadSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.generateTts.mockResolvedValueOnce(audioResult("blob:cache-download"));
+
+    await act(async () => {
+      root.render(
+        <Harness
+          onChange={captureController}
+          articleValue={{ ...article, _id: "article-42" }}
+        />,
+      );
+    });
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    expect(downloadSignal?.aborted).toBe(false);
+    act(() => vi.advanceTimersByTime(5_000));
+    await waitForExpectation(() => expect(downloadSignal?.aborted).toBe(true));
+    await waitForExpectation(() => expect(warnSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it("aborts a stalled cache-audio upload", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let uploadSignal: AbortSignal | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        blob: async () => new Blob(["audio"], { type: "audio/mpeg" }),
+      } as Response)
+      .mockImplementationOnce(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            uploadSignal = init?.signal ?? undefined;
+            uploadSignal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.mutation.mockResolvedValueOnce("https://upload.example/audio");
+    mocks.generateTts.mockResolvedValueOnce(audioResult("blob:cache-upload"));
+
+    await act(async () => {
+      root.render(
+        <Harness
+          onChange={captureController}
+          articleValue={{ ...article, _id: "article-42" }}
+        />,
+      );
+    });
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    act(() => vi.advanceTimersByTime(5_000));
+    await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(uploadSignal?.aborted).toBe(false);
+
+    act(() => vi.advanceTimersByTime(10_000));
+    await waitForExpectation(() => expect(uploadSignal?.aborted).toBe(true));
+    await waitForExpectation(() => expect(warnSpy).toHaveBeenCalledTimes(1));
   });
 });
