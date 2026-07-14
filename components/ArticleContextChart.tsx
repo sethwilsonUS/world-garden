@@ -39,29 +39,6 @@ const MOBILE_CHART_MEDIA_QUERY = "(max-width: 640px)";
 const numericValue = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
-const buildLinePath = (
-  rows: ContextChartBlock["chart"]["rows"],
-  series: ContextChartSeries,
-  min: number,
-  max: number,
-): string => {
-  const span = max - min || 1;
-  return rows.reduce((path, row, index) => {
-    const value = numericValue(row[series.yColumn]);
-    if (value === null) return path;
-    const x = 54 + (index / Math.max(rows.length - 1, 1)) * 550;
-    const y = 24 + (1 - (value - min) / span) * 190;
-    const previousValue = index > 0 ? numericValue(rows[index - 1][series.yColumn]) : null;
-    return `${path}${path ? " " : ""}${previousValue === null ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
-  }, "");
-};
-
-const CHART_COLORS = {
-  light: ["#047857", "#b45309", "#2563eb", "#a21caf", "#be123c", "#4d7c0f"],
-  dark: ["#34d399", "#f2ad5d", "#75a7e8", "#c99ae0", "#fb7185", "#a3e635"],
-} as const;
-const CHART_LINE_STYLES = ["solid", "dashed", "dotted"] as const;
-const CHART_SYMBOLS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"] as const;
 const FALLBACK_CHART_TOP = 24;
 const FALLBACK_CHART_HEIGHT = 190;
 
@@ -73,6 +50,28 @@ const fallbackChartY = (value: number, min: number, max: number): number => {
   );
 };
 
+const buildLinePath = (
+  rows: ContextChartBlock["chart"]["rows"],
+  series: ContextChartSeries,
+  min: number,
+  max: number,
+): string => {
+  return rows.reduce((path, row, index) => {
+    const value = numericValue(row[series.yColumn]);
+    if (value === null) return path;
+    const x = 54 + (index / Math.max(rows.length - 1, 1)) * 550;
+    const y = fallbackChartY(value, min, max);
+    const previousValue = index > 0 ? numericValue(rows[index - 1][series.yColumn]) : null;
+    return `${path}${path ? " " : ""}${previousValue === null ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
+  }, "");
+};
+
+const CHART_COLORS = {
+  light: ["#047857", "#b45309", "#2563eb", "#a21caf", "#be123c", "#4d7c0f"],
+  dark: ["#34d399", "#f2ad5d", "#75a7e8", "#c99ae0", "#fb7185", "#a3e635"],
+} as const;
+const CHART_LINE_STYLES = ["solid", "dashed", "dotted"] as const;
+const CHART_SYMBOLS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"] as const;
 export const getFallbackBarGeometry = (
   value: number,
   min: number,
@@ -222,7 +221,10 @@ const EChartsGraphic = ({
   const chartHeight = horizontalBars
     ? Math.min(560, Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)))
     : 300;
-  const chartPayloadKey = getContextChartPayloadKey(rows, selectedSeries);
+  const chartPayloadKey = useMemo(
+    () => getContextChartPayloadKey(rows, selectedSeries),
+    [rows, selectedSeries],
+  );
   const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${chartPayloadKey}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
   const ready = readyAttempt === chartAttempt;
 
@@ -416,7 +418,7 @@ const MobileCategoryBars = ({
   return (
     <ol
       className="context-mobile-category-bars"
-      aria-label={`${selectedSeries.map((series) => series.label).join(" and ")} by category for ${block.title}`}
+      aria-label={`${formatSeriesList(selectedSeries.map((series) => series.label))} by category for ${block.title}`}
     >
       {rows.map((row, rowIndex) => (
         <li key={`${String(row[xColumn] ?? "category")}-${rowIndex}`}>
@@ -524,6 +526,32 @@ const formatSeriesList = (labels: string[]): string => {
   if (labels.length <= 1) return labels[0] ?? "No metrics";
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
   return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
+};
+
+const useToggleableSelection = (
+  initialIds: string[],
+): {
+  selectedIds: Set<string>;
+  toggleSelection: (id: string) => void;
+} => {
+  const [selectedIds, setSelectedIds] = useState(
+    () => new Set(initialIds),
+  );
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        if (next.size === 1) return current;
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return { selectedIds, toggleSelection };
 };
 
 const getSeriesUnit = (
@@ -657,26 +685,14 @@ const RankingOverview = ({
   captionId: string;
 }) => {
   const { theme } = useTheme();
-  const [selectedIds, setSelectedIds] = useState(
-    () => new Set([presentation.measureSeries.id]),
+  const { selectedIds, toggleSelection } = useToggleableSelection(
+    [presentation.measureSeries.id],
   );
   const selectedSeries = presentation.availableSeries.filter((series) =>
     selectedIds.has(series.id),
   );
   const controlHelpId = `${block.id}-ranking-metric-help`;
   const selectionLabels = selectedSeries.map((series) => series.label);
-  const toggleSeries = (id: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        if (next.size === 1) return current;
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
 
   return (
     <div className="context-kind-view context-ranking-view">
@@ -698,7 +714,7 @@ const RankingOverview = ({
                     type="checkbox"
                     checked={checked}
                     disabled={checked && selectedIds.size === 1}
-                    onChange={() => toggleSeries(series.id)}
+                    onChange={() => toggleSelection(series.id)}
                   />
                   <span>{series.label}{unit ? ` (${unit})` : ""}</span>
                 </label>
@@ -827,12 +843,11 @@ const StandardChartView = ({
     () => getStandardChartPresentation(block),
     [block],
   );
-  const [selectedIds, setSelectedIds] = useState(
-    () => new Set(
-      (presentation?.defaultSeries ?? block.chart.series.slice(0, 1)).map(
-        (series) => series.id,
-      ),
-    ),
+  const initialSeries =
+    presentation?.defaultSeries ?? block.chart.series.slice(0, 1);
+  const availableSeries = presentation?.availableSeries ?? block.chart.series;
+  const { selectedIds, toggleSelection } = useToggleableSelection(
+    initialSeries.map((series) => series.id),
   );
   const selectedSeries = useMemo(
     () => (presentation?.availableSeries ?? block.chart.series).filter(
@@ -849,20 +864,7 @@ const StandardChartView = ({
     }) ?? [],
     [block, presentation, selectedIds],
   );
-  const availableSeries = presentation?.availableSeries ?? block.chart.series;
   const controlHelpId = `${block.id}-standard-chart-help`;
-  const toggleSeries = (id: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        if (next.size === 1) return current;
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
 
   if (!presentation) {
     const fallbackSeries = selectedSeries.length > 0
@@ -895,7 +897,11 @@ const StandardChartView = ({
         </figure>
         <ChartDataDisclosure
           block={block}
-          rowHeaderKey={block.chart.series[0]?.xColumn ?? block.chart.columns[0].key}
+          rowHeaderKey={
+            block.chart.series[0]?.xColumn ??
+            block.chart.columns[0]?.key ??
+            ""
+          }
         />
       </div>
     );
@@ -918,7 +924,7 @@ const StandardChartView = ({
                   type="checkbox"
                   checked={checked}
                   disabled={checked && selectedIds.size === 1}
-                  onChange={() => toggleSeries(series.id)}
+                  onChange={() => toggleSelection(series.id)}
                 />
                 <span>{formatSeriesLabel(block, series)}</span>
               </label>
@@ -1007,6 +1013,7 @@ export const ContextChartView = ({
   const ordinalPosition = ranking ? null : getOrdinalPositionPresentation(block);
   return ranking ? (
     <RankingOverview
+      key={`${block.id}:ranking:${ranking.availableSeries.map((series) => series.id).join(",")}`}
       block={block}
       presentation={ranking}
       caption={caption}
@@ -1021,6 +1028,7 @@ export const ContextChartView = ({
     />
   ) : (
     <StandardChartView
+      key={`${block.id}:standard:${block.chart.series.map((series) => series.id).join(",")}`}
       block={block}
       caption={caption}
       captionId={captionId}
