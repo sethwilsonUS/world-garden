@@ -433,6 +433,63 @@ describe("ArticleContext", () => {
     );
   });
 
+  it("renders chart peaks as exact ordinal results without proportional bars", () => {
+    const peakBlock: ContextChartBlock = {
+      ...base,
+      id: "song-chart-peaks",
+      kind: "chart",
+      title: 'Chart performance for "30 Days"',
+      caption: "Peak positions range from number 1 to number 13.",
+      chart: {
+        columns: [
+          { key: "chart", label: "Chart", dataType: "string" },
+          { key: "peak", label: "Peak position", dataType: "number" },
+        ],
+        rows: [
+          { chart: "Euro Digital Song Sales (Billboard)", peak: 1 },
+          { chart: "Ireland (IRMA)", peak: 13 },
+          { chart: "Scotland Singles (Official Charts)", peak: 2 },
+          { chart: "UK Singles (Official Charts)", peak: 7 },
+        ],
+        series: [
+          {
+            id: "peak-position",
+            label: "Peak position",
+            type: "bar",
+            xColumn: "chart",
+            yColumn: "peak",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(ContextChartView, {
+          block: peakBlock,
+          caption: peakBlock.caption,
+          captionId: "peak-caption",
+        }),
+      ),
+    );
+
+    expect(markup).toContain(
+      "Lower numbers indicate a higher position; No. 1 is the highest.",
+    );
+    expect(markup).toContain('<dl class="context-ordinal-position-list">');
+    expect(markup).toContain("Euro Digital Song Sales (Billboard)</dt>");
+    expect(markup).toContain(
+      '<span class="sr-only">Peak position: number </span><span aria-hidden="true">No. </span><strong>1</strong>',
+    );
+    expect(markup).toContain("shown as exact numbers rather than proportional bars");
+    expect(markup).not.toContain("context-echarts");
+    expect(markup).not.toContain("context-mobile-bar-track");
+    expect(markup).toContain('<th scope="row">Euro Digital Song Sales (Billboard)</th>');
+  });
+
   it("omits a misleading connected line when repeated categories have no ordered chronology", () => {
     const repeatedYearBlock: ContextChartBlock = {
       ...base,

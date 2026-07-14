@@ -25,6 +25,11 @@ const isRankLabel = (value: string): boolean =>
     normalizeLabel(value),
   );
 
+const isOrdinalPositionLabel = (value: string): boolean =>
+  /^(?:(?:peak|highest|best)(?: chart)? position|chart position|pos|position|rank|ranks|ranking|place|seed)$/.test(
+    normalizeLabel(value),
+  );
+
 const isEntityLabel = (value: string): boolean =>
   /^(?:team|player|club|country|nation|national olympic committee|noc|competitor|participant|entrant|driver|constructor|school|institution|university|candidate|artist|album|company|organization|title|film|song|work|name|location|city|state|county|region|territory|borough|prefecture|province|municipality|district|department|language|species|genus|island|site|religion|ethnic group)$/.test(
     normalizeLabel(value),
@@ -47,6 +52,84 @@ export type RankedChartPresentation = {
   rows: ContextChartBlock["chart"]["rows"];
   visibleRows: ContextChartBlock["chart"]["rows"];
   hiddenRowCount: number;
+};
+
+export type OrdinalPositionPresentation = {
+  categoryColumn: ContextChartColumn;
+  measureColumn: ContextChartColumn;
+  measureSeries: ContextChartSeries;
+  rows: ContextChartBlock["chart"]["rows"];
+  visibleRows: ContextChartBlock["chart"]["rows"];
+  truncatedRowCount: number;
+  unusableRowCount: number;
+};
+
+/**
+ * A chart peak or rank is an ordinal result: first is better than thirteenth,
+ * but it is not thirteen times as large. Return a compact source-order view so
+ * callers can avoid encoding these values as misleading bar lengths.
+ */
+export const getOrdinalPositionPresentation = (
+  block: ContextChartBlock,
+  limit = DEFAULT_CATEGORY_OVERVIEW_LIMIT,
+): OrdinalPositionPresentation | null => {
+  if (getRankedChartPresentation(block)) return null;
+  const usableSeries = block.chart.series.filter((series) =>
+    block.chart.rows.some((row) => {
+      const value = row[series.yColumn];
+      return typeof value === "number" && Number.isFinite(value);
+    }),
+  );
+  if (usableSeries.length !== 1) return null;
+
+  const measureSeries = usableSeries[0];
+  const categoryColumn = block.chart.columns.find(
+    (column) => column.key === measureSeries.xColumn,
+  );
+  const measureColumn = block.chart.columns.find(
+    (column) => column.key === measureSeries.yColumn,
+  );
+  if (
+    !categoryColumn ||
+    !measureColumn ||
+    !isOrdinalPositionLabel(measureSeries.label) &&
+      !isOrdinalPositionLabel(measureColumn.label)
+  ) {
+    return null;
+  }
+
+  const numericValues = block.chart.rows.flatMap((row) => {
+    const value = row[measureSeries.yColumn];
+    return typeof value === "number" && Number.isFinite(value) ? [value] : [];
+  });
+  if (
+    numericValues.some((value) => !Number.isSafeInteger(value) || value < 1)
+  ) {
+    return null;
+  }
+
+  const rows = block.chart.rows.filter((row) => {
+    const value = row[measureSeries.yColumn];
+    return hasDisplayValue(row[categoryColumn.key]) &&
+      typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 1;
+  });
+  if (rows.length < 2) return null;
+  const safeLimit = Number.isSafeInteger(limit) && limit >= 3
+    ? limit
+    : DEFAULT_CATEGORY_OVERVIEW_LIMIT;
+  const visibleRows = rows.slice(0, safeLimit);
+
+  return {
+    categoryColumn,
+    measureColumn,
+    measureSeries,
+    rows,
+    visibleRows,
+    truncatedRowCount: Math.max(0, rows.length - visibleRows.length),
+    unusableRowCount: Math.max(0, block.chart.rows.length - rows.length),
+  };
 };
 
 /**
