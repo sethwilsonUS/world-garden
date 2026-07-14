@@ -25,7 +25,18 @@ describe("AuthNavControls", () => {
     const markup = renderToStaticMarkup(createElement(AuthNavControls));
 
     expect(markup).toContain("Sign in");
+    expect(markup).toContain("cursor-pointer");
     expect(markup).not.toContain("Sign up");
+  });
+
+  it("uses a pointer cursor for the mobile sign-in control", () => {
+    authState = "signed-out";
+
+    const markup = renderToStaticMarkup(
+      createElement(AuthNavControls, { mobile: true }),
+    );
+
+    expect(markup).toContain("cursor-pointer");
   });
 
   it("shows the user menu when signed in", () => {

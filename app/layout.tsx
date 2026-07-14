@@ -140,7 +140,13 @@ export default function RootLayout({
         {isLocal ? (
           shell
         ) : (
-          <ClerkProvider dynamic appearance={clerkAppearance}>
+          <ClerkProvider
+            dynamic
+            appearance={clerkAppearance}
+            signInUrl="/sign-in"
+            signInFallbackRedirectUrl="/"
+            signUpFallbackRedirectUrl="/"
+          >
             {shell}
           </ClerkProvider>
         )}

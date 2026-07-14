@@ -1,10 +1,10 @@
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 const desktopButtonClass =
-  "btn-secondary min-h-9 px-3 py-2 text-sm no-underline";
+  "btn-secondary min-h-9 cursor-pointer px-3 py-2 text-sm no-underline";
 
 const mobileButtonClass =
-  "btn-secondary w-full justify-center min-h-11 px-4 py-3 text-sm no-underline";
+  "btn-secondary min-h-11 w-full cursor-pointer justify-center px-4 py-3 text-sm no-underline";
 
 export const AuthNavControls = ({ mobile = false }: { mobile?: boolean }) => {
   const wrapperClass = mobile
