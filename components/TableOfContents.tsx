@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, type RefObject } from "react";
+import { useState, type RefObject } from "react";
 import { InfoTooltip } from "@/components/InfoTooltip";
-import { useData } from "@/lib/data-context";
 import type { Section } from "@/lib/data-context";
 import {
   getAudioReasonLabel,
@@ -35,6 +34,7 @@ import {
   SpinnerIcon,
 } from "@/components/TableOfContentsPresentation";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
+import { useArticleSectionCounts } from "@/hooks/useArticleSectionMetadata";
 
 export type {
   AudioPlaybackMode,
@@ -48,12 +48,7 @@ type TableOfContentsProps = {
   summaryText?: string;
   sections: Section[];
   sectionDurations?: Record<string, number>;
-  playback?: AudioPlaybackState;
-  activeSectionIndex?: number | null;
-  isGenerating?: boolean;
-  isPlayingAll?: boolean;
-  isPaused?: boolean;
-  isSpeaking?: boolean;
+  playback: AudioPlaybackState;
   downloading?: boolean;
   downloadProgress?: { current: number; total: number };
   downloadStatus?: "queued" | "running" | "ready" | "failed" | null;
@@ -155,11 +150,6 @@ export const TableOfContents = ({
   sections,
   sectionDurations,
   playback,
-  activeSectionIndex: legacyActiveSectionIndex = null,
-  isGenerating: legacyIsGenerating = false,
-  isPlayingAll: legacyIsPlayingAll = false,
-  isPaused: legacyIsPaused = false,
-  isSpeaking: legacyIsSpeaking = false,
   downloading = false,
   downloadProgress,
   downloadStatus = null,
@@ -183,37 +173,20 @@ export const TableOfContents = ({
   fallbackVoiceNotice,
   contextBlocks = [],
 }: TableOfContentsProps) => {
-  const [linkCounts, setLinkCounts] = useState<Record<string, number> | null>(
-    null,
-  );
-  const [citationCounts, setCitationCounts] = useState<Record<string, number> | null>(
-    null,
-  );
-  const [openPanel, setOpenPanel] = useState<string | null>(null);
-  const {
-    getSectionLinkCounts,
-    getCitationCounts,
-  } = useData();
-  const metadataFetched = useRef(false);
-
-  useEffect(() => {
-    if (metadataFetched.current) return;
-    metadataFetched.current = true;
-    getSectionLinkCounts({ wikiPageId })
-      .then((arr) => {
-        const map: Record<string, number> = {};
-        for (const { title, count } of arr) map[title] = count;
-        setLinkCounts(map);
-      })
-      .catch(() => {});
-    getCitationCounts({ wikiPageId })
-      .then((arr) => {
-        const map: Record<string, number> = {};
-        for (const { title, count } of arr) map[title] = count;
-        setCitationCounts(map);
-      })
-      .catch(() => {});
-  }, [wikiPageId, getSectionLinkCounts, getCitationCounts]);
+  const { linkCounts, citationCounts } =
+    useArticleSectionCounts(wikiPageId);
+  const [openPanelState, setOpenPanelState] = useState<{
+    wikiPageId: string;
+    panel: string | null;
+  }>(() => ({ wikiPageId, panel: null }));
+  const openPanel =
+    openPanelState.wikiPageId === wikiPageId ? openPanelState.panel : null;
+  const togglePanel = (panel: string) => {
+    setOpenPanelState({
+      wikiPageId,
+      panel: openPanel === panel ? null : panel,
+    });
+  };
 
   const [rateAnnouncement, setRateAnnouncement] = useState("");
   const cycleSpeed = () => {
@@ -224,38 +197,17 @@ export const TableOfContents = ({
     setRateAnnouncement(`Playback speed ${formatRate(next)}`);
   };
 
-  const effectivePlayback: AudioPlaybackState = playback ?? {
-    status: legacyIsGenerating
-      ? "loading"
-      : legacyIsSpeaking
-        ? legacyIsPaused
-          ? "paused"
-          : "playing"
-        : "idle",
-    sectionKey:
-      legacyActiveSectionIndex === null
-        ? "summary"
-        : `section-${legacyActiveSectionIndex}`,
-    sectionIdx: legacyActiveSectionIndex,
-    label:
-      legacyActiveSectionIndex === null
-        ? "Summary"
-        : sections[legacyActiveSectionIndex]?.title ?? null,
-    mode: legacyIsPlayingAll ? "play_all" : "single",
-    slowLoading: false,
-  };
-
-  const activeSectionIndex = effectivePlayback.sectionIdx;
-  const isGenerating = effectivePlayback.status === "loading";
-  const isPaused = effectivePlayback.status === "paused";
+  const activeSectionIndex = playback.sectionIdx;
+  const isGenerating = playback.status === "loading";
+  const isPaused = playback.status === "paused";
   const isSpeaking =
-    effectivePlayback.status === "playing" || effectivePlayback.status === "paused";
+    playback.status === "playing" || playback.status === "paused";
   const isPlayingAll =
-    effectivePlayback.mode === "play_all" &&
-    effectivePlayback.status !== "idle" &&
-    effectivePlayback.status !== "error";
+    playback.mode === "play_all" &&
+    playback.status !== "idle" &&
+    playback.status !== "error";
 
-  const isSummarySelected = effectivePlayback.sectionKey === "summary";
+  const isSummarySelected = playback.sectionKey === "summary";
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
   const isSummaryActive = isSummaryPlaying || isSummaryPaused;
@@ -582,7 +534,7 @@ export const TableOfContents = ({
           {fallbackVoiceNotice}
         </p>
       ) : null}
-      {effectivePlayback.status === "loading" && effectivePlayback.slowLoading ? (
+      {playback.status === "loading" && playback.slowLoading ? (
         <p
           className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
           role="status"
@@ -615,9 +567,7 @@ export const TableOfContents = ({
                   linkCount={linkCounts?.["__summary__"]}
                   citationCount={citationCounts?.["__summary__"]}
                   isOpen={openPanel === "summary"}
-                  onToggle={() =>
-                    setOpenPanel((v) => (v === "summary" ? null : "summary"))
-                  }
+                  onToggle={() => togglePanel("summary")}
                 />
                 <ContextSectionLink
                   blocks={getContextBlocksForSection(contextBlocks, null)}
@@ -753,13 +703,7 @@ export const TableOfContents = ({
                       linkCount={linkCounts?.[section.title]}
                       citationCount={citationCounts?.[section.title]}
                       isOpen={openPanel === `section-${index}`}
-                      onToggle={() =>
-                        setOpenPanel((v) =>
-                          v === `section-${index}`
-                            ? null
-                            : `section-${index}`,
-                        )
-                      }
+                      onToggle={() => togglePanel(`section-${index}`)}
                     />
                     <ContextSectionLink
                       blocks={getContextBlocksForSection(

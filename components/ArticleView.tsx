@@ -5,18 +5,19 @@ import { useAuth } from "@clerk/nextjs";
 import { useData, type Article } from "@/lib/data-context";
 import { useHistory } from "@/hooks/useHistory";
 import { useArticleAudioController } from "@/hooks/useArticleAudioController";
+import {
+  useArticleContext,
+  type ArticleContextLoadState,
+} from "@/hooks/useArticleContext";
 import type { ContextBlock } from "@/lib/article-context-types";
 import {
   analyzeAdaptiveImage,
   type AdaptiveImageAnalysis,
 } from "@/lib/adaptive-image";
 import { getVisibleArticleContextBlocks } from "@/lib/article-context-visibility";
-import {
-  ArticleContextLane,
-  useArticleContext,
-  type ArticleContextLoadState,
-} from "./ArticleContext";
-import { ArticleGallery, type LightboxState } from "./ArticleGallery";
+import { ArticleContextLane } from "./ArticleContext";
+import { ArticleGallery } from "./ArticleGallery";
+import type { LightboxState } from "./GalleryLightbox";
 import { ArticleHeader, ArticleSourceLine } from "./ArticleHeader";
 import { ArticleTopics } from "./ArticleTopics";
 import {

@@ -1,33 +1,23 @@
 "use client";
 
 import {
-  useCallback,
-  useEffect,
-  useMemo,
   useState,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type {
-  ArticleContextApiResponse,
-  ArticleContextRequest,
   ContextBlock,
   ContextBlockKind,
   ContextChartBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
-import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "@/lib/article-context-types";
+import type { ArticleContextLoadState } from "@/hooks/useArticleContext";
 import {
   ContextChartView,
   ContextDiagramView,
   ContextMapView,
   ContextTimelineView,
 } from "./ArticleContextVisuals";
-
-export type ArticleContextLoadState =
-  | { status: "idle" | "loading"; manifest: null; error: null }
-  | { status: "ready"; manifest: ContextManifest; error: null }
-  | { status: "error"; manifest: null; error: string };
 
 const KIND_LABELS: Record<ContextBlockKind, string> = {
   map: "Map",
@@ -60,112 +50,6 @@ export const getContextBlocksForSection = (
       block.section.index === String(sectionIndex + 1) ||
       (normalizedTitle && block.section.title.trim().toLocaleLowerCase() === normalizedTitle),
   );
-};
-
-const sortBlocks = (blocks: ContextBlock[]): ContextBlock[] =>
-  [...blocks].sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
-
-const isArticleContextApiResponse = (value: unknown): value is ArticleContextApiResponse => {
-  if (!value || typeof value !== "object") return false;
-  const response = value as Partial<ArticleContextApiResponse>;
-  return Boolean(
-    response.context &&
-      typeof response.context === "object" &&
-      response.context.schemaVersion === ARTICLE_CONTEXT_SCHEMA_VERSION &&
-      Array.isArray(response.context.blocks),
-  );
-};
-
-export const useArticleContext = (request: ArticleContextRequest | null) => {
-  const requestKey = request
-    ? `${request.wikiPageId}:${request.revisionId}:${request.language ?? "en"}`
-    : "";
-  const requestGeneration = useMemo(() => ({ requestKey }), [requestKey]);
-  const [reloadToken, setReloadToken] = useState(0);
-  const [keyedState, setKeyedState] = useState<{
-    requestKey: string;
-    requestGeneration: object;
-    state: ArticleContextLoadState;
-  }>(() => ({
-    requestKey,
-    requestGeneration,
-    state: {
-      status: request ? "loading" : "idle",
-      manifest: null,
-      error: null,
-    },
-  }));
-
-  useEffect(() => {
-    if (!request) return;
-
-    const controller = new AbortController();
-    fetch("/api/article-context", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const body: unknown = await response.json().catch(() => null);
-        if (!response.ok) {
-          const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
-            ? body.error
-            : "Visual context is temporarily unavailable.";
-          throw new Error(message);
-        }
-        if (!isArticleContextApiResponse(body)) {
-          throw new Error("Visual context returned an unexpected response.");
-        }
-        return body.context;
-      })
-      .then((manifest) => {
-        if (controller.signal.aborted) return;
-        setKeyedState({
-          requestKey,
-          requestGeneration,
-          state: {
-            status: "ready",
-            manifest: { ...manifest, blocks: sortBlocks(manifest.blocks) },
-            error: null,
-          },
-        });
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setKeyedState({
-          requestKey,
-          requestGeneration,
-          state: {
-            status: "error",
-            manifest: null,
-            error: error instanceof Error ? error.message : "Visual context is temporarily unavailable.",
-          },
-        });
-      });
-
-    return () => controller.abort();
-    // requestKey intentionally expresses the stable request identity.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestKey, reloadToken]);
-
-  const retry = useCallback(() => {
-    if (!requestKey) return;
-    setKeyedState({
-      requestKey,
-      requestGeneration,
-      state: { status: "loading", manifest: null, error: null },
-    });
-    setReloadToken((value) => value + 1);
-  }, [requestGeneration, requestKey]);
-  const effectiveState: ArticleContextLoadState =
-    keyedState.requestKey === requestKey &&
-    keyedState.requestGeneration === requestGeneration
-      ? keyedState.state
-      : request
-        ? { status: "loading", manifest: null, error: null }
-        : { status: "idle", manifest: null, error: null };
-  return { ...effectiveState, retry };
 };
 
 const ContextGlyph = ({ kind }: { kind: ContextBlockKind }) => {

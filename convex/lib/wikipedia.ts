@@ -693,6 +693,7 @@ export const extractImages = (html: string): WikiArticleImage[] => {
  */
 export const fetchParsedPageData = async (
   pageId: string,
+  signal?: AbortSignal,
 ): Promise<ParsedPageData> => {
   const params = new URLSearchParams({
     action: "parse",
@@ -704,6 +705,7 @@ export const fetchParsedPageData = async (
 
   const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
     headers: { "User-Agent": USER_AGENT },
+    signal,
   });
   if (!response.ok) {
     return {
@@ -726,7 +728,11 @@ export const fetchParsedPageData = async (
     const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
     return sourceTitle ? [{ sourceTitle, imageUrl }] : [];
   });
-  const mediaDetails = await fetchWikimediaMediaDetails(mediaRequests);
+  const mediaDetails = await fetchWikimediaMediaDetails(
+    mediaRequests,
+    fetch,
+    signal,
+  );
 
   return {
     linkCounts: extractLinkCounts(html, sections),
@@ -772,6 +778,7 @@ export const fetchParsedPageData = async (
 export const fetchSectionLinksByIndex = async (
   pageId: string,
   sectionIndex: string,
+  signal?: AbortSignal,
 ): Promise<WikiLinkedArticle[]> => {
   const params = new URLSearchParams({
     action: "parse",
@@ -783,6 +790,7 @@ export const fetchSectionLinksByIndex = async (
   });
   const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
     headers: { "User-Agent": USER_AGENT },
+    signal,
   });
   if (!response.ok) return [];
 
@@ -810,6 +818,7 @@ export const fetchSectionLinksByIndex = async (
     });
     const qResponse = await fetch(`${WIKI_ACTION_API}?${qParams}`, {
       headers: { "User-Agent": USER_AGENT },
+      signal,
     });
     if (!qResponse.ok) continue;
 

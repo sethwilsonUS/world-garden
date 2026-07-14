@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import { ArticleLink } from "@/components/ArticleLink";
-import { useData } from "@/lib/data-context";
 import { formatTime } from "@/lib/formatTime";
 import { formatRate } from "@/hooks/usePlaybackRate";
-
-type LinkedArticle = {
-  wikiPageId: string;
-  title: string;
-  description?: string;
-};
+import { useArticleSectionDetails } from "@/hooks/useArticleSectionMetadata";
 
 export const PlayIcon = () => {
   return (
@@ -141,13 +135,6 @@ export const SectionDetailsBadge = ({
   );
 };
 
-type Citation = {
-  id: string;
-  index: number;
-  text: string;
-  url?: string;
-};
-
 export const SectionDetailsPanel = ({
   wikiPageId,
   sectionTitle,
@@ -159,27 +146,17 @@ export const SectionDetailsPanel = ({
   hasLinks: boolean;
   hasCitations: boolean;
 }) => {
-  const [links, setLinks] = useState<LinkedArticle[] | null>(null);
-  const [citations, setCitations] = useState<Citation[] | null>(null);
-  const [linksLoading, setLinksLoading] = useState(hasLinks);
-  const [citesLoading, setCitesLoading] = useState(hasCitations);
-  const { getSectionLinks, getSectionCitations } = useData();
-
-  useEffect(() => {
-    if (!hasLinks || links !== null) return;
-    getSectionLinks({ wikiPageId, sectionTitle })
-      .then(setLinks)
-      .catch(() => setLinks([]))
-      .finally(() => setLinksLoading(false));
-  }, [hasLinks, links, wikiPageId, sectionTitle, getSectionLinks]);
-
-  useEffect(() => {
-    if (!hasCitations || citations !== null) return;
-    getSectionCitations({ wikiPageId, sectionTitle })
-      .then(setCitations)
-      .catch(() => setCitations([]))
-      .finally(() => setCitesLoading(false));
-  }, [hasCitations, citations, wikiPageId, sectionTitle, getSectionCitations]);
+  const {
+    links,
+    citations,
+    linksLoading,
+    citationsLoading: citesLoading,
+  } = useArticleSectionDetails({
+    wikiPageId,
+    sectionTitle,
+    hasLinks,
+    hasCitations,
+  });
 
   const loading = linksLoading || citesLoading;
   const showBoth = hasLinks && hasCitations;

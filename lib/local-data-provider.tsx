@@ -18,10 +18,13 @@ import {
 
 const parsedCache = new Map<string, ParsedPageData>();
 
-const getOrFetchParsed = async (wikiPageId: string): Promise<ParsedPageData> => {
+const getOrFetchParsed = async (
+  wikiPageId: string,
+  signal?: AbortSignal,
+): Promise<ParsedPageData> => {
   const cached = parsedCache.get(wikiPageId);
   if (cached) return cached;
-  const data = await fetchParsedPageData(wikiPageId);
+  const data = await fetchParsedPageData(wikiPageId, signal);
   parsedCache.set(wikiPageId, data);
   return data;
 };
@@ -62,24 +65,24 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
         return article;
       },
 
-      getSectionLinkCounts: async ({ wikiPageId }) => {
-        const data = await getOrFetchParsed(wikiPageId);
+      getSectionLinkCounts: async ({ wikiPageId, signal }) => {
+        const data = await getOrFetchParsed(wikiPageId, signal);
         return data.linkCounts;
       },
 
-      getCitationCounts: async ({ wikiPageId }) => {
-        const data = await getOrFetchParsed(wikiPageId);
+      getCitationCounts: async ({ wikiPageId, signal }) => {
+        const data = await getOrFetchParsed(wikiPageId, signal);
         return data.sectionCitations.map(({ title, count }) => ({
           title,
           count,
         }));
       },
 
-      getSectionLinks: async ({ wikiPageId, sectionTitle }) => {
+      getSectionLinks: async ({ wikiPageId, sectionTitle, signal }) => {
         let sectionIndex = "0";
 
         if (sectionTitle !== null) {
-          const parseData = await getOrFetchParsed(wikiPageId);
+          const parseData = await getOrFetchParsed(wikiPageId, signal);
           const normalise = (s: string) =>
             s.replace(/<[^>]+>/g, "").trim().toLowerCase();
           const target = normalise(sectionTitle);
@@ -90,11 +93,11 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
           sectionIndex = match.index;
         }
 
-        return fetchSectionLinksByIndex(wikiPageId, sectionIndex);
+        return fetchSectionLinksByIndex(wikiPageId, sectionIndex, signal);
       },
 
-      getSectionCitations: async ({ wikiPageId, sectionTitle }) => {
-        const data = await getOrFetchParsed(wikiPageId);
+      getSectionCitations: async ({ wikiPageId, sectionTitle, signal }) => {
+        const data = await getOrFetchParsed(wikiPageId, signal);
         const key = sectionTitle ?? "__summary__";
         const normalise = (s: string) =>
           s.replace(/<[^>]+>/g, "").trim().toLowerCase();

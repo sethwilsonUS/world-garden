@@ -4,7 +4,10 @@ import Image from "next/image";
 import { type MouseEvent as ReactMouseEvent } from "react";
 import type { Article } from "@/lib/data-context";
 import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
-import { Lightbox, type LightboxState } from "./ArticleGallery";
+import {
+  GalleryLightbox,
+  type LightboxState,
+} from "./GalleryLightbox";
 import { MediaAttribution } from "@/components/MediaAttribution";
 import type { AdaptiveImageAnalysis } from "@/lib/adaptive-image";
 
@@ -148,7 +151,7 @@ export const ArticleHero = ({
       )}
 
       {lightbox && (
-        <Lightbox
+        <GalleryLightbox
           images={[{
             src: thumbnailUrl,
             originalSrc: thumbnailUrl,
