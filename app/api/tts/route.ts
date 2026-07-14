@@ -48,6 +48,11 @@ const getOpenAiInteractiveFallbackMs = (): number =>
   parsePositiveInt(process.env.TTS_OPENAI_INTERACTIVE_FALLBACK_MS) ??
   DEFAULT_TTS_OPENAI_INTERACTIVE_FALLBACK_MS;
 
+const getVercelProtectionBypassHeaders = (): Record<string, string> => {
+  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+  return secret ? { "x-vercel-protection-bypass": secret } : {};
+};
+
 const fetchWithTimeout = async (
   input: RequestInfo | URL,
   init: RequestInit,
@@ -196,7 +201,10 @@ const generateEdgeSpeech = async (
 ): Promise<Buffer> => {
   const response = await fetchWithTimeout(new URL("/api/tts/edge", req.url), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getVercelProtectionBypassHeaders(),
+    },
     body: JSON.stringify({
       text,
       voiceId: profile.voiceId,
