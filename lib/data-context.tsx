@@ -69,17 +69,21 @@ export type DataContextValue = {
   fetchArticle: (args: { slug: string }) => Promise<Article>;
   getSectionLinkCounts: (args: {
     wikiPageId: string;
+    signal?: AbortSignal;
   }) => Promise<LinkCount[]>;
   getCitationCounts: (args: {
     wikiPageId: string;
+    signal?: AbortSignal;
   }) => Promise<LinkCount[]>;
   getSectionLinks: (args: {
     wikiPageId: string;
     sectionTitle: string | null;
+    signal?: AbortSignal;
   }) => Promise<LinkedArticle[]>;
   getSectionCitations: (args: {
     wikiPageId: string;
     sectionTitle: string | null;
+    signal?: AbortSignal;
   }) => Promise<Citation[]>;
   getArticleImages: (args: {
     wikiPageId: string;

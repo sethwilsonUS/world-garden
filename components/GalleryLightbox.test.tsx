@@ -238,6 +238,38 @@ describe("GalleryLightbox", () => {
     expect(document.body.style.overflow).toBe("auto");
   });
 
+  it("follows a new requested index without remounting the dialog", async () => {
+    const onClose = vi.fn();
+    await act(async () =>
+      root.render(
+        <GalleryLightbox
+          images={images}
+          state={{ index: 0 }}
+          onClose={onClose}
+        />,
+      ),
+    );
+    const dialog = container.querySelector("dialog")!;
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain(
+      "image 1 of 2",
+    );
+
+    await act(async () =>
+      root.render(
+        <GalleryLightbox
+          images={images}
+          state={{ index: 1 }}
+          onClose={onClose}
+        />,
+      ),
+    );
+
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain(
+      "image 2 of 2",
+    );
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalledTimes(1);
+  });
+
   it("wraps keyboard and swipe navigation while excluding interactive targets", async () => {
     await act(async () => root.render(<Harness galleryImages={images} />));
     act(() => container.querySelector("button")!.click());

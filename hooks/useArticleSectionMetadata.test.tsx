@@ -140,8 +140,15 @@ describe("article section metadata hooks", () => {
     await waitForExpectation(() =>
       expect(value.getSectionLinkCounts).toHaveBeenCalledWith({
         wikiPageId: "old",
+        signal: expect.any(AbortSignal),
       }),
     );
+    const oldLinkSignal = vi.mocked(value.getSectionLinkCounts).mock.calls[0][0]
+      .signal!;
+    const oldCitationSignal = vi.mocked(value.getCitationCounts).mock.calls[0][0]
+      .signal!;
+    expect(oldLinkSignal).toBe(oldCitationSignal);
+    expect(oldLinkSignal.aborted).toBe(false);
 
     await act(async () => {
       root.render(
@@ -150,6 +157,7 @@ describe("article section metadata hooks", () => {
         </DataContext.Provider>,
       );
     });
+    expect(oldLinkSignal.aborted).toBe(true);
     const output = container.querySelector("output")!;
     expect(output.dataset.links).toBe("null");
     expect(output.dataset.citations).toBe("null");
@@ -195,6 +203,12 @@ describe("article section metadata hooks", () => {
     await waitForExpectation(() =>
       expect(value.getSectionLinks).toHaveBeenCalledTimes(1),
     );
+    const oldLinkSignal = vi.mocked(value.getSectionLinks).mock.calls[0][0]
+      .signal!;
+    const oldCitationSignal = vi.mocked(value.getSectionCitations).mock.calls[0][0]
+      .signal!;
+    expect(oldLinkSignal).toBe(oldCitationSignal);
+    expect(oldLinkSignal.aborted).toBe(false);
 
     await act(async () => {
       root.render(
@@ -203,6 +217,7 @@ describe("article section metadata hooks", () => {
         </DataContext.Provider>,
       );
     });
+    expect(oldLinkSignal.aborted).toBe(true);
     const output = container.querySelector("output")!;
     expect(output.dataset.links).toBe("null");
     expect(output.dataset.citations).toBe("null");

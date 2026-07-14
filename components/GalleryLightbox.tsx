@@ -66,7 +66,15 @@ export const GalleryLightbox = ({
   state: LightboxState;
   onClose: () => void;
 }) => {
-  const [current, setCurrent] = useState(state?.index ?? 0);
+  const requestedIndex = state?.index ?? 0;
+  const [navigation, setNavigation] = useState(() => ({
+    requestedIndex,
+    current: requestedIndex,
+  }));
+  const current =
+    navigation.requestedIndex === requestedIndex
+      ? navigation.current
+      : requestedIndex;
   const [failedSources, setFailedSources] = useState<Set<string>>(
     () => new Set(),
   );
@@ -82,7 +90,7 @@ export const GalleryLightbox = ({
     openerRef.current =
       state?.opener ?? (document.activeElement as HTMLElement | null);
     const previousBodyOverflow = document.body.style.overflow;
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
     return () => {
@@ -93,12 +101,30 @@ export const GalleryLightbox = ({
   }, [state?.opener]);
 
   const showPrevious = useCallback(() => {
-    setCurrent((value) => (value > 0 ? value - 1 : images.length - 1));
-  }, [images.length]);
+    setNavigation((previous) => {
+      const value =
+        previous.requestedIndex === requestedIndex
+          ? previous.current
+          : requestedIndex;
+      return {
+        requestedIndex,
+        current: value > 0 ? value - 1 : images.length - 1,
+      };
+    });
+  }, [images.length, requestedIndex]);
 
   const showNext = useCallback(() => {
-    setCurrent((value) => (value < images.length - 1 ? value + 1 : 0));
-  }, [images.length]);
+    setNavigation((previous) => {
+      const value =
+        previous.requestedIndex === requestedIndex
+          ? previous.current
+          : requestedIndex;
+      return {
+        requestedIndex,
+        current: value < images.length - 1 ? value + 1 : 0,
+      };
+    });
+  }, [images.length, requestedIndex]);
 
   const handleDialogKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDialogElement>) => {

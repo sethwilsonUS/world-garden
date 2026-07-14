@@ -69,7 +69,7 @@ export const useArticleSectionCounts = (wikiPageId: string) => {
     const controller = new AbortController();
     const key = wikiPageId;
 
-    void getSectionLinkCounts({ wikiPageId })
+    void getSectionLinkCounts({ wikiPageId, signal: controller.signal })
       .then((counts) => {
         if (controller.signal.aborted) return;
         setState((current) => ({
@@ -85,7 +85,7 @@ export const useArticleSectionCounts = (wikiPageId: string) => {
         }));
       });
 
-    void getCitationCounts({ wikiPageId })
+    void getCitationCounts({ wikiPageId, signal: controller.signal })
       .then((counts) => {
         if (controller.signal.aborted) return;
         setState((current) => ({
@@ -119,7 +119,11 @@ export const useArticleSectionDetails = (args: SectionDetailsArgs) => {
     const controller = new AbortController();
 
     if (hasLinks) {
-      void getSectionLinks({ wikiPageId, sectionTitle })
+      void getSectionLinks({
+        wikiPageId,
+        sectionTitle,
+        signal: controller.signal,
+      })
         .then((links) => {
           if (controller.signal.aborted) return;
           setState((current) => ({
@@ -141,7 +145,11 @@ export const useArticleSectionDetails = (args: SectionDetailsArgs) => {
     }
 
     if (hasCitations) {
-      void getSectionCitations({ wikiPageId, sectionTitle })
+      void getSectionCitations({
+        wikiPageId,
+        sectionTitle,
+        signal: controller.signal,
+      })
         .then((citations) => {
           if (controller.signal.aborted) return;
           setState((current) => ({

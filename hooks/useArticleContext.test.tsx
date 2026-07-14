@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ArticleContextRequest,
+  ContextBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
 import { useArticleContext } from "./useArticleContext";
@@ -64,6 +65,41 @@ const manifest = (
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [],
   ...overrides,
+});
+
+const block = (id: string, title: string, order: number): ContextBlock => ({
+  id,
+  kind: "diagram",
+  title,
+  caption: `${title} caption`,
+  longDescription: `${title} description`,
+  section: { index: "1", title: "History" },
+  order,
+  sources: [
+    {
+      label: "Wikipedia",
+      url: "https://en.wikipedia.org/wiki/Example",
+      accessedAt: "2026-07-13T00:00:00.000Z",
+    },
+  ],
+  provenance: {
+    articleUrl: "https://en.wikipedia.org/wiki/Example",
+    articleRevisionUrl:
+      "https://en.wikipedia.org/w/index.php?title=Example&oldid=100",
+    sourceHash: "hash-example",
+    extractorVersion: "2.0.0",
+    descriptionMethod: "deterministic",
+  },
+  diagram: {
+    image: {
+      src: "https://upload.wikimedia.org/example.svg",
+      alt: `${title} diagram`,
+    },
+    parts: [],
+    relationships: [],
+    walkthrough: [`Explore ${title}.`],
+    caption: `${title} caption`,
+  },
 });
 
 const Probe = ({ value }: { value: ArticleContextRequest | null }) => {
@@ -256,12 +292,12 @@ describe("useArticleContext", () => {
     await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(4));
   });
 
-  it("sorts blocks deterministically and rejects legacy schema responses", async () => {
+  it("sorts blocks and rejects malformed or legacy responses", async () => {
     const unsortedBlocks = [
-      { id: "zeta", title: "Zeta", order: 2 },
-      { id: "beta", title: "Beta", order: 1 },
-      { id: "alpha", title: "Alpha", order: 1 },
-    ] as unknown as ContextManifest["blocks"];
+      block("zeta", "Zeta", 2),
+      block("beta", "Beta", 1),
+      block("alpha", "Alpha", 1),
+    ];
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -274,6 +310,31 @@ describe("useArticleContext", () => {
         response({
           context: { ...manifest("legacy"), schemaVersion: 1 },
           cacheStatus: "hit",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: { ...manifest("incomplete"), generatedAt: undefined },
+          cacheStatus: "hit",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("cache-status"),
+          cacheStatus: "stale",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("malformed-block", {
+            blocks: [
+              {
+                ...block("broken", "Broken", 1),
+                diagram: { image: null },
+              } as unknown as ContextBlock,
+            ],
+          }),
+          cacheStatus: "miss",
         }),
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -292,5 +353,15 @@ describe("useArticleContext", () => {
         "Visual context returned an unexpected response.",
       );
     });
+
+    for (const id of ["incomplete", "cache-status", "malformed-block"]) {
+      await act(async () => root.render(<Probe value={request(id)} />));
+      await waitForExpectation(() => {
+        expect(output.dataset.status).toBe("error");
+        expect(output.textContent).toBe(
+          "Visual context returned an unexpected response.",
+        );
+      });
+    }
   });
 });

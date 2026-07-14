@@ -846,9 +846,13 @@ describe("fetchParsedPageData gallery media", () => {
         );
       });
 
-    const parsed = await fetchParsedPageData("42");
+    const controller = new AbortController();
+    const parsed = await fetchParsedPageData("42", controller.signal);
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchSpy.mock.calls) {
+      expect(init).toMatchObject({ signal: controller.signal });
+    }
     expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0]).toMatchObject({
       src: thumbnailUrl,
