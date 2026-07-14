@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { BadgeArtwork } from "@/components/BadgeArtwork";
 import { BadgeDetailsDialog } from "@/components/BadgeDetailsDialog";
 import {
@@ -34,6 +34,9 @@ export const DashboardBadgeCard = ({
   const selectedBadge = selectedBadgeKey
     ? badges.find((badge) => badge.key === selectedBadgeKey) ?? null
     : null;
+  const closeBadgeDialog = useCallback(() => {
+    setSelectedBadgeKey(null);
+  }, []);
 
   return (
     <article className="garden-bed p-6">
@@ -173,7 +176,7 @@ export const DashboardBadgeCard = ({
         <BadgeDetailsDialog
           badge={selectedBadge}
           credits={badgeCredits[selectedBadge.key] ?? []}
-          onClose={() => setSelectedBadgeKey(null)}
+          onClose={closeBadgeDialog}
         />
       ) : null}
     </article>

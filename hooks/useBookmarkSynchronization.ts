@@ -63,10 +63,15 @@ export const useBookmarkSynchronization = ({
     hybridBookmarkReducer,
     initialHybridBookmarkState,
   );
+  const [importRetryRevision, retryFailedImport] = useReducer(
+    (revision: number) => revision + 1,
+    0,
+  );
   const activeUserKeyRef = useRef<string | null>(null);
   const pendingMutationKeysRef = useRef(new Set<string>());
   const attemptedImportSignatureRef = useRef<string | null>(null);
   const importInFlightSignatureRef = useRef<string | null>(null);
+  const failedImportSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isClerkLoaded) {
@@ -85,6 +90,7 @@ export const useBookmarkSynchronization = ({
       pendingMutationKeysRef.current.clear();
       attemptedImportSignatureRef.current = null;
       importInFlightSignatureRef.current = null;
+      failedImportSignatureRef.current = null;
       dispatch({ type: "guest", entries: readGuestBookmarks() });
       return;
     }
@@ -97,6 +103,7 @@ export const useBookmarkSynchronization = ({
     pendingMutationKeysRef.current.clear();
     attemptedImportSignatureRef.current = null;
     importInFlightSignatureRef.current = null;
+    failedImportSignatureRef.current = null;
     dispatch({
       type: "accountMirror",
       entries: readAccountMirrorBookmarks(userKey),
@@ -112,6 +119,27 @@ export const useBookmarkSynchronization = ({
       dispatch({ type: "convexUnavailable" });
     }
   }, [isAuthenticated, isClerkLoaded, isConvexAuthLoading, isSignedIn, userKey]);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      const failedImportSignature = failedImportSignatureRef.current;
+      if (!failedImportSignature) {
+        return;
+      }
+
+      if (attemptedImportSignatureRef.current === failedImportSignature) {
+        attemptedImportSignatureRef.current = null;
+      }
+      if (importInFlightSignatureRef.current === failedImportSignature) {
+        importInFlightSignatureRef.current = null;
+      }
+      failedImportSignatureRef.current = null;
+      retryFailedImport();
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    return () => window.removeEventListener("focus", handleWindowFocus);
+  }, []);
 
   useEffect(() => {
     if (!canUseAccountApi || !userKey || remoteEntries === undefined) {
@@ -149,6 +177,7 @@ export const useBookmarkSynchronization = ({
             return;
           }
 
+          failedImportSignatureRef.current = null;
           addClaimedImportSlugs(
             userKey,
             unclaimedGuestEntries.map((entry) => entry.slug),
@@ -164,6 +193,7 @@ export const useBookmarkSynchronization = ({
             return;
           }
 
+          failedImportSignatureRef.current = importSignature;
           dispatch({ type: "importFailure", remoteEntries });
         })
         .finally(() => {
@@ -172,7 +202,13 @@ export const useBookmarkSynchronization = ({
           }
         });
     }
-  }, [canUseAccountApi, importGuestBookmarks, remoteEntries, userKey]);
+  }, [
+    canUseAccountApi,
+    importGuestBookmarks,
+    importRetryRevision,
+    remoteEntries,
+    userKey,
+  ]);
 
   useEffect(() => {
     if (isSignedIn && userKey) {

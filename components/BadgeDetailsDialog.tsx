@@ -280,7 +280,11 @@ export const BadgeDetailsDialog = ({
               </div>
             </div>
 
-            <section aria-labelledby={articlesId} className="mt-6">
+            <section
+              aria-labelledby={articlesId}
+              aria-live="polite"
+              className="mt-6"
+            >
               <div className="flex items-center justify-between gap-3">
                 <h3
                   id={articlesId}

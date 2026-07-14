@@ -10,6 +10,7 @@ import {
   useBookmarks,
 } from "./useBookmarks";
 import {
+  getAccountMirrorStorageKey,
   getClaimedImportStorageKey,
   GUEST_BOOKMARK_STORAGE_KEY,
 } from "@/lib/bookmark-storage";
@@ -229,7 +230,25 @@ describe("bookmark providers", () => {
     expect(latestController.entries).toEqual([bookmark("Shared_slug", 2)]);
   });
 
-  it("falls back to remote entries after an import failure without retrying the same batch", async () => {
+  it("retains mirrored entries when signed in before Convex auth is available", async () => {
+    const mirrored = bookmark("Mirrored_article", 3);
+    localStorage.setItem(
+      getAccountMirrorStorageKey("user-1"),
+      JSON.stringify([mirrored]),
+    );
+    mocks.auth.isSignedIn = true;
+    mocks.auth.userId = "user-1";
+    mocks.convexAuth.isLoading = false;
+    mocks.convexAuth.isAuthenticated = false;
+
+    await renderHybrid();
+
+    expect(latestController.storageMode).toBe("account");
+    expect(latestController.isLoaded).toBe(true);
+    expect(latestController.entries).toEqual([mirrored]);
+  });
+
+  it("falls back after an import failure and retries the batch on window focus", async () => {
     const remote = bookmark("Remote_article", 2);
     localStorage.setItem(
       GUEST_BOOKMARK_STORAGE_KEY,
@@ -239,14 +258,29 @@ describe("bookmark providers", () => {
     mocks.auth.userId = "user-1";
     mocks.convexAuth.isAuthenticated = true;
     mocks.remoteEntries = [remote];
-    mocks.importGuest.mockRejectedValue(new Error("offline"));
+    mocks.importGuest
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(undefined);
 
     await renderHybrid();
     await vi.waitFor(() => expect(latestController.isLoaded).toBe(true));
     expect(latestController.entries).toEqual([remote]);
-
-    await renderHybrid();
     expect(mocks.importGuest).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(getClaimedImportStorageKey("user-1"))).toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.importGuest).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(latestController.entries.map((entry) => entry.slug)).toEqual([
+        "Remote_article",
+        "Guest_article",
+      ]),
+    );
+    expect(
+      JSON.parse(localStorage.getItem(getClaimedImportStorageKey("user-1"))!),
+    ).toEqual(["Guest_article"]);
   });
 });

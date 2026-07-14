@@ -61,7 +61,7 @@ describe("DashboardBadgeCard dialog", () => {
   let requestAnimationFrameSpy: ReturnType<typeof vi.spyOn>;
   let cancelAnimationFrameSpy: ReturnType<typeof vi.spyOn>;
 
-  const renderCard = async () => {
+  const renderCard = async (totalExp = 2) => {
     const badgeCredits = buildEmptyBadgeCreditsByBadge();
     badgeCredits.history = [fallbackCredit];
 
@@ -70,7 +70,7 @@ describe("DashboardBadgeCard dialog", () => {
         <DashboardBadgeCard
           badges={[historyBadge]}
           badgeCredits={badgeCredits}
-          totalExp={2}
+          totalExp={totalExp}
           unlockedBadgeCount={0}
           isLoaded
         />,
@@ -124,8 +124,15 @@ describe("DashboardBadgeCard dialog", () => {
     const articleLink = dialog.querySelector<HTMLAnchorElement>("a[href]")!;
 
     expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(
+      dialog.querySelector("section[aria-live=\"polite\"]"),
+    ).not.toBeNull();
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.activeElement).toBe(closeButton);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+    await renderCard(3);
+    expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
 
     articleLink.focus();
     act(() => {
