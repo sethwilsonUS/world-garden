@@ -17,11 +17,7 @@ export const useMediaQuery = (queryText: string): {
   matches: boolean;
   revision: number;
 } => {
-  const [state, setState] = useState(() => ({
-    matches:
-      typeof window !== "undefined" && window.matchMedia(queryText).matches,
-    revision: 0,
-  }));
+  const [state, setState] = useState({ matches: false, revision: 0 });
 
   useEffect(() => {
     const query = window.matchMedia(queryText);

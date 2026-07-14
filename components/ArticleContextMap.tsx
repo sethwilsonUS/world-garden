@@ -466,6 +466,9 @@ const InteractiveMap = ({
 
           instance.on("error", (event) => {
             if (cancelled || failureReported) return;
+            // MapLibre attaches these resource fields at runtime even though
+            // ErrorEvent does not publicly type them. They let us distinguish
+            // fatal pre-load failures from recoverable tile errors.
             const mapError = event as typeof event & {
               sourceId?: string;
               tile?: unknown;
