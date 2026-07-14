@@ -136,15 +136,16 @@ describe("POST /api/tts", () => {
 
   it("falls back to Edge when OpenAI speech generation fails", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "preview-bypass-secret");
+    vi.stubEnv("VERCEL_URL", "world-garden-preview.vercel.app");
+    const fetchMock = vi.fn<typeof fetch>(
+      async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "https://api.openai.com/v1/audio/speech") {
           return Response.json({ error: { message: "OpenAI unavailable" } }, { status: 503 });
         }
 
-        if (url === "https://curiogarden.org/api/tts/edge") {
+        if (url === "https://world-garden-preview.vercel.app/api/tts/edge") {
           return new Response(new Uint8Array([0xff, 0xfb, 0x91, 0x64]), {
             status: 200,
             headers: { "Content-Type": "audio/mpeg" },
@@ -152,8 +153,9 @@ describe("POST /api/tts", () => {
         }
 
         throw new Error(`Unexpected fetch: ${url}`);
-      }),
+      },
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const { POST } = await import("./route");
     const response = await POST(
@@ -179,6 +181,51 @@ describe("POST /api/tts", () => {
     expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
       "openai_error",
     );
+    const edgeRequest = fetchMock.mock.calls.find(
+      ([input]) =>
+        String(input) ===
+        "https://world-garden-preview.vercel.app/api/tts/edge",
+    );
+    expect(
+      new Headers(edgeRequest?.[1]?.headers).get(
+        "x-vercel-protection-bypass",
+      ),
+    ).toBe("preview-bypass-secret");
+    expect(response.headers.has("x-vercel-protection-bypass")).toBe(false);
+    expect(JSON.stringify(track.mock.calls)).not.toContain(
+      "preview-bypass-secret",
+    );
+  });
+
+  it("never sends the bypass secret to an untrusted request origin", async () => {
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "preview-bypass-secret");
+    vi.stubEnv("VERCEL_URL", "attacker.example");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://attacker.example/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "edge",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Protected Edge TTS origin is unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+      "preview-bypass-secret",
+    );
+    consoleError.mockRestore();
   });
 
   it("falls back to Edge when OpenAI speech generation times out", async () => {
@@ -712,9 +759,8 @@ describe("POST /api/tts", () => {
   });
 
   it("skips OpenAI quota for explicit Edge requests", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "https://curiogarden.org/api/tts/edge") {
           return new Response(new Uint8Array([0xff, 0xfb, 0x96]), {
@@ -723,8 +769,9 @@ describe("POST /api/tts", () => {
           });
         }
         throw new Error(`Unexpected fetch: ${url}`);
-      }),
+      },
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const { POST } = await import("./route");
     const response = await POST(
@@ -743,6 +790,11 @@ describe("POST /api/tts", () => {
       "edge_requested",
     );
     expect(fetchMutation).not.toHaveBeenCalled();
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has(
+        "x-vercel-protection-bypass",
+      ),
+    ).toBe(false);
   });
 
   it("returns a configuration error when OpenAI is forced without a key or fallback", async () => {

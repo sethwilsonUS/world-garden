@@ -48,6 +48,33 @@ const getOpenAiInteractiveFallbackMs = (): number =>
   parsePositiveInt(process.env.TTS_OPENAI_INTERACTIVE_FALLBACK_MS) ??
   DEFAULT_TTS_OPENAI_INTERACTIVE_FALLBACK_MS;
 
+const getEdgeSpeechTarget = (
+  req: NextRequest,
+): { url: URL; protectionHeaders: Record<string, string> } => {
+  const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+  if (!secret) {
+    return {
+      url: new URL("/api/tts/edge", req.url),
+      protectionHeaders: {},
+    };
+  }
+
+  const deploymentHost = process.env.VERCEL_URL?.trim().toLowerCase();
+  if (
+    !deploymentHost ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+vercel\.app$/.test(
+      deploymentHost,
+    )
+  ) {
+    throw new Error("Protected Edge TTS origin is unavailable");
+  }
+
+  return {
+    url: new URL("/api/tts/edge", `https://${deploymentHost}`),
+    protectionHeaders: { "x-vercel-protection-bypass": secret },
+  };
+};
+
 const fetchWithTimeout = async (
   input: RequestInfo | URL,
   init: RequestInit,
@@ -194,9 +221,13 @@ const generateEdgeSpeech = async (
   text: string,
   profile: TtsProfile,
 ): Promise<Buffer> => {
-  const response = await fetchWithTimeout(new URL("/api/tts/edge", req.url), {
+  const { url, protectionHeaders } = getEdgeSpeechTarget(req);
+  const response = await fetchWithTimeout(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...protectionHeaders,
+    },
     body: JSON.stringify({
       text,
       voiceId: profile.voiceId,
