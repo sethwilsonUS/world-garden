@@ -25,10 +25,15 @@ const isRankLabel = (value: string): boolean =>
     normalizeLabel(value),
   );
 
-const isOrdinalPositionLabel = (value: string): boolean =>
-  /^(?:(?:peak|highest|best)(?: chart)? position|chart position|pos|position|rank|ranks|ranking|place|seed)$/.test(
-    normalizeLabel(value),
+const isOrdinalPositionLabel = (value: string): boolean => {
+  const withoutTrailingContext = value.trim().replace(
+    /\s*(?:\([^()]{1,40}\)|[-–—]\s*(?:[A-Z]{2,4}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}))\s*$/,
+    "",
   );
+  return /^(?:(?:peak|highest|best)(?: chart)? position|chart position|pos|position|rank|ranks|ranking|place|seed)$/.test(
+    normalizeLabel(withoutTrailingContext),
+  );
+};
 
 const isEntityLabel = (value: string): boolean =>
   /^(?:team|player|club|country|nation|national olympic committee|noc|competitor|participant|entrant|driver|constructor|school|institution|university|candidate|artist|album|company|organization|title|film|song|work|name|location|city|state|county|region|territory|borough|prefecture|province|municipality|district|department|language|species|genus|island|site|religion|ethnic group)$/.test(
@@ -98,7 +103,10 @@ export const getOrdinalPositionPresentation = (
     return null;
   }
 
-  const numericValues = block.chart.rows.flatMap((row) => {
+  const displayableRows = block.chart.rows.filter((row) =>
+    hasDisplayValue(row[categoryColumn.key]),
+  );
+  const numericValues = displayableRows.flatMap((row) => {
     const value = row[measureSeries.yColumn];
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];
   });
@@ -108,10 +116,9 @@ export const getOrdinalPositionPresentation = (
     return null;
   }
 
-  const rows = block.chart.rows.filter((row) => {
+  const rows = displayableRows.filter((row) => {
     const value = row[measureSeries.yColumn];
-    return hasDisplayValue(row[categoryColumn.key]) &&
-      typeof value === "number" &&
+    return typeof value === "number" &&
       Number.isSafeInteger(value) &&
       value >= 1;
   });

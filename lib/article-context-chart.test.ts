@@ -322,6 +322,45 @@ describe("standard chart presentation", () => {
     expect(getOrdinalPositionPresentation(decimalPosition)).toBeNull();
   });
 
+  it("accepts contextual position labels and reports bounded or unusable rows", () => {
+    const rows = [
+      ...Array.from({ length: 14 }, (_, index) => ({
+        chart: `Chart ${index + 1}`,
+        peak: index + 1,
+      })),
+      { chart: "", peak: -1 },
+    ];
+    const block = standardBlock({
+      columns: [
+        { key: "chart", label: "Chart", dataType: "string" },
+        { key: "peak", label: "Peak position (AUS)", dataType: "number" },
+      ],
+      rows,
+      series: [
+        {
+          id: "peak-position-aus",
+          label: "Peak position — Australia",
+          type: "bar",
+          xColumn: "chart",
+          yColumn: "peak",
+        },
+      ],
+      sourceChartType: "wikitable",
+    });
+
+    const presentation = getOrdinalPositionPresentation(block);
+    expect(presentation).toMatchObject({
+      truncatedRowCount: 2,
+      unusableRowCount: 1,
+    });
+    expect(presentation?.rows).toHaveLength(14);
+    expect(presentation?.visibleRows).toHaveLength(12);
+    expect(presentation?.visibleRows.at(-1)).toMatchObject({
+      chart: "Chart 12",
+      peak: 12,
+    });
+  });
+
   it("separates mixed units into compatible scale families", () => {
     const block = standardBlock({
       columns: [

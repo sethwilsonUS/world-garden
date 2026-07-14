@@ -1918,7 +1918,7 @@ export const ContextChartView = ({
   captionId: string;
 }) => {
   const ranking = getRankedChartPresentation(block);
-  const ordinalPosition = getOrdinalPositionPresentation(block);
+  const ordinalPosition = ranking ? null : getOrdinalPositionPresentation(block);
   return ranking ? (
     <RankingOverview
       block={block}
