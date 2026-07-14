@@ -24,12 +24,14 @@ import type {
 import {
   formatContextChartCell,
   getContextChartPayloadKey,
+  getOrdinalPositionPresentation,
   getRankedBarGeometry,
   getRankedChartPresentation,
   getStandardChartFamilyView,
   getStandardChartPresentation,
   shouldStandardChartUseZeroBaseline,
   type RankedChartPresentation,
+  type OrdinalPositionPresentation,
   type StandardChartRenderKind,
 } from "@/lib/article-context-chart";
 import type { Feature } from "geojson";
@@ -1656,6 +1658,76 @@ const RankingOverview = ({
   );
 };
 
+const OrdinalPositionOverview = ({
+  block,
+  presentation,
+  caption,
+  captionId,
+}: {
+  block: ContextChartBlock;
+  presentation: OrdinalPositionPresentation;
+  caption: string;
+  captionId: string;
+}) => {
+  const headingId = `${block.id}-ordinal-position-heading`;
+  const measureLabel = presentation.measureSeries.label;
+  const omittedDetails = [
+    presentation.truncatedRowCount > 0
+      ? `${presentation.truncatedRowCount} more ${presentation.truncatedRowCount === 1 ? "row remains" : "rows remain"} in Exact chart data`
+      : "",
+    presentation.unusableRowCount > 0
+      ? `${presentation.unusableRowCount} ${presentation.unusableRowCount === 1 ? "source row is" : "source rows are"} omitted because the category or ordinal position is unusable`
+      : "",
+  ].filter(Boolean);
+
+  return (
+    <div className="context-kind-view context-ordinal-position-view">
+      <p className="context-ordinal-position-explanation">
+        Lower numbers indicate a higher position; No. 1 is the highest.
+      </p>
+      <figure className="context-visual context-ordinal-position-overview">
+        <section aria-labelledby={headingId}>
+          <h4 id={headingId}>{measureLabel}</h4>
+          <dl className="context-ordinal-position-list">
+            {presentation.visibleRows.map((row, index) => {
+              const category = formatContextChartCell(
+                row[presentation.categoryColumn.key],
+                presentation.categoryColumn,
+              );
+              const value = formatContextChartCell(
+                row[presentation.measureColumn.key],
+                presentation.measureColumn,
+              );
+              return (
+                <div key={`${category}-${index}`}>
+                  <dt>{category}</dt>
+                  <dd>
+                    <span className="sr-only">{measureLabel}: number </span>
+                    <span aria-hidden="true">No. </span>
+                    <strong>{value}</strong>
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+          <p className="context-ordinal-position-summary">
+            Showing {presentation.visibleRows.length === presentation.rows.length
+              ? `all ${presentation.rows.length}`
+              : `the first ${presentation.visibleRows.length} of ${presentation.rows.length}`} usable positions in source order{omittedDetails.length > 0 ? `; ${omittedDetails.join("; ")}` : ""}.
+          </p>
+        </section>
+        <figcaption id={captionId} className="context-visual-caption">
+          {caption} Positions are ordinal results, so they are shown as exact numbers rather than proportional bars.
+        </figcaption>
+      </figure>
+      <ChartDataDisclosure
+        block={block}
+        rowHeaderKey={presentation.categoryColumn.key}
+      />
+    </div>
+  );
+};
+
 const StandardChartView = ({
   block,
   caption,
@@ -1846,10 +1918,18 @@ export const ContextChartView = ({
   captionId: string;
 }) => {
   const ranking = getRankedChartPresentation(block);
+  const ordinalPosition = ranking ? null : getOrdinalPositionPresentation(block);
   return ranking ? (
     <RankingOverview
       block={block}
       presentation={ranking}
+      caption={caption}
+      captionId={captionId}
+    />
+  ) : ordinalPosition ? (
+    <OrdinalPositionOverview
+      block={block}
+      presentation={ordinalPosition}
       caption={caption}
       captionId={captionId}
     />

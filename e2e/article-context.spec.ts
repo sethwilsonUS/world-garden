@@ -368,6 +368,47 @@ const demographicChartManifest = {
   ],
 } satisfies ContextManifest;
 
+const ordinalPositionManifest = {
+  ...contextManifest,
+  blocks: [
+    {
+      id: "song-chart-peaks",
+      kind: "chart",
+      title: 'Chart performance for "30 Days"',
+      caption:
+        "The song reached number 1 on Euro Digital Song Sales and number 13 in Ireland.",
+      longDescription:
+        "Four chart peaks are listed. Lower numbers indicate a higher chart position. The song reached number 1 on Euro Digital Song Sales, number 13 in Ireland, number 2 in Scotland, and number 7 in the United Kingdom.",
+      section: { index: "1", title: "Early life", anchor: "Early_life" },
+      order: 1,
+      sources: [source],
+      provenance,
+      chart: {
+        columns: [
+          { key: "chart", label: "Chart", dataType: "string" },
+          { key: "peak", label: "Peak position", dataType: "number" },
+        ],
+        rows: [
+          { chart: "Euro Digital Song Sales (Billboard)", peak: 1 },
+          { chart: "Ireland (IRMA)", peak: 13 },
+          { chart: "Scotland Singles (Official Charts)", peak: 2 },
+          { chart: "UK Singles (Official Charts)", peak: 7 },
+        ],
+        series: [
+          {
+            id: "peak-position",
+            label: "Peak position",
+            type: "bar",
+            xColumn: "chart",
+            yColumn: "peak",
+          },
+        ],
+        sourceChartType: "wikitable",
+      },
+    },
+  ],
+} satisfies ContextManifest;
+
 const expectNoSeriousAxeViolations = async (page: Page) => {
   await page.addStyleTag({
     content:
@@ -1344,6 +1385,74 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(1);
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("ordinal chart peaks use exact positions rather than proportional bars", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 760 });
+  await mockArticleAndContext(page, { manifest: ordinalPositionManifest });
+  await page.goto("/article/Ada_Lovelace");
+
+  const card = page.locator("#article-context-song-chart-peaks");
+  await card.scrollIntoViewIfNeeded();
+  await expect(
+    card.getByText(
+      "Lower numbers indicate a higher position; No. 1 is the highest.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const results = card.locator("dl.context-ordinal-position-list");
+  await expect(results.locator(":scope > div")).toHaveCount(4);
+  await expect(results.locator("dt").first()).toHaveText(
+    "Euro Digital Song Sales (Billboard)",
+  );
+  await expect(results.locator("dd").first()).toContainText("No. 1");
+  await expect(results.locator("dd").nth(1)).toContainText("No. 13");
+  await expect(results.locator("dd").nth(2)).toContainText("No. 2");
+  await expect(results.locator("dd").nth(3)).toContainText("No. 7");
+  await expect(card.locator(".context-echarts")).toHaveCount(0);
+  await expect(card.locator(".context-mobile-bar-track")).toHaveCount(0);
+
+  const exactData = card.locator("details.context-data-disclosure");
+  const exactDataSummary = exactData.locator(":scope > summary");
+  await expect(exactData).toHaveJSProperty("open", false);
+  await exactDataSummary.focus();
+  await page.keyboard.press("Enter");
+  await expect(exactData).toHaveJSProperty("open", true);
+  const table = card.getByRole("table", {
+    name: 'Exact data for Chart performance for "30 Days"',
+  });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("row", {
+    name: "Euro Digital Song Sales (Billboard) 1",
+  })).toBeVisible();
+  await expect(table.getByRole("row", { name: "Ireland (IRMA) 13" })).toBeVisible();
+  await expect(table.getByRole("row", {
+    name: "Scotland Singles (Official Charts) 2",
+  })).toBeVisible();
+  await expect(table.getByRole("row", {
+    name: "UK Singles (Official Charts) 7",
+  })).toBeVisible();
+
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
+
+  const mobileCards = await results.locator(":scope > div").evaluateAll((items) =>
+    items.map((item) => item.getBoundingClientRect()),
+  );
+  expect(new Set(mobileCards.map((rect) => Math.round(rect.left))).size).toBe(1);
+  await expectNoSeriousAxeViolations(page);
+
+  await page.setViewportSize({ width: 900, height: 760 });
+  const desktopCards = await results.locator(":scope > div").evaluateAll((items) =>
+    items.map((item) => item.getBoundingClientRect()),
+  );
+  expect(new Set(desktopCards.map((rect) => Math.round(rect.left))).size).toBe(2);
   await expectNoSeriousAxeViolations(page);
 });
 

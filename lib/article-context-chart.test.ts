@@ -3,6 +3,7 @@ import type { ContextChartBlock } from "./article-context-types";
 import {
   formatContextChartCell,
   getContextChartPayloadKey,
+  getOrdinalPositionPresentation,
   getRankedBarGeometry,
   getRankedChartPresentation,
   getStandardChartFamilyView,
@@ -251,6 +252,115 @@ const standardBlock = (
 });
 
 describe("standard chart presentation", () => {
+  it("treats peak positions as ordinal results instead of bar magnitudes", () => {
+    const block = standardBlock({
+      columns: [
+        { key: "chart", label: "Chart", dataType: "string" },
+        { key: "peak", label: "Peak position", dataType: "number" },
+      ],
+      rows: [
+        { chart: "Euro Digital Song Sales (Billboard)", peak: 1 },
+        { chart: "Ireland (IRMA)", peak: 13 },
+        { chart: "Scotland Singles (Official Charts)", peak: 2 },
+        { chart: "UK Singles (Official Charts)", peak: 7 },
+      ],
+      series: [
+        {
+          id: "peak-position",
+          label: "Peak position",
+          type: "bar",
+          xColumn: "chart",
+          yColumn: "peak",
+        },
+      ],
+      sourceChartType: "wikitable",
+    });
+
+    expect(getOrdinalPositionPresentation(block)).toMatchObject({
+      categoryColumn: { key: "chart" },
+      measureColumn: { key: "peak" },
+      measureSeries: { id: "peak-position" },
+      truncatedRowCount: 0,
+      unusableRowCount: 0,
+    });
+    expect(
+      getOrdinalPositionPresentation(block)?.visibleRows.map((row) => row.peak),
+    ).toEqual([1, 13, 2, 7]);
+  });
+
+  it("keeps magnitude and non-integral position measures out of the ordinal view", () => {
+    const capacity = standardBlock({
+      columns: [
+        { key: "venue", label: "Venue", dataType: "string" },
+        { key: "capacity", label: "Capacity", dataType: "number" },
+      ],
+      rows: [
+        { venue: "A", capacity: 80_000 },
+        { venue: "B", capacity: 70_000 },
+      ],
+      series: [
+        { id: "capacity", label: "Capacity", type: "bar", xColumn: "venue", yColumn: "capacity" },
+      ],
+      sourceChartType: "wikitable",
+    });
+    const decimalPosition = standardBlock({
+      columns: [
+        { key: "item", label: "Item", dataType: "string" },
+        { key: "position", label: "Position", dataType: "number" },
+      ],
+      rows: [
+        { item: "A", position: 1.5 },
+        { item: "B", position: 2.5 },
+      ],
+      series: [
+        { id: "position", label: "Position", type: "bar", xColumn: "item", yColumn: "position" },
+      ],
+      sourceChartType: "wikitable",
+    });
+
+    expect(getOrdinalPositionPresentation(capacity)).toBeNull();
+    expect(getOrdinalPositionPresentation(decimalPosition)).toBeNull();
+  });
+
+  it("accepts contextual position labels and reports bounded or unusable rows", () => {
+    const rows = [
+      ...Array.from({ length: 14 }, (_, index) => ({
+        chart: `Chart ${index + 1}`,
+        peak: index + 1,
+      })),
+      { chart: "", peak: -1 },
+    ];
+    const block = standardBlock({
+      columns: [
+        { key: "chart", label: "Chart", dataType: "string" },
+        { key: "peak", label: "Peak position (AUS)", dataType: "number" },
+      ],
+      rows,
+      series: [
+        {
+          id: "peak-position-aus",
+          label: "Peak position — Australia",
+          type: "bar",
+          xColumn: "chart",
+          yColumn: "peak",
+        },
+      ],
+      sourceChartType: "wikitable",
+    });
+
+    const presentation = getOrdinalPositionPresentation(block);
+    expect(presentation).toMatchObject({
+      truncatedRowCount: 2,
+      unusableRowCount: 1,
+    });
+    expect(presentation?.rows).toHaveLength(14);
+    expect(presentation?.visibleRows).toHaveLength(12);
+    expect(presentation?.visibleRows.at(-1)).toMatchObject({
+      chart: "Chart 12",
+      peak: 12,
+    });
+  });
+
   it("separates mixed units into compatible scale families", () => {
     const block = standardBlock({
       columns: [

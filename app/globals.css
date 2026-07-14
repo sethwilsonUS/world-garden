@@ -1388,6 +1388,74 @@ body {
   line-height: 1.6;
 }
 
+.context-ordinal-position-explanation,
+.context-ordinal-position-summary {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.context-ordinal-position-explanation {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent-bg) 45%, transparent);
+}
+
+.context-ordinal-position-overview h4 {
+  margin: 0 0 7px;
+  color: var(--color-foreground);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.context-ordinal-position-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.context-ordinal-position-list > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-surface-2) 70%, transparent);
+}
+
+.context-ordinal-position-list dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-foreground);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.context-ordinal-position-list dd {
+  margin: 0;
+  color: var(--color-foreground-2);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.context-ordinal-position-list dd strong {
+  color: var(--color-accent);
+  font-size: 1rem;
+}
+
+.context-ordinal-position-summary {
+  margin: 9px 0 0;
+}
+
 .context-ranking-panels {
   display: grid;
   min-width: 0;
@@ -1890,6 +1958,14 @@ body {
 }
 
 @media (max-width: 520px) {
+  .context-ordinal-position-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .context-ordinal-position-list > div {
+    padding: 11px 12px;
+  }
+
   .context-ranked-bars li {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
@@ -1956,6 +2032,7 @@ body {
   .context-map-prompt,
   .context-map-canvas,
   .context-echarts,
+  .context-ordinal-position-list > div,
   .context-ranked-bar-track,
   .context-mobile-bar-track,
   .context-data-disclosure,
