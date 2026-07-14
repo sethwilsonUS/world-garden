@@ -1,13 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import {
   useEffect,
   useState,
   useCallback,
   useMemo,
   useRef,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useData, type Article, type Section } from "@/lib/data-context";
@@ -22,7 +20,7 @@ import { ArticleTopics } from "./ArticleTopics";
 import { BookmarkButton } from "./BookmarkButton";
 import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
-import { ArticleGallery, Lightbox, type LightboxState } from "./ArticleGallery";
+import { ArticleGallery, type LightboxState } from "./ArticleGallery";
 import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -74,8 +72,6 @@ import {
 } from "@/lib/tts-profile";
 import { hasFullAudio } from "@/lib/audio-suitability";
 import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
-import { MediaAttribution } from "@/components/MediaAttribution";
-import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
 import {
   ArticleContextLane,
   useArticleContext,
@@ -87,6 +83,13 @@ import {
   type AdaptiveImageAnalysis,
 } from "@/lib/adaptive-image";
 import { getVisibleArticleContextBlocks } from "@/lib/article-context-visibility";
+import {
+  ArticleHero,
+  ArticleLoadError,
+  ArticleLoadingState,
+  AudioErrorNotice,
+  ResumeBanner,
+} from "./ArticleViewPresentation";
 
 type ArticleData = Article & {
   _id?: string;
@@ -1457,77 +1460,19 @@ const ArticleViewContent = ({
   /* ── Loading / Error states ── */
 
   if (fetching && !displayArticle) {
-    return (
-      <div role="status" aria-label="Fetching article from Wikipedia">
-        <div className="garden-bed text-center px-6 py-8">
-          <svg
-            className="animate-spin mx-auto mb-4 text-accent"
-            fill="none"
-            viewBox="0 0 24 24"
-            width="32"
-            height="32"
-            aria-hidden="true"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-          <p className="font-display font-semibold text-foreground">
-            Planting seeds...
-          </p>
-          <p className="text-muted text-sm mt-2">
-            Fetching article from Wikipedia
-          </p>
-        </div>
-      </div>
-    );
+    return <ArticleLoadingState />;
   }
 
   if (fetchError) {
     return (
-      <div className="alert-banner alert-error" role="alert">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          width={20}
-          height={20}
-          aria-hidden="true"
-          className="shrink-0"
-        >
-          <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <div>
-          <p className="font-semibold">Could not load article</p>
-          <p className="text-sm mt-1">
-            {fetchError}
-          </p>
-          <button
-            onClick={() => {
-              setFetchError(null);
-              setFetching(true);
-              loadArticle();
-            }}
-            className="btn-secondary mt-3 px-4 py-2 text-sm"
-            aria-label="Try loading article again"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
+      <ArticleLoadError
+        error={fetchError}
+        onRetry={() => {
+          setFetchError(null);
+          setFetching(true);
+          loadArticle();
+        }}
+      />
     );
   }
 
@@ -1593,205 +1538,25 @@ const ArticleViewContent = ({
         <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
       </div>
 
-      {displayArticle.thumbnailUrl ? (() => {
-        const w = displayArticle.thumbnailWidth ?? 0;
-        const h = displayArticle.thumbnailHeight ?? 0;
-        const hasThumbnailDimensions = w > 0 && h > 0;
-        // Next Image needs intrinsic dimensions; use 16:9 only as a rare metadata fallback.
-        const thumbnailWidth = hasThumbnailDimensions ? w : 1200;
-        const thumbnailHeight = hasThumbnailDimensions ? h : 675;
-        const isPortrait = w > 0 && h >= w;
-        const hasTransparentHero =
-          heroImageAnalysis?.url === displayArticle.thumbnailUrl &&
-          heroImageAnalysis.hasTransparency;
-        const imagePanelStyle = hasTransparentHero
-          ? {
-              background:
-                heroImageAnalysis?.panelBackground ??
-                "linear-gradient(180deg, rgba(244, 241, 232, 0.98), rgba(214, 220, 212, 0.92))",
-              borderColor:
-                heroImageAnalysis?.panelBorderColor ?? "rgba(255, 255, 255, 0.14)",
-            }
-          : undefined;
-        const openHeroLightbox = (
-          event: ReactMouseEvent<HTMLButtonElement>,
-        ) => {
-          setHeroLightbox({ index: 0, opener: event.currentTarget });
-        };
-
-        if (isPortrait) {
-          return (
-            <div
-              className="relative mb-4 overflow-hidden rounded-xl"
-            >
-              <button
-                type="button"
-                onClick={openHeroLightbox}
-                aria-label={`View full image for ${displayArticle.title}`}
-                className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
-              />
-              {/* Wikimedia media stays direct instead of proxying broad Commons URLs through Next. */}
-              <Image
-                src={displayArticle.thumbnailUrl}
-                alt=""
-                aria-hidden="true"
-                fill
-                sizes="100vw"
-                className="object-cover"
-                style={{ transform: 'scale(1.8)', filter: 'blur(80px) brightness(0.65)' }}
-                unoptimized
-              />
-              <div className="absolute inset-0 bg-black/45" />
-              <div className="relative flex items-center justify-center gap-16 p-6 sm:p-10">
-                <div
-                  className={hasTransparentHero
-                    ? "shrink-0 rounded-[1.25rem] border border-white/15 p-3 sm:p-4 shadow-2xl"
-                    : "shrink-0"}
-                  style={imagePanelStyle}
-                >
-                  <Image
-                    src={displayArticle.thumbnailUrl}
-                    alt={displayArticle.title}
-                    width={thumbnailWidth}
-                    height={thumbnailHeight}
-                    className="max-h-56 sm:max-h-72 w-auto object-contain rounded-lg shrink-0"
-                    priority
-                    unoptimized
-                  />
-                </div>
-                {displayArticle.summary && (
-                  <div className="relative z-20 hidden max-w-sm md:block">
-                    <p
-                      className="text-sm leading-relaxed text-white line-clamp-[7]"
-                      style={{ textShadow: '0 1px 4px rgba(0, 0, 0, 0.6)' }}
-                    >
-                      {displayArticle.summary}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        }
-
-        return (
-          <div
-            className="relative mb-4 overflow-hidden rounded-xl"
-          >
-            <AdaptiveImageFrame
-              src={displayArticle.thumbnailUrl}
-              alt={displayArticle.title}
-              width={w}
-              height={h}
-              sizes="100vw"
-              className="h-48 w-full sm:h-64"
-              backdropImageClassName={displayArticle.summary ? "md:pb-24" : undefined}
-              priority
-              unoptimized
-            >
-              {displayArticle.summary && (
-                <div
-                  className="pointer-events-none absolute inset-x-0 bottom-0 hidden rounded-b-xl bg-black/70 px-5 py-4 md:block"
-                  style={{ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
-                >
-                  <p className="text-sm leading-relaxed text-white line-clamp-3">
-                    {displayArticle.summary}
-                  </p>
-                </div>
-              )}
-            </AdaptiveImageFrame>
-            <button
-              type="button"
-              onClick={openHeroLightbox}
-              aria-label={`View full image for ${displayArticle.title}`}
-              className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
-            />
-          </div>
-        );
-      })() : displayArticle.summary && (
-        <div className="hidden min-[360px]:block mb-4">
-          <p className="text-sm leading-relaxed text-muted line-clamp-3">
-            {displayArticle.summary}
-          </p>
-        </div>
-      )}
-
-      {displayArticle.thumbnailUrl && displayArticle.thumbnailAttribution ? (
-        <div className="-mt-1 mb-4 px-1">
-          <MediaAttribution
-            attribution={displayArticle.thumbnailAttribution}
-            compact
-          />
-        </div>
-      ) : null}
-
-      {displayArticle.thumbnailUrl && displayArticle.summary && (
-        <div className="hidden min-[360px]:block md:hidden mb-4">
-          <p className="text-sm leading-relaxed text-muted line-clamp-3">
-            {displayArticle.summary}
-          </p>
-        </div>
-      )}
-
-      {displayArticle.thumbnailUrl && heroLightbox && (
-        <Lightbox
-          images={[{
-            src: displayArticle.thumbnailUrl,
-            originalSrc: displayArticle.thumbnailUrl,
-            alt: displayArticle.title,
-            caption: "",
-            attribution: displayArticle.thumbnailAttribution,
-          }]}
-          state={heroLightbox}
-          onClose={() => setHeroLightbox(null)}
-        />
-      )}
+      <ArticleHero
+        article={displayArticle}
+        imageAnalysis={heroImageAnalysis}
+        lightbox={heroLightbox}
+        onLightboxChange={setHeroLightbox}
+      />
 
       {/* Resume banner */}
       {showResumeBanner && savedProgressState && (
-        <div
-          role="status"
-          className="garden-bed py-4 px-5 mb-4 flex items-center flex-wrap gap-3"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            width={18}
-            height={18}
-            aria-hidden="true"
-            className="text-accent shrink-0"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          <span className="flex-1 text-sm text-foreground-2">
-            Resume from{" "}
-            <strong>
-              {savedProgressState.sectionIndex != null
-                ? sections[savedProgressState.sectionIndex]?.title ?? "previous section"
-                : "summary"}
-            </strong>
-            ?
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={handleResume}
-              className="btn-primary px-4 py-2 text-[0.8125rem]"
-            >
-              Resume
-            </button>
-            <button
-              onClick={handleStartFromBeginning}
-              className="btn-secondary px-4 py-2 text-[0.8125rem]"
-            >
-              Start over
-            </button>
-          </div>
-        </div>
+        <ResumeBanner
+          sectionLabel={
+            savedProgressState.sectionIndex != null
+              ? sections[savedProgressState.sectionIndex]?.title ??
+                "previous section"
+              : "summary"
+          }
+          onResume={handleResume}
+          onStartOver={handleStartFromBeginning}
+        />
       )}
 
       {/* Hidden audio element for playback */}
@@ -1805,44 +1570,21 @@ const ArticleViewContent = ({
 
       {/* Audio error */}
       {audioError && (
-        <div className="garden-bed p-5 mb-6 animate-fade-in-up-delay-1">
-          <div className="alert-banner alert-error" role="alert">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={20}
-              height={20}
-              aria-hidden="true"
-              className="shrink-0 mt-0.5"
-            >
-              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <div>
-              <p className="text-sm">{audioError}</p>
-              <button
-                onClick={() => {
-                  if (audioRetryTarget.sectionKey === "summary") {
-                    warmSummaryForIntent();
-                  }
-                  generateAudio(
-                    audioRetryTarget.sectionKey,
-                    audioRetryTarget.label,
-                    audioRetryTarget.sectionIdx,
-                    "retry",
-                  );
-                }}
-                className="btn-secondary mt-3 px-4 py-2 text-sm"
-                aria-label={audioRetryTarget.ariaLabel}
-              >
-                Try again
-              </button>
-            </div>
-          </div>
-        </div>
+        <AudioErrorNotice
+          error={audioError}
+          retryLabel={audioRetryTarget.ariaLabel}
+          onRetry={() => {
+            if (audioRetryTarget.sectionKey === "summary") {
+              warmSummaryForIntent();
+            }
+            generateAudio(
+              audioRetryTarget.sectionKey,
+              audioRetryTarget.label,
+              audioRetryTarget.sectionIdx,
+              "retry",
+            );
+          }}
+        />
       )}
 
       {/* 3. Table of contents with per-section audio */}
