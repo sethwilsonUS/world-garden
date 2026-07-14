@@ -1,393 +1,37 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { type Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { getAuthenticatedViewerTokenIdentifier } from "./bookmarks";
-import { assembleArticleAudio, getArticleAudioSections, type ArticleAudioSource } from "./lib/articleAudioPipeline";
-import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
-import { uploadBlobToConvexStorage, uploadStreamToConvexStorage } from "./lib/storageUpload";
-import { TTS_NORM_VERSION } from "../lib/tts-normalize";
+import { getArticleAudioSections, type ArticleAudioSource } from "./lib/articleAudioPipeline";
+import { processViewerPlaylistEpisodeForCtx } from "./lib/personalPlaylistWorker";
+import {
+  completeViewerPlaylistEpisodeForCtx,
+  ensureViewerPersonalPodcastFeedForCtx,
+  failViewerPlaylistEpisodeForCtx,
+  getNextQueuedEpisodeForViewerForCtx,
+  getViewerFeedRecord,
+  getViewerFeedRecordByToken,
+  listViewerPlaylistEpisodesForCtx,
+  markViewerPlaylistEpisodeRunningForCtx,
+  moveViewerPlaylistEpisodeForCtx,
+  removeViewerPlaylistEpisodeForCtx,
+  retryViewerPlaylistEpisodeForCtx,
+  updateViewerPlaylistEpisodeProgressForCtx,
+  upsertViewerPlaylistEpisodeForCtx,
+  withStorageUrl,
+  type PersonalPlaylistEpisodeDoc,
+  type UpsertViewerPlaylistEpisodeResult,
+} from "./lib/personalPlaylistPersistence";
 
-const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
-const PERSONAL_PODCAST_ALBUM_TITLE = "Curio Garden Personal Playlist";
-
-type PersonalPlaylistEpisodeStatus = "queued" | "running" | "ready" | "failed";
-type PersonalPlaylistEpisodeStage = "queued" | "rendering_audio" | "packaging";
-
-type PersonalPlaylistEpisodeDoc = {
-  _id: Id<"personalPlaylistEpisodes">;
-  viewerTokenIdentifier: string;
-  articleId: Id<"articles">;
-  wikiPageId: string;
-  slug: string;
-  title: string;
-  description?: string;
-  imageUrl?: string;
-  position: number;
-  publishedAt: number;
-  removedAt?: number;
-  status: PersonalPlaylistEpisodeStatus;
-  stage?: PersonalPlaylistEpisodeStage;
-  sectionCount?: number;
-  completedSectionCount?: number;
-  storageId?: Id<"_storage">;
-  durationSeconds?: number;
-  byteLength?: number;
-  ttsCacheKey?: string;
-  provider?: string;
-  model?: string;
-  voiceId?: string;
-  promptVersion?: string;
-  ttsNormVersion?: string;
-  audioVariants?: ReturnType<typeof upsertTtsAudioVariant>;
-  lastError?: string;
-  leaseOwner?: string;
-  leaseExpiresAt?: number;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type PersonalPodcastFeedDoc = {
-  _id: Id<"personalPodcastFeeds">;
-  viewerTokenIdentifier: string;
-  feedToken: string;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type UpsertViewerPlaylistEpisodeResult = {
-  feedToken: string;
-  episodeId: Id<"personalPlaylistEpisodes">;
-  status: PersonalPlaylistEpisodeStatus;
-  added: boolean;
-  shouldSchedule: boolean;
+export {
+  ensureViewerPersonalPodcastFeedForCtx,
+  listViewerPlaylistEpisodesForCtx,
+  moveViewerPlaylistEpisodeForCtx,
+  removeViewerPlaylistEpisodeForCtx,
+  upsertViewerPlaylistEpisodeForCtx,
 };
 
 const moveDirectionValidator = v.union(v.literal("up"), v.literal("down"));
-
-const createFeedToken = (): string =>
-  `${crypto.randomUUID().replace(/-/g, "")}${crypto.randomUUID().replace(/-/g, "")}`;
-
-const buildPublishedAt = (baseTimestamp: number, position: number): number =>
-  baseTimestamp - position * 60_000;
-
-const withStorageUrl = async <
-  T extends {
-    storageId?: Id<"_storage">;
-  },
->(
-  ctx: {
-    storage: {
-      getUrl(storageId: Id<"_storage">): Promise<string | null>;
-    };
-  },
-  record: T,
-) => {
-  const audioUrl = record.storageId
-    ? await ctx.storage.getUrl(record.storageId)
-    : null;
-  return { ...record, audioUrl };
-};
-
-const sortEpisodesByQueue = (
-  episodes: PersonalPlaylistEpisodeDoc[],
-): PersonalPlaylistEpisodeDoc[] =>
-  [...episodes].sort(
-    (left, right) =>
-      left.position - right.position ||
-      right.publishedAt - left.publishedAt ||
-      left.createdAt - right.createdAt,
-  );
-
-const getViewerFeedRecord = async (
-  ctx: any,
-  viewerTokenIdentifier: string,
-): Promise<PersonalPodcastFeedDoc | null> => {
-  return await ctx.db
-    .query("personalPodcastFeeds")
-    .withIndex("by_viewerTokenIdentifier", (q: any) =>
-      q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
-    )
-    .first();
-};
-
-const getViewerFeedRecordByToken = async (
-  ctx: any,
-  feedToken: string,
-): Promise<PersonalPodcastFeedDoc | null> => {
-  return await ctx.db
-    .query("personalPodcastFeeds")
-    .withIndex("by_feedToken", (q: any) => q.eq("feedToken", feedToken))
-    .first();
-};
-
-const getViewerEpisodes = async (
-  ctx: any,
-  viewerTokenIdentifier: string,
-): Promise<PersonalPlaylistEpisodeDoc[]> => {
-  const records = await ctx.db
-    .query("personalPlaylistEpisodes")
-    .withIndex("by_viewerTokenIdentifier", (q: any) =>
-      q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
-    )
-    .collect();
-
-  return sortEpisodesByQueue(records);
-};
-
-const getActiveViewerEpisodes = async (
-  ctx: any,
-  viewerTokenIdentifier: string,
-): Promise<PersonalPlaylistEpisodeDoc[]> =>
-  (await getViewerEpisodes(ctx, viewerTokenIdentifier)).filter(
-    (episode) => episode.removedAt == null,
-  );
-
-const rewriteActiveViewerQueue = async (
-  ctx: any,
-  episodes: PersonalPlaylistEpisodeDoc[],
-  baseTimestamp = Date.now(),
-) => {
-  const orderedEpisodes = episodes.filter((episode) => episode.removedAt == null);
-
-  for (let index = 0; index < orderedEpisodes.length; index += 1) {
-    const episode = orderedEpisodes[index];
-    await ctx.db.patch(episode._id, {
-      position: index,
-      publishedAt: buildPublishedAt(baseTimestamp, index),
-      updatedAt: baseTimestamp,
-    });
-  }
-};
-
-const findViewerEpisodeByArticle = async (
-  ctx: any,
-  viewerTokenIdentifier: string,
-  articleId: Id<"articles">,
-  slug: string,
-): Promise<PersonalPlaylistEpisodeDoc | null> => {
-  const byArticleId = await ctx.db
-    .query("personalPlaylistEpisodes")
-    .withIndex("by_viewerTokenIdentifier_articleId", (q: any) =>
-      q.eq("viewerTokenIdentifier", viewerTokenIdentifier).eq("articleId", articleId),
-    )
-    .collect();
-
-  const existingByArticleId = sortEpisodesByQueue(byArticleId)[0];
-  if (existingByArticleId) {
-    return existingByArticleId;
-  }
-
-  const bySlug = await ctx.db
-    .query("personalPlaylistEpisodes")
-    .withIndex("by_viewerTokenIdentifier_slug", (q: any) =>
-      q.eq("viewerTokenIdentifier", viewerTokenIdentifier).eq("slug", slug),
-    )
-    .collect();
-
-  return sortEpisodesByQueue(bySlug)[0] ?? null;
-};
-
-export const ensureViewerPersonalPodcastFeedForCtx = async (
-  ctx: any,
-  viewerTokenIdentifier: string,
-): Promise<PersonalPodcastFeedDoc> => {
-  const existing = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
-  if (existing) {
-    return existing;
-  }
-
-  const now = Date.now();
-  const feedToken = createFeedToken();
-  const feedId = await ctx.db.insert("personalPodcastFeeds", {
-    viewerTokenIdentifier,
-    feedToken,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  return {
-    _id: feedId,
-    viewerTokenIdentifier,
-    feedToken,
-    createdAt: now,
-    updatedAt: now,
-  };
-};
-
-export const upsertViewerPlaylistEpisodeForCtx = async (
-  ctx: any,
-  args: {
-    viewerTokenIdentifier: string;
-    articleId: Id<"articles">;
-    wikiPageId: string;
-    slug: string;
-    title: string;
-    description?: string;
-    imageUrl?: string;
-    sectionCount: number;
-  },
-): Promise<UpsertViewerPlaylistEpisodeResult> => {
-  const now = Date.now();
-  const feed = await ensureViewerPersonalPodcastFeedForCtx(
-    ctx,
-    args.viewerTokenIdentifier,
-  );
-  const existing = await findViewerEpisodeByArticle(
-    ctx,
-    args.viewerTokenIdentifier,
-    args.articleId,
-    args.slug,
-  );
-  const activeEpisodes = await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier);
-
-  if (existing && existing.removedAt == null) {
-    await ctx.db.patch(existing._id, {
-      articleId: args.articleId,
-      wikiPageId: args.wikiPageId,
-      slug: args.slug,
-      title: args.title,
-      description: args.description,
-      imageUrl: args.imageUrl,
-      sectionCount: args.sectionCount,
-      updatedAt: now,
-    });
-
-    return {
-      feedToken: feed.feedToken,
-      episodeId: existing._id,
-      status: existing.status,
-      added: false,
-      shouldSchedule: false,
-    };
-  }
-
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      articleId: args.articleId,
-      wikiPageId: args.wikiPageId,
-      slug: args.slug,
-      title: args.title,
-      description: args.description,
-      imageUrl: args.imageUrl,
-      removedAt: undefined,
-      position: activeEpisodes.length,
-      status: "queued",
-      stage: "queued",
-      sectionCount: args.sectionCount,
-      completedSectionCount: 0,
-      storageId: undefined,
-      durationSeconds: undefined,
-      byteLength: undefined,
-      lastError: undefined,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      updatedAt: now,
-    });
-
-    const refreshedEpisodes = [
-      ...activeEpisodes,
-      {
-        ...existing,
-        ...args,
-        removedAt: undefined,
-        position: activeEpisodes.length,
-        status: "queued" as const,
-        stage: "queued" as const,
-        sectionCount: args.sectionCount,
-        completedSectionCount: 0,
-        storageId: undefined,
-        durationSeconds: undefined,
-        byteLength: undefined,
-        lastError: undefined,
-        leaseOwner: undefined,
-        leaseExpiresAt: undefined,
-        updatedAt: now,
-      },
-    ];
-    await rewriteActiveViewerQueue(ctx, refreshedEpisodes, now);
-
-    return {
-      feedToken: feed.feedToken,
-      episodeId: existing._id,
-      status: "queued",
-      added: true,
-      shouldSchedule: true,
-    };
-  }
-
-  const episodeId = await ctx.db.insert("personalPlaylistEpisodes", {
-    viewerTokenIdentifier: args.viewerTokenIdentifier,
-    articleId: args.articleId,
-    wikiPageId: args.wikiPageId,
-    slug: args.slug,
-    title: args.title,
-    description: args.description,
-    imageUrl: args.imageUrl,
-    position: activeEpisodes.length,
-    publishedAt: buildPublishedAt(now, activeEpisodes.length),
-    status: "queued",
-    stage: "queued",
-    sectionCount: args.sectionCount,
-    completedSectionCount: 0,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  await rewriteActiveViewerQueue(
-    ctx,
-    [
-      ...activeEpisodes,
-      {
-        _id: episodeId,
-        viewerTokenIdentifier: args.viewerTokenIdentifier,
-        articleId: args.articleId,
-        wikiPageId: args.wikiPageId,
-        slug: args.slug,
-        title: args.title,
-        description: args.description,
-        imageUrl: args.imageUrl,
-        position: activeEpisodes.length,
-        publishedAt: buildPublishedAt(now, activeEpisodes.length),
-        status: "queued",
-        stage: "queued" as const,
-        sectionCount: args.sectionCount,
-        completedSectionCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
-    now,
-  );
-
-  return {
-    feedToken: feed.feedToken,
-    episodeId,
-    status: "queued" as const,
-    added: true,
-    shouldSchedule: true,
-  };
-};
-
-export const listViewerPlaylistEpisodesForCtx = async (
-  ctx: any,
-  viewerTokenIdentifier: string,
-) => {
-  const episodes = await getActiveViewerEpisodes(ctx, viewerTokenIdentifier);
-  return await Promise.all(
-    episodes.map(async (episode) => {
-      const [episodeWithUrl, article] = await Promise.all([
-        withStorageUrl(ctx, episode),
-        ctx.db.get(episode.articleId),
-      ]);
-      return {
-        ...episodeWithUrl,
-        sourceRevisionId: article?.revisionId,
-      };
-    }),
-  );
-};
 
 export const getViewerFeedToken = query({
   args: {},
@@ -458,43 +102,6 @@ export const addViewerPlaylistEpisodeBySlug = action({
   },
 });
 
-export const moveViewerPlaylistEpisodeForCtx = async (
-  ctx: any,
-  args: {
-    viewerTokenIdentifier: string;
-    episodeId: Id<"personalPlaylistEpisodes">;
-    direction: "up" | "down";
-  },
-) => {
-  const targetEpisode = await ctx.db.get(args.episodeId);
-  if (
-    !targetEpisode ||
-    targetEpisode.viewerTokenIdentifier !== args.viewerTokenIdentifier ||
-    targetEpisode.removedAt != null
-  ) {
-    return { moved: false, position: null };
-  }
-
-  const episodes = await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier);
-  const currentIndex = episodes.findIndex((episode) => episode._id === args.episodeId);
-  if (currentIndex === -1) {
-    return { moved: false, position: null };
-  }
-
-  const nextIndex =
-    args.direction === "up" ? currentIndex - 1 : currentIndex + 1;
-  if (nextIndex < 0 || nextIndex >= episodes.length) {
-    return { moved: false, position: currentIndex };
-  }
-
-  const reorderedEpisodes = [...episodes];
-  const [movedEpisode] = reorderedEpisodes.splice(currentIndex, 1);
-  reorderedEpisodes.splice(nextIndex, 0, movedEpisode);
-
-  await rewriteActiveViewerQueue(ctx, reorderedEpisodes, Date.now());
-  return { moved: true, position: nextIndex };
-};
-
 export const moveViewerPlaylistEpisode = mutation({
   args: {
     episodeId: v.id("personalPlaylistEpisodes"),
@@ -509,36 +116,6 @@ export const moveViewerPlaylistEpisode = mutation({
     });
   },
 });
-
-export const removeViewerPlaylistEpisodeForCtx = async (
-  ctx: any,
-  args: {
-    viewerTokenIdentifier: string;
-    episodeId: Id<"personalPlaylistEpisodes">;
-  },
-) => {
-  const episode = await ctx.db.get(args.episodeId);
-  if (
-    !episode ||
-    episode.viewerTokenIdentifier !== args.viewerTokenIdentifier ||
-    episode.removedAt != null
-  ) {
-    return { removed: false };
-  }
-
-  const now = Date.now();
-  await ctx.db.patch(args.episodeId, {
-    removedAt: now,
-    updatedAt: now,
-  });
-
-  const activeEpisodes = (await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier)).filter(
-    (candidate) => candidate._id !== args.episodeId,
-  );
-  await rewriteActiveViewerQueue(ctx, activeEpisodes, now);
-
-  return { removed: true };
-};
 
 export const removeViewerPlaylistEpisode = mutation({
   args: {
@@ -560,26 +137,14 @@ export const retryViewerPlaylistEpisode = mutation({
   },
   async handler(ctx, args) {
     const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
-    const episode = await ctx.db.get(args.episodeId);
-
-    if (
-      !episode ||
-      episode.viewerTokenIdentifier !== viewerTokenIdentifier ||
-      episode.removedAt != null ||
-      episode.status !== "failed"
-    ) {
-      return { queued: false };
-    }
-
-    await ctx.db.patch(args.episodeId, {
-      status: "queued",
-      stage: "queued",
-      completedSectionCount: 0,
-      lastError: undefined,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      updatedAt: Date.now(),
+    const result = await retryViewerPlaylistEpisodeForCtx(ctx, {
+      viewerTokenIdentifier,
+      episodeId: args.episodeId,
     });
+
+    if (!result.queued) {
+      return result;
+    }
 
     await ctx.scheduler.runAfter(
       0,
@@ -590,7 +155,7 @@ export const retryViewerPlaylistEpisode = mutation({
       },
     );
 
-    return { queued: true };
+    return result;
   },
 });
 
@@ -689,13 +254,7 @@ export const getNextQueuedEpisodeForViewerInternal = internalQuery({
     excludeEpisodeId: v.optional(v.id("personalPlaylistEpisodes")),
   },
   async handler(ctx, args) {
-    const episodes = await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier);
-    return (
-      episodes.find(
-        (episode) =>
-          episode._id !== args.excludeEpisodeId && episode.status === "queued",
-      ) ?? null
-    );
+    return await getNextQueuedEpisodeForViewerForCtx(ctx, args);
   },
 });
 
@@ -705,37 +264,7 @@ export const markViewerPlaylistEpisodeRunningInternal = internalMutation({
     owner: v.string(),
   },
   async handler(ctx, args) {
-    const episode = (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
-    if (!episode || episode.removedAt != null || episode.status !== "queued") {
-      return { claimed: false, viewerTokenIdentifier: null };
-    }
-
-    const now = Date.now();
-    const viewerEpisodes = await getActiveViewerEpisodes(
-      ctx,
-      episode.viewerTokenIdentifier,
-    );
-    const otherRunningEpisode = viewerEpisodes.find(
-      (candidate) =>
-        candidate._id !== args.episodeId &&
-        candidate.status === "running" &&
-        (candidate.leaseExpiresAt ?? 0) > now,
-    );
-
-    if (otherRunningEpisode) {
-      return { claimed: false, viewerTokenIdentifier: episode.viewerTokenIdentifier };
-    }
-
-    await ctx.db.patch(args.episodeId, {
-      status: "running",
-      stage: "rendering_audio",
-      lastError: undefined,
-      leaseOwner: args.owner,
-      leaseExpiresAt: now + PERSONAL_PLAYLIST_LEASE_MS,
-      updatedAt: now,
-    });
-
-    return { claimed: true, viewerTokenIdentifier: episode.viewerTokenIdentifier };
+    return await markViewerPlaylistEpisodeRunningForCtx(ctx, args);
   },
 });
 
@@ -754,50 +283,7 @@ export const completeViewerPlaylistEpisodeInternal = internalMutation({
     ttsNormVersion: v.string(),
   },
   async handler(ctx, args) {
-    const episode = (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
-    if (!episode || episode.leaseOwner !== args.owner) {
-      return { completed: false };
-    }
-
-    const now = Date.now();
-    const audioVariants = upsertTtsAudioVariant(
-      episode.audioVariants,
-      {
-        storageId: args.storageId,
-        durationSeconds: args.durationSeconds,
-        byteLength: args.byteLength,
-        ttsCacheKey: args.ttsCacheKey,
-        provider: args.provider,
-        model: args.model,
-        voiceId: args.voiceId,
-        promptVersion: args.promptVersion,
-        ttsNormVersion: args.ttsNormVersion,
-      },
-      now,
-    );
-
-    await ctx.db.patch(args.episodeId, {
-      status: "ready",
-      stage: undefined,
-      storageId: args.storageId,
-      durationSeconds: args.durationSeconds,
-      byteLength: args.byteLength,
-      ttsCacheKey: args.ttsCacheKey,
-      provider: args.provider,
-      model: args.model,
-      voiceId: args.voiceId,
-      promptVersion: args.promptVersion,
-      ttsNormVersion: args.ttsNormVersion,
-      audioVariants,
-      lastError: undefined,
-      completedSectionCount:
-        episode.sectionCount ?? episode.completedSectionCount ?? 0,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      updatedAt: now,
-    });
-
-    return { completed: true };
+    return await completeViewerPlaylistEpisodeForCtx(ctx, args);
   },
 });
 
@@ -808,21 +294,7 @@ export const failViewerPlaylistEpisodeInternal = internalMutation({
     lastError: v.string(),
   },
   async handler(ctx, args) {
-    const episode = (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
-    if (!episode || episode.leaseOwner !== args.owner) {
-      return { failed: false };
-    }
-
-    await ctx.db.patch(args.episodeId, {
-      status: "failed",
-      stage: undefined,
-      lastError: args.lastError,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      updatedAt: Date.now(),
-    });
-
-    return { failed: true };
+    return await failViewerPlaylistEpisodeForCtx(ctx, args);
   },
 });
 
@@ -839,19 +311,7 @@ export const updateViewerPlaylistEpisodeProgressInternal = internalMutation({
     ),
   },
   async handler(ctx, args) {
-    const episode = (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
-    if (!episode || episode.leaseOwner !== args.owner) {
-      return { updated: false };
-    }
-
-    await ctx.db.patch(args.episodeId, {
-      stage: args.stage,
-      sectionCount: args.sectionCount,
-      completedSectionCount: args.completedSectionCount,
-      updatedAt: Date.now(),
-    });
-
-    return { updated: true };
+    return await updateViewerPlaylistEpisodeProgressForCtx(ctx, args);
   },
 });
 
@@ -861,173 +321,6 @@ export const processViewerPlaylistEpisode = internalAction({
     baseUrl: v.string(),
   },
   async handler(ctx, args) {
-    const episode = await ctx.runQuery(
-      internal.personalPlaylist.getPersonalPlaylistEpisodeInternal,
-      {
-        episodeId: args.episodeId,
-      },
-    );
-
-    if (!episode || episode.removedAt != null || episode.status === "ready") {
-      return;
-    }
-
-    const owner = crypto.randomUUID();
-    const claim = await ctx.runMutation(
-      internal.personalPlaylist.markViewerPlaylistEpisodeRunningInternal,
-      {
-        episodeId: args.episodeId,
-        owner,
-      },
-    );
-
-    if (!claim.claimed || !claim.viewerTokenIdentifier) {
-      return;
-    }
-
-    const scheduleNextQueuedEpisode = async () => {
-      const nextQueuedEpisode = await ctx.runQuery(
-        internal.personalPlaylist.getNextQueuedEpisodeForViewerInternal,
-        {
-          viewerTokenIdentifier: claim.viewerTokenIdentifier!,
-          excludeEpisodeId: args.episodeId,
-        },
-      );
-
-      if (!nextQueuedEpisode) {
-        return;
-      }
-
-      await ctx.scheduler.runAfter(
-        0,
-        internal.personalPlaylist.processViewerPlaylistEpisode,
-        {
-          episodeId: nextQueuedEpisode._id,
-          baseUrl: args.baseUrl,
-        },
-      );
-    };
-
-    const article = await ctx.runQuery(
-      internal.personalPlaylist.getPersonalPlaylistArticleInternal,
-      {
-        articleId: episode.articleId,
-      },
-    );
-
-    if (!article) {
-      await ctx.runMutation(internal.personalPlaylist.failViewerPlaylistEpisodeInternal, {
-        episodeId: args.episodeId,
-        owner,
-        lastError: "Article not found.",
-      });
-      await scheduleNextQueuedEpisode();
-      return;
-    }
-
-    const sections = getArticleAudioSections(article);
-    if (sections.length === 0) {
-      await ctx.runMutation(internal.personalPlaylist.failViewerPlaylistEpisodeInternal, {
-        episodeId: args.episodeId,
-        owner,
-        lastError: "Article does not contain any audio-suitable sections.",
-      });
-      await scheduleNextQueuedEpisode();
-      return;
-    }
-
-    await ctx.runMutation(
-      internal.personalPlaylist.updateViewerPlaylistEpisodeProgressInternal,
-      {
-        episodeId: args.episodeId,
-        owner,
-        completedSectionCount: 0,
-        sectionCount: sections.length,
-        stage: "rendering_audio",
-      },
-    );
-
-    try {
-      const result = await assembleArticleAudio({
-        article: {
-          ...article,
-          slug: article.slug ?? episode.slug,
-        },
-        albumTitle: PERSONAL_PODCAST_ALBUM_TITLE,
-        baseUrl: args.baseUrl,
-        getCachedSectionAudioUrls: async ({ ttsCacheKey }) => {
-          const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
-            articleId: article._id,
-            ttsNormVersion: TTS_NORM_VERSION,
-            ttsCacheKey,
-          });
-          return cachedAudio.urls;
-        },
-        saveSectionAudio: async ({ sectionKey, blob, durationSeconds, metadata }) => {
-          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
-          const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
-          await ctx.runMutation(api.audio.saveSectionAudioRecord, {
-            articleId: article._id,
-            sectionKey,
-            storageId,
-            ttsNormVersion: metadata.ttsNormVersion,
-            ttsCacheKey: metadata.ttsCacheKey,
-            provider: metadata.provider,
-            model: metadata.model,
-            voiceId: metadata.voiceId,
-            promptVersion: metadata.promptVersion,
-            durationSeconds,
-          });
-          const storageUrl = await ctx.storage.getUrl(storageId);
-          if (!storageUrl) {
-            throw new Error("Stored section audio URL could not be resolved.");
-          }
-          return storageUrl;
-        },
-        saveCombinedAudio: async ({ stream, contentType }) => {
-          const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
-          return await uploadStreamToConvexStorage(uploadUrl, stream, contentType);
-        },
-        onProgress: async ({ completedSectionCount, sectionCount, stage }) => {
-          await ctx.runMutation(
-            internal.personalPlaylist.updateViewerPlaylistEpisodeProgressInternal,
-            {
-              episodeId: args.episodeId,
-              owner,
-              completedSectionCount,
-              sectionCount,
-              stage,
-            },
-          );
-        },
-      });
-      await ctx.runMutation(
-        internal.personalPlaylist.completeViewerPlaylistEpisodeInternal,
-        {
-          episodeId: args.episodeId,
-          owner,
-          storageId: result.storageId,
-          durationSeconds: result.durationSeconds,
-          byteLength: result.byteLength,
-          ttsCacheKey: result.metadata.ttsCacheKey,
-          provider: result.metadata.provider,
-          model: result.metadata.model,
-          voiceId: result.metadata.voiceId,
-          promptVersion: result.metadata.promptVersion,
-          ttsNormVersion: result.metadata.ttsNormVersion,
-        },
-      );
-    } catch (error) {
-      await ctx.runMutation(internal.personalPlaylist.failViewerPlaylistEpisodeInternal, {
-        episodeId: args.episodeId,
-        owner,
-        lastError:
-          error instanceof Error
-            ? error.message
-            : "Personal playlist episode generation failed.",
-      });
-    }
-
-    await scheduleNextQueuedEpisode();
+    await processViewerPlaylistEpisodeForCtx(ctx, args);
   },
 });
