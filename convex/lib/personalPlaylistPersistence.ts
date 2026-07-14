@@ -8,7 +8,7 @@ export type PersonalPlaylistMutationCtx = Pick<
   "db" | "storage"
 >;
 
-const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
+export const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
 export type PersonalPlaylistEpisodeDoc = Omit<
   Doc<"personalPlaylistEpisodes">,
   "_creationTime"
@@ -466,6 +466,19 @@ export const getNextQueuedEpisodeForViewerForCtx = async (
   );
 };
 
+const hasActiveEpisodeLease = (
+  episode: PersonalPlaylistEpisodeDoc | null,
+  owner: string,
+  now: number,
+): episode is PersonalPlaylistEpisodeDoc =>
+  Boolean(
+    episode &&
+      episode.removedAt == null &&
+      episode.status === "running" &&
+      episode.leaseOwner === owner &&
+      (episode.leaseExpiresAt ?? 0) > now,
+  );
+
 export const markViewerPlaylistEpisodeRunningForCtx = async (
   ctx: PersonalPlaylistMutationCtx,
   args: {
@@ -474,11 +487,21 @@ export const markViewerPlaylistEpisodeRunningForCtx = async (
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
-  if (!episode || episode.removedAt != null || episode.status !== "queued") {
+  if (!episode || episode.removedAt != null) {
     return { claimed: false, viewerTokenIdentifier: null };
   }
 
   const now = Date.now();
+  const isExpiredRunningEpisode =
+    episode.status === "running" && (episode.leaseExpiresAt ?? 0) <= now;
+  if (episode.status !== "queued" && !isExpiredRunningEpisode) {
+    return {
+      claimed: false,
+      viewerTokenIdentifier:
+        episode.status === "running" ? episode.viewerTokenIdentifier : null,
+    };
+  }
+
   const viewerEpisodes = await getActiveViewerEpisodes(
     ctx,
     episode.viewerTokenIdentifier,
@@ -529,11 +552,11 @@ export const completeViewerPlaylistEpisodeForCtx = async (
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
-  if (!episode || episode.leaseOwner !== args.owner) {
+  const now = Date.now();
+  if (!hasActiveEpisodeLease(episode, args.owner, now)) {
     return { completed: false };
   }
 
-  const now = Date.now();
   const audioVariants = upsertTtsAudioVariant(
     episode.audioVariants,
     {
@@ -583,7 +606,8 @@ export const failViewerPlaylistEpisodeForCtx = async (
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
-  if (!episode || episode.leaseOwner !== args.owner) {
+  const now = Date.now();
+  if (!hasActiveEpisodeLease(episode, args.owner, now)) {
     return { failed: false };
   }
 
@@ -593,7 +617,7 @@ export const failViewerPlaylistEpisodeForCtx = async (
     lastError: args.lastError,
     leaseOwner: undefined,
     leaseExpiresAt: undefined,
-    updatedAt: Date.now(),
+    updatedAt: now,
   });
 
   return { failed: true };
@@ -610,7 +634,8 @@ export const updateViewerPlaylistEpisodeProgressForCtx = async (
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
-  if (!episode || episode.leaseOwner !== args.owner) {
+  const now = Date.now();
+  if (!hasActiveEpisodeLease(episode, args.owner, now)) {
     return { updated: false };
   }
 
@@ -618,7 +643,8 @@ export const updateViewerPlaylistEpisodeProgressForCtx = async (
     stage: args.stage,
     sectionCount: args.sectionCount,
     completedSectionCount: args.completedSectionCount,
-    updatedAt: Date.now(),
+    leaseExpiresAt: now + PERSONAL_PLAYLIST_LEASE_MS,
+    updatedAt: now,
   });
 
   return { updated: true };

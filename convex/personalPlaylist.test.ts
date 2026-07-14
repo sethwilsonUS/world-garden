@@ -7,6 +7,7 @@ import {
   upsertViewerPlaylistEpisodeForCtx,
 } from "./personalPlaylist";
 import {
+  PERSONAL_PLAYLIST_LEASE_MS,
   completeViewerPlaylistEpisodeForCtx,
   failViewerPlaylistEpisodeForCtx,
   getNextQueuedEpisodeForViewerForCtx,
@@ -372,6 +373,85 @@ describe("personal playlist data helpers", () => {
       stage: "rendering_audio",
       leaseOwner: "worker-b",
       leaseExpiresAt: Date.now() + 8 * 60 * 1_000,
+    });
+  });
+
+  it("reclaims an expired running episode and rejects the stale owner", async () => {
+    const episodeId = "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getEpisodes } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "running",
+          stage: "rendering_audio",
+          leaseOwner: "worker-a",
+          leaseExpiresAt: Date.now() + 30_000,
+        }),
+      ],
+    });
+
+    await expect(
+      markViewerPlaylistEpisodeRunningForCtx(ctx, {
+        episodeId,
+        owner: "worker-b",
+      }),
+    ).resolves.toEqual({ claimed: false, viewerTokenIdentifier: "user-1" });
+
+    vi.advanceTimersByTime(30_001);
+    await expect(
+      markViewerPlaylistEpisodeRunningForCtx(ctx, {
+        episodeId,
+        owner: "worker-b",
+      }),
+    ).resolves.toEqual({ claimed: true, viewerTokenIdentifier: "user-1" });
+    await expect(
+      updateViewerPlaylistEpisodeProgressForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        completedSectionCount: 1,
+        sectionCount: 2,
+        stage: "packaging",
+      }),
+    ).resolves.toEqual({ updated: false });
+    await expect(
+      failViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        lastError: "stale worker",
+      }),
+    ).resolves.toEqual({ failed: false });
+    await expect(
+      completeViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        storageId: "storage-1" as Id<"_storage">,
+        durationSeconds: 120,
+        byteLength: 12_000,
+        ttsCacheKey: "tts-key",
+        provider: "edge",
+        model: "edge-tts",
+        voiceId: "voice-1",
+        promptVersion: "prompt-1",
+        ttsNormVersion: "norm-1",
+      }),
+    ).resolves.toEqual({ completed: false });
+
+    await expect(
+      updateViewerPlaylistEpisodeProgressForCtx(ctx, {
+        episodeId,
+        owner: "worker-b",
+        completedSectionCount: 1,
+        sectionCount: 2,
+        stage: "packaging",
+      }),
+    ).resolves.toEqual({ updated: true });
+    expect(getEpisodes()[0]).toMatchObject({
+      status: "running",
+      leaseOwner: "worker-b",
+      leaseExpiresAt: Date.now() + PERSONAL_PLAYLIST_LEASE_MS,
     });
   });
 

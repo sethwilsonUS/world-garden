@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
 import { processViewerPlaylistEpisodeForCtx } from "./personalPlaylistWorker";
 
 describe("personal playlist worker orchestration", () => {
@@ -62,7 +63,7 @@ describe("personal playlist worker orchestration", () => {
     );
   });
 
-  it("does not schedule work when the episode lease cannot be claimed", async () => {
+  it("retries the episode after lease contention", async () => {
     const episodeId = "episode-1" as Id<"personalPlaylistEpisodes">;
     const runQuery = vi.fn().mockResolvedValue({
       _id: episodeId,
@@ -88,6 +89,65 @@ describe("personal playlist worker orchestration", () => {
 
     expect(runQuery).toHaveBeenCalledTimes(1);
     expect(runMutation).toHaveBeenCalledTimes(1);
-    expect(runAfter).not.toHaveBeenCalled();
+    expect(runAfter).toHaveBeenCalledWith(
+      PERSONAL_PLAYLIST_LEASE_MS,
+      internal.personalPlaylist.processViewerPlaylistEpisode,
+      {
+        episodeId,
+        baseUrl: "https://example.com",
+      },
+    );
+  });
+
+  it("schedules a watchdog and the next episode when failure persistence throws", async () => {
+    const episodeId = "episode-1" as Id<"personalPlaylistEpisodes">;
+    const nextEpisodeId = "episode-2" as Id<"personalPlaylistEpisodes">;
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        _id: episodeId,
+        articleId: "article-1" as Id<"articles">,
+        slug: "mars",
+        status: "queued",
+      })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ _id: nextEpisodeId });
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        claimed: true,
+        viewerTokenIdentifier: "user-1",
+      })
+      .mockRejectedValueOnce(new Error("persistence unavailable"));
+    const runAfter = vi.fn().mockResolvedValue(undefined);
+    const ctx = {
+      runQuery,
+      runMutation,
+      scheduler: { runAfter },
+    } as unknown as ActionCtx;
+
+    await processViewerPlaylistEpisodeForCtx(ctx, {
+      episodeId,
+      baseUrl: "https://example.com",
+    });
+
+    expect(runAfter).toHaveBeenNthCalledWith(
+      1,
+      PERSONAL_PLAYLIST_LEASE_MS,
+      internal.personalPlaylist.processViewerPlaylistEpisode,
+      {
+        episodeId,
+        baseUrl: "https://example.com",
+      },
+    );
+    expect(runAfter).toHaveBeenNthCalledWith(
+      2,
+      0,
+      internal.personalPlaylist.processViewerPlaylistEpisode,
+      {
+        episodeId: nextEpisodeId,
+        baseUrl: "https://example.com",
+      },
+    );
   });
 });
