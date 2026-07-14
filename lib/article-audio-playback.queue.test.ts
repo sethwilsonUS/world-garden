@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Section } from "@/lib/data-context";
+import type { Section } from "./data-context";
 import {
   buildPlayAllQueue,
+  createIdleAudioPlayback,
   getAudioRetryTarget,
-} from "./ArticleView";
-import type { AudioPlaybackState } from "./TableOfContents";
+  type AudioPlaybackState,
+} from "./article-audio-playback";
 
 describe("buildPlayAllQueue", () => {
   it("queues only the summary and audio-suitable article sections", () => {
@@ -67,12 +68,8 @@ describe("getAudioRetryTarget", () => {
   const playback = (
     overrides: Partial<AudioPlaybackState>,
   ): AudioPlaybackState => ({
+    ...createIdleAudioPlayback(),
     status: "error",
-    sectionKey: null,
-    sectionIdx: null,
-    label: null,
-    mode: "single",
-    slowLoading: false,
     ...overrides,
   });
 

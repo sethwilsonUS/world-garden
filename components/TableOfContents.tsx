@@ -34,18 +34,13 @@ import {
   SpeedButton,
   SpinnerIcon,
 } from "@/components/TableOfContentsPresentation";
+import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 
-export type AudioPlaybackStatus = "idle" | "loading" | "playing" | "paused" | "error";
-export type AudioPlaybackMode = "single" | "play_all";
-
-export type AudioPlaybackState = {
-  status: AudioPlaybackStatus;
-  sectionKey: string | null;
-  sectionIdx: number | null;
-  label: string | null;
-  mode: AudioPlaybackMode;
-  slowLoading: boolean;
-};
+export type {
+  AudioPlaybackMode,
+  AudioPlaybackState,
+  AudioPlaybackStatus,
+} from "@/lib/article-audio-playback";
 
 type TableOfContentsProps = {
   articleTitle: string;
