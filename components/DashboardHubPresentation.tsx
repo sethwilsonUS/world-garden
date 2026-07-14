@@ -99,7 +99,7 @@ const FeatureCard = ({
   status: string;
   description: string;
   detail: string;
-  action?: React.ReactNode;
+  action?: ReactNode;
   accent?: boolean;
 }) => {
   return (
