@@ -29,6 +29,9 @@ import {
   sanitizeContextCaption as sanitizeContextCaptionFromFoundations,
   sanitizeContextText as sanitizeContextTextFromFoundations,
 } from "./article-context-foundations";
+import {
+  parseContextDateRange as parseContextDateRangeFromTimelines,
+} from "./article-context-timelines";
 
 const request = {
   wikiPageId: "123",
@@ -141,6 +144,7 @@ describe("article context deterministic extraction", () => {
     );
     expect(sanitizeContextCaption).toBe(sanitizeContextCaptionFromFoundations);
     expect(sanitizeContextText).toBe(sanitizeContextTextFromFoundations);
+    expect(parseContextDateRange).toBe(parseContextDateRangeFromTimelines);
     expect(ARTICLE_CONTEXT_EXTRACTOR_VERSION).toBe("2.0.7");
   });
 
@@ -1552,6 +1556,49 @@ describe("article context deterministic extraction", () => {
     expect(timeline?.longDescription).toContain(
       "through December 31, 2022",
     );
+  });
+  it("skips malformed EasyTimeline entries and bounds the accessible summary", () => {
+    const validEntries = Array.from({ length: 14 }, (_, index) => {
+      const day = String(index + 1).padStart(2, "0");
+      const nextDay = String(index + 2).padStart(2, "0");
+      return `from:${day}/06/2024 till:${nextDay}/06/2024 color:TS text:"Event ${index + 1}"`;
+    }).join("\n");
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: '<h2 id="Chronology">Chronology</h2>',
+      wikitext: `== Chronology ==
+        <timeline>
+        DateFormat = dd/mm/yyyy
+        barset:Events
+        ${validEntries}
+        from:31/02/2024 till:01/03/2024 color:TS text:"Impossible date"
+        from:20/06/2024 till:21/06/2024 color:TS
+        from:not-a-date till:22/06/2024 color:TS text:"Broken start"
+        </timeline>`,
+      sections: [
+        {
+          index: "1",
+          line: "Chronology",
+          anchor: "Chronology",
+          level: "2",
+        },
+      ],
+    };
+
+    const timeline = extractArticleContextFromSource(
+      source,
+      request,
+    ).blocks.find((block) => block.kind === "timeline");
+    expect(timeline?.kind).toBe("timeline");
+    if (timeline?.kind !== "timeline") return;
+    expect(timeline.timeline.events).toHaveLength(14);
+    expect(timeline.timeline.events.map((event) => event.label)).not.toContain(
+      "Impossible date",
+    );
+    expect(timeline.longDescription).toContain(
+      "The remaining 2 events are available in the ordered event list.",
+    );
+    expect(timeline.longDescription).not.toContain("Event 13");
   });
 
   it("retains consistent leading currency symbols as chart units", () => {
