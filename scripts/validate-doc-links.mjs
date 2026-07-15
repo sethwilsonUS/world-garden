@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import GithubSlugger from "github-slugger";
 
 const root = process.cwd();
 const excludedDirectories = new Set([
@@ -10,6 +11,7 @@ const excludedDirectories = new Set([
   ".reports",
   ".specstory",
   ".vercel",
+  ".venv",
   "coverage",
   "node_modules",
   "playwright-report",
@@ -53,26 +55,13 @@ const withoutFencedCode = (source) => {
     .join("\n");
 };
 
-const githubSlug = (heading) =>
-  heading
-    .trim()
-    .toLowerCase()
-    .replace(/<[^>]*>/g, "")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[`*_~]/g, "")
-    .replace(/[^\p{L}\p{N}\s-]/gu, "")
-    .replace(/\s+/g, "-");
-
 const headingAnchors = (source) => {
   const anchors = new Set();
-  const occurrences = new Map();
+  const slugger = new GithubSlugger();
   for (const line of withoutFencedCode(source).split("\n")) {
     const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
     if (!match) continue;
-    const base = githubSlug(match[1]);
-    const occurrence = occurrences.get(base) ?? 0;
-    occurrences.set(base, occurrence + 1);
-    anchors.add(occurrence === 0 ? base : `${base}-${occurrence}`);
+    anchors.add(slugger.slug(match[1]));
   }
   return anchors;
 };

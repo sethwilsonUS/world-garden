@@ -30,12 +30,13 @@ From the repository root:
 
 ```bash
 npm ci
-npx convex dev
 npm run dev
 ```
 
-`npx convex dev` creates or selects a development deployment, writes the local
-Convex URL, pushes functions, and keeps generated types current. Add
+`npm run dev` starts Next.js and `convex dev` together. On first use, the Convex
+process creates or selects a development deployment, writes the local Convex
+URL, pushes functions, and keeps generated types current. Run
+`npx convex dev` separately only when you need the backend without Next.js. Add
 `CLERK_JWT_ISSUER_DOMAIN` in the Convex dashboard when testing signed-in flows.
 Secrets used by both Next.js and Convex—such as
 `ARTICLE_CONTEXT_WRITE_SECRET`, `TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and

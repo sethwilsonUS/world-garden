@@ -419,7 +419,7 @@ python -m ruff check _python/
 
 ## Project Structure
 
-```
+```text
 app/                     App Router pages, metadata, and HTTP/cron/RSS routes
 components/              Accessible view components and presentation models
   ArticleView.tsx        Article-page composer
