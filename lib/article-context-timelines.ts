@@ -450,6 +450,7 @@ export const extractEasyTimelineCandidates = ({
     const events: ContextTimelineEvent[] = [];
     let currentBar = "";
     for (const line of lines) {
+      if (events.length > MAX_TIMELINE_EVENTS) break;
       const barMatch = line.match(/^\s*(?:bar|barset)\s*:\s*([^\s]+)/i);
       if (barMatch) currentBar = barMatch[1];
       const extent = line.match(

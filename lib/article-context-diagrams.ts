@@ -40,10 +40,12 @@ const commonsFileSource = (
   figureHtml: string,
   accessedAt: string,
 ): ContextSource | null => {
-  const anchor = figureHtml.match(
-    /<a\b([^>]*)class="[^"]*\bmw-file-description\b[^"]*"[^>]*>/i,
-  );
-  const href = anchor ? parseAttributes(anchor[1]).href : null;
+  const anchorAttrs = [...figureHtml.matchAll(/<a\b([^>]*)>/gi)]
+    .map((match) => parseAttributes(match[1]))
+    .find((attrs) =>
+      attrs.class?.split(/\s+/).includes("mw-file-description"),
+    );
+  const href = anchorAttrs?.href;
   if (!href) return null;
   const fileMatch = href.match(/\/wiki\/(?:File|Image):([^?#]+)/i);
   if (!fileMatch) return null;

@@ -383,6 +383,34 @@ describe("article context deterministic extraction", () => {
     expect(diagram).not.toHaveProperty("spokenSummary");
   });
 
+  it("retains Commons attribution when the file-link class precedes href", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Process">Process</h2>
+        <figure>
+          <a class="image mw-file-description" href="/wiki/File:Ordered_attributes.png">
+            <img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ordered_attributes.png/640px-Ordered_attributes.png" width="640" height="480">
+          </a>
+          <figcaption>A process diagram showing material entering a first stage, crossing a transformation stage, and leaving through the final output.</figcaption>
+        </figure>`,
+      wikitext: "",
+      sections: [
+        { index: "1", line: "Process", anchor: "Process", level: "2" },
+      ],
+    };
+
+    const diagram = extractArticleContextFromSource(
+      source,
+      request,
+    ).blocks.find((block) => block.kind === "diagram");
+    expect(diagram?.sources).toContainEqual(
+      expect.objectContaining({
+        label: "Wikimedia Commons file: Ordered attributes.png",
+        url: "https://commons.wikimedia.org/wiki/File:Ordered_attributes.png",
+      }),
+    );
+  });
+
   it("normalizes source GeoJSON into safe places and routes without exposing properties", () => {
     const source: MediaWikiParsedSource = {
       ...richSource(),
@@ -1599,6 +1627,33 @@ describe("article context deterministic extraction", () => {
       "The remaining 2 events are available in the ordered event list.",
     );
     expect(timeline.longDescription).not.toContain("Event 13");
+  });
+
+  it("rejects EasyTimeline candidates that exceed the event cap", () => {
+    const entries = Array.from({ length: 251 }, (_, index) => {
+      const year = 1000 + index;
+      return `from:${year} till:${year + 1} text:"Event ${index + 1}"`;
+    }).join("\n");
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: '<h2 id="Chronology">Chronology</h2>',
+      wikitext: `== Chronology ==
+        <timeline>
+        DateFormat = yyyy
+        barset:Events
+        ${entries}
+        </timeline>`,
+      sections: [
+        {
+          index: "1",
+          line: "Chronology",
+          anchor: "Chronology",
+          level: "2",
+        },
+      ],
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
   });
 
   it("retains consistent leading currency symbols as chart units", () => {
