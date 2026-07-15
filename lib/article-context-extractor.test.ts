@@ -32,6 +32,10 @@ import {
 import {
   parseContextDateRange as parseContextDateRangeFromTimelines,
 } from "./article-context-timelines";
+import {
+  extractArticleContextFromSource as extractArticleContextFromAssembly,
+  validateContextManifest as validateContextManifestFromAssembly,
+} from "./article-context-assembly";
 
 const request = {
   wikiPageId: "123",
@@ -145,6 +149,10 @@ describe("article context deterministic extraction", () => {
     expect(sanitizeContextCaption).toBe(sanitizeContextCaptionFromFoundations);
     expect(sanitizeContextText).toBe(sanitizeContextTextFromFoundations);
     expect(parseContextDateRange).toBe(parseContextDateRangeFromTimelines);
+    expect(extractArticleContextFromSource).toBe(
+      extractArticleContextFromAssembly,
+    );
+    expect(validateContextManifest).toBe(validateContextManifestFromAssembly);
     expect(ARTICLE_CONTEXT_EXTRACTOR_VERSION).toBe("2.0.7");
   });
 
