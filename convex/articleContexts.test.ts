@@ -9,12 +9,27 @@ import {
   getArticleContextCacheForCtx,
   getLatestArticleContextCacheForCtx,
   getArticleContextModerationForCtx,
+  listArticleContextReportsForCtx,
+  removeArticleContextCacheForCtx,
   setArticleContextModerationForCtx,
   submitArticleContextReportForCtx,
   upsertArticleContextCacheForCtx,
   updateArticleContextReportStatusForCtx,
   validateAndNormalizeManifestJson,
 } from "./articleContexts";
+import {
+  getArticleContextCacheForCtx as getArticleContextCacheForCtxFromCache,
+  removeArticleContextCacheForCtx as removeArticleContextCacheForCtxFromCache,
+} from "./articleContextCache";
+import {
+  getArticleContextModerationForCtx as getArticleContextModerationForCtxFromModeration,
+} from "./articleContextModeration";
+import {
+  listArticleContextReportsForCtx as listArticleContextReportsForCtxFromReports,
+} from "./articleContextReports";
+import {
+  validateAndNormalizeManifestJson as validateAndNormalizeManifestJsonFromValidation,
+} from "./articleContextValidation";
 
 type TableName =
   | "articleContextCaches"
@@ -149,6 +164,26 @@ const manifestJson = (
     blocks,
     ...extra,
   });
+
+describe("article context service facade", () => {
+  it("reexports the focused persistence helpers without wrapping them", () => {
+    expect(getArticleContextCacheForCtx).toBe(
+      getArticleContextCacheForCtxFromCache,
+    );
+    expect(removeArticleContextCacheForCtx).toBe(
+      removeArticleContextCacheForCtxFromCache,
+    );
+    expect(getArticleContextModerationForCtx).toBe(
+      getArticleContextModerationForCtxFromModeration,
+    );
+    expect(listArticleContextReportsForCtx).toBe(
+      listArticleContextReportsForCtxFromReports,
+    );
+    expect(validateAndNormalizeManifestJson).toBe(
+      validateAndNormalizeManifestJsonFromValidation,
+    );
+  });
+});
 
 describe("article context write authorization", () => {
   it("accepts a dedicated secret and falls back to the existing cron secret", () => {
@@ -315,6 +350,33 @@ describe("article context cache persistence", () => {
       }),
     ).resolves.toMatchObject({ sourceHash: "sha256:variant5" });
   });
+
+  it("removes only the exact cache variant and reports whether it existed", async () => {
+    const { ctx, tables } = createCtx();
+    const otherKey = { ...cacheKey, sourceHash: "sha256:other" };
+    await upsertArticleContextCacheForCtx(ctx, {
+      ...cacheKey,
+      manifestJson: manifestJson(),
+      now: 100,
+    });
+    await upsertArticleContextCacheForCtx(ctx, {
+      ...otherKey,
+      manifestJson: manifestJson(otherKey),
+      now: 200,
+    });
+
+    await expect(removeArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBe(
+      true,
+    );
+    await expect(getArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBeNull();
+    await expect(
+      getArticleContextCacheForCtx(ctx, otherKey),
+    ).resolves.toMatchObject({ sourceHash: otherKey.sourceHash });
+    await expect(removeArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBe(
+      false,
+    );
+    expect(tables.articleContextCaches).toHaveLength(1);
+  });
 });
 
 describe("article context reports and moderation", () => {
@@ -435,6 +497,45 @@ describe("article context reports and moderation", () => {
         reason: "accessibility",
       }),
     ).rejects.toThrow("report intake limit");
+  });
+
+  it("lists reports newest-first with status filtering and bounded limits", async () => {
+    const { ctx } = createCtx();
+    await submitArticleContextReportForCtx(ctx, {
+      ...blockKey,
+      reporterKey: "reporter-1",
+      reason: "broken",
+      now: 100,
+    });
+    const second = await submitArticleContextReportForCtx(ctx, {
+      ...blockKey,
+      reporterKey: "reporter-2",
+      reason: "misleading",
+      now: 200,
+    });
+    await updateArticleContextReportStatusForCtx(ctx, {
+      reportId: second.reportId,
+      status: "resolved",
+      now: 250,
+    });
+    await submitArticleContextReportForCtx(ctx, {
+      ...blockKey,
+      reporterKey: "reporter-3",
+      reason: "accessibility",
+      now: 300,
+    });
+
+    await expect(
+      listArticleContextReportsForCtx(ctx, { status: "open", limit: 1 }),
+    ).resolves.toEqual([
+      expect.objectContaining({ reporterKey: "reporter-3", status: "open" }),
+    ]);
+    await expect(
+      listArticleContextReportsForCtx(ctx, { limit: 2 }),
+    ).resolves.toEqual([
+      expect.objectContaining({ reporterKey: "reporter-3" }),
+      expect.objectContaining({ reporterKey: "reporter-2" }),
+    ]);
   });
 
   it("supports owner suppression, bounded text overrides, and clearing", async () => {
