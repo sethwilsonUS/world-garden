@@ -672,6 +672,48 @@ describe("article context deterministic extraction", () => {
     );
   });
 
+  it("rejects a polygon when its exterior or any interior ring is invalid", () => {
+    const validExterior = [
+      [-88, 41],
+      [-87, 41],
+      [-87, 42],
+      [-88, 42],
+      [-88, 41],
+    ];
+    const validInterior = [
+      [-87.8, 41.2],
+      [-87.2, 41.2],
+      [-87.2, 41.8],
+      [-87.8, 41.8],
+      [-87.8, 41.2],
+    ];
+    const invalidRing = [
+      [-87.5, 41.5],
+      [-87.4, 41.5],
+      [-87.5, 41.5],
+    ];
+    const sourceForRings = (rings: number[][][]): MediaWikiParsedSource => ({
+      ...richSource(),
+      html: '<h2 id="Area">Area</h2>',
+      sections: [{ index: "1", line: "Area", anchor: "Area", level: "2" }],
+      wikitext: `== Area ==
+        <mapframe>${JSON.stringify({ type: "Polygon", coordinates: rings })}</mapframe>`,
+    });
+
+    expect(
+      extractArticleContextFromSource(
+        sourceForRings([invalidRing, validInterior]),
+        request,
+      ).blocks,
+    ).toEqual([]);
+    expect(
+      extractArticleContextFromSource(
+        sourceForRings([validExterior, invalidRing]),
+        request,
+      ).blocks,
+    ).toEqual([]);
+  });
+
   it("rejects oversized charts rather than truncating their semantic table", () => {
     const tooMany = Array.from({ length: 251 }, (_, index) => [index, index * 2]);
     const payload = escapeAttribute(
@@ -1775,6 +1817,44 @@ describe("article context dates and sanitization", () => {
 });
 
 describe("revision-matched MediaWiki fetching", () => {
+  it("rejects oversized responses from headers before reading the body", async () => {
+    const requestState: { signal?: AbortSignal | null } = {};
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestState.signal = init?.signal ?? null;
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-length": String(15 * 1024 * 1024 + 1) },
+      });
+    });
+
+    await expect(
+      fetchRevisionMatchedMediaWikiSource(request, { fetchImpl }),
+    ).rejects.toThrow("Wikipedia context response exceeded the safe size limit");
+    expect(requestState.signal?.aborted).toBe(true);
+  });
+
+  it("cancels an oversized streaming response as soon as the byte limit is crossed", async () => {
+    let cancelled = false;
+    let emittedChunks = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        emittedChunks += 1;
+        controller.enqueue(new Uint8Array(1024 * 1024));
+        if (emittedChunks >= 20) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const fetchImpl = vi.fn(async () => new Response(body, { status: 200 }));
+
+    await expect(
+      fetchRevisionMatchedMediaWikiSource(request, { fetchImpl }),
+    ).rejects.toThrow("Wikipedia context response exceeded the safe size limit");
+    expect(cancelled).toBe(true);
+    expect(emittedChunks).toBeLessThan(20);
+  });
+
   it("pins oldid and rejects a mismatched revision", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       expect(String(input)).toContain("oldid=456");

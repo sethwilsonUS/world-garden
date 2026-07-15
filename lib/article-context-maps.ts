@@ -701,13 +701,15 @@ const normalizeGeoJson = (
       return;
     }
     if (type === "Polygon" && Array.isArray(coordinates)) {
-      const rings = coordinates.flatMap((ring) => {
-        if (!Array.isArray(ring)) return [];
+      const rings: ContextCoordinate[][] = [];
+      for (const ring of coordinates) {
+        if (!Array.isArray(ring)) return;
         const points = ring
           .map(coordinatePair)
           .filter((point): point is ContextCoordinate => Boolean(point));
-        return points.length >= 4 && points.length === ring.length ? [points] : [];
-      });
+        if (points.length < 4 || points.length !== ring.length) return;
+        rings.push(points);
+      }
       if (rings.length === 0) return;
       coordinateCount += rings.reduce((sum, ring) => sum + ring.length, 0);
       featureCount += 1;

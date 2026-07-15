@@ -260,6 +260,57 @@ const parseMediaWikiSections = (value: unknown): MediaWikiSectionSource[] => {
   });
 };
 
+const mediaWikiResponseTooLarge = (): ArticleContextUpstreamError =>
+  new ArticleContextUpstreamError(
+    "Wikipedia context response exceeded the safe size limit",
+  );
+
+const readLimitedMediaWikiResponseText = async (
+  response: Response,
+  abort: () => void,
+): Promise<string> => {
+  const contentLengthHeader = response.headers.get("content-length");
+  const contentLength =
+    contentLengthHeader && /^\d+$/.test(contentLengthHeader)
+      ? Number(contentLengthHeader)
+      : null;
+  if (
+    contentLength != null &&
+    Number.isSafeInteger(contentLength) &&
+    contentLength > MAX_MEDIAWIKI_RESPONSE_BYTES
+  ) {
+    abort();
+    throw mediaWikiResponseTooLarge();
+  }
+
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let byteLength = 0;
+  let responseText = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > MAX_MEDIAWIKI_RESPONSE_BYTES) {
+        abort();
+        try {
+          await reader.cancel();
+        } catch {
+          // The abort signal may have already closed the stream.
+        }
+        throw mediaWikiResponseTooLarge();
+      }
+      responseText += decoder.decode(value, { stream: true });
+    }
+    responseText += decoder.decode();
+    return responseText;
+  } finally {
+    reader.releaseLock();
+  }
+};
+
 export const fetchRevisionMatchedMediaWikiSource = async (
   input: ArticleContextRequest,
   options: ArticleContextExtractorOptions = {},
@@ -304,12 +355,9 @@ export const fetchRevisionMatchedMediaWikiSource = async (
     );
   }
 
-  const responseText = await response.text();
-  if (responseText.length > MAX_MEDIAWIKI_RESPONSE_BYTES) {
-    throw new ArticleContextUpstreamError(
-      "Wikipedia context response exceeded the safe size limit",
-    );
-  }
+  const responseText = await readLimitedMediaWikiResponseText(response, () =>
+    controller.abort(),
+  );
 
   let payload: unknown;
   try {
