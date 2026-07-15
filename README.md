@@ -46,13 +46,13 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **Rich context:** MapLibre GL and Apache ECharts as progressive visual enhancements over semantic HTML views
 - **Styling:** Tailwind CSS 4 + CSS custom properties
 - **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
-- **Testing:** Vitest
+- **Testing:** Vitest unit/integration tests plus Playwright Chromium journeys and axe accessibility scans
 
 ## Product Tour
 
 | Home and daily discovery | Article listening | Wikimedia gallery |
 | --- | --- | --- |
-| ![Curio Garden home page](screenshot-home.png) | ![Curio Garden article listening page](screenshot-article.png) | ![Curio Garden Wikimedia image gallery](gallery-full-screenshot.png) |
+| ![Curio Garden home page with search, daily Wikipedia features, and recent listening cards](screenshot-home.png) | ![Ada Lovelace article page with section playback controls, a table of contents, and article text](screenshot-article.png) | ![Stonehenge Wikimedia gallery showing licensed image cards and captions](gallery-full-screenshot.png) |
 
 The live product stays focused on listening. The [/about](https://curiogarden.org/about) page gives technical reviewers a shorter account of the motivation, architecture, provenance model, and major engineering tradeoffs.
 
@@ -85,7 +85,7 @@ Featured podcast episodes and personal playlist episodes both reuse that same se
 Try Curio Garden with zero setup for browsing and discovery — no accounts or backend required:
 
 ```bash
-npm install
+npm ci
 npm run local
 ```
 
@@ -107,7 +107,7 @@ For article caching, synced accounts, personal playlist feeds, and audio caching
 ### 1. Install dependencies
 
 ```bash
-npm install
+npm ci
 ```
 
 ### 2. Set up Convex
@@ -198,6 +198,10 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `OPENAI_TTS_INSTRUCTIONS` | No | Optional narration instructions sent with OpenAI speech requests |
 | `TTS_EDGE_FALLBACK` | No | Set to `"false"` to disable automatic Edge fallback after OpenAI failures |
 | `EDGE_TTS_VOICE_ID` | No | Edge fallback voice; defaults to `en-US-AriaNeural` |
+| `TTS_UPSTREAM_TIMEOUT_MS` | No | Per-provider TTS request timeout; defaults to `45000` ms |
+| `TTS_OPENAI_INTERACTIVE_FALLBACK_MS` | No | Time before an interactive OpenAI request races the Edge fallback; defaults to `25000` ms |
+| `EDGE_TTS_TIMEOUT_MS` | No | Local Edge TTS subprocess timeout; defaults to `60000` ms |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | Protected previews | Vercel automation bypass secret forwarded when a password-protected preview calls its own Edge fallback route |
 | `TTS_PUBLIC_OPENAI_BURST_LIMIT` | No | Public OpenAI TTS burst quota per IP; defaults to `120` requests |
 | `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS` | No | Public OpenAI TTS burst window; defaults to `600000` ms |
 | `TTS_PUBLIC_OPENAI_DAILY_LIMIT` | No | Public OpenAI TTS daily quota per IP; defaults to `800` requests |
@@ -210,11 +214,17 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
 | `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
 | `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
+| `NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS` | No | Browser timeout for each TTS request; defaults to `65000` ms |
+| `NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY` | No | Maximum concurrent browser TTS chunks; defaults to `2` |
 | `CRON_SECRET` | No | Bearer token expected by the scheduled podcast cron routes and manual sync routes |
 | `ARTICLE_CONTEXT_WRITE_SECRET` | Context persistence | Dedicated production secret for context caches, reports, and moderation; use a value distinct from `CRON_SECRET` and set it identically in Vercel and Convex (development alone may fall back to `CRON_SECRET`) |
+| `ARTICLE_CONTEXT_CACHE_TTL_MS` | No | In-process article-context cache lifetime; defaults to `86400000` ms |
+| `ARTICLE_CONTEXT_RATE_LIMIT` | No | Article-context requests allowed per IP/window; defaults to `30` |
+| `ARTICLE_CONTEXT_RATE_WINDOW_MS` | No | Article-context route window; defaults to `300000` ms |
 | `VERCEL_ANALYTICS_DRAIN_SECRET` | No | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain` |
 | `ANALYTICS_REPORT_SECRET` | No | Bearer token used by the local analytics report command and server routes to read/write compact Convex rollups; set the same value in Vercel and Convex |
 | `VERCEL_PROJECT` | No | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees |
+| `VERCEL_ANALYTICS_CLI` | No | Optional command override for the Vercel CLI used by `npm run analytics:site` |
 | `TRENDING_BRIEF_MODEL` | No | Direct OpenAI model for the daily trending brief; defaults to `gpt-5.6-luna` |
 | `CONTEXT_DESCRIPTION_MODEL` | No | Direct OpenAI model for optional article-context accessibility copy; defaults to `gpt-5.6-luna` |
 | `ARTICLE_CONTEXT_AI_ENABLED` | No | Explicitly set `true` to enable OpenAI copy editing; otherwise context descriptions stay deterministic |
@@ -374,146 +384,96 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run local` | Local mode — no Convex, audio through the canonical TTS route with Edge fallback available locally |
 | `npm run analytics:site` | Generate a local accessible analytics report from Vercel logs and optional drain rollups |
 | `npm run build` | Production build (handles Vercel environments) |
-| `npm test` | Run Vitest unit tests |
+| `npm run check` | Canonical baseline: ESLint, TypeScript, and the complete Vitest suite |
+| `npm run typecheck` | Run TypeScript without emitting files |
+| `npm run test` | Run all Vitest tests once |
 | `npm run test:watch` | Watch mode tests |
+| `npm run test:e2e` | Run Chromium journeys and axe accessibility checks in local mode |
 | `npm run lint` | ESLint |
+| `npm run docs:check` | Validate repository-local Markdown links and heading anchors |
+
+## Validation
+
+The canonical local baseline is:
+
+```bash
+npm run check
+npm run docs:check
+LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
+```
+
+`npm run check` runs lint, type checking, and every Vitest file. Rendered UI
+changes also run `npm run test:e2e`, which starts the keyless local-mode app,
+drives Chromium with Playwright, and includes axe accessibility scans.
+
+Changes to the Edge TTS Python function should match CI's import and Ruff
+checks:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt ruff
+python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
+python -m ruff check _python/
+```
 
 ## Project Structure
 
 ```
-app/
-  layout.tsx              Root layout with providers, PWA meta, and accessibility shell
-  AppProviders.tsx        Switches between Convex and local data providers
-  ConvexClientProvider.tsx  Convex client wrapper
-  page.tsx                Landing page with search, featured article, trending, recently listened
-  dashboard/page.tsx      Signed-in account hub for synced library and playlist queue
-  search/page.tsx         Search results page
-  article/[slug]/page.tsx Article view with audio playback
-  library/page.tsx        Saved reading list (guest-local or account-synced)
-  podcast/page.tsx        Redirects legacy /podcast to /podcasts
-  podcasts/page.tsx       Public podcast index page for both feeds
-  podcasts/[slug]/page.tsx Dedicated archive page for each podcast feed
-  globals.css             Design system tokens, utilities, and component styles
-  api/tts/route.ts        Canonical OpenAI-first TTS API route
-  api/tts/edge/route.ts   Edge TTS fallback route (local dev shells out to Python)
-  api/analytics/vercel-drain/route.ts  Signed Vercel Analytics Drain ingestion
-  api/analytics/report-data/route.ts   Protected local-report rollup data endpoint
-  api/featured/route.ts   Featured article API route
-  api/picture-of-day/audio/cron/route.ts  Scheduled Picture of the Day audio prewarm
-  api/trending/brief/route.ts  Daily AI-generated trending briefing API route
-  api/podcast/featured.xml/route.ts  RSS feed for featured podcast episodes
-  api/podcast/featured/sync/route.ts Manual featured-episode generation trigger
-  api/podcast/featured/cron/route.ts Scheduled featured-episode generation trigger
-  api/podcast/personal.xml/route.ts  Tokenized personal playlist RSS feed
-  api/podcast/personal/artwork/route.ts  Personal playlist show artwork
-  api/podcast/trending.xml/route.ts  RSS feed for trending-brief podcast episodes
-  api/podcast/trending/sync/route.ts Manual trending-brief generation trigger
-  api/podcast/trending/cron/route.ts Scheduled trending-brief generation trigger
-  api/podcast/media/[episodeId]/route.ts Stable podcast media URL
-  api/podcast/media/personal/[episodeId]/route.ts Stable personal playlist media URL
-  api/podcast/media/trending/[briefId]/route.ts Stable trending podcast media URL
-  api/podcast/trending/artwork/route.ts Latest trending podcast artwork
-  api/podcast/trending/artwork/[briefId]/route.ts Episode-specific trending artwork
-
-_python/
-  tts.py                 Edge TTS serverless function (Vercel production)
-
-requirements.txt         Python dependencies (edge-tts)
-
-scripts/
-  site-analytics-report.mjs  Local accessible analytics report command
-
-lib/
-  data-context.tsx        DataContext type and useData() hook
-  convex-data-provider.tsx  Convex implementation (wraps useAction hooks)
-  local-data-provider.tsx   Local implementation (direct Wikipedia API calls)
-  audio-prefetch.ts       Prefetches summary audio and article thumbnails
-  featured-article.ts     Shared featured-article lookup helpers
-  trending-brief.ts       OpenAI Responses + TTS pipeline for the daily trending briefing
-  trending-podcast-artwork.ts  Collage artwork generator for trending podcast episodes
-  podcast-directory.ts    Shared podcast-directory metadata and page formatting helpers
-  podcast-episode.ts      Server-side featured podcast generation pipeline
-  podcast-feed.ts         Shared RSS metadata and podcast description helpers
-  podcast-rss.ts          Shared RSS XML formatting helpers
-  personal-show-podcast-artwork.ts  Artwork generator for the personal playlist show
-  tts-normalize.ts        Text normalization for TTS (abbreviation expansion)
-  nsfw-filter.ts          Shared NSFW category/keyword filter and batch title check
-  formatTime.ts           Duration formatting helpers
-
-components/
-  AccessibleLayout.tsx    Skip link, navbar, footer, landmark structure
-  AuthNavControls.tsx     Clerk sign-in, sign-up, and user menu controls
-  DashboardHub.tsx        Signed-in dashboard shell with library and playlist modules
-  SearchForm.tsx          Accessible search form (GET /search?q=...)
-  SearchResultsList.tsx   Wikipedia search results with loading/error states
-  ArticleView.tsx         Article loader with audio playback, thumbnails, and resume
-  ArticleGallery.tsx      Image gallery with captions extracted from article HTML
-  ArticleHeader.tsx       Article metadata, links, license info
-  AudioPlayer.tsx         File-based audio player with seek/scrub/download
-  TableOfContents.tsx     Section list with per-section playback and Play All
-  BookmarkButton.tsx      Save/unsave article to reading list
-  PlaylistActionButton.tsx  Add-article action for the personal playlist queue
-  BackButton.tsx          Navigation back button
-  RecentlyListened.tsx    Recently listened articles grid (home page)
-  FeaturedArticle.tsx     Today's Featured Article card with thumbnail (home page)
-  TodayOnWikipedia.tsx    Featured, Did You Know, news, picture, On This Day, and trending digest
-  CuriousAbout.tsx        Legacy trending articles grid with thumbnails
-  RandomArticleButton.tsx "Surprise me" button with NSFW category filter
-  RelatedArticles.tsx     "Listen next" suggestions after playback
-  LocalModeBanner.tsx     Dismissable banner shown in local mode
-  ThemeProvider.tsx       Dark/light theme with useSyncExternalStore
-  ThemeToggle.tsx         Theme toggle button (sun/moon icons)
-  CopyFeedButton.tsx      Clipboard copy button for podcast feed URLs
-  PodcastFeedActions.tsx  Feed copy helpers and Apple Podcasts instructions
-  ServiceWorkerRegistration.tsx  Registers the PWA service worker
-
-hooks/
-  usePlaybackRate.ts      Persisted playback speed (0.5x–3x)
-  useHistory.ts           Reading history with resume progress tracking
-  useBookmarks.ts         Hybrid reading list / saved articles (guest + account)
-  usePersonalPlaylist.tsx Signed-in personal playlist state and actions
-  useAudioElement.ts      Shared HTML audio element management
-
-convex/
-  auth.config.ts         Clerk JWT provider configuration for Convex
-  auth.ts                Authenticated viewer query used for the integration smoke test
-  schema.ts              Database schema (articles, bookmarks, playlist feeds, podcast episodes/jobs)
-  search.ts              Wikipedia search action
-  articles.ts            Article query, upsert mutation, fetch-and-cache action
-  audio.ts               Section audio caching (query, upload, save)
-  trending.ts            Daily trending-brief queries and mutations
-  podcast.ts             Featured podcast queries, mutations, and upload helpers
-  personalPlaylist.ts    Viewer-scoped playlist queue, generation, and RSS feed helpers
-  lib/
-    wikipedia.ts         Wikipedia REST/Action API client (also used by local mode)
-
-scripts/
-  build.sh               Vercel build script (production/preview/local)
-  dev-tts.py             Local Python TTS dev server
-
-public/
-  manifest.json          PWA manifest
-  sw.js                  Service worker (cache-first for assets, network-first for APIs)
-  icon.svg               App icon
-
-proxy.ts                Clerk middleware entrypoint for App Router auth
+app/                     App Router pages, metadata, and HTTP/cron/RSS routes
+components/              Accessible view components and presentation models
+  ArticleView.tsx        Article-page composer
+  ArticleViewPresentation.tsx
+  TableOfContents.tsx    Canonical section playback view
+  ArticleGallery.tsx     Shared keyboard/focus-managed lightbox gallery
+  DashboardHub.tsx       Account dashboard composer
+hooks/                   Browser orchestration and account-specific UI state
+  useArticleAudioController.ts
+  useArticleContext.ts
+  useArticleSectionMetadata.ts
+  useArticleGalleryImages.ts
+  bookmark-controller.ts
+lib/                     Wikipedia, TTS, podcast, cache, and presentation logic
+  article-context-extractor.ts  Compatibility facade for context extraction
+  article-context-*.ts          Focused maps, timelines, diagrams, charts, and assembly
+convex/                  Schema plus thin public/internal function registrations
+  articleContexts.ts     Article-context compatibility facade
+  articleContext*.ts     Validation, cache, report, and moderation boundaries
+  personalPlaylist.ts    Playlist compatibility facade
+  lib/personalPlaylist*.ts  Typed persistence and worker orchestration
+_python/tts.py           Edge TTS serverless function
+e2e/                     Playwright journeys and axe accessibility checks
+scripts/                 Build, local TTS, analytics, and documentation utilities
+public/                  PWA manifest, service worker, icons, and static assets
+proxy.ts                 Clerk middleware entry point
 ```
 
 ## Data Model
 
-Primary Convex tables:
+`convex/schema.ts` is authoritative. Its tables are grouped here by responsibility:
 
-- `articles` stores cached Wikipedia article data used across search, article views, and podcast generation.
-- `bookmarks` stores saved Library articles keyed by viewer identity, with guest imports merged into signed-in accounts on the same device.
-- `personalPodcastFeeds` stores one opaque feed token per signed-in viewer for the tokenized Personal Playlist RSS feed.
-- `personalPlaylistEpisodes` stores the ordered personal queue plus generation state, progress, and stored MP3 metadata for each playlist episode.
-- `sectionAudio` stores per-section audio blobs keyed by article, section key, provider, model, voice, prompt version, and TTS normalization version.
-- `articleContextCaches` stores bounded, revision- and extractor-matched context manifests; `articleContextReports` and `articleContextModerations` support reader feedback and owner suppression or accessible-text overrides.
-- `podcastShowAssets` stores cached show artwork for featured, trending, and personal feeds.
-- `featuredPodcastEpisodes` stores one generated podcast episode per featured article date, including storage metadata and publication state.
-- `featuredPodcastJobs` tracks scheduled/manual generation attempts and failures for the featured podcast pipeline.
-- `trendingBriefs` stores one AI-generated, TTS-rendered daily briefing per Wikipedia trending date, including provider-versioned audio variants and the image URLs used to generate trending collage artwork.
-- `pictureOfDayAudio` and `pictureOfDayAudioJobs` store the cached daily Picture of the Day spoken description and its generation lease state.
+- **Article and reader state:** `articles`, `bookmarks`,
+  `viewerArticleListenProgress`, and `badgeArticleCredits` store cached articles,
+  signed-in libraries, resumable listening progress, and earned badge credit.
+- **Parsing and navigation caches:** `articleParseCache` and
+  `sectionLinksCache` store revision-aware parsed article and section-link data.
+- **Narration and exports:** `sectionAudio` stores provider/version-specific
+  section audio, while `articleAudioExports` tracks assembled downloadable files.
+- **Article context:** `articleContextCaches`, `articleContextReports`, and
+  `articleContextModerations` store bounded revision-matched manifests, reader
+  reports, and owner suppression or accessible-text overrides.
+- **Personal podcasts:** `personalPodcastFeeds` stores one opaque token per
+  viewer; `personalPlaylistEpisodes` stores ordered queue, lease, progress,
+  retry, publication, and media state.
+- **Public discovery and podcasts:** `featuredPodcastEpisodes`,
+  `featuredPodcastJobs`, `trendingBriefs`, `trendingBriefJobs`,
+  `todaySnapshots`, `didYouKnowAudio`, `didYouKnowAudioJobs`,
+  `pictureOfDayAudio`, and `pictureOfDayAudioJobs` store dated content, audio,
+  media metadata, and worker leases/outcomes.
+- **Shared operations:** `routeQuotas`, `analyticsRollups`,
+  `analyticsDrainDeliveries`, and `podcastShowAssets` store distributed quota
+  windows, privacy-reduced analytics, drain-delivery deduplication, and cached
+  show artwork.
 
 ## Accessibility
 

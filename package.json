@@ -17,9 +17,12 @@
     "build": "bash scripts/build.sh",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "docs:check": "node scripts/validate-doc-links.mjs",
+    "check": "npm-run-all lint typecheck test"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.3",

@@ -10,6 +10,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -40,6 +42,7 @@ yarn-error.log*
 
 # python
 __pycache__/
+.venv/
 .edge-tts-venv/
 
 # typescript

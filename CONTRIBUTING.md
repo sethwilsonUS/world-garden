@@ -11,7 +11,7 @@ Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 ```bash
 git clone https://github.com/<your-username>/world-garden.git
 cd world-garden
-npm install
+npm ci
 ```
 
 2. Run in local mode (no accounts or API keys needed):
@@ -37,12 +37,17 @@ npm run dev       # starts Next.js + Convex in parallel
 git checkout -b feat/your-feature
 ```
 
-2. Make your changes, ensuring tests pass:
+2. Make your changes, then run the canonical repository checks:
 
 ```bash
-npm test
-npm run lint
+npm run check
+npm run docs:check
+LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 ```
+
+For rendered UI changes, also run `npm run test:e2e`. For changes under
+`_python/`, run the Python import and Ruff checks documented under
+[Testing](#testing).
 
 ### TTS worktree workflow
 
@@ -98,11 +103,24 @@ If your change adds a new interactive component, include a brief note in the PR 
 
 ## Testing
 
-We use [Vitest](https://vitest.dev/) for testing:
+`npm run check` is the baseline before every pull request. It runs ESLint,
+TypeScript, and the complete [Vitest](https://vitest.dev/) unit suite:
 
 ```bash
-npm test            # run all tests once
-npm run test:watch  # re-run on file changes
+npm run check       # lint + typecheck + all Vitest tests
+npm run typecheck   # TypeScript only
+npm run test        # Vitest once
+npm run test:watch  # Vitest watch mode
+npm run docs:check  # validate local Markdown links and anchors
+```
+
+The [Playwright](https://playwright.dev/) suite runs Chromium journeys and
+[axe](https://github.com/dequelabs/axe-core-npm) accessibility scans against
+the keyless local-mode app:
+
+```bash
+npx playwright install chromium # one-time local browser install
+npm run test:e2e
 ```
 
 When adding new functionality, include tests that cover:
@@ -111,9 +129,19 @@ When adding new functionality, include tests that cover:
 - Error states and loading states
 - Accessibility-relevant behavior (e.g., ARIA attribute values, keyboard interactions)
 
-Test files live alongside the code they test (e.g., `components/TableOfContents.test.ts`).
+Test files live alongside the code they test (for example,
+`components/TableOfContents.test.ts`).
 
-CI also runs a Python job that validates the Edge TTS serverless function (`_python/tts.py`) and lints it with Ruff.
+CI also validates the Edge TTS serverless function and lints it with Ruff. Run
+the same checks for Python changes:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt ruff
+python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
+python -m ruff check _python/
+```
 
 ## Wikipedia Content
 

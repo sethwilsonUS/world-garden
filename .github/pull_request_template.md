@@ -4,16 +4,16 @@
 
 ## Accessibility
 
-- [ ] Keyboard navigation works for all new/changed interactive elements
-- [ ] Screen reader tested (VoiceOver or NVDA) — announcements are clear and timely
-- [ ] ARIA attributes are correct and present where needed
-- [ ] Color contrast meets AA ratios in both light and dark modes
-- [ ] No information conveyed by color alone
-- [ ] `prefers-reduced-motion` respected for any new animations
+- [ ] Keyboard, focus, screen-reader, contrast, and reduced-motion behavior was verified for changed UI
+- [ ] Playwright/axe coverage was added or updated for accessibility-relevant behavior
+- [ ] Not applicable — this PR does not change rendered UI (explain in the summary)
 
 ## Testing
 
-- [ ] `npm test` passes
-- [ ] `npm run lint` passes
+- [ ] `npm run check` passes (ESLint, TypeScript, and all Vitest tests)
+- [ ] `npm run docs:check` passes
+- [ ] `LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build` passes
+- [ ] `npm run test:e2e` passes for UI changes
+- [ ] Python import validation and `python -m ruff check _python/` pass for Python changes
 - [ ] New logic has corresponding unit tests
-- [ ] Manually tested in at least one browser
+- [ ] Manual verification is described above, or is not applicable
