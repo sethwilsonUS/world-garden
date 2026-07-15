@@ -46,7 +46,7 @@ const sanitizeTableCellText = (value: string): string =>
   sanitizeContextText(
     value
       .replace(
-        /<(?:div|span)\b[^>]*class="[^"]*\b(?:navbar|mw-editsection)\b[^"]*"[^>]*>[\s\S]*?<\/(?:div|span)>/gi,
+        /<(?:div|span)\b[^>]*class\s*=\s*(["'])[^"']*\b(?:navbar|mw-editsection)\b[^"']*\1[^>]*>[\s\S]*?<\/(?:div|span)>/gi,
         " ",
       )
       .replace(

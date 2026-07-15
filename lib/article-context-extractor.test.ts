@@ -32,6 +32,8 @@ import {
 import {
   parseContextDateRange as parseContextDateRangeFromTimelines,
 } from "./article-context-timelines";
+import { parseWikitables } from "./article-context-html-tables";
+import { MAX_CHART_ATTRIBUTE_BYTES } from "./article-context-limits";
 import {
   extractArticleContextFromSource as extractArticleContextFromAssembly,
   validateContextManifest as validateContextManifestFromAssembly,
@@ -775,6 +777,58 @@ describe("article context deterministic extraction", () => {
     expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
   });
 
+  it("rejects chart extensions whose UTF-8 payload exceeds the byte limit", () => {
+    const rawPayload = JSON.stringify({
+      spec: {
+        annotation: "é".repeat(Math.ceil(MAX_CHART_ATTRIBUTE_BYTES / 2)),
+        xAxis: { name: "Year", data: [2022, 2023, 2024] },
+        series: [{ type: "line", name: "Values", data: [1, 2, 3] }],
+      },
+    });
+    expect(rawPayload.length).toBeLessThan(MAX_CHART_ATTRIBUTE_BYTES);
+    expect(new TextEncoder().encode(rawPayload).byteLength).toBeGreaterThan(
+      MAX_CHART_ATTRIBUTE_BYTES,
+    );
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<wiki-chart data-mw-chart="${escapeAttribute(rawPayload)}"></wiki-chart>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+  });
+
+  it("rejects duplicate x values within one chart-extension series", () => {
+    const payload = escapeAttribute(
+      JSON.stringify({
+        spec: {
+          xAxis: { name: "Year" },
+          series: [
+            {
+              type: "line",
+              name: "Values",
+              data: [
+                [2022, 1],
+                [2022, 2],
+                [2023, 3],
+                [2024, 4],
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<wiki-chart data-mw-chart="${payload}"></wiki-chart>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    expect(extractArticleContextFromSource(source, request).blocks).toEqual([]);
+  });
+
   it("preserves every chart-extension series that fits and rejects an over-wide source", () => {
     const makePayload = (seriesCount: number) =>
       escapeAttribute(
@@ -858,6 +912,21 @@ describe("article context deterministic extraction", () => {
     const manifest = extractArticleContextFromSource(source, request);
     expect(manifest.blocks).toHaveLength(1);
     expect(manifest.blocks[0].kind).toBe("chart");
+  });
+
+  it("strips table navigation helpers with single-quoted class attributes", () => {
+    const [table] = parseWikitables(
+      `<table class='wikitable'>
+        <tr><th><span class='mw-editsection'>edit</span>Year</th><th>Value</th></tr>
+        <tr><td><div class='navbar'>navigation</div>2022</td><td>1</td></tr>
+        <tr><td>2023</td><td>2</td></tr>
+        <tr><td>2024</td><td>3</td></tr>
+      </table>`,
+      [{ index: "__summary__", title: "Summary", start: 0 }],
+    );
+
+    expect(table?.headers).toEqual(["Year", "Value"]);
+    expect(table?.rows[0]).toEqual(["2022", "1"]);
   });
 
   it.each([

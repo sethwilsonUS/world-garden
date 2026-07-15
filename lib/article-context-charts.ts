@@ -38,6 +38,8 @@ import {
   parseContextDateRange,
 } from "./article-context-timelines";
 
+const utf8Encoder = new TextEncoder();
+
 const firstAxisRecord = (value: unknown): JsonRecord | null => {
   if (isRecord(value)) return value;
   if (Array.isArray(value)) {
@@ -576,7 +578,7 @@ const normalizeChartExtension = (
   const rowMap = new Map<string, Record<string, ContextChartCell>>();
   const rowOrder: string[] = [];
 
-  normalizedSeries.forEach((normalized, seriesIndex) => {
+  for (const [seriesIndex, normalized] of normalizedSeries.entries()) {
     const yKey = uniqueColumnKey(normalized.label, usedKeys);
     const unit = inferUnit(normalized.label) ?? inferUnit(yLabel) ?? inheritedUnit;
     columns.push({
@@ -593,13 +595,16 @@ const normalizeChartExtension = (
       yColumn: yKey,
       ...(unit ? { unit } : {}),
     });
-    normalized.data.forEach((datum, datumIndex) => {
+    const seriesXKeys = new Set<string>();
+    for (const [datumIndex, datum] of normalized.data.entries()) {
       const x =
         datum.x ??
         datum.label ??
         categoryValues[datumIndex] ??
         String(datumIndex + 1);
       const rowKey = `${typeof x}:${String(x)}`;
+      if (seriesXKeys.has(rowKey)) return null;
+      seriesXKeys.add(rowKey);
       let row = rowMap.get(rowKey);
       if (!row) {
         row = { [xKey]: x };
@@ -607,8 +612,8 @@ const normalizeChartExtension = (
         rowOrder.push(rowKey);
       }
       row[yKey] = datum.y;
-    });
-  });
+    }
+  }
 
   const rows = rowOrder.map((key) => {
     const row = rowMap.get(key)!;
@@ -662,7 +667,9 @@ export const extractChartExtensionCandidates = ({
   for (const match of source.html.matchAll(/<wiki-chart\b([^>]*)>/gi)) {
     const attrs = parseAttributes(match[1]);
     const raw = attrs["data-mw-chart"];
-    if (!raw || raw.length > MAX_CHART_ATTRIBUTE_BYTES) continue;
+    if (!raw || utf8Encoder.encode(raw).byteLength > MAX_CHART_ATTRIBUTE_BYTES) {
+      continue;
+    }
     let payload: unknown;
     try {
       payload = JSON.parse(raw);
