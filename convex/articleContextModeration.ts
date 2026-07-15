@@ -77,7 +77,7 @@ export const setArticleContextModerationForCtx = async (
       mode: args.mode,
       status: "active",
       override,
-      note,
+      note: args.note === undefined ? existing.note : note,
       updatedAt: now,
     });
     return { moderationId: existing._id, created: false };

@@ -572,6 +572,36 @@ describe("article context reports and moderation", () => {
     expect(await getArticleContextModerationForCtx(ctx, blockKey)).toBeNull();
   });
 
+  it("preserves an existing moderation note unless a replacement is provided", async () => {
+    const { ctx, tables } = createCtx();
+    await setArticleContextModerationForCtx(ctx, {
+      ...blockKey,
+      mode: "suppress",
+      note: "Source data needs review.",
+      now: 100,
+    });
+    await setArticleContextModerationForCtx(ctx, {
+      ...blockKey,
+      mode: "override",
+      override: { caption: "Corrected caption." },
+      now: 200,
+    });
+
+    expect(tables.articleContextModerations[0]).toMatchObject({
+      mode: "override",
+      note: "Source data needs review.",
+    });
+
+    await setArticleContextModerationForCtx(ctx, {
+      ...blockKey,
+      mode: "override",
+      override: { caption: "Another corrected caption." },
+      note: "   ",
+      now: 300,
+    });
+    expect(tables.articleContextModerations[0].note).toBeUndefined();
+  });
+
   it("maps legacy stored takeaway overrides to caption and ignores spokenSummary", async () => {
     const { ctx, tables } = createCtx();
     tables.articleContextModerations.push({
