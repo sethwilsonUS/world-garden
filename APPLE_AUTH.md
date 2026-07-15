@@ -23,9 +23,9 @@ Make sure all of these are already working:
    - `CLERK_SECRET_KEY`
    - `CLERK_JWT_ISSUER_DOMAIN`
 4. Curio Garden is already using Clerk's standard hosted auth flow through:
-   - `ClerkProvider` in [app/layout.tsx](/Users/sethwilson/dev/world-garden/app/layout.tsx)
-   - `SignInButton` in [components/AuthNavControls.tsx](/Users/sethwilson/dev/world-garden/components/AuthNavControls.tsx)
-5. Clerk is already bridged into Convex through [lib/convex-data-provider.tsx](/Users/sethwilson/dev/world-garden/lib/convex-data-provider.tsx)
+   - `ClerkProvider` in [app/layout.tsx](app/layout.tsx)
+   - `SignInButton` in [components/AuthNavControls.tsx](components/AuthNavControls.tsx)
+5. Clerk is already bridged into Convex through [lib/convex-data-provider.tsx](lib/convex-data-provider.tsx)
 
 No Convex auth schema or JWT template change is expected just for adding Apple as another Clerk provider.
 
@@ -58,7 +58,7 @@ Do this before you click any download button in Apple Developer:
 2. A good example path is `~/Documents/secure-temp/apple-auth/`.
 3. Create that folder before starting if it does not already exist.
 4. Download the `.p8` file there.
-5. Do **not** move it into `/Users/sethwilson/dev/world-garden`.
+5. Do **not** move it into this repository.
 6. Do **not** commit it to git.
 7. When Clerk is configured and tested, either delete the file or move it into your normal secure credential storage.
 

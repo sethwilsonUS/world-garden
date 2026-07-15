@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint
@@ -24,6 +27,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
+      - name: Validate documentation links
+        run: npm run docs:check
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
@@ -39,7 +45,7 @@ jobs:
         run: npm ci
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
   build:
     name: Production Build

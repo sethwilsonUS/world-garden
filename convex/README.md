@@ -1,90 +1,62 @@
-# Welcome to your Convex functions directory!
+# Curio Garden Convex Backend
 
-Write your Convex functions here.
-See https://docs.convex.dev/functions for more.
+This directory contains Curio Garden's persisted data model, account-scoped
+queries and mutations, scheduled workers, Wikipedia actions, and generated
+audio/podcast storage workflows. The Next.js app can run without Convex in
+local mode, but synced accounts, durable caches, personal playlists, analytics
+rollups, and publication jobs use this backend.
 
-A query function that takes two arguments looks like:
+## Important entry points
 
-```ts
-// convex/myFunctions.ts
-import { query } from "./_generated/server";
-import { v } from "convex/values";
+- `schema.ts` is the source of truth for tables and indexes.
+- `auth.config.ts` connects Clerk JWT sessions to Convex.
+- `articles.ts`, `audio.ts`, and `bookmarks.ts` expose the core article,
+  narration-cache, and signed-in library operations.
+- `personalPlaylist.ts` preserves the public playlist API while delegating
+  persistence and worker orchestration to focused modules.
+- `articleContexts.ts` preserves the article-context API while validation,
+  cache, report, and moderation logic lives in focused sibling modules.
+- `featured.ts`, `podcast.ts`, `trending.ts`, and their worker modules manage
+  daily discovery and podcast generation.
+- `lib/` contains reusable server-only helpers, including the Wikipedia client.
 
-export const myQueryFunction = query({
-  // Validators for arguments.
-  args: {
-    first: v.number(),
-    second: v.string(),
-  },
+Files under `_generated/` are produced by the Convex CLI. Do not hand-edit
+them; run `npx convex dev` or `npx convex codegen` after changing registrations
+or the schema.
 
-  // Function implementation.
-  handler: async (ctx, args) => {
-    // Read the database as many times as you need here.
-    // See https://docs.convex.dev/database/reading-data.
-    const documents = await ctx.db.query("tablename").collect();
+## Local development
 
-    // Arguments passed from the client are properties of the args object.
-    console.log(args.first, args.second);
+From the repository root:
 
-    // Write arbitrary JavaScript here: filter, aggregate, build derived data,
-    // remove non-public properties, or create new objects.
-    return documents;
-  },
-});
+```bash
+npm ci
+npm run dev
 ```
 
-Using this query function in a React component looks like:
+`npm run dev` starts Next.js and `convex dev` together. On first use, the Convex
+process creates or selects a development deployment, writes the local Convex
+URL, pushes functions, and keeps generated types current. Run
+`npx convex dev` separately only when you need the backend without Next.js. Add
+`CLERK_JWT_ISSUER_DOMAIN` in the Convex dashboard when testing signed-in flows.
+Secrets used by both Next.js and Convex—such as
+`ARTICLE_CONTEXT_WRITE_SECRET`, `TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and
+`ANALYTICS_REPORT_SECRET`—must match across the two environments where their
+corresponding features are enabled.
 
-```ts
-const data = useQuery(api.myFunctions.myQueryFunction, {
-  first: 10,
-  second: "hello",
-});
+## Validation and deployment
+
+Convex logic is covered by the repository's colocated Vitest suites. Before a
+pull request, run:
+
+```bash
+npm run check
+LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 ```
 
-A mutation function looks like:
+Production deployment is handled by `scripts/build.sh` on Vercel. A production
+build runs `convex deploy`; a preview build creates an isolated Convex preview
+deployment for the branch. Run `npx convex deploy` manually only when you
+intend to update the configured production deployment.
 
-```ts
-// convex/myFunctions.ts
-import { mutation } from "./_generated/server";
-import { v } from "convex/values";
-
-export const myMutationFunction = mutation({
-  // Validators for arguments.
-  args: {
-    first: v.string(),
-    second: v.string(),
-  },
-
-  // Function implementation.
-  handler: async (ctx, args) => {
-    // Insert or modify documents in the database here.
-    // Mutations can also read from the database like queries.
-    // See https://docs.convex.dev/database/writing-data.
-    const message = { body: args.first, author: args.second };
-    const id = await ctx.db.insert("messages", message);
-
-    // Optionally, return a value from your mutation.
-    return await ctx.db.get("messages", id);
-  },
-});
-```
-
-Using this mutation function in a React component looks like:
-
-```ts
-const mutation = useMutation(api.myFunctions.myMutationFunction);
-function handleButtonPress() {
-  // fire and forget, the most common way to use mutations
-  mutation({ first: "Hello!", second: "me" });
-  // OR
-  // use the result once the mutation has completed
-  mutation({ first: "Hello!", second: "me" }).then((result) =>
-    console.log(result),
-  );
-}
-```
-
-Use the Convex CLI to push your functions to a deployment. See everything
-the Convex CLI can do by running `npx convex -h` in your project root
-directory. To learn more, launch the docs with `npx convex docs`.
+See the root [README](../README.md) for the complete architecture, environment
+variable reference, data model, and scheduled-job inventory.

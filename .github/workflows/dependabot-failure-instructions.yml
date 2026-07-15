@@ -47,14 +47,14 @@ jobs:
             Local checkout:
 
             \`\`\`sh
-            cd /Users/sethwilson/dev/world-garden
+            cd /path/to/world-garden
             gh pr checkout ${pr.number}
             nvm install
             nvm use
             npm ci
-            npm run lint
-            npx tsc --noEmit
-            npm run test
+            npm run check
+            npm run docs:check
+            LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
             python -m venv .venv
             . .venv/bin/activate
             python -m pip install -r requirements.txt
@@ -65,7 +65,7 @@ jobs:
 
             Suggested Codex prompt:
 
-            > Help me fix this failed Dependabot PR in /Users/sethwilson/dev/world-garden. Start by inspecting the failing GitHub Actions run and local diff, then make the smallest compatibility fix needed. This repo has npm and Python dependencies. Run the commands above before summarizing what changed.
+            > Help me fix this failed Dependabot PR in my world-garden checkout. Start by inspecting the failing GitHub Actions run and local diff, then make the smallest compatibility fix needed. This repo has npm and Python dependencies. Run the commands above before summarizing what changed.
             `;
 
             const comments = await github.paginate(github.rest.issues.listComments, {
