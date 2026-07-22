@@ -103,12 +103,13 @@ If your change adds a new interactive component, include a brief note in the PR 
 
 ## Testing
 
-`npm run check` is the baseline before every pull request. It runs ESLint,
-TypeScript, and the complete [Vitest](https://vitest.dev/) unit suite:
+`npm run check` is the baseline before every pull request. It validates the
+Node toolchain, runs ESLint and both supported TypeScript compiler paths, and
+executes the complete [Vitest](https://vitest.dev/) unit suite:
 
 ```bash
-npm run check       # lint + typecheck + all Vitest tests
-npm run typecheck   # TypeScript only
+npm run check       # toolchain + lint + both typecheck paths + all Vitest tests
+npm run typecheck   # TypeScript 7 CLI + TypeScript 6 tooling compatibility
 npm run test        # Vitest once
 npm run test:watch  # Vitest watch mode
 npm run docs:check  # validate local Markdown links and anchors

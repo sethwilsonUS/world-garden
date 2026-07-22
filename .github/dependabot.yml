@@ -9,6 +9,12 @@ updates:
       timezone: "America/Chicago"
     open-pull-requests-limit: 3
     versioning-strategy: "increase-if-necessary"
+    # Node majors are platform migrations: .nvmrc, package engines, runtime
+    # declarations, CI, and Vercel must move together.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
     groups:
       production-minor-patch:
         dependency-type: "production"

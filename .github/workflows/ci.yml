@@ -44,6 +44,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate toolchain alignment
+        run: npm run toolchain:check
+
       - name: Type check
         run: npm run typecheck
 
