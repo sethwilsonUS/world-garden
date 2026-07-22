@@ -93,7 +93,9 @@ export const getWikimediaFileTitleFromUrl = (
     const segments = pathname.split("/").filter(Boolean);
     const thumbIndex = segments.indexOf("thumb");
     const filename =
-      thumbIndex >= 0 ? segments[thumbIndex + 3] : segments.at(-1);
+      thumbIndex >= 0
+        ? segments[thumbIndex + 3]
+        : segments[segments.length - 1];
     if (!filename) return undefined;
     return `File:${decodeURIComponent(filename).replace(/_/g, " ")}`;
   } catch {
