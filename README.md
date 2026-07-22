@@ -2,7 +2,7 @@
 
 ![Next.js](https://img.shields.io/badge/Next.js-16.2.7-black?logo=next.js)
 ![React](https://img.shields.io/badge/React-19.2.7-61DAFB?logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-7.0-3178C6?logo=typescript&logoColor=white)
 ![Convex](https://img.shields.io/badge/Convex-1.40-F3694C?logo=convex&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![WCAG 2.2 AA target](https://img.shields.io/badge/WCAG_2.2-AA_target-green?logo=accessibility&logoColor=white)
@@ -101,7 +101,7 @@ For article caching, synced accounts, personal playlist feeds, and audio caching
 
 ### Prerequisites
 
-- Node.js 22.13.0 (or another Node 22 release that satisfies `>=22.13.0 <23`)
+- Node.js 24 (the current LTS line; `nvm use` reads the repository's `.nvmrc`)
 - A [Convex](https://convex.dev) account
 
 ### 1. Install dependencies
@@ -384,8 +384,9 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run local` | Local mode — no Convex, audio through the canonical TTS route with Edge fallback available locally |
 | `npm run analytics:site` | Generate a local accessible analytics report from Vercel logs and optional drain rollups |
 | `npm run build` | Production build (handles Vercel environments) |
-| `npm run check` | Canonical baseline: ESLint, TypeScript, and the complete Vitest suite |
-| `npm run typecheck` | Run TypeScript without emitting files |
+| `npm run check` | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
+| `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major |
+| `npm run typecheck` | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files |
 | `npm run test` | Run all Vitest tests once |
 | `npm run test:watch` | Watch mode tests |
 | `npm run test:e2e` | Run Chromium journeys and axe accessibility checks in local mode |
@@ -402,7 +403,10 @@ npm run docs:check
 LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 ```
 
-`npm run check` runs lint, type checking, and every Vitest file. Rendered UI
+`npm run check` validates the toolchain, runs lint and both supported TypeScript
+compiler paths, and executes every Vitest file. See [Toolchain](docs/toolchain.md)
+for the runtime contract and the temporary compiler and lint compatibility
+layers. Rendered UI
 changes also run `npm run test:e2e`, which starts the keyless local-mode app,
 drives Chromium with Playwright, and includes axe accessibility scans.
 
