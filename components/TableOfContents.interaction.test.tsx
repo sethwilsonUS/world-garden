@@ -10,6 +10,7 @@ import {
 } from "@/lib/data-context";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import { type PlaybackRate } from "@/hooks/usePlaybackRate";
+import { createTestSection } from "@/lib/test-section-narration";
 import { TableOfContents } from "./TableOfContents";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -24,13 +25,11 @@ const idlePlayback: AudioPlaybackState = {
 };
 
 const sections: Section[] = [
-  {
+  createTestSection({
     title: "History",
     level: 2,
     content: "A detailed history with enough words for an audio estimate.",
-    audioMode: "full",
-    audioReason: "eligible",
-  },
+  }),
 ];
 
 const dataValue = (

@@ -13,6 +13,7 @@ import {
   type TtsAudioResult,
 } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
+import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
   getActiveTtsProfile,
   getTtsMetadata,
@@ -21,7 +22,7 @@ import {
 
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_DEADLINE_MS = 240_000;
-const MIN_SUMMARY_LENGTH = 10;
+const MIN_SUMMARY_LENGTH = 1;
 
 type CachedSummaryAudio = {
   url?: string;
@@ -35,6 +36,7 @@ type WarmArticle = {
 
 type SaveSummaryAudioArgs = {
   articleId: string;
+  sourceHash: string;
   blob: Blob;
   durationSeconds: number;
   metadata: TtsMetadata;
@@ -63,6 +65,7 @@ export type HomepageAudioWarmDependencies = {
   fetchArticle: (article: HomepageArticleRef) => Promise<WarmArticle>;
   getCachedSummary: (
     articleId: string,
+    sourceHash: string,
     expected: TtsMetadata,
   ) => Promise<CachedSummaryAudio>;
   verifyAudioUrl: (url: string) => Promise<void>;
@@ -147,11 +150,12 @@ const createProductionDependencies = (
         });
     return result as WarmArticle;
   },
-  async getCachedSummary(articleId, expected) {
+  async getCachedSummary(articleId, sourceHash, expected) {
     const cached = (await fetchQuery(anyApi.audio.getAllSectionAudio, {
       articleId,
       ttsNormVersion: expected.ttsNormVersion,
       ttsCacheKey: expected.ttsCacheKey,
+      sourceHashes: [{ sectionKey: "summary", sourceHash }],
     })) as {
       urls?: Record<string, string>;
       metadata?: Record<string, Partial<TtsMetadata>>;
@@ -174,12 +178,13 @@ const createProductionDependencies = (
       { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
     );
   },
-  async saveSummary({ articleId, blob, durationSeconds, metadata }) {
+  async saveSummary({ articleId, sourceHash, blob, durationSeconds, metadata }) {
     const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {});
     const storageId = await uploadBlobToConvexStorage(uploadUrl as string, blob);
     await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
       articleId,
       sectionKey: "summary",
+      sourceHash,
       storageId,
       ttsNormVersion: metadata.ttsNormVersion,
       ttsCacheKey: metadata.ttsCacheKey,
@@ -221,12 +226,22 @@ export const warmHomepageArticleSummaries = async ({
   const warmArticle = async (ref: HomepageArticleRef): Promise<void> => {
     try {
       const article = await dependencies.fetchArticle(ref);
-      const summary = article.summary?.trim() ?? "";
-      if (summary.length < MIN_SUMMARY_LENGTH) {
+      const summaryTrack = buildArticleNarrationTracks({
+        title: ref.title,
+        summary: article.summary,
+        sections: [],
+      }).find((track) => track.sectionKey === "summary");
+      if (!summaryTrack || summaryTrack.text.length < MIN_SUMMARY_LENGTH) {
         throw new Error("Article summary is unavailable or too short for audio");
       }
 
-      const cached = await dependencies.getCachedSummary(article._id, expected);
+      const summary = summaryTrack.text;
+      const sourceHash = summaryTrack.sourceHash;
+      const cached = await dependencies.getCachedSummary(
+        article._id,
+        sourceHash,
+        expected,
+      );
       if (cached.url && metadataMatches(cached.metadata, expected)) {
         try {
           await dependencies.verifyAudioUrl(cached.url);
@@ -248,6 +263,7 @@ export const warmHomepageArticleSummaries = async ({
       const generated = await dependencies.generateAudio(summary, expected);
       await dependencies.saveSummary({
         articleId: article._id,
+        sourceHash,
         blob: generated.blob,
         durationSeconds: estimateDurationSeconds(summary),
         metadata: generated.metadata,

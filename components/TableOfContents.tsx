@@ -1,13 +1,11 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useMemo, useState, type RefObject } from "react";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import type { Section } from "@/lib/data-context";
 import {
-  getAudioReasonLabel,
-  getSoftAudioTooltip,
-  hasFullAudio,
-} from "@/lib/audio-suitability";
+  buildArticleNarrationTracks,
+} from "@/lib/section-narration";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
@@ -212,11 +210,26 @@ export const TableOfContents = ({
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
   const isSummaryActive = isSummaryPlaying || isSummaryPaused;
   const isSummaryLoading = isGenerating && isSummarySelected;
-  const audioSections = sections.filter(hasFullAudio);
-  const hasNonAudioSections = audioSections.length < sections.length;
-  const playableCount = audioSections.length + 1;
-  const playAllSummaryOnly = audioSections.length === 0;
-  const downloadSummaryOnly = audioSections.length === 0;
+  const narrationTracks = useMemo(
+    () =>
+      buildArticleNarrationTracks({
+        title: articleTitle,
+        summary: summaryText,
+        sections,
+      }),
+    [articleTitle, sections, summaryText],
+  );
+  const sectionTracks = narrationTracks.filter(
+    (track) => track.sectionIdx !== null,
+  );
+  const hasAdaptedSections = sections.some(
+    (section) => section.narration.adapted,
+  );
+  const hasEmptySections = sections.some(
+    (section) => section.narration.mode === "none",
+  );
+  const playableCount = narrationTracks.length;
+  const summaryOnly = sectionTracks.length === 0;
   const isPlayAllLoading = isPlayingAll && isGenerating;
   const canSkipSection = isPlayingAll && (isSpeaking || isGenerating);
 
@@ -234,14 +247,13 @@ export const TableOfContents = ({
       allActual = false;
     }
 
-    for (let i = 0; i < sections.length; i++) {
-      if (!hasFullAudio(sections[i])) continue;
-      const actual = sectionDurations?.[`section-${i}`];
+    for (const track of sectionTracks) {
+      const actual = sectionDurations?.[track.sectionKey];
       if (actual != null) {
         total += actual;
       } else {
         total += Math.round(
-          sections[i].content.split(/\s+/).filter(Boolean).length /
+          track.text.split(/\s+/).filter(Boolean).length /
             TTS_WORDS_PER_SECOND,
         );
         allActual = false;
@@ -326,21 +338,21 @@ export const TableOfContents = ({
           aria-label={
             isPlayingAll
               ? isPlayAllLoading
-                ? playAllSummaryOnly
+                ? summaryOnly
                   ? "Stop summary"
                   : "Stop playing all sections"
                 : isPaused
-                  ? playAllSummaryOnly
+                  ? summaryOnly
                     ? "Resume playing summary"
                     : "Resume playing all sections"
                   : !isSpeaking
                     ? "Generating audio, please wait"
-                    : playAllSummaryOnly
+                    : summaryOnly
                       ? "Pause summary"
                       : "Pause playing all sections"
               : isGenerating
                 ? "Generating audio, please wait"
-                : playAllSummaryOnly
+                : summaryOnly
                   ? "Play summary"
                   : `Play all ${playableCount} audio items including summary`
           }
@@ -411,8 +423,8 @@ export const TableOfContents = ({
               >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              {playAllSummaryOnly ? "Play" : "Play all"}
-              {!playAllSummaryOnly && (
+              {summaryOnly ? "Play" : "Play all"}
+              {!summaryOnly && (
                 <span className="text-[0.6875rem] opacity-80 font-medium">
                   ({playableCount})
                 </span>
@@ -426,7 +438,7 @@ export const TableOfContents = ({
             type="button"
             onClick={onStopPlayAll}
             className="inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 cursor-pointer"
-            aria-label={playAllSummaryOnly ? "Stop summary" : "Stop playing all sections"}
+            aria-label={summaryOnly ? "Stop summary" : "Stop playing all sections"}
           >
             <svg
               viewBox="0 0 24 24"
@@ -442,7 +454,7 @@ export const TableOfContents = ({
           </button>
         )}
 
-        {isPlayingAll && !playAllSummaryOnly && onSkipSection && (
+        {isPlayingAll && !summaryOnly && onSkipSection && (
           <button
             onClick={onSkipSection}
             disabled={!canSkipSection}
@@ -471,9 +483,9 @@ export const TableOfContents = ({
             <ManagedAudioDownloadButton
               href={downloadHref}
               title={articleTitle}
-              label={downloadSummaryOnly ? "Download" : "Download all"}
+              label={summaryOnly ? "Download" : "Download all"}
               ariaLabel={
-                downloadSummaryOnly
+                summaryOnly
                   ? "Download summary as audio file"
                   : "Download full article as one audio file"
               }
@@ -482,7 +494,7 @@ export const TableOfContents = ({
             <AudioDownloadButton
               onClick={onDownloadAll}
               disabled={downloading || isGenerating}
-              label={downloadSummaryOnly ? "Download" : "Download all"}
+              label={summaryOnly ? "Download" : "Download all"}
               ariaLabel={
                 downloadStatus === "queued"
                   ? "Article download queued"
@@ -490,7 +502,7 @@ export const TableOfContents = ({
                     ? "Packaging article download"
                     : downloading
                       ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
-                      : downloadSummaryOnly
+                      : summaryOnly
                         ? "Download summary as audio file"
                         : "Download full article as one audio file"
               }
@@ -625,16 +637,24 @@ export const TableOfContents = ({
 
           {/* Section entries */}
           {sections.map((section, index) => {
-            const canListen = hasFullAudio(section);
+            const canListen =
+              section.narration.mode === "verbatim" ||
+              section.narration.mode === "structured";
+            const isTransition = section.narration.mode === "transition";
             const isSelected = canListen && activeSectionIndex === index;
             const isPlaying = isSelected && isSpeaking && !isPaused;
             const isSectionPaused = isSelected && isSpeaking && isPaused;
             const isActive = isPlaying || isSectionPaused;
             const isLoading = isGenerating && isSelected;
             const indent = (section.level - 2) * 16;
-            const unavailableTooltip = getSoftAudioTooltip(section.audioReason);
 
             if (!canListen) {
+              const statusLabel = isTransition
+                ? "Chapter transition"
+                : "No source text";
+              const statusDescription = isTransition
+                ? "This heading has no text of its own. Its title is spoken as a brief transition during Play All, downloads, and podcasts."
+                : "Wikipedia does not provide any text for this heading, so there is nothing to narrate.";
               return (
                 <li
                   key={index}
@@ -644,7 +664,7 @@ export const TableOfContents = ({
                     role="group"
                     className={`${rowClass} cursor-default text-muted`}
                     style={indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined}
-                    aria-label={`${section.title} — not available for audio: ${getAudioReasonLabel(section.audioReason)}`}
+                    aria-label={`${section.title} — ${statusLabel.toLowerCase()}`}
                   >
                     <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
                       <span
@@ -665,11 +685,11 @@ export const TableOfContents = ({
                         className={`${pillClass} bg-transparent text-muted border border-border`}
                         aria-hidden="true"
                       >
-                        <span>Not suited for audio</span>
+                        <span>{statusLabel}</span>
                       </span>
                       <InfoTooltip
-                        label="Why this section is not suited for audio"
-                        text={unavailableTooltip}
+                        label={`About ${statusLabel.toLowerCase()}`}
+                        text={statusDescription}
                         align="right"
                         buttonClassName="size-6"
                         tooltipClassName="w-56"
@@ -696,9 +716,28 @@ export const TableOfContents = ({
                       {section.title}
                     </span>
                     <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
-                      <span aria-hidden="true">{durationLabel(`section-${index}`, section.content, sectionDurations, playbackRate)}</span>
-                      <span className="sr-only">{durationLabelAccessible(`section-${index}`, section.content, sectionDurations, playbackRate)}</span>
+                      <span aria-hidden="true">{durationLabel(`section-${index}`, section.narration.text, sectionDurations, playbackRate)}</span>
+                      <span className="sr-only">{durationLabelAccessible(`section-${index}`, section.narration.text, sectionDurations, playbackRate)}</span>
                     </span>
+                    {section.narration.adapted && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={`${pillClass} bg-accent-bg text-accent border border-accent-border`}
+                        >
+                          Adapted for audio
+                        </span>
+                        <InfoTooltip
+                          label={`How ${section.title} was adapted for audio`}
+                          text={
+                            section.narration.remainingSourceItems
+                              ? `Wikipedia presents part of this section as structured data. Curio Garden reads it in source order and announces that ${section.narration.remainingSourceItems} source rows or items remain in the full Wikipedia article.`
+                              : "Wikipedia presents part of this section as a table or list. Curio Garden reads its labels and values in source order without generative rewriting."
+                          }
+                          buttonClassName="size-6"
+                          tooltipClassName="w-64"
+                        />
+                      </span>
+                    )}
                     <SectionDetailsBadge
                       linkCount={linkCounts?.[section.title]}
                       citationCount={citationCounts?.[section.title]}
@@ -775,9 +814,11 @@ export const TableOfContents = ({
         </ol>
       </nav>
 
-      {hasNonAudioSections && (
+      {(hasAdaptedSections || hasEmptySections) && (
         <p className="mt-3.5 text-[0.6875rem] text-muted leading-normal text-center">
-          Some sections contain tables or lists that don&rsquo;t translate well to audio.{" "}
+          {hasAdaptedSections &&
+            "Tables and lists are adapted from Wikipedia’s source structure for audio. "}
+          {hasEmptySections && "Headings without source text remain visible. "}
           <a
             href={`https://en.wikipedia.org/wiki?curid=${wikiPageId}`}
             target="_blank"

@@ -55,6 +55,8 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 const preloadedAudioUrls = new Set<string>();
+const summaryCacheKey = (slug: string, sourceHash?: string): string =>
+  sourceHash ? `${slug}::${sourceHash}` : slug;
 
 const generateTts = async (text: string): Promise<TtsAudioUrlResult> => {
   return generateTtsAudioUrlWithMetadata({ text });
@@ -62,9 +64,11 @@ const generateTts = async (text: string): Promise<TtsAudioUrlResult> => {
 
 const startSummaryWarm = (
   slug: string,
+  sourceHash: string | undefined,
   work: () => Promise<TtsAudioUrlResult | null>,
 ): Promise<TtsAudioUrlResult | null> => {
-  const existing = cache.get(slug);
+  const key = summaryCacheKey(slug, sourceHash);
+  const existing = cache.get(key);
   if (existing) return existing.promise;
 
   const entry: CacheEntry = {
@@ -74,28 +78,29 @@ const startSummaryWarm = (
 
   const promise = work()
     .then((result) => {
-      if (cache.get(slug) === entry) {
+      if (cache.get(key) === entry) {
         entry.result = result;
       }
       return result;
     })
     .catch(() => {
-      if (cache.get(slug) === entry) {
-        cache.delete(slug);
+      if (cache.get(key) === entry) {
+        cache.delete(key);
       }
       return null;
     });
 
   entry.promise = promise;
-  cache.set(slug, entry);
+  cache.set(key, entry);
   return promise;
 };
 
 export const primeSummaryAudio = (
   slug: string,
   result: TtsAudioUrlResult,
+  sourceHash?: string,
 ): void => {
-  cache.set(slug, {
+  cache.set(summaryCacheKey(slug, sourceHash), {
     promise: Promise.resolve(result),
     result,
   });
@@ -114,10 +119,12 @@ export const preloadAudioUrl = (url: string): void => {
 export const warmSummaryAudioFromText = (
   slug: string,
   summary: string,
+  sourceHash?: string,
 ): Promise<TtsAudioUrlResult | null> =>
-  startSummaryWarm(slug, async () => {
-    if (summary.length < 10) return null;
-    return generateTts(summary);
+  startSummaryWarm(slug, sourceHash, async () => {
+    const text = summary.trim();
+    if (!text) return null;
+    return generateTts(text);
   });
 
 /**
@@ -128,27 +135,39 @@ export const warmSummaryAudio = (
   slug: string,
   fetchArticle: FetchArticleFn,
 ): void => {
-  startSummaryWarm(slug, async () => {
+  startSummaryWarm(slug, undefined, async () => {
     const article = await fetchArticleCached(slug, fetchArticle);
-    const summary = article.summary ?? "";
-    if (summary.length < 10) return null;
+    const summary = article.summary?.trim() ?? "";
+    if (!summary) return null;
     return generateTts(summary);
   });
 };
 
 /** Returns the cached blob URL if the audio is ready, or `null`. */
-export const getCachedSummaryUrl = (slug: string): string | null =>
-  cache.get(slug)?.result?.url ?? null;
+export const getCachedSummaryUrl = (
+  slug: string,
+  sourceHash?: string,
+): string | null =>
+  cache.get(summaryCacheKey(slug, sourceHash))?.result?.url ?? null;
 
 /** Returns the cached audio result if it is ready, or `null`. */
 export const getCachedSummaryAudio = (
   slug: string,
-): TtsAudioUrlResult | null => cache.get(slug)?.result ?? null;
+  sourceHash?: string,
+): TtsAudioUrlResult | null =>
+  cache.get(summaryCacheKey(slug, sourceHash))?.result ?? null;
 
 /** Returns a promise that resolves when the audio is ready (or `null` on failure). */
-export const awaitSummaryAudio = (slug: string): Promise<string | null> | null =>
-  cache.get(slug)?.promise.then((result) => result?.url ?? null) ?? null;
+export const awaitSummaryAudio = (
+  slug: string,
+  sourceHash?: string,
+): Promise<string | null> | null =>
+  cache
+    .get(summaryCacheKey(slug, sourceHash))
+    ?.promise.then((result) => result?.url ?? null) ?? null;
 
 export const awaitSummaryAudioWithMetadata = (
   slug: string,
-): Promise<TtsAudioUrlResult | null> | null => cache.get(slug)?.promise ?? null;
+  sourceHash?: string,
+): Promise<TtsAudioUrlResult | null> | null =>
+  cache.get(summaryCacheKey(slug, sourceHash))?.promise ?? null;

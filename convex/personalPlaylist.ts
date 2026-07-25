@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { getAuthenticatedViewerTokenIdentifier } from "./bookmarks";
 import { getArticleAudioSections, type ArticleAudioSource } from "./lib/articleAudioPipeline";
 import { processViewerPlaylistEpisodeForCtx } from "./lib/personalPlaylistWorker";
+import { buildArticleNarrationHash } from "../lib/section-narration";
 import {
   completeViewerPlaylistEpisodeForCtx,
   ensureViewerPersonalPodcastFeedForCtx,
@@ -84,6 +85,7 @@ export const addViewerPlaylistEpisodeBySlug = action({
         description: article.summary,
         imageUrl: article.thumbnailUrl,
         sectionCount: getArticleAudioSections(article).length,
+        narrationHash: buildArticleNarrationHash(article),
       },
     );
 
@@ -224,6 +226,7 @@ export const upsertViewerPlaylistEpisodeInternal = internalMutation({
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     sectionCount: v.number(),
+    narrationHash: v.string(),
   },
   async handler(ctx, args) {
     return await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -281,6 +284,7 @@ export const completeViewerPlaylistEpisodeInternal = internalMutation({
     voiceId: v.string(),
     promptVersion: v.string(),
     ttsNormVersion: v.string(),
+    narrationHash: v.string(),
   },
   async handler(ctx, args) {
     return await completeViewerPlaylistEpisodeForCtx(ctx, args);

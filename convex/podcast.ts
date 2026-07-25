@@ -251,6 +251,7 @@ export const saveFeaturedEpisode = mutation({
     artworkVersion: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
+    narrationHash: v.string(),
     ttsNormVersion: v.string(),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),
@@ -268,7 +269,9 @@ export const saveFeaturedEpisode = mutation({
 
     const now = Date.now();
     const audioVariants = upsertTtsAudioVariant(
-      existing?.audioVariants,
+      existing && existing.narrationHash === args.narrationHash
+        ? existing.audioVariants
+        : undefined,
       {
         storageId: args.storageId,
         durationSeconds: args.durationSeconds,
@@ -295,6 +298,7 @@ export const saveFeaturedEpisode = mutation({
         artworkVersion: args.artworkVersion,
         durationSeconds: args.durationSeconds,
         byteLength: args.byteLength,
+        narrationHash: args.narrationHash,
         ttsNormVersion: args.ttsNormVersion,
         ttsCacheKey: args.ttsCacheKey,
         provider: args.provider,
@@ -322,6 +326,7 @@ export const saveFeaturedEpisode = mutation({
       artworkVersion: args.artworkVersion,
       durationSeconds: args.durationSeconds,
       byteLength: args.byteLength,
+      narrationHash: args.narrationHash,
       ttsNormVersion: args.ttsNormVersion,
       ttsCacheKey: args.ttsCacheKey,
       provider: args.provider,

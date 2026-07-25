@@ -17,7 +17,10 @@ import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-fee
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
-import { hasFullAudio } from "@/lib/audio-suitability";
+import {
+  buildArticleNarrationHash,
+  buildArticleNarrationTracks,
+} from "@/lib/section-narration";
 import {
   getActiveTtsNormVersion,
   getActiveTtsCacheKey,
@@ -27,7 +30,6 @@ import {
   type TtsProvider,
 } from "@/lib/tts-profile";
 
-const MIN_TTS_TEXT_LENGTH = 10;
 const TTS_WORDS_PER_SECOND = 2.5;
 const JOB_LEASE_MS = 8 * 60 * 1000;
 const MAX_TTS_PROVIDER_RETRIES = 1;
@@ -41,6 +43,7 @@ type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
 type PodcastSectionSource = {
   sectionKey: string;
   text: string;
+  sourceHash: string;
 };
 
 export type FeaturedPodcastSyncResult = {
@@ -108,25 +111,11 @@ const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown error";
 
 export const getPodcastSectionSources = (article: FetchAndCacheResult): PodcastSectionSource[] => {
-  const items: PodcastSectionSource[] = [];
-
-  if (article.summary && article.summary.length >= MIN_TTS_TEXT_LENGTH) {
-    items.push({
-      sectionKey: "summary",
-      text: article.summary,
-    });
-  }
-
-  for (let index = 0; index < article.sections.length; index += 1) {
-    const section = article.sections[index];
-    if (!hasFullAudio(section)) continue;
-    items.push({
-      sectionKey: `section-${index}`,
-      text: `${section.title}. ${section.content}`,
-    });
-  }
-
-  return items;
+  return buildArticleNarrationTracks(article).map((track) => ({
+    sectionKey: track.sectionKey,
+    text: track.text,
+    sourceHash: track.sourceHash,
+  }));
 };
 
 const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
@@ -212,13 +201,15 @@ export const shouldReuseExistingFeaturedEpisode = ({
     | "artworkVersion"
     | "ttsNormVersion"
     | "ttsCacheKey"
+    | "narrationHash"
   > | null;
-  article: Pick<FetchAndCacheResult, "wikiPageId" | "title">;
+  article: FetchAndCacheResult;
 }): boolean =>
   !force &&
   existingEpisode?.status === "ready" &&
   existingEpisode.ttsNormVersion === getActiveTtsNormVersion() &&
   existingEpisode.ttsCacheKey === getActiveTtsCacheKey() &&
+  existingEpisode.narrationHash === buildArticleNarrationHash(article) &&
   (!regenArt || hasCurrentFeaturedArtworkVersion(existingEpisode)) &&
   doesFeaturedEpisodeMatchArticle(existingEpisode, article);
 
@@ -267,6 +258,7 @@ export const syncFeaturedPodcastEpisode = async ({
     slug: titleToSlug(tfa.title),
   });
   const articleId = article._id;
+  const narrationHash = buildArticleNarrationHash(article);
   const source = {
     featuredDate: feedDateIso,
     title: article.title,
@@ -357,9 +349,9 @@ export const syncFeaturedPodcastEpisode = async ({
       articleId,
       owner,
       status: "failed",
-      lastError: "Featured article does not contain any audio-suitable sections",
+      lastError: "Featured article does not contain any narratable source tracks",
     });
-    throw new Error("Featured article does not contain any audio-suitable sections");
+    throw new Error("Featured article does not contain any narratable source tracks");
   }
 
   if (!existingReadyEpisode) {
@@ -377,6 +369,7 @@ export const syncFeaturedPodcastEpisode = async ({
       model: currentTtsMetadata.model,
       voiceId: currentTtsMetadata.voiceId,
       promptVersion: currentTtsMetadata.promptVersion,
+      narrationHash,
       status: "pending",
       publishedAt,
     });
@@ -393,7 +386,8 @@ export const syncFeaturedPodcastEpisode = async ({
       existingEpisodeMatchesArticle &&
       existingReadyEpisode.audioUrl &&
       existingReadyEpisode.ttsNormVersion === getActiveTtsNormVersion() &&
-      existingReadyEpisode.ttsCacheKey === getActiveTtsCacheKey()
+      existingReadyEpisode.ttsCacheKey === getActiveTtsCacheKey() &&
+      existingReadyEpisode.narrationHash === narrationHash
     ) {
       stage = "reusing_existing_audio";
       const audioBlob = await fetchBlobFromUrl(existingReadyEpisode.audioUrl);
@@ -442,6 +436,7 @@ export const syncFeaturedPodcastEpisode = async ({
         model: existingReadyEpisode.model,
         voiceId: existingReadyEpisode.voiceId,
         promptVersion: existingReadyEpisode.promptVersion,
+        narrationHash,
         status: "ready",
         publishedAt,
       });
@@ -491,6 +486,10 @@ export const syncFeaturedPodcastEpisode = async ({
         articleId,
         ttsNormVersion: passMetadata.ttsNormVersion,
         ttsCacheKey: passMetadata.ttsCacheKey,
+        sourceHashes: sections.map(({ sectionKey, sourceHash }) => ({
+          sectionKey,
+          sourceHash,
+        })),
       });
 
       let generatedSectionCount = 0;
@@ -560,6 +559,7 @@ export const syncFeaturedPodcastEpisode = async ({
           await fetchMutation(api.audio.saveSectionAudioRecord, {
             articleId,
             sectionKey: section.sectionKey,
+            sourceHash: section.sourceHash,
             storageId: sectionStorageId,
             ttsNormVersion: metadata.ttsNormVersion,
             ttsCacheKey: metadata.ttsCacheKey,
@@ -637,6 +637,7 @@ export const syncFeaturedPodcastEpisode = async ({
       model: sectionAudio.metadata.model,
       voiceId: sectionAudio.metadata.voiceId,
       promptVersion: sectionAudio.metadata.promptVersion,
+      narrationHash,
       status: "ready",
       publishedAt,
     })) as Id<"featuredPodcastEpisodes">;
@@ -705,6 +706,7 @@ export const syncFeaturedPodcastEpisode = async ({
         model: currentTtsMetadata.model,
         voiceId: currentTtsMetadata.voiceId,
         promptVersion: currentTtsMetadata.promptVersion,
+        narrationHash,
         status: "failed",
         publishedAt,
       });

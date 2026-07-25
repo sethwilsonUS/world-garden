@@ -186,6 +186,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     description?: string;
     imageUrl?: string;
     sectionCount: number;
+    narrationHash: string;
   },
 ): Promise<UpsertViewerPlaylistEpisodeResult> => {
   const now = Date.now();
@@ -202,6 +203,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
   const activeEpisodes = await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier);
 
   if (existing && existing.removedAt == null) {
+    const narrationChanged = existing.narrationHash !== args.narrationHash;
     await ctx.db.patch(existing._id, {
       articleId: args.articleId,
       wikiPageId: args.wikiPageId,
@@ -210,15 +212,30 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       description: args.description,
       imageUrl: args.imageUrl,
       sectionCount: args.sectionCount,
+      narrationHash: args.narrationHash,
+      ...(narrationChanged
+        ? {
+            status: "queued" as const,
+            stage: "queued" as const,
+            completedSectionCount: 0,
+            storageId: undefined,
+            durationSeconds: undefined,
+            byteLength: undefined,
+            audioVariants: undefined,
+            lastError: undefined,
+            leaseOwner: undefined,
+            leaseExpiresAt: undefined,
+          }
+        : {}),
       updatedAt: now,
     });
 
     return {
       feedToken: feed.feedToken,
       episodeId: existing._id,
-      status: existing.status,
+      status: narrationChanged ? "queued" : existing.status,
       added: false,
-      shouldSchedule: false,
+      shouldSchedule: narrationChanged,
     };
   }
 
@@ -235,10 +252,12 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       status: "queued",
       stage: "queued",
       sectionCount: args.sectionCount,
+      narrationHash: args.narrationHash,
       completedSectionCount: 0,
       storageId: undefined,
       durationSeconds: undefined,
       byteLength: undefined,
+      audioVariants: undefined,
       lastError: undefined,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
@@ -289,6 +308,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     status: "queued",
     stage: "queued",
     sectionCount: args.sectionCount,
+    narrationHash: args.narrationHash,
     completedSectionCount: 0,
     createdAt: now,
     updatedAt: now,
@@ -312,6 +332,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
         status: "queued",
         stage: "queued" as const,
         sectionCount: args.sectionCount,
+        narrationHash: args.narrationHash,
         completedSectionCount: 0,
         createdAt: now,
         updatedAt: now,
@@ -549,6 +570,7 @@ export const completeViewerPlaylistEpisodeForCtx = async (
     voiceId: string;
     promptVersion: string;
     ttsNormVersion: string;
+    narrationHash: string;
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
@@ -585,6 +607,7 @@ export const completeViewerPlaylistEpisodeForCtx = async (
     voiceId: args.voiceId,
     promptVersion: args.promptVersion,
     ttsNormVersion: args.ttsNormVersion,
+    narrationHash: args.narrationHash,
     audioVariants,
     lastError: undefined,
     completedSectionCount:

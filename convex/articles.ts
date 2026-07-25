@@ -29,22 +29,36 @@ import {
   BADGE_TOPIC_CACHE_VERSION,
   type BadgeKey,
 } from "../lib/badges";
-import { attachAudioSuitability } from "../lib/audio-suitability";
+import {
+  ARTICLE_SECTION_NARRATION_VERSION,
+  createSectionNarrations,
+  type SectionNarration,
+} from "../lib/section-narration";
 
-const articleSectionAudioMode = v.union(
-  v.literal("full"),
-  v.literal("summary_only"),
-  v.literal("unavailable"),
+const sectionNarrationMode = v.union(
+  v.literal("verbatim"),
+  v.literal("structured"),
+  v.literal("transition"),
+  v.literal("none"),
 );
 
-const articleSectionAudioReason = v.union(
-  v.literal("eligible"),
-  v.literal("too_short"),
-  v.literal("list_like"),
-  v.literal("table_like"),
-  v.literal("metadata_heavy"),
-  v.literal("low_prose_density"),
+const sectionNarrationSourceFormat = v.union(
+  v.literal("prose"),
+  v.literal("table"),
+  v.literal("list"),
+  v.literal("mixed"),
+  v.literal("heading"),
 );
+
+const sectionNarration = v.object({
+  mode: sectionNarrationMode,
+  text: v.string(),
+  sourceFormat: sectionNarrationSourceFormat,
+  adapted: v.boolean(),
+  usedRawFallback: v.boolean(),
+  remainingSourceItems: v.optional(v.number()),
+  sourceHash: v.string(),
+});
 
 const badgeKey = v.union(
   v.literal("history"),
@@ -115,6 +129,7 @@ export const upsertArticle = internalMutation({
     slug: v.string(),
     language: v.string(),
     revisionId: v.string(),
+    narrationVersion: v.number(),
     lastFetchedAt: v.number(),
     summary: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
@@ -127,11 +142,11 @@ export const upsertArticle = internalMutation({
     sections: v.optional(
       v.array(
         v.object({
+          wikiSectionIndex: v.string(),
           title: v.string(),
           level: v.number(),
           content: v.string(),
-          audioMode: v.optional(articleSectionAudioMode),
-          audioReason: v.optional(articleSectionAudioReason),
+          narration: sectionNarration,
         }),
       ),
     ),
@@ -148,6 +163,7 @@ export const upsertArticle = internalMutation({
         slug: args.slug,
         language: args.language,
         revisionId: args.revisionId,
+        narrationVersion: args.narrationVersion,
         lastFetchedAt: args.lastFetchedAt,
         summary: args.summary,
         thumbnailUrl: args.thumbnailUrl,
@@ -172,6 +188,7 @@ export const upsertArticle = internalMutation({
       slug: args.slug,
       language: args.language,
       revisionId: args.revisionId,
+      narrationVersion: args.narrationVersion,
       lastFetchedAt: args.lastFetchedAt,
       summary: args.summary,
       thumbnailUrl: args.thumbnailUrl,
@@ -201,6 +218,7 @@ type StoredArticle = {
   slug?: string;
   language: string;
   revisionId: string;
+  narrationVersion?: number;
   lastFetchedAt: number;
   summary?: string;
   thumbnailUrl?: string;
@@ -209,11 +227,19 @@ type StoredArticle = {
   thumbnailAttribution?: WikiArticle["thumbnailAttribution"];
   badgeKeys?: BadgeKey[];
   sections?: Array<{
+    wikiSectionIndex?: string;
     title: string;
     level: number;
     content: string;
-    audioMode?: WikiSection["audioMode"];
-    audioReason?: WikiSection["audioReason"];
+    narration?: SectionNarration;
+    audioMode?: "full" | "summary_only" | "unavailable";
+    audioReason?:
+      | "eligible"
+      | "too_short"
+      | "list_like"
+      | "table_like"
+      | "metadata_heavy"
+      | "low_prose_density";
   }>;
 };
 
@@ -222,21 +248,56 @@ export const isCachedArticleFresh = (
   now = Date.now(),
 ): boolean => now - article.lastFetchedAt < ARTICLE_CACHE_TTL_MS;
 
+export const isCachedArticleNarrationCompatible = (
+  article: Pick<StoredArticle, "narrationVersion" | "sections">,
+): boolean =>
+  article.narrationVersion === ARTICLE_SECTION_NARRATION_VERSION &&
+  (article.sections ?? []).every(
+    (section) => Boolean(section.wikiSectionIndex && section.narration),
+  );
+
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 const normalizeCachedSections = (
   sections: StoredArticle["sections"],
-): WikiSection[] =>
-  (sections ?? []).map((section) =>
-    section.audioMode && section.audioReason
-      ? (section as WikiSection)
-      : attachAudioSuitability({
-          title: section.title,
-          level: section.level,
-          content: section.content,
-        }),
-  );
+): WikiSection[] => {
+  if (
+    (sections ?? []).every(
+      (section) => Boolean(section.wikiSectionIndex && section.narration),
+    )
+  ) {
+    return (sections ?? []).map((section) => ({
+      wikiSectionIndex: section.wikiSectionIndex!,
+      title: section.title,
+      level: section.level,
+      content: section.content,
+      narration: section.narration!,
+    }));
+  }
+
+  const legacyNarrations = createSectionNarrations({
+    sections: (sections ?? []).map((section, index) => ({
+      wikiSectionIndex: section.wikiSectionIndex ?? String(index + 1),
+      title: section.title,
+      level: section.level,
+      content: section.content,
+    })),
+  });
+
+  return legacyNarrations.map((normalized, index) => {
+    const stored = sections?.[index];
+    return stored?.narration && stored.wikiSectionIndex
+      ? {
+          wikiSectionIndex: stored.wikiSectionIndex,
+          title: stored.title,
+          level: stored.level,
+          content: stored.content,
+          narration: stored.narration,
+        }
+      : normalized;
+  });
+};
 
 export const cachedArticleToFetchResult = (
   article: StoredArticle,
@@ -260,6 +321,8 @@ export const cachedArticleToFetchResult = (
     title: article.title,
     language: article.language,
     revisionId: article.revisionId,
+    narrationVersion:
+      article.narrationVersion ?? ARTICLE_SECTION_NARRATION_VERSION,
     lastEdited: new Date(article.lastFetchedAt).toISOString(),
     summary,
     contentText,
@@ -334,7 +397,11 @@ export const fetchAndCache = action({
       },
     );
 
-    if (cached && isCachedArticleFresh(cached)) {
+    if (
+      cached &&
+      isCachedArticleFresh(cached) &&
+      isCachedArticleNarrationCompatible(cached)
+    ) {
       return cachedArticleToFetchResult(cached);
     }
 
@@ -360,6 +427,7 @@ export const fetchAndCache = action({
         slug: titleToSlug(data.title),
         language: data.language,
         revisionId: data.revisionId,
+        narrationVersion: data.narrationVersion,
         lastFetchedAt: Date.now(),
         summary: data.summary,
         thumbnailUrl: data.thumbnailUrl,
@@ -388,7 +456,11 @@ export const fetchAndCacheBySlug = action({
       slug: args.slug,
     });
 
-    if (cached && isCachedArticleFresh(cached)) {
+    if (
+      cached &&
+      isCachedArticleFresh(cached) &&
+      isCachedArticleNarrationCompatible(cached)
+    ) {
       return cachedArticleToFetchResult(cached);
     }
 
@@ -415,6 +487,7 @@ export const fetchAndCacheBySlug = action({
         slug: titleToSlug(data.title),
         language: data.language,
         revisionId: data.revisionId,
+        narrationVersion: data.narrationVersion,
         lastFetchedAt: Date.now(),
         summary: data.summary,
         thumbnailUrl: data.thumbnailUrl,

@@ -94,12 +94,37 @@ describe("warmSummaryAudio", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("returns null for summaries that are too short", async () => {
-    mockFetchArticle.mockResolvedValue({ summary: "Short" });
+  it("does not reuse a primed summary across narration source hashes", () => {
+    primeSummaryAudio(
+      "Revisioned_Article",
+      { url: primedAudioUrl, metadata },
+      "source-v1",
+    );
+
+    expect(
+      getCachedSummaryAudio("Revisioned_Article", "source-v1")?.url,
+    ).toBe(primedAudioUrl);
+    expect(
+      getCachedSummaryAudio("Revisioned_Article", "source-v2"),
+    ).toBeNull();
+    expect(getCachedSummaryAudio("Revisioned_Article")).toBeNull();
+  });
+
+  it("returns null for whitespace-only summaries", async () => {
+    mockFetchArticle.mockResolvedValue({ summary: "  \n  " });
 
     warmSummaryAudio("Short_Article", mockFetchArticle);
     const url = await awaitSummaryAudio("Short_Article");
     expect(url).toBeNull();
+  });
+
+  it("warms valid summaries shorter than ten characters", async () => {
+    mockFetchArticle.mockResolvedValue({ summary: "Brief." });
+
+    warmSummaryAudio("Brief_Article", mockFetchArticle);
+    const url = await awaitSummaryAudio("Brief_Article");
+
+    expect(url).toBe(audioBlobUrl);
   });
 
   it("returns null when fetch fails", async () => {

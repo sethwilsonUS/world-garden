@@ -19,7 +19,7 @@ import edge_tts
 logger = logging.getLogger(__name__)
 
 DEFAULT_VOICE = "en-US-AriaNeural"
-MIN_TEXT_LENGTH = 10
+MIN_TEXT_LENGTH = 1
 DEFAULT_MAX_WORDS_PER_REQUEST = 800
 
 # Voice IDs follow a strict locale-name pattern, e.g. "en-US-AriaNeural".
@@ -47,6 +47,10 @@ def _count_words(text: str) -> int:
     return len([word for word in re.split(r"\s+", text) if word])
 
 
+def _normalize_tts_text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
 async def _generate(text: str, voice: str) -> bytes:
     communicate = edge_tts.Communicate(text, voice)
     chunks: list[bytes] = []
@@ -65,7 +69,7 @@ class handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "Invalid JSON body"})
             return
 
-        text = body.get("text", "")
+        text = _normalize_tts_text(body.get("text", ""))
         voice_id = body.get("voiceId", DEFAULT_VOICE)
 
         if not text or len(text) < MIN_TEXT_LENGTH:

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   type RefObject,
 } from "react";
@@ -19,6 +20,7 @@ import {
   getResolvedDurationSeconds,
   type SectionDurationMap,
 } from "@/lib/article-audio-duration";
+import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
   detectContinuousPlaybackWindow,
   mergeHeardRanges,
@@ -122,18 +124,21 @@ export const useBadgeListenTracking = ({
   );
   const knownDurationsRef = useRef<Record<string, number>>({});
   const previousPlayingRef = useRef(false);
+  const narrationTracks = useMemo(
+    () =>
+      buildArticleNarrationTracks({
+        title: title ?? slug,
+        summary: summaryText,
+        sections,
+      }),
+    [sections, slug, summaryText, title],
+  );
 
   const resolveSectionText = useCallback(
     (sectionKey: string): string => {
-      if (sectionKey === "summary") {
-        return summaryText ?? "";
-      }
-
-      const index = Number.parseInt(sectionKey.replace("section-", ""), 10);
-      const section = sections[index];
-      return section?.content ?? "";
+      return narrationTracks.find((track) => track.sectionKey === sectionKey)?.text ?? "";
     },
-    [sections, summaryText],
+    [narrationTracks],
   );
 
   const resolveSectionDuration = useCallback(
@@ -154,11 +159,14 @@ export const useBadgeListenTracking = ({
 
   const resolveTotalDuration = useCallback(
     () =>
-      getPlayableArticleDurationSeconds(summaryText, sections, {
-        ...sectionDurations,
-        ...knownDurationsRef.current,
-      }),
-    [sectionDurations, sections, summaryText],
+      getPlayableArticleDurationSeconds(
+        { title: title ?? slug, summary: summaryText, sections },
+        {
+          ...sectionDurations,
+          ...knownDurationsRef.current,
+        },
+      ),
+    [sectionDurations, sections, slug, summaryText, title],
   );
 
   const flushPendingRanges = useCallback(

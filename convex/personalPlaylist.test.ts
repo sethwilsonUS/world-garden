@@ -151,6 +151,7 @@ const createCtx = (seed?: {
 };
 
 describe("personal playlist data helpers", () => {
+  const narrationHash = "article-narration-current";
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-16T18:00:00Z"));
@@ -172,6 +173,7 @@ describe("personal playlist data helpers", () => {
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
       sectionCount: 4,
+      narrationHash,
     });
 
     expect(result.added).toBe(true);
@@ -202,6 +204,7 @@ describe("personal playlist data helpers", () => {
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
       sectionCount: 4,
+      narrationHash,
     };
 
     const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -210,6 +213,36 @@ describe("personal playlist data helpers", () => {
     expect(first.added).toBe(true);
     expect(second.added).toBe(false);
     expect(getEpisodes()).toHaveLength(1);
+  });
+
+  it("requeues an active episode when its article narration changes", async () => {
+    const { ctx, getEpisodes } = createCtx();
+    const args = {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-1",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash: "narration-v1",
+    };
+    await upsertViewerPlaylistEpisodeForCtx(ctx, args);
+
+    const refreshed = await upsertViewerPlaylistEpisodeForCtx(ctx, {
+      ...args,
+      narrationHash: "narration-v2",
+    });
+
+    expect(refreshed).toMatchObject({
+      added: false,
+      shouldSchedule: true,
+      status: "queued",
+    });
+    expect(getEpisodes()[0]).toMatchObject({
+      narrationHash: "narration-v2",
+      status: "queued",
+      completedSectionCount: 0,
+    });
   });
 
   it("soft-removes and later restores the same episode record in queued state", async () => {
@@ -223,6 +256,7 @@ describe("personal playlist data helpers", () => {
       description: "Planet article",
       imageUrl: "https://images.example.com/mars.jpg",
       sectionCount: 4,
+      narrationHash,
     };
 
     const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -256,6 +290,7 @@ describe("personal playlist data helpers", () => {
       slug: "mars",
       title: "Mars",
       sectionCount: 3,
+      narrationHash: "mars-narration",
     });
     vi.advanceTimersByTime(1_000);
     const second = await upsertViewerPlaylistEpisodeForCtx(ctx, {
@@ -265,6 +300,7 @@ describe("personal playlist data helpers", () => {
       slug: "venus",
       title: "Venus",
       sectionCount: 5,
+      narrationHash: "venus-narration",
     });
 
     await moveViewerPlaylistEpisodeForCtx(ctx, {
@@ -436,6 +472,7 @@ describe("personal playlist data helpers", () => {
         voiceId: "voice-1",
         promptVersion: "prompt-1",
         ttsNormVersion: "norm-1",
+        narrationHash,
       }),
     ).resolves.toEqual({ completed: false });
 
@@ -562,6 +599,7 @@ describe("personal playlist data helpers", () => {
       voiceId: "voice-1",
       promptVersion: "prompt-1",
       ttsNormVersion: "norm-1",
+      narrationHash,
     };
 
     await expect(

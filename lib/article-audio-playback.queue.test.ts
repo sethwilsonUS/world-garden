@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Section } from "./data-context";
+import { createTestSection } from "./test-section-narration";
 import {
   buildPlayAllQueue,
   createIdleAudioPlayback,
@@ -8,53 +9,71 @@ import {
 } from "./article-audio-playback";
 
 describe("buildPlayAllQueue", () => {
-  it("queues only the summary and audio-suitable article sections", () => {
+  it("queues the summary and every narrated article section", () => {
     const sections: Section[] = [
-      {
+      createTestSection({
         title: "History",
         level: 2,
         content: "A prose history with enough information to narrate.",
-        audioMode: "full",
-        audioReason: "eligible",
-      },
-      {
+      }),
+      createTestSection({
         title: "Results",
         level: 2,
         content: "Year Result\n2020 10",
-        audioMode: "unavailable",
-        audioReason: "table_like",
-      },
+        narration: {
+          mode: "structured",
+          sourceFormat: "table",
+          adapted: true,
+          text: "Results. Table. Columns: Year; Result. Row 1: Year: 2020; Result: 10.",
+        },
+      }),
     ];
 
-    const queue = buildPlayAllQueue(sections, "Example");
+    const queue = buildPlayAllQueue({
+      title: "Example",
+      summary: "Example summary.",
+      sections,
+    });
 
-    expect(queue).toEqual([
+    expect(queue.map(({ sectionKey, label, sectionIdx }) => ({
+      sectionKey,
+      label,
+      sectionIdx,
+    }))).toEqual([
       {
         sectionKey: "summary",
         label: "Example — Summary",
         sectionIdx: null,
       },
       {
-        sectionKey: "section-0",
-        label: "History — Example",
-        sectionIdx: 0,
+        sectionKey: "section-0", label: "History — Example", sectionIdx: 0,
+      },
+      {
+        sectionKey: "section-1", label: "Results — Example", sectionIdx: 1,
       },
     ]);
     expect(JSON.stringify(queue)).not.toContain("context-");
   });
 
-  it("keeps Play All summary-only when no article section supports audio", () => {
+  it("keeps Play All summary-only when article headings have no source text", () => {
     const sections: Section[] = [
-      {
+      createTestSection({
         title: "Results",
         level: 2,
-        content: "Year Result\n2020 10",
-        audioMode: "unavailable",
-        audioReason: "table_like",
-      },
+        content: "",
+      }),
     ];
 
-    expect(buildPlayAllQueue(sections, "Example")).toEqual([
+    const queue = buildPlayAllQueue({
+      title: "Example",
+      summary: "Example summary.",
+      sections,
+    });
+    expect(queue.map(({ sectionKey, label, sectionIdx }) => ({
+      sectionKey,
+      label,
+      sectionIdx,
+    }))).toEqual([
       {
         sectionKey: "summary",
         label: "Example — Summary",

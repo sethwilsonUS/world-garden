@@ -94,7 +94,7 @@ export const processViewerPlaylistEpisodeForCtx = async (
 
     const sections = getArticleAudioSections(article);
     if (sections.length === 0) {
-      throw new Error("Article does not contain any audio-suitable sections.");
+      throw new Error("Article does not contain any narratable source tracks.");
     }
 
     const initialProgress = await ctx.runMutation(
@@ -118,20 +118,28 @@ export const processViewerPlaylistEpisodeForCtx = async (
       },
       albumTitle: PERSONAL_PODCAST_ALBUM_TITLE,
       baseUrl: args.baseUrl,
-      getCachedSectionAudioUrls: async ({ ttsCacheKey }) => {
+      getCachedSectionAudioUrls: async ({ ttsCacheKey, sourceHashes }) => {
         const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
           articleId: article._id,
           ttsNormVersion: TTS_NORM_VERSION,
           ttsCacheKey,
+          sourceHashes,
         });
         return cachedAudio.urls;
       },
-      saveSectionAudio: async ({ sectionKey, blob, durationSeconds, metadata }) => {
+      saveSectionAudio: async ({
+        sectionKey,
+        sourceHash,
+        blob,
+        durationSeconds,
+        metadata,
+      }) => {
         const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
         const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
         await ctx.runMutation(api.audio.saveSectionAudioRecord, {
           articleId: article._id,
           sectionKey,
+          sourceHash,
           storageId,
           ttsNormVersion: metadata.ttsNormVersion,
           ttsCacheKey: metadata.ttsCacheKey,
@@ -181,6 +189,7 @@ export const processViewerPlaylistEpisodeForCtx = async (
         voiceId: result.metadata.voiceId,
         promptVersion: result.metadata.promptVersion,
         ttsNormVersion: result.metadata.ttsNormVersion,
+        narrationHash: result.narrationHash,
       },
     );
     shouldRetryCurrentAfterLease = !completion.completed;

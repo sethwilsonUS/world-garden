@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { AudioMode, AudioReason } from "@/lib/audio-suitability";
 import type { BadgeKey } from "@/lib/badges";
+import type { NarratedSection } from "@/lib/section-narration";
 import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 
 export type SearchResult = {
@@ -12,19 +12,14 @@ export type SearchResult = {
   url: string;
 };
 
-export type Section = {
-  title: string;
-  level: number;
-  content: string;
-  audioMode: AudioMode;
-  audioReason: AudioReason;
-};
+export type Section = NarratedSection;
 
 export type Article = {
   wikiPageId: string;
   title: string;
   language: string;
   revisionId: string;
+  narrationVersion: number;
   lastEdited?: string;
   summary?: string;
   thumbnailUrl?: string;
