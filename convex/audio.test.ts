@@ -8,6 +8,7 @@ import {
 const openAiKey =
   "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2";
 const edgeKey = "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2";
+const sourceHash = "section-narration:1:test";
 
 describe("selectSectionAudioVariant", () => {
   it("prefers the requested provider variant over legacy normalization matches", () => {
@@ -15,18 +16,21 @@ describe("selectSectionAudioVariant", () => {
       [
         {
           sectionKey: "summary",
+          sourceHash,
           storageId: "edge-storage",
           ttsNormVersion: "ttsNorm:2",
           ttsCacheKey: edgeKey,
         },
         {
           sectionKey: "summary",
+          sourceHash,
           storageId: "openai-storage",
           ttsNormVersion: "ttsNorm:2",
           ttsCacheKey: openAiKey,
         },
         {
           sectionKey: "summary",
+          sourceHash,
           storageId: "legacy-storage",
           ttsNormVersion: "ttsNorm:2",
         },
@@ -35,28 +39,11 @@ describe("selectSectionAudioVariant", () => {
         sectionKey: "summary",
         ttsNormVersion: "ttsNorm:2",
         ttsCacheKey: openAiKey,
+        sourceHash,
       },
     );
 
     expect(selected?.storageId).toBe("openai-storage");
-  });
-
-  it("keeps legacy normalization fallback when no provider cache key is requested", () => {
-    const selected = selectSectionAudioVariant(
-      [
-        {
-          sectionKey: "summary",
-          storageId: "legacy-storage",
-          ttsNormVersion: "ttsNorm:2",
-        },
-      ],
-      {
-        sectionKey: "summary",
-        ttsNormVersion: "ttsNorm:2",
-      },
-    );
-
-    expect(selected?.storageId).toBe("legacy-storage");
   });
 
   it("does not use legacy audio when a provider cache key is requested", () => {
@@ -64,6 +51,7 @@ describe("selectSectionAudioVariant", () => {
       [
         {
           sectionKey: "summary",
+          sourceHash,
           storageId: "legacy-storage",
           ttsNormVersion: "ttsNorm:2",
         },
@@ -72,6 +60,7 @@ describe("selectSectionAudioVariant", () => {
         sectionKey: "summary",
         ttsNormVersion: "ttsNorm:2",
         ttsCacheKey: openAiKey,
+        sourceHash,
       },
     );
 
@@ -86,6 +75,7 @@ describe("selectSectionAudioVariant", () => {
       [
         {
           sectionKey,
+          sourceHash,
           storageId: "legacy-context-storage",
           ttsNormVersion: "ttsNorm:2",
           ttsCacheKey: openAiKey,
@@ -95,6 +85,7 @@ describe("selectSectionAudioVariant", () => {
         sectionKey,
         ttsNormVersion: "ttsNorm:2",
         ttsCacheKey: openAiKey,
+        sourceHash,
       },
     );
 
@@ -109,6 +100,28 @@ describe("selectSectionAudioVariant", () => {
       expect(() => assertSectionAudioKeyCanBeSaved(sectionKey)).not.toThrow();
     },
   );
+
+  it("rejects audio rendered from different narration text", () => {
+    const selected = selectSectionAudioVariant(
+      [
+        {
+          sectionKey: "summary",
+          sourceHash: "old-source",
+          storageId: "old-storage",
+          ttsNormVersion: "ttsNorm:2",
+          ttsCacheKey: openAiKey,
+        },
+      ],
+      {
+        sectionKey: "summary",
+        sourceHash: "current-source",
+        ttsNormVersion: "ttsNorm:2",
+        ttsCacheKey: openAiKey,
+      },
+    );
+
+    expect(selected).toBeNull();
+  });
 
   it.each([
     "context-summary-map-hash",

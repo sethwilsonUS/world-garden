@@ -80,6 +80,31 @@ const articleSectionAudioReason = v.union(
   v.literal("low_prose_density"),
 );
 
+const sectionNarrationMode = v.union(
+  v.literal("verbatim"),
+  v.literal("structured"),
+  v.literal("transition"),
+  v.literal("none"),
+);
+
+const sectionNarrationSourceFormat = v.union(
+  v.literal("prose"),
+  v.literal("table"),
+  v.literal("list"),
+  v.literal("mixed"),
+  v.literal("heading"),
+);
+
+const sectionNarration = v.object({
+  mode: sectionNarrationMode,
+  text: v.string(),
+  sourceFormat: sectionNarrationSourceFormat,
+  adapted: v.boolean(),
+  usedRawFallback: v.boolean(),
+  remainingSourceItems: v.optional(v.number()),
+  sourceHash: v.string(),
+});
+
 const podcastShowAssetSlug = v.union(
   v.literal("featured"),
   v.literal("trending"),
@@ -118,6 +143,7 @@ export default defineSchema({
     slug: v.optional(v.string()),
     language: v.string(),
     revisionId: v.string(),
+    narrationVersion: v.optional(v.number()),
     lastFetchedAt: v.number(),
     summary: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
@@ -130,9 +156,11 @@ export default defineSchema({
     sections: v.optional(
       v.array(
         v.object({
+          wikiSectionIndex: v.optional(v.string()),
           title: v.string(),
           level: v.number(),
           content: v.string(),
+          narration: v.optional(sectionNarration),
           // Kept optional for older cached articles written before
           // audio suitability metadata existed.
           audioMode: v.optional(articleSectionAudioMode),
@@ -177,6 +205,7 @@ export default defineSchema({
     status: personalPlaylistEpisodeStatus,
     stage: v.optional(articleAudioExportStage),
     sectionCount: v.optional(v.number()),
+    narrationHash: v.optional(v.string()),
     completedSectionCount: v.optional(v.number()),
     storageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
@@ -208,6 +237,7 @@ export default defineSchema({
   sectionAudio: defineTable({
     articleId: v.id("articles"),
     sectionKey: v.string(),
+    sourceHash: v.optional(v.string()),
     storageId: v.id("_storage"),
     ttsNormVersion: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
@@ -223,7 +253,13 @@ export default defineSchema({
   })
     .index("by_article_section", ["articleId", "sectionKey"])
     .index("by_article_section_tts", ["articleId", "sectionKey", "ttsNormVersion"])
-    .index("by_article_section_cache", ["articleId", "sectionKey", "ttsCacheKey"]),
+    .index("by_article_section_cache", ["articleId", "sectionKey", "ttsCacheKey"])
+    .index("by_article_section_cache_source", [
+      "articleId",
+      "sectionKey",
+      "ttsCacheKey",
+      "sourceHash",
+    ]),
 
   articleParseCache: defineTable({
     wikiPageId: v.string(),
@@ -387,6 +423,7 @@ export default defineSchema({
     artworkVersion: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
+    narrationHash: v.optional(v.string()),
     ttsNormVersion: v.string(),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),
@@ -619,6 +656,7 @@ export default defineSchema({
     stage: v.optional(articleAudioExportStage),
     sectionCount: v.number(),
     completedSectionCount: v.number(),
+    narrationHash: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     byteLength: v.optional(v.number()),
     ttsCacheKey: v.optional(v.string()),

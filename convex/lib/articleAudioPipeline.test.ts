@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { addMp3Metadata } from "../../lib/audio-metadata";
 import type { Id } from "../_generated/dataModel";
+import { createTestSection } from "../../lib/test-section-narration";
 import {
   assembleArticleAudio,
   type ArticleAudioSource,
@@ -75,22 +76,18 @@ describe("assembleArticleAudio", () => {
       title: "Chrono Trigger",
       slug: "Chrono_Trigger",
       sections: [
-        {
+        createTestSection({
           title: "Gameplay",
           level: 2,
           content:
             "Chrono Trigger uses an active time battle system with party attacks and time travel.",
-          audioMode: "full",
-          audioReason: "eligible",
-        },
-        {
+        }),
+        createTestSection({
           title: "Legacy",
           level: 2,
           content:
             "The game remains widely praised and has been re-released on several platforms over time.",
-          audioMode: "full",
-          audioReason: "eligible",
-        },
+        }),
       ],
     };
 

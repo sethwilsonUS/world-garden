@@ -13,6 +13,7 @@ import {
   type TtsAudioResult,
 } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
+import { hashNarrationText } from "@/lib/section-narration";
 import {
   getActiveTtsProfile,
   getTtsMetadata,
@@ -35,6 +36,7 @@ type WarmArticle = {
 
 type SaveSummaryAudioArgs = {
   articleId: string;
+  sourceHash: string;
   blob: Blob;
   durationSeconds: number;
   metadata: TtsMetadata;
@@ -63,6 +65,7 @@ export type HomepageAudioWarmDependencies = {
   fetchArticle: (article: HomepageArticleRef) => Promise<WarmArticle>;
   getCachedSummary: (
     articleId: string,
+    sourceHash: string,
     expected: TtsMetadata,
   ) => Promise<CachedSummaryAudio>;
   verifyAudioUrl: (url: string) => Promise<void>;
@@ -147,11 +150,12 @@ const createProductionDependencies = (
         });
     return result as WarmArticle;
   },
-  async getCachedSummary(articleId, expected) {
+  async getCachedSummary(articleId, sourceHash, expected) {
     const cached = (await fetchQuery(anyApi.audio.getAllSectionAudio, {
       articleId,
       ttsNormVersion: expected.ttsNormVersion,
       ttsCacheKey: expected.ttsCacheKey,
+      sourceHashes: [{ sectionKey: "summary", sourceHash }],
     })) as {
       urls?: Record<string, string>;
       metadata?: Record<string, Partial<TtsMetadata>>;
@@ -174,12 +178,13 @@ const createProductionDependencies = (
       { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
     );
   },
-  async saveSummary({ articleId, blob, durationSeconds, metadata }) {
+  async saveSummary({ articleId, sourceHash, blob, durationSeconds, metadata }) {
     const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {});
     const storageId = await uploadBlobToConvexStorage(uploadUrl as string, blob);
     await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
       articleId,
       sectionKey: "summary",
+      sourceHash,
       storageId,
       ttsNormVersion: metadata.ttsNormVersion,
       ttsCacheKey: metadata.ttsCacheKey,
@@ -226,7 +231,12 @@ export const warmHomepageArticleSummaries = async ({
         throw new Error("Article summary is unavailable or too short for audio");
       }
 
-      const cached = await dependencies.getCachedSummary(article._id, expected);
+      const sourceHash = hashNarrationText(summary);
+      const cached = await dependencies.getCachedSummary(
+        article._id,
+        sourceHash,
+        expected,
+      );
       if (cached.url && metadataMatches(cached.metadata, expected)) {
         try {
           await dependencies.verifyAudioUrl(cached.url);
@@ -248,6 +258,7 @@ export const warmHomepageArticleSummaries = async ({
       const generated = await dependencies.generateAudio(summary, expected);
       await dependencies.saveSummary({
         articleId: article._id,
+        sourceHash,
         blob: generated.blob,
         durationSeconds: estimateDurationSeconds(summary),
         metadata: generated.metadata,

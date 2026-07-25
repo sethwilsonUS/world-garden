@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBadgeListenTracking } from "./useBadgeListenTracking";
 import type { AwardedBadgeProgress, BadgeKey } from "@/lib/badges";
+import { createTestSection } from "@/lib/test-section-narration";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -44,20 +45,16 @@ const Harness = ({
     title: "Roman roads",
     summaryText: "One two three four five six seven eight nine ten.",
     sections: [
-      {
+      createTestSection({
         title: "Roads",
         level: 2,
         content: "One two three four five six seven eight nine ten.",
-        audioMode: "full",
-        audioReason: "eligible",
-      },
-      {
+      }),
+      createTestSection({
         title: "Aqueducts",
         level: 2,
         content: "One two three four five six seven eight nine ten.",
-        audioMode: "full",
-        audioReason: "eligible",
-      },
+      }),
     ],
     sectionDurations: {
       summary: 10,

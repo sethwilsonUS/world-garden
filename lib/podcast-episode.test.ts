@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { FetchAndCacheResult } from "@/convex/articles";
+import {
+  buildArticleNarrationHash,
+  hashNarrationText,
+} from "./section-narration";
+import { createTestSection } from "./test-section-narration";
 import {
   doesTtsMetadataMatch,
   getPodcastSectionSources,
@@ -13,26 +19,25 @@ import {
 } from "./tts-profile";
 
 describe("getPodcastSectionSources", () => {
-  it("uses only full-audio sections for the featured podcast", () => {
+  it("uses every narrated section for the featured podcast", () => {
     const result = getPodcastSectionSources({
       _id: "article-1" as never,
       wikiPageId: "123",
       title: "Example article",
       language: "en",
       revisionId: "1",
+      narrationVersion: 1,
       lastEdited: "2026-03-10T00:00:00Z",
       summary: "Lead summary with enough content to speak aloud.",
       contentText: "unused",
       sections: [
-        {
+        createTestSection({
           title: "History",
           level: 2,
           content:
             "The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
-          audioMode: "full",
-          audioReason: "eligible",
-        },
-        {
+        }),
+        createTestSection({
           title: "Results",
           level: 2,
           content: [
@@ -40,9 +45,13 @@ describe("getPodcastSectionSources", () => {
             "2020  Rivera     51.2%",
             "2022  Patel      49.8%",
           ].join("\n"),
-          audioMode: "unavailable",
-          audioReason: "table_like",
-        },
+          narration: {
+            mode: "structured",
+            sourceFormat: "table",
+            adapted: true,
+            text: "Results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
+          },
+        }),
       ],
     });
 
@@ -50,11 +59,24 @@ describe("getPodcastSectionSources", () => {
       {
         sectionKey: "summary",
         text: "Lead summary with enough content to speak aloud.",
+        sourceHash: hashNarrationText(
+          "Lead summary with enough content to speak aloud.",
+        ),
       },
       {
         sectionKey: "section-0",
         text:
           "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
+        sourceHash: hashNarrationText(
+          "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
+        ),
+      },
+      {
+        sectionKey: "section-1",
+        text: "Results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
+        sourceHash: hashNarrationText(
+          "Results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
+        ),
       },
     ]);
   });
@@ -62,9 +84,18 @@ describe("getPodcastSectionSources", () => {
 
 describe("shouldReuseExistingFeaturedEpisode", () => {
   const article = {
+    _id: "article-1" as never,
     wikiPageId: "123",
     title: "Example article",
-  };
+    language: "en",
+    revisionId: "1",
+    narrationVersion: 1,
+    lastEdited: "2026-03-10T00:00:00Z",
+    summary: "A current summary.",
+    contentText: "unused",
+    sections: [],
+  } satisfies FetchAndCacheResult;
+  const narrationHash = buildArticleNarrationHash(article);
 
   it("reuses an existing ready episode when it matches the current article", () => {
     expect(
@@ -76,6 +107,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          narrationHash,
           ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
@@ -94,6 +126,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "999",
           title: "Older featured article",
           artworkVersion: 2,
+          narrationHash,
           ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
@@ -112,6 +145,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          narrationHash,
           ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
@@ -130,6 +164,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 1,
+          narrationHash,
           ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
@@ -148,6 +183,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          narrationHash,
           ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
@@ -166,6 +202,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          narrationHash,
           ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
@@ -184,7 +221,27 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          narrationHash,
           ttsNormVersion: "ttsNorm:1",
+          ttsCacheKey: getActiveTtsCacheKey(),
+        } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reuse ready audio from older narration text", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+          narrationHash: "older-narration",
+          ttsNormVersion: getActiveTtsNormVersion(),
           ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<typeof shouldReuseExistingFeaturedEpisode>[0]["existingEpisode"],
         article,

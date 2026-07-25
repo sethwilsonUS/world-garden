@@ -17,6 +17,7 @@ import {
 } from "./lib/articleAudioPipeline";
 import { uploadBlobToConvexStorage, uploadStreamToConvexStorage } from "./lib/storageUpload";
 import { getActiveTtsCacheKey } from "../lib/tts-profile";
+import { buildArticleNarrationHash } from "../lib/section-narration";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
@@ -29,6 +30,7 @@ type ReusableArticleAudioExport = {
   updatedAt: number;
   dismissedAt?: number;
   ttsCacheKey?: string;
+  narrationHash?: string;
 };
 
 export const findReusableArticleAudioExport = <
@@ -36,14 +38,17 @@ export const findReusableArticleAudioExport = <
 >(
   records: TRecord[],
   ttsCacheKey: string,
+  narrationHash: string,
 ): TRecord | undefined =>
   records
     .filter(
       (record) =>
         record.dismissedAt == null &&
+        record.narrationHash === narrationHash &&
+        record.ttsCacheKey === ttsCacheKey &&
         (record.status === "queued" ||
           record.status === "running" ||
-          (record.status === "ready" && record.ttsCacheKey === ttsCacheKey)),
+          record.status === "ready"),
     )
     .sort((a, b) => b.updatedAt - a.updatedAt)[0];
 
@@ -77,7 +82,19 @@ export const getRecentArticleAudioExports = query({
       .withIndex("by_clientId", (q) => q.eq("clientId", args.clientId))
       .collect();
 
-    const filtered = records
+    const compatibleRecords = (
+      await Promise.all(
+        records.map(async (record) => {
+          const article = await ctx.db.get(record.articleId);
+          return article &&
+            record.narrationHash === buildArticleNarrationHash(article)
+            ? record
+            : null;
+        }),
+      )
+    ).filter((record): record is NonNullable<typeof record> => record !== null);
+
+    const filtered = compatibleRecords
       .filter((record) => record.dismissedAt == null)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
@@ -92,7 +109,15 @@ export const getArticleAudioExportById = query({
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
-    return record ? await withStorageUrl(ctx, record) : null;
+    if (!record) return null;
+    const article = await ctx.db.get(record.articleId);
+    if (
+      !article ||
+      record.narrationHash !== buildArticleNarrationHash(article)
+    ) {
+      return null;
+    }
+    return await withStorageUrl(ctx, record);
   },
 });
 
@@ -109,6 +134,7 @@ export const startArticleAudioExport = mutation({
     }
 
     const activeTtsCacheKey = getActiveTtsCacheKey();
+    const narrationHash = buildArticleNarrationHash(article);
     const existing = findReusableArticleAudioExport(
       await ctx.db
         .query("articleAudioExports")
@@ -117,6 +143,7 @@ export const startArticleAudioExport = mutation({
         )
         .collect(),
       activeTtsCacheKey,
+      narrationHash,
     );
 
     if (existing) {
@@ -146,11 +173,12 @@ export const startArticleAudioExport = mutation({
       stage: sectionCount > 0 ? "queued" : undefined,
       sectionCount,
       completedSectionCount: 0,
+      narrationHash,
       ttsCacheKey: activeTtsCacheKey,
       lastError:
         sectionCount > 0
           ? undefined
-          : "Article does not contain any audio-suitable sections.",
+          : "Article does not contain any narratable source tracks.",
       createdAt: now,
       updatedAt: now,
     });
@@ -305,6 +333,7 @@ export const completeArticleAudioExport = internalMutation({
     storageId: v.id("_storage"),
     byteLength: v.number(),
     ttsCacheKey: v.string(),
+    narrationHash: v.string(),
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
@@ -316,6 +345,7 @@ export const completeArticleAudioExport = internalMutation({
       storageId: args.storageId,
       byteLength: args.byteLength,
       ttsCacheKey: args.ttsCacheKey,
+      narrationHash: args.narrationHash,
       completedSectionCount: record.sectionCount,
       updatedAt: Date.now(),
     });
@@ -391,7 +421,7 @@ export const processArticleAudioExport = internalAction({
     if (sections.length === 0) {
       await ctx.runMutation(internal.articleExports.failArticleAudioExport, {
         exportId: args.exportId,
-        lastError: "Article does not contain any audio-suitable sections.",
+        lastError: "Article does not contain any narratable source tracks.",
       });
       await scheduleNextQueuedExport(record.clientId);
       return;
@@ -413,20 +443,28 @@ export const processArticleAudioExport = internalAction({
         },
         albumTitle: "Curio Garden Article Audio",
         baseUrl: args.baseUrl,
-        getCachedSectionAudioUrls: async ({ ttsCacheKey }) => {
+        getCachedSectionAudioUrls: async ({ ttsCacheKey, sourceHashes }) => {
           const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
             articleId: article._id,
             ttsNormVersion: TTS_NORM_VERSION,
             ttsCacheKey,
+            sourceHashes,
           });
           return cachedAudio.urls;
         },
-        saveSectionAudio: async ({ sectionKey, blob, durationSeconds, metadata }) => {
+        saveSectionAudio: async ({
+          sectionKey,
+          sourceHash,
+          blob,
+          durationSeconds,
+          metadata,
+        }) => {
           const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
           const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
           await ctx.runMutation(api.audio.saveSectionAudioRecord, {
             articleId: article._id,
             sectionKey,
+            sourceHash,
             storageId,
             ttsNormVersion: TTS_NORM_VERSION,
             ttsCacheKey: metadata.ttsCacheKey,
@@ -463,6 +501,7 @@ export const processArticleAudioExport = internalAction({
         storageId: result.storageId,
         byteLength: result.byteLength,
         ttsCacheKey: result.metadata.ttsCacheKey,
+        narrationHash: result.narrationHash,
       });
       await scheduleNextQueuedExport(record.clientId);
     } catch (error) {

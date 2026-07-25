@@ -29,6 +29,7 @@ type ArticleAudioExportJob = {
   stage?: "queued" | "rendering_audio" | "packaging";
   sectionCount: number;
   completedSectionCount: number;
+  narrationHash?: string;
   lastError?: string;
   audioUrl?: string | null;
   createdAt: number;

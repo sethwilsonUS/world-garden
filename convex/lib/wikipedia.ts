@@ -1,8 +1,10 @@
 import {
-  attachAudioSuitability,
-  type AudioMode,
-  type AudioReason,
-} from "../../lib/audio-suitability";
+  ARTICLE_SECTION_NARRATION_VERSION,
+  createSectionNarrations,
+  type NarratedSection,
+  type ParsedSectionNarrationSource,
+  type SectionNarrationSource,
+} from "../../lib/section-narration";
 import {
   BADGE_KEYS,
   getBadgeTopicQuery,
@@ -29,13 +31,7 @@ export type WikiSearchResult = {
   url: string;
 };
 
-export type WikiSection = {
-  title: string;
-  level: number;
-  content: string;
-  audioMode: AudioMode;
-  audioReason: AudioReason;
-};
+export type WikiSection = NarratedSection;
 
 export type WikiArticle = {
   wikiPageId: string;
@@ -46,6 +42,7 @@ export type WikiArticle = {
   summary: string;
   contentText: string;
   sections: WikiSection[];
+  narrationVersion: number;
   thumbnailUrl?: string;
   thumbnailWidth?: number;
   thumbnailHeight?: number;
@@ -73,6 +70,58 @@ const fetchSummaryThumbnail = async (
     const data = await response.json();
     const thumbnail = data.thumbnail as WikiThumbnail | undefined;
     return thumbnail;
+  } catch {
+    return undefined;
+  }
+};
+
+const fetchRevisionParsedSource = async (
+  revisionId: string,
+): Promise<ParsedSectionNarrationSource | undefined> => {
+  if (!/^\d+$/.test(revisionId)) return undefined;
+  try {
+    const params = new URLSearchParams({
+      action: "parse",
+      format: "json",
+      formatversion: "2",
+      oldid: revisionId,
+      prop: "text|sections",
+      disableeditsection: "1",
+      disablelimitreport: "1",
+      origin: "*",
+    });
+    const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
+      headers: { "User-Agent": USER_AGENT },
+    });
+    if (!response.ok) return undefined;
+    const data = await response.json();
+    if (String(data.parse?.revid ?? "") !== revisionId) return undefined;
+    const html = data.parse?.text;
+    const sections = data.parse?.sections;
+    if (typeof html !== "string" || !Array.isArray(sections)) return undefined;
+    return {
+      html,
+      sections: sections.flatMap((section: unknown) => {
+        if (!section || typeof section !== "object") return [];
+        const candidate = section as Record<string, unknown>;
+        if (
+          typeof candidate.index !== "string" ||
+          typeof candidate.line !== "string"
+        ) {
+          return [];
+        }
+        return [{
+          index: candidate.index,
+          line: candidate.line,
+          ...(typeof candidate.anchor === "string"
+            ? { anchor: candidate.anchor }
+            : {}),
+          ...(typeof candidate.level === "string"
+            ? { level: candidate.level }
+            : {}),
+        }];
+      }),
+    };
   } catch {
     return undefined;
   }
@@ -187,23 +236,28 @@ export const fetchArticleByPageId = async (
   }
 
   const revision = page.revisions?.[0];
+  const revisionId = revision ? String(revision.revid) : "unknown";
   const fullText = page.extract ?? "";
-  const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
-  const thumbnailAttribution = await getAttributionForImageUrl(thumbnail?.source);
+  const [parsedSource, thumbnailAttribution] = await Promise.all([
+    fetchRevisionParsedSource(revisionId),
+    getAttributionForImageUrl(thumbnail?.source),
+  ]);
+  const { summary, sections } = parseSections(fullText, parsedSource);
 
   return {
     wikiPageId: String(page.pageid),
     title: page.title,
     language: "en",
-    revisionId: revision ? String(revision.revid) : "unknown",
+    revisionId,
     lastEdited: revision?.timestamp ?? new Date().toISOString(),
     summary,
     contentText,
     sections,
+    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
     thumbnailUrl: thumbnail?.source,
     thumbnailWidth: thumbnail?.width,
     thumbnailHeight: thumbnail?.height,
@@ -255,23 +309,28 @@ export const fetchArticleByTitle = async (
 
   const revisions = page.revisions as Array<Record<string, unknown>> | undefined;
   const revision = revisions?.[0];
+  const revisionId = revision ? String(revision.revid) : "unknown";
   const fullText = (page.extract as string) ?? "";
-  const { summary, sections } = parseSections(fullText);
   const contentText = cleanContentForTts(fullText);
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
-  const thumbnailAttribution = await getAttributionForImageUrl(thumbnail?.source);
+  const [parsedSource, thumbnailAttribution] = await Promise.all([
+    fetchRevisionParsedSource(revisionId),
+    getAttributionForImageUrl(thumbnail?.source),
+  ]);
+  const { summary, sections } = parseSections(fullText, parsedSource);
 
   return {
     wikiPageId: String(page.pageid),
     title: page.title as string,
     language: "en",
-    revisionId: revision ? String(revision.revid) : "unknown",
+    revisionId,
     lastEdited: (revision?.timestamp as string) ?? new Date().toISOString(),
     summary,
     contentText,
     sections,
+    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
     thumbnailUrl: thumbnail?.source,
     thumbnailWidth: thumbnail?.width,
     thumbnailHeight: thumbnail?.height,
@@ -295,7 +354,10 @@ const NOISE_SECTIONS = new Set([
  * Split Wikipedia plaintext (from explaintext=1) into a lead summary
  * and an ordered array of sections. Filters out reference/noise sections.
  */
-export const parseSections = (fullText: string): {
+export const parseSections = (
+  fullText: string,
+  parsedSource?: ParsedSectionNarrationSource,
+): {
   summary: string;
   sections: WikiSection[];
 } => {
@@ -310,7 +372,8 @@ export const parseSections = (fullText: string): {
     fullText.substring(0, matches[0].index!).trim(),
   );
 
-  const sections: WikiSection[] = [];
+  const rawSections: SectionNarrationSource[] = [];
+  let parsedCursor = 0;
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
     const level = m[1].length;
@@ -325,16 +388,33 @@ export const parseSections = (fullText: string): {
       fullText.substring(contentStart, contentEnd),
     );
 
-    sections.push(
-      attachAudioSuitability({
-        title,
-        level,
-        content,
-      }),
+    const normalizedTitle = title.trim().toLocaleLowerCase();
+    const parsedIndex = parsedSource?.sections.findIndex(
+      (section, index) =>
+        index >= parsedCursor &&
+        stripHtml(section.line).trim().toLocaleLowerCase() === normalizedTitle,
     );
+    const parsedSection =
+      parsedIndex != null && parsedIndex >= 0
+        ? parsedSource?.sections[parsedIndex]
+        : undefined;
+    if (parsedIndex != null && parsedIndex >= 0) parsedCursor = parsedIndex + 1;
+
+    rawSections.push({
+      wikiSectionIndex: parsedSection?.index ?? String(i + 1),
+      title,
+      level,
+      content,
+    });
   }
 
-  return { summary, sections };
+  return {
+    summary,
+    sections: createSectionNarrations({
+      sections: rawSections,
+      parsedSource,
+    }),
+  };
 };
 
 export const cleanSectionContent = (text: string): string => {

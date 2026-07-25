@@ -1,5 +1,8 @@
 import type { Section } from "@/lib/data-context";
-import { hasFullAudio } from "@/lib/audio-suitability";
+import {
+  buildArticleNarrationTracks,
+  type ArticleNarrationTrack,
+} from "@/lib/section-narration";
 import type { TtsAudioUrlResult } from "@/lib/tts-client";
 import {
   getActiveTtsProfile,
@@ -25,13 +28,12 @@ export type AudioPlaybackState = {
   slowLoading: boolean;
 };
 
-export type QueueItem = {
-  sectionKey: string;
-  label: string;
-  sectionIdx: number | null;
-};
+export type QueueItem = ArticleNarrationTrack & { label: string };
 
-export type AudioRetryTarget = QueueItem & {
+export type AudioRetryTarget = Pick<
+  QueueItem,
+  "sectionKey" | "label" | "sectionIdx"
+> & {
   ariaLabel: string;
 };
 
@@ -47,25 +49,16 @@ export const createIdleAudioPlayback = (): AudioPlaybackState => ({
 });
 
 export const buildPlayAllQueue = (
-  sections: Section[],
-  articleTitle: string,
-): QueueItem[] => {
-  const queue: QueueItem[] = [{
-    sectionKey: "summary",
-    label: `${articleTitle} \u2014 Summary`,
-    sectionIdx: null,
-  }];
-  sections.forEach((section, index) => {
-    if (hasFullAudio(section)) {
-      queue.push({
-        sectionKey: `section-${index}`,
-        label: `${section.title} \u2014 ${articleTitle}`,
-        sectionIdx: index,
-      });
-    }
-  });
-  return queue;
-};
+  article: {
+    title: string;
+    summary?: string;
+    sections?: Section[];
+  },
+): QueueItem[] =>
+  buildArticleNarrationTracks(article).map((track) => ({
+    ...track,
+    label: track.title,
+  }));
 
 export const getAudioRetryTarget = (
   playback: AudioPlaybackState,

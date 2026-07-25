@@ -150,8 +150,8 @@ describe("parseSections", () => {
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0].title).toBe("History");
     expect(result.sections[0].level).toBe(2);
-    expect(result.sections[0].audioMode).toBe("full");
-    expect(result.sections[0].audioReason).toBe("eligible");
+    expect(result.sections[0].narration.mode).toBe("verbatim");
+    expect(result.sections[0].wikiSectionIndex).toBe("1");
     expect(result.sections[1].title).toBe("Geography");
   });
 
@@ -203,7 +203,7 @@ describe("parseSections", () => {
     }
   });
 
-  it("keeps sections with very short content (UI handles graying out)", () => {
+  it("keeps sections with very short content playable", () => {
     const text = [
       "Lead text.",
       "",
@@ -218,10 +218,10 @@ describe("parseSections", () => {
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0].title).toBe("Empty Section");
     expect(result.sections[0].content).toBe("Too short.");
-    expect(result.sections[0].audioMode).toBe("unavailable");
-    expect(result.sections[0].audioReason).toBe("too_short");
+    expect(result.sections[0].narration.mode).toBe("verbatim");
+    expect(result.sections[0].narration.text).toBe("Empty Section. Too short.");
     expect(result.sections[1].title).toBe("Real Section");
-    expect(result.sections[1].audioMode).toBe("full");
+    expect(result.sections[1].narration.mode).toBe("verbatim");
   });
 
   it("handles level-3 headings", () => {
@@ -255,7 +255,7 @@ describe("parseSections", () => {
     );
   });
 
-  it("classifies list-like and table-like sections while parsing", () => {
+  it("uses raw narration when semantic source data is unavailable", () => {
     const text = [
       "Lead text.",
       "",
@@ -274,13 +274,114 @@ describe("parseSections", () => {
     const result = parseSections(text);
     expect(result.sections[0]).toMatchObject({
       title: "Cast",
-      audioMode: "unavailable",
-      audioReason: "list_like",
+      narration: {
+        mode: "verbatim",
+        usedRawFallback: true,
+      },
     });
     expect(result.sections[1]).toMatchObject({
       title: "Election results",
-      audioMode: "unavailable",
-      audioReason: "table_like",
+      narration: {
+        mode: "verbatim",
+        usedRawFallback: true,
+      },
+    });
+  });
+
+  it("uses revision-matched HTML to adapt genuine structured content", () => {
+    const text = [
+      "Lead text.",
+      "",
+      "== Cast ==",
+      "Ada Lovelace",
+      "Alan Turing",
+    ].join("\n");
+    const result = parseSections(text, {
+      html: "<h2>Cast</h2><ul><li>Ada Lovelace</li><li>Alan Turing</li></ul>",
+      sections: [{ index: "7", line: "Cast", level: "2" }],
+    });
+
+    expect(result.sections[0]).toMatchObject({
+      wikiSectionIndex: "7",
+      narration: {
+        mode: "structured",
+        sourceFormat: "list",
+        adapted: true,
+      },
+    });
+  });
+
+  it("keeps all 11 body sections from Landor revision 1342291773 narratable", () => {
+    const headings = [
+      "Summary of his work",
+      "Summary of his life",
+      "Early life",
+      "South Wales and Gebir",
+      "Napoleonic Wars and Count Julian",
+      "Llanthony and marriage",
+      "Florence and Imaginary Conversations",
+      "England, Pericles and journalism",
+      "Final tragedies and return to Italy",
+      "Review of Landor's work by Swinburne",
+      "Artistic recognition",
+    ];
+    const contents = new Map([
+      [
+        "Early life",
+        "Walter Savage Landor was born in 1775. In 1793 he entered Oxford, and in 1794 he left after a dispute. In 1795 he published a volume of verse.",
+      ],
+      [
+        "Final tragedies and return to Italy",
+        "In 1857 Landor faced a court case. In 1858 he returned to Italy; in 1861 Browning left, and Landor published again in 1863.",
+      ],
+      [
+        "Artistic recognition",
+        "A bust of Landor dated 1828 by John Gibson is held in the National Portrait Gallery, London.",
+      ],
+    ]);
+    const fullText = [
+      "Walter Savage Landor was an English writer, poet, and activist.",
+      ...headings.flatMap((title) => [
+        `== ${title} ==`,
+        contents.get(title) ?? `${title} remains part of the article body.`,
+      ]),
+      "== See also ==",
+      "List of Landor's Imaginary Conversations",
+      "== Further reading ==",
+      "A bibliography.",
+      "== References ==",
+      "Reference list.",
+      "== External links ==",
+      "Official resources.",
+    ].join("\n\n");
+
+    const result = parseSections(fullText);
+    expect(result.sections.map((section) => section.title)).toEqual(headings);
+    expect(result.sections).toHaveLength(11);
+    expect(
+      result.sections.every(
+        (section) =>
+          section.narration.mode === "verbatim" &&
+          section.narration.text.length > 0,
+      ),
+    ).toBe(true);
+    expect(
+      result.sections.find((section) => section.title === "Early life")
+        ?.narration.mode,
+    ).toBe("verbatim");
+    expect(
+      result.sections.find(
+        (section) => section.title === "Final tragedies and return to Italy",
+      )?.narration.mode,
+    ).toBe("verbatim");
+    expect(
+      result.sections.find(
+        (section) => section.title === "Artistic recognition",
+      )?.narration,
+    ).toMatchObject({
+      mode: "verbatim",
+      text:
+        "Artistic recognition. A bust of Landor dated 1828 by John Gibson is held in the National Portrait Gallery, London.",
     });
   });
 });
@@ -393,7 +494,7 @@ describe("fetchArticleByTitle", () => {
     );
   });
 
-  it("returns section audio metadata from the shared parser", async () => {
+  it("returns revision-aware section narration from the shared parser", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     fetchSpy.mockResolvedValueOnce({
@@ -428,20 +529,44 @@ describe("fetchArticleByTitle", () => {
           },
         }),
     } as Response);
+    fetchSpy.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("action=parse")) {
+        return {
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              parse: {
+                revid: 456,
+                text: [
+                  "<h2>History</h2><p>The town rebuilt its center after a fire. It later added a tram system to connect the districts.</p>",
+                  "<h2>Cast</h2><ul><li>Ada Lovelace</li><li>Alan Turing</li><li>Grace Hopper</li><li>Donald Knuth</li></ul>",
+                ].join(""),
+                sections: [
+                  { index: "1", line: "History", level: "2" },
+                  { index: "2", line: "Cast", level: "2" },
+                ],
+              },
+            }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: () => Promise.resolve({ query: { pages: {} } }),
+      } as Response;
+    });
 
     const result = await fetchArticleByTitle("Example");
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0]).toMatchObject({
       title: "History",
-      audioMode: "full",
-      audioReason: "eligible",
+      narration: { mode: "verbatim" },
     });
     expect(result.sections[1]).toMatchObject({
       title: "Cast",
-      audioMode: "unavailable",
-      audioReason: "list_like",
+      narration: { mode: "structured", sourceFormat: "list" },
     });
   });
 });

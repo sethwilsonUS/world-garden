@@ -3,7 +3,11 @@ import { titleToSlug } from "./wikipedia";
 import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
 import { generateTtsAudioWithMetadata } from "../../lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "../../lib/tts-quota-bypass";
-import { hasFullAudio, type AudioMode, type AudioReason } from "../../lib/audio-suitability";
+import {
+  buildArticleNarrationHash,
+  buildArticleNarrationTracks,
+  type SectionNarration,
+} from "../../lib/section-narration";
 import {
   getTtsMetadata,
   getTtsProfile,
@@ -18,19 +22,22 @@ export type ArticleAudioSource = {
   title: string;
   slug?: string;
   summary?: string;
+  revisionId?: string;
+  narrationVersion?: number;
   thumbnailUrl?: string;
   sections?: {
+    wikiSectionIndex?: string;
     title: string;
     level: number;
     content: string;
-    audioMode?: AudioMode;
-    audioReason?: AudioReason;
+    narration?: SectionNarration;
   }[];
 };
 
 export type ArticleAudioSection = {
   sectionKey: string;
   text: string;
+  sourceHash: string;
 };
 
 export type AssembleArticleAudioArgs<TStorageId = string> = {
@@ -39,9 +46,11 @@ export type AssembleArticleAudioArgs<TStorageId = string> = {
   baseUrl: string;
   getCachedSectionAudioUrls: (args: {
     ttsCacheKey: string;
+    sourceHashes: Array<{ sectionKey: string; sourceHash: string }>;
   }) => Promise<Record<string, string | null | undefined>>;
   saveSectionAudio: (args: {
     sectionKey: string;
+    sourceHash: string;
     blob: Blob;
     durationSeconds: number;
     metadata: TtsMetadata;
@@ -67,6 +76,7 @@ export type AssembleArticleAudioResult<TStorageId = string> = {
   sectionCount: number;
   generatedSectionCount: number;
   reusedSectionCount: number;
+  narrationHash: string;
   metadata: TtsMetadata;
 };
 
@@ -83,28 +93,12 @@ export const estimateDurationSeconds = (text: string | string[]): number => {
 
 export const getArticleAudioSections = (
   article: ArticleAudioSource,
-): ArticleAudioSection[] => {
-  const sections: ArticleAudioSection[] = [];
-
-  if ((article.summary ?? "").trim().length >= 10) {
-    sections.push({
-      sectionKey: "summary",
-      text: article.summary ?? "",
-    });
-  }
-
-  for (let index = 0; index < (article.sections ?? []).length; index += 1) {
-    const section = article.sections?.[index];
-    if (!section || !hasFullAudio(section)) continue;
-
-    sections.push({
-      sectionKey: `section-${index}`,
-      text: `${section.title}. ${section.content}`,
-    });
-  }
-
-  return sections;
-};
+): ArticleAudioSection[] =>
+  buildArticleNarrationTracks(article).map((track) => ({
+    sectionKey: track.sectionKey,
+    text: track.text,
+    sourceHash: track.sourceHash,
+  }));
 
 export const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
   const response = await fetch(url, { cache: "no-store" });
@@ -235,7 +229,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
 }: AssembleArticleAudioArgs<TStorageId>): Promise<AssembleArticleAudioResult<TStorageId>> => {
   const sections = getArticleAudioSections(article);
   if (sections.length === 0) {
-    throw new Error("Article does not contain any audio-suitable sections.");
+    throw new Error("Article does not contain any narratable source tracks.");
   }
 
   const assembleWithProvider = async (
@@ -244,6 +238,10 @@ export const assembleArticleAudio = async <TStorageId = string>({
     const passMetadata = getTtsMetadata(getTtsProfile(forcedProvider));
     const cachedUrls = await getCachedSectionAudioUrls({
       ttsCacheKey: passMetadata.ttsCacheKey,
+      sourceHashes: sections.map(({ sectionKey, sourceHash }) => ({
+        sectionKey,
+        sourceHash,
+      })),
     });
     const sectionAudioUrls: string[] = [];
     let generatedSectionCount = 0;
@@ -291,6 +289,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
         try {
           sectionAudioUrl = await saveSectionAudio({
             sectionKey: section.sectionKey,
+            sourceHash: section.sourceHash,
             blob,
             durationSeconds: estimateDurationSeconds(section.text),
             metadata,
@@ -353,6 +352,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
       sectionCount: sections.length,
       generatedSectionCount,
       reusedSectionCount,
+      narrationHash: buildArticleNarrationHash(article),
       metadata: producedMetadata ?? passMetadata,
     };
   };

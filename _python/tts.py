@@ -19,7 +19,7 @@ import edge_tts
 logger = logging.getLogger(__name__)
 
 DEFAULT_VOICE = "en-US-AriaNeural"
-MIN_TEXT_LENGTH = 10
+MIN_TEXT_LENGTH = 1
 DEFAULT_MAX_WORDS_PER_REQUEST = 800
 
 # Voice IDs follow a strict locale-name pattern, e.g. "en-US-AriaNeural".

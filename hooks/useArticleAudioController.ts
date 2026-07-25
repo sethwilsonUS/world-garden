@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { Article, Section } from "@/lib/data-context";
+import type { Article } from "@/lib/data-context";
 import { useArticleAudioExports } from "@/components/ArticleAudioExportProvider";
 import { useBadgeProgressToasts } from "@/components/BadgeProgressToastProvider";
 import { useAudioElement } from "@/hooks/useAudioElement";
@@ -48,8 +48,12 @@ import {
   type AudioPlaybackState,
   type QueueItem,
 } from "@/lib/article-audio-playback";
-import { hasFullAudio } from "@/lib/audio-suitability";
 import { buildAwardedBadgeProgress } from "@/lib/badges";
+import {
+  buildArticleNarrationHash,
+  buildArticleNarrationTracks,
+  type ArticleNarrationTrack,
+} from "@/lib/section-narration";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
 import {
   generateTtsAudioUrlWithMetadata,
@@ -168,6 +172,17 @@ export const useArticleAudioController = ({
 
   const articleId = article?._id as Id<"articles"> | undefined;
   const activeTtsCacheKey = getActiveTtsCacheKey();
+  const narrationTracks = useMemo(
+    () => (article ? buildArticleNarrationTracks(article) : []),
+    [article],
+  );
+  const activeNarrationHash = useMemo(
+    () => (article ? buildArticleNarrationHash(article) : null),
+    [article],
+  );
+  const summarySourceHash = narrationTracks.find(
+    (track) => track.sectionKey === "summary",
+  )?.sourceHash;
   const cachedAudio = useQuery(
     api.audio.getAllSectionAudio,
     articleId
@@ -175,6 +190,10 @@ export const useArticleAudioController = ({
           articleId,
           ttsNormVersion: TTS_NORM_VERSION,
           ttsCacheKey: activeTtsCacheKey,
+          sourceHashes: narrationTracks.map(({ sectionKey, sourceHash }) => ({
+            sectionKey,
+            sourceHash,
+          })),
         }
       : "skip",
   );
@@ -224,7 +243,8 @@ export const useArticleAudioController = ({
   const ttsCache = useRef<Map<string, TtsAudioUrlResult>>(new Map());
   const ttsRequestCache = useRef(createAudioRequestCache());
   const seededStartupPath = useRef<Map<string, AudioStartupPath>>(new Map());
-  const sectionsRef = useRef<Section[]>([]);
+  const narrationTracksRef = useRef<ArticleNarrationTrack[]>([]);
+  const activeNarrationHashRef = useRef<string | null>(null);
 
   const clearSlowLoadingTimer = useCallback(() => {
     if (!slowLoadingTimer.current) return;
@@ -255,7 +275,11 @@ export const useArticleAudioController = ({
   }, [clearSlowLoadingTimer]);
 
   const currentArticleExport =
-    articleAudioExports.find((job) => job.articleId === articleId) ?? null;
+    articleAudioExports.find(
+      (job) =>
+        job.articleId === articleId &&
+        job.narrationHash === activeNarrationHash,
+    ) ?? null;
   const isExportStarting = articleId ? isStartingArticle(articleId) : false;
   const isExportRunning =
     currentArticleExport?.status === "queued" ||
@@ -332,15 +356,20 @@ export const useArticleAudioController = ({
   );
 
   const getTextForSection = useCallback((sectionKey: string): string => {
-    if (sectionKey === "summary") return summaryTextRef.current;
-    const idx = parseInt(sectionKey.replace("section-", ""), 10);
-    const section = sectionsRef.current[idx];
-    return section ? `${section.title}. ${section.content}` : "";
+    return (
+      narrationTracksRef.current.find(
+        (track) => track.sectionKey === sectionKey,
+      )?.text ?? ""
+    );
   }, []);
 
   const cacheAudioInConvex = useCallback(
     async (sectionKey: string, blobUrl: string, metadata: TtsMetadata) => {
       if (!articleId || bypassAudioCacheForStress) return;
+      const sourceHash = narrationTracksRef.current.find(
+        (track) => track.sectionKey === sectionKey,
+      )?.sourceHash;
+      if (!sourceHash) return;
       try {
         const [blob, durationSeconds] = await Promise.all([
           fetchWithTimeout(
@@ -387,6 +416,7 @@ export const useArticleAudioController = ({
         await saveAudioRecord({
           articleId,
           sectionKey,
+          sourceHash,
           storageId,
           ttsNormVersion: metadata.ttsNormVersion,
           ttsCacheKey: metadata.ttsCacheKey,
@@ -423,14 +453,14 @@ export const useArticleAudioController = ({
       ttsCache.current.set(sectionKey, result);
       primeAudioRequest(ttsRequestCache.current, sectionKey, result);
       if (sectionKey === "summary") {
-        primeSummaryAudio(slug, result);
+        primeSummaryAudio(slug, result, summarySourceHash);
       }
       preloadAudioUrl(result.url);
       if (startupPath) {
         seededStartupPath.current.set(sectionKey, startupPath);
       }
     },
-    [slug],
+    [slug, summarySourceHash],
   );
 
   const seedSummaryAudio = useCallback(
@@ -494,24 +524,30 @@ export const useArticleAudioController = ({
       return;
     }
 
-    const prefetchedSummary = getCachedSummaryAudio(slug);
+    const prefetchedSummary = getCachedSummaryAudio(slug, summarySourceHash);
     if (prefetchedSummary) {
       seedSummaryAudio(prefetchedSummary);
       return;
     }
 
     const summaryText = summaryTextRef.current || article?.summary || "";
-    if (summaryText.length < 10) return;
+    if (!summaryText.trim()) return;
 
     const warmRequestId = requestId.current;
-    warmSummaryAudioFromText(slug, summaryText)
+    warmSummaryAudioFromText(slug, summaryText, summarySourceHash)
       .then((result) => {
         if (result && requestId.current === warmRequestId) {
           seedSummaryAudio(result);
         }
       })
       .catch(() => {});
-  }, [article?.summary, getCachedAudioResult, seedSummaryAudio, slug]);
+  }, [
+    article?.summary,
+    getCachedAudioResult,
+    seedSummaryAudio,
+    slug,
+    summarySourceHash,
+  ]);
 
   const warmAudioForSection = useCallback(
     async (sectionKey: string): Promise<TtsAudioUrlResult | null> => {
@@ -535,7 +571,7 @@ export const useArticleAudioController = ({
       if (requestResult) return requestResult;
 
       const text = getTextForSection(sectionKey);
-      if (!text || text.length < 10) return null;
+      if (!text) return null;
 
       try {
         const warmRequestId = requestId.current;
@@ -567,10 +603,15 @@ export const useArticleAudioController = ({
     (sectionKey: string): boolean => {
       if (ttsCache.current.has(sectionKey)) return true;
       if (getAudioRequestResult(ttsRequestCache.current, sectionKey)) return true;
-      if (sectionKey === "summary" && getCachedSummaryAudio(slug)) return true;
+      if (
+        sectionKey === "summary" &&
+        getCachedSummaryAudio(slug, summarySourceHash)
+      ) {
+        return true;
+      }
       return getCachedAudioResult(sectionKey) !== null;
     },
-    [getCachedAudioResult, slug],
+    [getCachedAudioResult, slug, summarySourceHash],
   );
 
   const warmPlayAllQueue = useCallback(
@@ -589,7 +630,7 @@ export const useArticleAudioController = ({
     if (suppressPlayAllFocusWarm.current) return;
     warmSummaryForIntent();
     if (!article) return;
-    warmPlayAllQueue(buildPlayAllQueue(article.sections ?? [], article.title));
+    warmPlayAllQueue(buildPlayAllQueue(article));
   }, [article, warmPlayAllQueue, warmSummaryForIntent]);
 
   const audioEndedRef = useRef<() => void>(() => {});
@@ -655,9 +696,32 @@ export const useArticleAudioController = ({
   }, [audioUrl, audioRef, clearSlowLoadingTimer, isPlayingAll, warmPlayAllQueue]);
 
   useEffect(() => {
-    sectionsRef.current = article?.sections ?? [];
+    if (
+      activeNarrationHashRef.current &&
+      activeNarrationHashRef.current !== activeNarrationHash
+    ) {
+      requestId.current += 1;
+      ttsCache.current.clear();
+      ttsRequestCache.current = createAudioRequestCache();
+      seededStartupPath.current.clear();
+      playAllQueue.current = [];
+      activeAudioRequestKey.current = null;
+      pendingAutoPlay.current = false;
+      isPlayingAllRef.current = false;
+      setTrackingSectionKey(null);
+      audioRef.current?.pause();
+      resetAudioPlayback();
+    }
+    activeNarrationHashRef.current = activeNarrationHash;
+    narrationTracksRef.current = narrationTracks;
     summaryTextRef.current = article?.summary ?? "";
-  }, [article?.sections, article?.summary]);
+  }, [
+    activeNarrationHash,
+    article?.summary,
+    audioRef,
+    narrationTracks,
+    resetAudioPlayback,
+  ]);
 
   useEffect(() => {
     if (!article) return;
@@ -676,21 +740,18 @@ export const useArticleAudioController = ({
         observer.disconnect();
         viewportWarmedArticleKey.current = slug;
 
-        const queue = buildPlayAllQueue(
-          article.sections ?? [],
-          article.title,
-        );
+        const queue = buildPlayAllQueue(article);
         const firstSection = queue.find((item) => item.sectionIdx !== null);
         const summaryText = article.summary ?? "";
         const firstSectionText = firstSection
           ? getTextForSection(firstSection.sectionKey)
           : "";
 
-        if (summaryText.length < 10 && firstSectionText.length < 10) return;
+        if (!summaryText.trim() && !firstSectionText.trim()) return;
 
         const warmTargets = [
-          summaryText.length >= 10 ? "summary" : null,
-          firstSection && firstSectionText.length >= 10
+          summaryText.trim() ? "summary" : null,
+          firstSection && firstSectionText.trim()
             ? firstSection.sectionKey
             : null,
         ].filter((sectionKey): sectionKey is string => sectionKey !== null);
@@ -700,7 +761,7 @@ export const useArticleAudioController = ({
           return;
         }
 
-        if (summaryText.length >= 10 && !hasWarmAudioCached("summary")) {
+        if (summaryText.trim() && !hasWarmAudioCached("summary")) {
           warmSummaryForIntent();
         }
         if (firstSection && !hasWarmAudioCached(firstSection.sectionKey)) {
@@ -735,10 +796,16 @@ export const useArticleAudioController = ({
         sectionKey === "summary" ? "summary" : "section";
       const playbackMode: AudioPlaybackMode =
         source === "play_all" || source === "auto_next" ? "play_all" : "single";
-      const section =
-        sectionIdx !== null ? sectionsRef.current[sectionIdx] : null;
+      const narrationTrack = narrationTracksRef.current.find(
+        (track) => track.sectionKey === sectionKey,
+      );
 
-      if (section && !hasFullAudio(section)) {
+      if (
+        narrationTrack &&
+        !narrationTrack.individuallyPlayable &&
+        source !== "play_all" &&
+        source !== "auto_next"
+      ) {
         setAudioError("Section is not available for audio.");
         setAudioPlayback({
           status: "error",
@@ -765,9 +832,13 @@ export const useArticleAudioController = ({
         mode: playbackMode,
         slowLoading: false,
       });
-      setTrackingSectionKey(sectionKey);
+      setTrackingSectionKey(
+        narrationTrack?.countsTowardProgress === false ? null : sectionKey,
+      );
       setFinishedPlaying(false);
-      updateProgress(slug, sectionKey, sectionIdx);
+      if (narrationTrack?.countsTowardProgress !== false) {
+        updateProgress(slug, sectionKey, sectionIdx);
+      }
 
       const memoryCached = ttsCache.current.get(sectionKey);
       if (memoryCached) {
@@ -811,8 +882,8 @@ export const useArticleAudioController = ({
       }
 
       const textContent = getTextForSection(sectionKey);
-      if (!textContent || textContent.length < 10) {
-        setAudioError("Section text is too short to read aloud.");
+      if (!textContent) {
+        setAudioError("Section does not contain source text to read aloud.");
         setAudioPlayback({
           status: "error",
           sectionKey,
@@ -845,13 +916,13 @@ export const useArticleAudioController = ({
 
       const prefetchedAudio =
         sectionKey === "summary"
-          ? (getCachedSummaryAudio(slug) ??
+          ? (getCachedSummaryAudio(slug, summarySourceHash) ??
             getAudioRequestResult(ttsRequestCache.current, sectionKey))
           : getAudioRequestResult(ttsRequestCache.current, sectionKey);
       const inflightAudio =
         sectionKey === "summary"
           ? (awaitAudioResultWithTimeout(
-              awaitSummaryAudioWithMetadata(slug),
+              awaitSummaryAudioWithMetadata(slug, summarySourceHash),
               PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS,
             ) ??
             awaitAudioRequest(ttsRequestCache.current, sectionKey, {
@@ -930,6 +1001,7 @@ export const useArticleAudioController = ({
       showFallbackNoticeForPlayback,
       slug,
       startSlowLoadingTimer,
+      summarySourceHash,
       trackAudioStartup,
       updateProgress,
     ],
@@ -961,10 +1033,11 @@ export const useArticleAudioController = ({
 
   const handlePlayAll = useCallback(() => {
     if (!article) return;
-    const sections = article.sections ?? [];
-    const summaryOnly = sections.filter(hasFullAudio).length === 0;
+    const tracks = buildArticleNarrationTracks(article);
+    const summaryOnly = tracks.every((track) => track.mode === "summary");
     analytics.playAll(summaryOnly ? "summary" : "full");
-    const queue = buildPlayAllQueue(sections, article.title);
+    const queue = buildPlayAllQueue(article);
+    if (queue.length === 0) return;
     warmPlayAllQueue(queue);
 
     const first = queue.shift()!;
@@ -1198,8 +1271,9 @@ export const useArticleAudioController = ({
 
   const handleDownloadAll = useCallback(async () => {
     if (!article || !articleId || downloading) return;
-    const sections = article.sections ?? [];
-    const summaryOnly = sections.filter(hasFullAudio).length === 0;
+    const summaryOnly = buildArticleNarrationTracks(article).every(
+      (track) => track.mode === "summary",
+    );
     analytics.downloadAll(summaryOnly ? "summary" : "full");
 
     try {
@@ -1232,11 +1306,22 @@ export const useArticleAudioController = ({
       if (!article) return;
       const requestedSection =
         sectionIndex !== null ? (article.sections ?? [])[sectionIndex] : null;
+      const requestedTrack = narrationTracksRef.current.find(
+        (track) => track.sectionKey === sectionKey,
+      );
+      const nextPlayableTrack =
+        requestedTrack && !requestedTrack.individuallyPlayable
+          ? narrationTracksRef.current.find(
+              (track) =>
+                track.sectionIdx !== null &&
+                track.sectionIdx > (sectionIndex ?? -1) &&
+                track.individuallyPlayable,
+            )
+          : requestedTrack;
       const index =
-        sectionIndex !== null &&
-        (!requestedSection || !hasFullAudio(requestedSection))
-          ? null
-          : sectionIndex;
+        requestedSection && nextPlayableTrack?.individuallyPlayable
+          ? nextPlayableTrack.sectionIdx
+          : null;
       const section = index !== null ? (article.sections ?? [])[index] : null;
       const label = section
         ? `${section.title} — ${article.title}`
@@ -1245,7 +1330,7 @@ export const useArticleAudioController = ({
         warmSummaryForIntent();
       }
       generateAudio(
-        index !== null ? sectionKey : "summary",
+        index !== null ? nextPlayableTrack!.sectionKey : "summary",
         label,
         index,
         "resume",

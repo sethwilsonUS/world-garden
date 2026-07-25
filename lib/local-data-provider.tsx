@@ -53,6 +53,7 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
           title: data.title,
           language: data.language,
           revisionId: data.revisionId,
+          narrationVersion: data.narrationVersion,
           lastEdited: data.lastEdited,
           summary: data.summary,
           thumbnailUrl: data.thumbnailUrl,

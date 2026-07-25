@@ -12,6 +12,7 @@ import {
 } from "./TableOfContents";
 import { DataContext, type DataContextValue } from "@/lib/data-context";
 import type { ContextBlock } from "@/lib/article-context-types";
+import { createTestSection } from "@/lib/test-section-narration";
 
 const dataContextValue: DataContextValue = {
   search: async () => [],
@@ -35,6 +36,29 @@ const playback = (
   mode: "single",
   slowLoading: false,
   ...overrides,
+});
+
+const historySection = createTestSection({
+  title: "History",
+  level: 2,
+  content:
+    "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
+});
+
+const adaptedResultsSection = createTestSection({
+  title: "Election results",
+  level: 2,
+  content: [
+    "Year  Candidate  Vote",
+    "2020  Rivera     51.2%",
+    "2022  Patel      49.8%",
+  ].join("\n"),
+  narration: {
+    mode: "structured",
+    sourceFormat: "table",
+    adapted: true,
+    text: "Election results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
+  },
 });
 
 const contextBlock: ContextBlock = {
@@ -224,8 +248,8 @@ describe("durationLabel", () => {
   });
 });
 
-describe("TableOfContents audio eligibility", () => {
-  it("renders unavailable sections as greyed out and excludes them from play-all count", () => {
+describe("TableOfContents narration", () => {
+  it("keeps structured sections playable and discloses their adaptation", () => {
     const markup = renderToStaticMarkup(
       createElement(
         DataContext.Provider,
@@ -235,25 +259,8 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
-            {
-              title: "Election results",
-              level: 2,
-              content: [
-                "Year  Candidate  Vote",
-                "2020  Rivera     51.2%",
-                "2022  Patel      49.8%",
-              ].join("\n"),
-              audioMode: "unavailable" as const,
-              audioReason: "table_like" as const,
-            },
+            historySection,
+            adaptedResultsSection,
           ],
           playback: playback(),
           onListenSection: () => {},
@@ -266,14 +273,11 @@ describe("TableOfContents audio eligibility", () => {
     );
 
     expect(markup).toContain("Play all");
-    expect(markup).toContain("(2)");
-    expect(markup).toContain("Not suited for audio");
-    expect(markup).toContain(
-      "Why this section is not suited for audio",
-    );
-    expect(markup).toContain(
-      "Election results — not available for audio: section reads like a table",
-    );
+    expect(markup).toContain("(3)");
+    expect(markup).toContain("Adapted for audio");
+    expect(markup).toContain("How Election results was adapted for audio");
+    expect(markup).toContain("Listen to Election results");
+    expect(markup).not.toContain("Not suited for audio");
   });
 
   it("shows a Listen control for playable sections", () => {
@@ -286,14 +290,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: playback(),
           onListenSection: () => {},
@@ -309,6 +306,42 @@ describe("TableOfContents audio eligibility", () => {
     expect(markup).toContain(">Listen<");
   });
 
+  it("labels empty parents as transitions and empty leaves as having no source text", () => {
+    const parent = createTestSection({
+      title: "Career",
+      content: "",
+      narration: {
+        mode: "transition",
+        sourceFormat: "heading",
+        text: "Next section: Career.",
+      },
+    });
+    const leaf = createTestSection({ title: "Unwritten appendix", content: "" });
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          articleTitle: "Example article",
+          wikiPageId: "123",
+          summaryText: "Lead summary.",
+          sections: [parent, leaf],
+          playback: playback(),
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain("Chapter transition");
+    expect(markup).toContain("No source text");
+    expect(markup).not.toContain("Listen to Career");
+    expect(markup).not.toContain("Listen to Unwritten appendix");
+  });
+
   it("makes Play All a stop control while the next section is loading", () => {
     const markup = renderToStaticMarkup(
       createElement(
@@ -319,14 +352,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: playback({
             status: "loading",
@@ -361,14 +387,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: playback({
             status: "loading",
@@ -405,14 +424,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: playback({
             status: "loading",
@@ -492,14 +504,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: {
             status: "playing",
@@ -542,14 +547,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: {
             status: "paused",
@@ -592,14 +590,7 @@ describe("TableOfContents audio eligibility", () => {
           wikiPageId: "123",
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [
-            {
-              title: "History",
-              level: 2,
-              content:
-                "The town expanded after the railway arrived. It later rebuilt the market square after a flood.",
-              audioMode: "full" as const,
-              audioReason: "eligible" as const,
-            },
+            historySection,
           ],
           playback: {
             status: "loading",

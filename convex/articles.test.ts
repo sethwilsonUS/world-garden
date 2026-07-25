@@ -5,7 +5,9 @@ import {
   cachedArticleToFetchResult,
   isArticleParseMediaCacheCompatible,
   isCachedArticleFresh,
+  isCachedArticleNarrationCompatible,
 } from "./articles";
+import { ARTICLE_SECTION_NARRATION_VERSION } from "../lib/section-narration";
 
 describe("isCachedArticleFresh", () => {
   it("treats articles inside the cache TTL as fresh", () => {
@@ -19,6 +21,29 @@ describe("isCachedArticleFresh", () => {
     ).toBe(true);
     expect(
       isCachedArticleFresh({ lastFetchedAt: now - ARTICLE_CACHE_TTL_MS }, now),
+    ).toBe(false);
+  });
+});
+
+describe("isCachedArticleNarrationCompatible", () => {
+  it("refreshes legacy and older narration versions inside the normal TTL", () => {
+    expect(isCachedArticleNarrationCompatible({})).toBe(false);
+    expect(isCachedArticleNarrationCompatible({ narrationVersion: 0 })).toBe(
+      false,
+    );
+    expect(
+      isCachedArticleNarrationCompatible({
+        narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+        sections: [],
+      }),
+    ).toBe(true);
+    expect(
+      isCachedArticleNarrationCompatible({
+        narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+        sections: [
+          { title: "Legacy", level: 2, content: "Source text." },
+        ],
+      }),
     ).toBe(false);
   });
 });
@@ -64,12 +89,17 @@ describe("cachedArticleToFetchResult", () => {
     expect(result.contentText).toContain("Lead summary");
     expect(result.sections).toEqual([
       {
+        wikiSectionIndex: "1",
         title: "History",
         level: 2,
         content:
           "The first sentence establishes the section. The second sentence makes it suitable for audio.",
-        audioMode: "full",
-        audioReason: "eligible",
+        narration: expect.objectContaining({
+          mode: "verbatim",
+          usedRawFallback: true,
+          text:
+            "History. The first sentence establishes the section. The second sentence makes it suitable for audio.",
+        }),
       },
     ]);
   });

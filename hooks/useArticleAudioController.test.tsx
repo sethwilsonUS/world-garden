@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Article } from "@/lib/data-context";
 import type { TtsAudioUrlResult } from "@/lib/tts-client";
 import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
+import { createTestSection } from "@/lib/test-section-narration";
 import { useArticleAudioController } from "./useArticleAudioController";
 
 const mocks = vi.hoisted(() => ({
@@ -118,29 +119,30 @@ const article: TestArticle = {
   title: "An Unexpected Journey",
   language: "en",
   revisionId: "4200",
+  narrationVersion: 1,
   summary: "A hobbit leaves home for an unexpectedly long adventure.",
   sections: [
-    {
+    createTestSection({
       title: "Roast Mutton",
       level: 2,
       content: "Three trolls debate dinner until the sun settles the matter.",
-      audioMode: "full",
-      audioReason: "eligible",
-    },
-    {
+    }),
+    createTestSection({
       title: "Riddles in the Dark",
       level: 2,
       content: "Bilbo and Gollum exchange riddles beside an underground lake.",
-      audioMode: "full",
-      audioReason: "eligible",
-    },
-    {
+    }),
+    createTestSection({
       title: "Table of provisions",
       level: 2,
       content: "Item Amount\nCake 2",
-      audioMode: "unavailable",
-      audioReason: "table_like",
-    },
+      narration: {
+        mode: "structured",
+        sourceFormat: "table",
+        adapted: true,
+        text: "Table of provisions. Table. Columns: Item; Amount. Row 1: Item: Cake; Amount: 2.",
+      },
+    }),
   ],
 };
 
@@ -324,7 +326,7 @@ describe("useArticleAudioController", () => {
     });
   });
 
-  it("advances Play All through suitable sections and finishes cleanly", async () => {
+  it("advances Play All through every narrated section and finishes cleanly", async () => {
     mocks.generateTts.mockImplementation(async ({ text }: { text: string }) =>
       audioResult(
         text.includes("hobbit leaves")
@@ -364,14 +366,21 @@ describe("useArticleAudioController", () => {
     act(() => {
       audio.dispatchEvent(new Event("ended"));
     });
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-2"),
+    );
+
+    act(() => {
+      audio.dispatchEvent(new Event("ended"));
+    });
     await waitForExpectation(() => {
       expect(controller().state.playback.status).toBe("idle");
       expect(controller().state.finishedPlaying).toBe(true);
     });
-    expect(mocks.updateProgress).not.toHaveBeenCalledWith(
-      expect.anything(),
+    expect(mocks.updateProgress).toHaveBeenCalledWith(
+      "An_Unexpected_Journey",
       "section-2",
-      expect.anything(),
+      2,
     );
   });
 

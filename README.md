@@ -59,7 +59,7 @@ The live product stays focused on listening. The [/about](https://curiogarden.or
 ## Architecture at a Glance
 
 1. Wikipedia Action and REST APIs provide revisioned article text, section structure, citations, daily discovery data, and per-file media metadata.
-2. The app normalizes that material into an audio-suitable article model while preserving revision links, contributor history, and Wikimedia media licensing.
+2. The app builds revision-matched narration tracks from prose, lists, and tables while preserving revision links, contributor history, and Wikimedia media licensing.
 3. Convex caches articles, parsed page data, generated audio variants, account libraries, personal queues, and podcast publication state. Local mode swaps this layer for browser storage and direct Wikipedia requests.
 4. OpenAI speech is the primary narrator, with Edge TTS as a provider-aware fallback. Section audio is cached by provider, model, voice, prompt, and normalization version.
 5. The same article/audio model powers accessible browser playback, downloads, public featured-article podcasts, AI-labeled trending briefings, and private playlist feeds.

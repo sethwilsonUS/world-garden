@@ -236,6 +236,29 @@ const mockArticleData = async (
       return;
     }
 
+    if (
+      url.searchParams.get("action") === "parse" &&
+      url.searchParams.get("oldid") === "123456789"
+    ) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          parse: {
+            revid: 123456789,
+            text: [
+              "<h2>Early life</h2><p>She developed an enduring interest in mathematics and machines.</p>",
+              "<h2>Recognition</h2><table><caption>Honours</caption><tr><th>Year</th><th>Award</th></tr><tr><td>1843</td><td>Published notes</td></tr></table>",
+            ].join(""),
+            sections: [
+              { index: "1", line: "Early life", level: "2" },
+              { index: "2", line: "Recognition", level: "2" },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+
     if (url.searchParams.get("action") === "parse") {
       await route.fulfill({
         contentType: "application/json",
@@ -271,7 +294,7 @@ const mockArticleData = async (
               pageid: 974,
               title: "Ada Lovelace",
               extract:
-                "Ada Lovelace was an English mathematician and writer.\n\n== Early life ==\n\nShe developed an enduring interest in mathematics and machines.",
+                "Ada Lovelace was an English mathematician and writer.\n\n== Early life ==\n\nShe developed an enduring interest in mathematics and machines.\n\n== Recognition ==\n\nYear Award\n1843 Published notes",
               revisions: [{ revid: 123456789, timestamp: "2026-07-10T12:00:00Z" }],
               thumbnail: {
                 source: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
@@ -488,6 +511,34 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await page.keyboard.press("Escape");
   await expect(galleryDialog).toBeHidden();
   await expect(additionalPhotoButton).toBeFocused();
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("article keeps structured source sections playable with an accessible adaptation disclosure", async ({
+  page,
+}) => {
+  await mockArticleData(page);
+  await page.goto("/article/Ada_Lovelace");
+
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Explore this article" }),
+  ).toBeVisible();
+  await expect(page.getByText("Adapted for audio", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Listen to Recognition" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "How Recognition was adapted for audio",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Not suited for audio")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Listen to Recognition" })
+    .focus();
+  await expectVisibleFocusOutline(
+    page.getByRole("button", { name: "Listen to Recognition" }),
+  );
   await expectNoSeriousAxeViolations(page);
 });
 
