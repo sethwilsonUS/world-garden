@@ -294,7 +294,12 @@ test("home presents the product and expands the curated daily preview", async ({
 
   await expect(page.getByRole("heading", { level: 1, name: "Curio Garden" })).toBeVisible();
   await expect(page.getByRole("searchbox", { name: "Search topic" })).toBeVisible();
-  await expect(page.getByText("Choose a section")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Explore any Wikipedia article as clear, section-by-section audio, then keep listening wherever curiosity takes you.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByText("Audio-first Wikipedia")).toHaveCount(0);
   await expect(page.getByText("accessible fact 4", { exact: false })).toBeHidden();
 
   await page.getByRole("button", { name: "Show all 4 facts" }).click();

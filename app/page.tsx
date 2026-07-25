@@ -7,11 +7,6 @@ import { RandomArticleButton } from "@/components/RandomArticleButton";
 import { TodayOnWikipedia } from "@/components/TodayOnWikipedia";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
-const LISTENING_FEATURES = [
-  "Choose a section",
-  "Save your place",
-  "Follow as a podcast",
-] as const;
 
 export default function Home() {
   return (
@@ -24,24 +19,6 @@ export default function Home() {
           aria-labelledby="hero-heading"
         >
           <div className="animate-fade-in-up mb-12">
-            <div className="inline-flex items-center gap-2 py-[6px] px-3.5 rounded-full bg-accent-bg border border-accent-border mb-7 text-[0.8125rem] text-accent font-semibold tracking-[0.01em]">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                width={15}
-                height={15}
-                aria-hidden="true"
-              >
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-              </svg>
-              Audio-first Wikipedia
-            </div>
-
             <h1
               id="hero-heading"
               className="font-display text-[clamp(2.75rem,7vw,5rem)] font-semibold leading-[1.05] mb-6 text-foreground tracking-[-0.02em]"
@@ -60,36 +37,7 @@ export default function Home() {
             <div className="mt-3">
               <RandomArticleButton />
             </div>
-
-            <ul
-              className="mx-auto mt-7 grid max-w-[460px] list-none grid-cols-1 gap-2 p-0 text-left text-sm text-foreground-2 min-[420px]:grid-cols-3"
-              aria-label="Ways to listen"
-            >
-              {LISTENING_FEATURES.map((feature) => (
-                <li
-                  key={feature}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-border bg-surface-2/70 px-3 py-2.5 min-[420px]:justify-start"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    width={14}
-                    height={14}
-                    aria-hidden="true"
-                    className="shrink-0 text-accent"
-                  >
-                    <path d="m5 12 4 4L19 6" />
-                  </svg>
-                  <span>{feature}</span>
-                </li>
-              ))}
-            </ul>
           </div>
-
         </section>
 
         <div className="max-w-5xl mx-auto animate-fade-in-up-delay-2">
