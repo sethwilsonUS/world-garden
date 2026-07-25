@@ -34,7 +34,7 @@ export const SectionShell = ({
 }) => {
   return (
     <section aria-labelledby="dashboard-heading" className="mb-8">
-      <p className="inline-flex items-center rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-accent">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
         {eyebrow}
       </p>
       <h1

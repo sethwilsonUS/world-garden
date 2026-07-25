@@ -46,7 +46,7 @@ export function LegalPageLayout({
         </nav>
 
         <header className="mb-8">
-          <p className="inline-flex items-center rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-accent">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
             Legal
           </p>
           <h1 className="mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]">
