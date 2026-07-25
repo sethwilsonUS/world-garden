@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useMemo, useState, type RefObject } from "react";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import type { Section } from "@/lib/data-context";
 import {
@@ -210,11 +210,15 @@ export const TableOfContents = ({
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
   const isSummaryActive = isSummaryPlaying || isSummaryPaused;
   const isSummaryLoading = isGenerating && isSummarySelected;
-  const narrationTracks = buildArticleNarrationTracks({
-    title: articleTitle,
-    summary: summaryText,
-    sections,
-  });
+  const narrationTracks = useMemo(
+    () =>
+      buildArticleNarrationTracks({
+        title: articleTitle,
+        summary: summaryText,
+        sections,
+      }),
+    [articleTitle, sections, summaryText],
+  );
   const sectionTracks = narrationTracks.filter(
     (track) => track.sectionIdx !== null,
   );
@@ -225,8 +229,7 @@ export const TableOfContents = ({
     (section) => section.narration.mode === "none",
   );
   const playableCount = narrationTracks.length;
-  const playAllSummaryOnly = sectionTracks.length === 0;
-  const downloadSummaryOnly = sectionTracks.length === 0;
+  const summaryOnly = sectionTracks.length === 0;
   const isPlayAllLoading = isPlayingAll && isGenerating;
   const canSkipSection = isPlayingAll && (isSpeaking || isGenerating);
 
@@ -335,21 +338,21 @@ export const TableOfContents = ({
           aria-label={
             isPlayingAll
               ? isPlayAllLoading
-                ? playAllSummaryOnly
+                ? summaryOnly
                   ? "Stop summary"
                   : "Stop playing all sections"
                 : isPaused
-                  ? playAllSummaryOnly
+                  ? summaryOnly
                     ? "Resume playing summary"
                     : "Resume playing all sections"
                   : !isSpeaking
                     ? "Generating audio, please wait"
-                    : playAllSummaryOnly
+                    : summaryOnly
                       ? "Pause summary"
                       : "Pause playing all sections"
               : isGenerating
                 ? "Generating audio, please wait"
-                : playAllSummaryOnly
+                : summaryOnly
                   ? "Play summary"
                   : `Play all ${playableCount} audio items including summary`
           }
@@ -420,8 +423,8 @@ export const TableOfContents = ({
               >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
-              {playAllSummaryOnly ? "Play" : "Play all"}
-              {!playAllSummaryOnly && (
+              {summaryOnly ? "Play" : "Play all"}
+              {!summaryOnly && (
                 <span className="text-[0.6875rem] opacity-80 font-medium">
                   ({playableCount})
                 </span>
@@ -435,7 +438,7 @@ export const TableOfContents = ({
             type="button"
             onClick={onStopPlayAll}
             className="inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 cursor-pointer"
-            aria-label={playAllSummaryOnly ? "Stop summary" : "Stop playing all sections"}
+            aria-label={summaryOnly ? "Stop summary" : "Stop playing all sections"}
           >
             <svg
               viewBox="0 0 24 24"
@@ -451,7 +454,7 @@ export const TableOfContents = ({
           </button>
         )}
 
-        {isPlayingAll && !playAllSummaryOnly && onSkipSection && (
+        {isPlayingAll && !summaryOnly && onSkipSection && (
           <button
             onClick={onSkipSection}
             disabled={!canSkipSection}
@@ -480,9 +483,9 @@ export const TableOfContents = ({
             <ManagedAudioDownloadButton
               href={downloadHref}
               title={articleTitle}
-              label={downloadSummaryOnly ? "Download" : "Download all"}
+              label={summaryOnly ? "Download" : "Download all"}
               ariaLabel={
-                downloadSummaryOnly
+                summaryOnly
                   ? "Download summary as audio file"
                   : "Download full article as one audio file"
               }
@@ -491,7 +494,7 @@ export const TableOfContents = ({
             <AudioDownloadButton
               onClick={onDownloadAll}
               disabled={downloading || isGenerating}
-              label={downloadSummaryOnly ? "Download" : "Download all"}
+              label={summaryOnly ? "Download" : "Download all"}
               ariaLabel={
                 downloadStatus === "queued"
                   ? "Article download queued"
@@ -499,7 +502,7 @@ export const TableOfContents = ({
                     ? "Packaging article download"
                     : downloading
                       ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
-                      : downloadSummaryOnly
+                      : summaryOnly
                         ? "Download summary as audio file"
                         : "Download full article as one audio file"
               }
@@ -813,9 +816,9 @@ export const TableOfContents = ({
 
       {(hasAdaptedSections || hasEmptySections) && (
         <p className="mt-3.5 text-[0.6875rem] text-muted leading-normal text-center">
-          {hasAdaptedSections
-            ? "Tables and lists are adapted from Wikipedia’s source structure for audio. "
-            : "Headings without source text remain visible. "}
+          {hasAdaptedSections &&
+            "Tables and lists are adapted from Wikipedia’s source structure for audio. "}
+          {hasEmptySections && "Headings without source text remain visible. "}
           <a
             href={`https://en.wikipedia.org/wiki?curid=${wikiPageId}`}
             target="_blank"

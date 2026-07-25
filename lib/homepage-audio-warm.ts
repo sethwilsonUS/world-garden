@@ -13,7 +13,7 @@ import {
   type TtsAudioResult,
 } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
-import { hashNarrationText } from "@/lib/section-narration";
+import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
   getActiveTtsProfile,
   getTtsMetadata,
@@ -22,7 +22,7 @@ import {
 
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_DEADLINE_MS = 240_000;
-const MIN_SUMMARY_LENGTH = 10;
+const MIN_SUMMARY_LENGTH = 1;
 
 type CachedSummaryAudio = {
   url?: string;
@@ -226,12 +226,17 @@ export const warmHomepageArticleSummaries = async ({
   const warmArticle = async (ref: HomepageArticleRef): Promise<void> => {
     try {
       const article = await dependencies.fetchArticle(ref);
-      const summary = article.summary?.trim() ?? "";
-      if (summary.length < MIN_SUMMARY_LENGTH) {
+      const summaryTrack = buildArticleNarrationTracks({
+        title: ref.title,
+        summary: article.summary,
+        sections: [],
+      }).find((track) => track.sectionKey === "summary");
+      if (!summaryTrack || summaryTrack.text.length < MIN_SUMMARY_LENGTH) {
         throw new Error("Article summary is unavailable or too short for audio");
       }
 
-      const sourceHash = hashNarrationText(summary);
+      const summary = summaryTrack.text;
+      const sourceHash = summaryTrack.sourceHash;
       const cached = await dependencies.getCachedSummary(
         article._id,
         sourceHash,

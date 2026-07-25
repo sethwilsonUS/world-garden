@@ -262,6 +262,20 @@ const getErrorMessage = (error: unknown): string =>
 const normalizeCachedSections = (
   sections: StoredArticle["sections"],
 ): WikiSection[] => {
+  if (
+    (sections ?? []).every(
+      (section) => Boolean(section.wikiSectionIndex && section.narration),
+    )
+  ) {
+    return (sections ?? []).map((section) => ({
+      wikiSectionIndex: section.wikiSectionIndex!,
+      title: section.title,
+      level: section.level,
+      content: section.content,
+      narration: section.narration!,
+    }));
+  }
+
   const legacyNarrations = createSectionNarrations({
     sections: (sections ?? []).map((section, index) => ({
       wikiSectionIndex: section.wikiSectionIndex ?? String(index + 1),

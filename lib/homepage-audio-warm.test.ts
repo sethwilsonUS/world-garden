@@ -5,6 +5,7 @@ import {
   warmHomepageArticleSummaries,
   type HomepageAudioWarmDependencies,
 } from "./homepage-audio-warm";
+import { hashNarrationText } from "./section-narration";
 import { getActiveTtsProfile, getTtsMetadata, getTtsProfile } from "./tts-profile";
 
 const snapshot = (titles: string[]): TodayWikipediaData => ({
@@ -100,6 +101,32 @@ describe("homepage summary audio warmer", () => {
       }),
     );
     consoleWarn.mockRestore();
+  });
+
+  it("uses the canonical normalized summary text and hash", async () => {
+    const dependencies = makeDependencies({
+      fetchArticle: vi.fn(async (article) => ({
+        _id: article.slug,
+        summary: "  A summary\nwith   uneven spacing.  ",
+      })),
+    });
+
+    await warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot: snapshot(["Canonical"]),
+      dependencies,
+    });
+
+    const text = "A summary with uneven spacing.";
+    expect(dependencies.getCachedSummary).toHaveBeenCalledWith(
+      "Canonical",
+      hashNarrationText(text),
+      expect.any(Object),
+    );
+    expect(dependencies.generateAudio).toHaveBeenCalledWith(
+      text,
+      expect.any(Object),
+    );
   });
 
   it("stores fallback audio as degraded so a later run retries the primary key", async () => {

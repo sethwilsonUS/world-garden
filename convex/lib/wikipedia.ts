@@ -23,6 +23,7 @@ const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
 const USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
+const PARSE_SOURCE_TIMEOUT_MS = 8_000;
 
 export type WikiSearchResult = {
   wikiPageId: string;
@@ -92,6 +93,7 @@ const fetchRevisionParsedSource = async (
     });
     const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
       headers: { "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(PARSE_SOURCE_TIMEOUT_MS),
     });
     if (!response.ok) return undefined;
     const data = await response.json();
@@ -401,7 +403,9 @@ export const parseSections = (
     if (parsedIndex != null && parsedIndex >= 0) parsedCursor = parsedIndex + 1;
 
     rawSections.push({
-      wikiSectionIndex: parsedSection?.index ?? String(i + 1),
+      wikiSectionIndex:
+        parsedSection?.index ??
+        (parsedSource ? `unmatched-${i + 1}` : String(i + 1)),
       title,
       level,
       content,

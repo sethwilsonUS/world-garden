@@ -251,7 +251,7 @@ export const saveFeaturedEpisode = mutation({
     artworkVersion: v.optional(v.number()),
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
-    narrationHash: v.optional(v.string()),
+    narrationHash: v.string(),
     ttsNormVersion: v.string(),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),

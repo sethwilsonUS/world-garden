@@ -47,6 +47,10 @@ def _count_words(text: str) -> int:
     return len([word for word in re.split(r"\s+", text) if word])
 
 
+def _normalize_tts_text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
 async def _generate(text: str, voice: str) -> bytes:
     communicate = edge_tts.Communicate(text, voice)
     chunks: list[bytes] = []
@@ -65,7 +69,7 @@ class handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "Invalid JSON body"})
             return
 
-        text = body.get("text", "")
+        text = _normalize_tts_text(body.get("text", ""))
         voice_id = body.get("voiceId", DEFAULT_VOICE)
 
         if not text or len(text) < MIN_TEXT_LENGTH:

@@ -3,6 +3,7 @@ import {
   assertSectionAudioKeyCanBeSaved,
   isQuarantinedContextAudioKey,
   selectSectionAudioVariant,
+  selectSupersededSectionAudioRecords,
 } from "./audio";
 
 const openAiKey =
@@ -130,5 +131,25 @@ describe("selectSectionAudioVariant", () => {
     expect(() => assertSectionAudioKeyCanBeSaved(sectionKey)).toThrow(
       "Context narration audio is no longer supported.",
     );
+  });
+});
+
+describe("selectSupersededSectionAudioRecords", () => {
+  it("reclaims legacy, stale-source, and duplicate current-profile rows", () => {
+    const records = [
+      { _id: "saved", sectionKey: "section-0", sourceHash: "new", ttsCacheKey: openAiKey, storageId: "saved-storage" },
+      { _id: "legacy", sectionKey: "section-0", storageId: "legacy-storage" },
+      { _id: "stale", sectionKey: "section-0", sourceHash: "old", ttsCacheKey: edgeKey, storageId: "stale-storage" },
+      { _id: "duplicate", sectionKey: "section-0", sourceHash: "new", ttsCacheKey: openAiKey, storageId: "duplicate-storage" },
+      { _id: "other-profile", sectionKey: "section-0", sourceHash: "new", ttsCacheKey: edgeKey, storageId: "other-storage" },
+    ];
+
+    expect(
+      selectSupersededSectionAudioRecords(records, {
+        savedId: "saved",
+        sourceHash: "new",
+        ttsCacheKey: openAiKey,
+      }).map((record) => record._id),
+    ).toEqual(["legacy", "stale", "duplicate"]);
   });
 });

@@ -122,8 +122,9 @@ export const warmSummaryAudioFromText = (
   sourceHash?: string,
 ): Promise<TtsAudioUrlResult | null> =>
   startSummaryWarm(slug, sourceHash, async () => {
-    if (summary.length < 10) return null;
-    return generateTts(summary);
+    const text = summary.trim();
+    if (!text) return null;
+    return generateTts(text);
   });
 
 /**
@@ -136,8 +137,8 @@ export const warmSummaryAudio = (
 ): void => {
   startSummaryWarm(slug, undefined, async () => {
     const article = await fetchArticleCached(slug, fetchArticle);
-    const summary = article.summary ?? "";
-    if (summary.length < 10) return null;
+    const summary = article.summary?.trim() ?? "";
+    if (!summary) return null;
     return generateTts(summary);
   });
 };

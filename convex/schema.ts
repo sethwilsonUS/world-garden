@@ -253,7 +253,6 @@ export default defineSchema({
   })
     .index("by_article_section", ["articleId", "sectionKey"])
     .index("by_article_section_tts", ["articleId", "sectionKey", "ttsNormVersion"])
-    .index("by_article_section_cache", ["articleId", "sectionKey", "ttsCacheKey"])
     .index("by_article_section_cache_source", [
       "articleId",
       "sectionKey",
@@ -666,6 +665,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_clientId", ["clientId"])
+    .index("by_clientId_updatedAt", ["clientId", "updatedAt"])
     .index("by_articleId", ["articleId"])
     .index("by_clientId_articleId", ["clientId", "articleId"]),
 

@@ -355,7 +355,20 @@ describe("parseSections", () => {
       "Official resources.",
     ].join("\n\n");
 
-    const result = parseSections(fullText);
+    const parsedSource = {
+      html: headings
+        .map(
+          (title) =>
+            `<h2>${title}</h2><p>${contents.get(title) ?? `${title} remains part of the article body.`}</p>`,
+        )
+        .join(""),
+      sections: headings.map((line, index) => ({
+        index: String(index + 1),
+        line,
+        level: "2",
+      })),
+    };
+    const result = parseSections(fullText, parsedSource);
     expect(result.sections.map((section) => section.title)).toEqual(headings);
     expect(result.sections).toHaveLength(11);
     expect(
@@ -382,6 +395,22 @@ describe("parseSections", () => {
       mode: "verbatim",
       text:
         "Artistic recognition. A bust of Landor dated 1828 by John Gibson is held in the National Portrait Gallery, London.",
+    });
+  });
+
+  it("keeps unmatched parsed headings out of MediaWiki's section-index namespace", () => {
+    const result = parseSections("Lead.\n\n== Actual heading ==\n\nPlain source text.", {
+      html: "<h2>Different heading</h2><ul><li>Wrong structured text</li></ul>",
+      sections: [{ index: "1", line: "Different heading", level: "2" }],
+    });
+
+    expect(result.sections[0]).toMatchObject({
+      wikiSectionIndex: "unmatched-1",
+      narration: {
+        mode: "verbatim",
+        text: "Actual heading. Plain source text.",
+        usedRawFallback: true,
+      },
     });
   });
 });

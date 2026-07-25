@@ -22,6 +22,7 @@ import { buildArticleNarrationHash } from "../lib/section-narration";
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
 type ArticleExportSource = ArticleAudioSource;
+const MAX_RECENT_EXPORT_CANDIDATES = 50;
 
 export const getArticleExportSections = getArticleAudioSections;
 
@@ -79,8 +80,11 @@ export const getRecentArticleAudioExports = query({
     const limit = Math.max(1, Math.min(args.limit ?? 4, 10));
     const records = await ctx.db
       .query("articleAudioExports")
-      .withIndex("by_clientId", (q) => q.eq("clientId", args.clientId))
-      .collect();
+      .withIndex("by_clientId_updatedAt", (q) =>
+        q.eq("clientId", args.clientId),
+      )
+      .order("desc")
+      .take(MAX_RECENT_EXPORT_CANDIDATES);
 
     const compatibleRecords = (
       await Promise.all(
@@ -96,7 +100,6 @@ export const getRecentArticleAudioExports = query({
 
     const filtered = compatibleRecords
       .filter((record) => record.dismissedAt == null)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
 
     return await Promise.all(filtered.map((record) => withStorageUrl(ctx, record)));

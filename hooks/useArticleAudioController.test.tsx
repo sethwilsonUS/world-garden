@@ -384,6 +384,66 @@ describe("useArticleAudioController", () => {
     );
   });
 
+  it("speaks queue transitions without counting them toward progress", async () => {
+    const transitionArticle: TestArticle = {
+      ...article,
+      sections: [
+        createTestSection({
+          title: "Misty Mountains",
+          level: 2,
+          content: "",
+          narration: {
+            mode: "transition",
+            sourceFormat: "heading",
+            text: "Next section: Misty Mountains.",
+          },
+        }),
+        createTestSection({
+          title: "Riddles in the Dark",
+          level: 3,
+          content: "Bilbo and Gollum exchange riddles beside an underground lake.",
+        }),
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <Harness
+          articleValue={transitionArticle}
+          onChange={captureController}
+        />,
+      );
+    });
+    mocks.generateTts.mockImplementation(async ({ text }: { text: string }) =>
+      audioResult(`blob:${text}`),
+    );
+
+    act(() => controller().actions.playAll());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("summary"),
+    );
+    mocks.updateProgress.mockClear();
+
+    const audio = container.querySelector("audio")!;
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
+    expect(mocks.generateTts).toHaveBeenCalledWith({
+      text: "Next section: Misty Mountains.",
+    });
+    expect(mocks.updateProgress).not.toHaveBeenCalled();
+
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-1"),
+    );
+    expect(mocks.updateProgress).toHaveBeenCalledWith(
+      "An_Unexpected_Journey",
+      "section-1",
+      1,
+    );
+  });
+
   it("skips a loading Play All item without letting its late result return", async () => {
     const summary = deferred<TtsAudioUrlResult>();
     const firstSection = deferred<TtsAudioUrlResult>();

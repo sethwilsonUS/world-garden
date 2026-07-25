@@ -13,6 +13,10 @@ type SectionAudioVariantRecord = {
   promptVersion?: string;
 };
 
+type PersistedSectionAudioVariantRecord = SectionAudioVariantRecord & {
+  _id: unknown;
+};
+
 const QUARANTINED_CONTEXT_AUDIO_PREFIXES = [
   "context-summary-",
   "context-description-",
@@ -54,6 +58,25 @@ export const selectSectionAudioVariant = <
     ) ?? null
   );
 };
+
+export const selectSupersededSectionAudioRecords = <
+  TRecord extends PersistedSectionAudioVariantRecord,
+>(
+  records: TRecord[],
+  args: {
+    savedId: unknown;
+    sourceHash: string;
+    ttsCacheKey: string;
+  },
+): TRecord[] =>
+  records.filter(
+    (record) =>
+      record._id !== args.savedId &&
+      (record.sourceHash == null ||
+        record.sourceHash !== args.sourceHash ||
+        record.ttsCacheKey == null ||
+        record.ttsCacheKey === args.ttsCacheKey),
+  );
 
 export const getAllSectionAudio = query({
   args: {
@@ -142,6 +165,7 @@ export const saveSectionAudioRecord = mutation({
       )
       .first();
 
+    let savedId;
     if (existing) {
       await ctx.db.patch(existing._id, {
         storageId: args.storageId,
@@ -154,22 +178,45 @@ export const saveSectionAudioRecord = mutation({
         promptVersion: args.promptVersion,
         durationSeconds: args.durationSeconds,
       });
-      return existing._id;
+      savedId = existing._id;
+    } else {
+      savedId = await ctx.db.insert("sectionAudio", {
+        articleId: args.articleId,
+        sectionKey: args.sectionKey,
+        sourceHash: args.sourceHash,
+        storageId: args.storageId,
+        ttsNormVersion: args.ttsNormVersion,
+        ttsCacheKey: args.ttsCacheKey,
+        provider: args.provider,
+        model: args.model,
+        voiceId: args.voiceId,
+        promptVersion: args.promptVersion,
+        durationSeconds: args.durationSeconds,
+        createdAt: Date.now(),
+      });
     }
 
-    await ctx.db.insert("sectionAudio", {
-      articleId: args.articleId,
-      sectionKey: args.sectionKey,
-      sourceHash: args.sourceHash,
-      storageId: args.storageId,
-      ttsNormVersion: args.ttsNormVersion,
-      ttsCacheKey: args.ttsCacheKey,
-      provider: args.provider,
-      model: args.model,
-      voiceId: args.voiceId,
-      promptVersion: args.promptVersion,
-      durationSeconds: args.durationSeconds,
-      createdAt: Date.now(),
-    });
+    const sectionRecords = await ctx.db
+      .query("sectionAudio")
+      .withIndex("by_article_section", (q) =>
+        q.eq("articleId", args.articleId).eq("sectionKey", args.sectionKey),
+      )
+      .collect();
+    const supersededRecords = selectSupersededSectionAudioRecords(
+      sectionRecords,
+      {
+        savedId,
+        sourceHash: args.sourceHash,
+        ttsCacheKey: args.ttsCacheKey,
+      },
+    );
+    for (const record of supersededRecords) {
+      await ctx.db.delete(record._id);
+      if (record.storageId !== args.storageId) {
+        await ctx.storage.delete(record.storageId);
+      }
+    }
+
+    return savedId;
   },
 });

@@ -7,7 +7,10 @@ import {
   isCachedArticleFresh,
   isCachedArticleNarrationCompatible,
 } from "./articles";
-import { ARTICLE_SECTION_NARRATION_VERSION } from "../lib/section-narration";
+import {
+  ARTICLE_SECTION_NARRATION_VERSION,
+  hashNarrationText,
+} from "../lib/section-narration";
 
 describe("isCachedArticleFresh", () => {
   it("treats articles inside the cache TTL as fresh", () => {
@@ -45,6 +48,28 @@ describe("isCachedArticleNarrationCompatible", () => {
         ],
       }),
     ).toBe(false);
+    const narrationText = "History. Source text.";
+    expect(
+      isCachedArticleNarrationCompatible({
+        narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+        sections: [
+          {
+            wikiSectionIndex: "1",
+            title: "History",
+            level: 2,
+            content: "Source text.",
+            narration: {
+              mode: "verbatim",
+              text: narrationText,
+              sourceFormat: "prose",
+              adapted: false,
+              usedRawFallback: true,
+              sourceHash: hashNarrationText(narrationText),
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 

@@ -325,7 +325,7 @@ describe("TableOfContents narration", () => {
           articleTitle: "Example article",
           wikiPageId: "123",
           summaryText: "Lead summary.",
-          sections: [parent, leaf],
+          sections: [adaptedResultsSection, parent, leaf],
           playback: playback(),
           onListenSection: () => {},
           onListenSummary: () => {},
@@ -340,6 +340,10 @@ describe("TableOfContents narration", () => {
     expect(markup).toContain("No source text");
     expect(markup).not.toContain("Listen to Career");
     expect(markup).not.toContain("Listen to Unwritten appendix");
+    expect(markup).toContain(
+      "Tables and lists are adapted from Wikipedia’s source structure for audio.",
+    );
+    expect(markup).toContain("Headings without source text remain visible.");
   });
 
   it("makes Play All a stop control while the next section is loading", () => {

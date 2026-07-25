@@ -92,7 +92,10 @@ const sanitizeHtmlText = (value: string): string =>
   normalizeSpaces(
     decodeHtmlEntities(
       value
-        .replace(/<(?:script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\w+>/gi, " ")
+        .replace(
+          /<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+          " ",
+        )
         .replace(
           /<sup\b[^>]*class=(?:"[^"]*\breference\b[^"]*"|'[^']*\breference\b[^']*')[^>]*>[\s\S]*?<\/sup>/gi,
           " ",
@@ -173,7 +176,7 @@ const narrateList = (html: string): StructuredBlock | null => {
         if (itemStack.length === 0) malformed = true;
         else itemStack.pop();
       } else {
-        const parentIndex = itemStack.at(-1);
+        const parentIndex = itemStack[itemStack.length - 1];
         const itemIndex = items.length;
         items.push({
           parts: [],
@@ -185,7 +188,7 @@ const narrateList = (html: string): StructuredBlock | null => {
       continue;
     }
 
-    const currentItem = itemStack.at(-1);
+    const currentItem = itemStack[itemStack.length - 1];
     if (currentItem != null && items[currentItem].depth === listDepth) {
       items[currentItem].parts.push(token);
     }
@@ -231,7 +234,7 @@ const extractStructuredBlocks = (
       continue;
     }
 
-    if (stack.at(-1) !== kind) {
+    if (stack[stack.length - 1] !== kind) {
       malformed = true;
       continue;
     }
@@ -331,6 +334,8 @@ const assembleStructuredBlocks = (
 
   for (const block of blocks) {
     if (block.kind === "prose") {
+      // The product contract caps only adapted table rows and list items.
+      // Source prose remains verbatim even when it appears in a mixed section.
       if (block.prefix) output.push(block.prefix);
       continue;
     }
@@ -451,6 +456,16 @@ const createStructuredNarration = (
  * A compact deterministic content identity that works in browser, Convex, and
  * Node runtimes without introducing an asynchronous hashing seam.
  */
+const fmix32 = (input: number): number => {
+  let hash = input >>> 0;
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  return hash >>> 0;
+};
+
 export const hashNarrationText = (text: string): string => {
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
@@ -462,8 +477,8 @@ export const hashNarrationText = (text: string): string => {
   }
   return [
     `section-narration:${ARTICLE_SECTION_NARRATION_VERSION}`,
-    (first >>> 0).toString(16).padStart(8, "0"),
-    (second >>> 0).toString(16).padStart(8, "0"),
+    fmix32(first).toString(16).padStart(8, "0"),
+    fmix32(second).toString(16).padStart(8, "0"),
     text.length.toString(16),
   ].join(":");
 };
@@ -530,6 +545,20 @@ export const createSectionNarrations = ({
 const normalizeArticleSections = (
   sections: NonNullable<ArticleNarrationSource["sections"]>,
 ): NarratedSection[] => {
+  if (
+    sections.every(
+      (section) => Boolean(section.wikiSectionIndex && section.narration),
+    )
+  ) {
+    return sections.map((section) => ({
+      wikiSectionIndex: section.wikiSectionIndex!,
+      title: section.title,
+      level: section.level,
+      content: section.content,
+      narration: section.narration!,
+    }));
+  }
+
   const generated = createSectionNarrations({
     sections: sections.map((section, index) => ({
       wikiSectionIndex: section.wikiSectionIndex ?? String(index + 1),

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
+  buildArticleNarrationHash,
   buildArticleNarrationTracks,
   createSectionNarrations,
+  hashNarrationText,
 } from "./section-narration";
 
 describe("section narration", () => {
@@ -45,8 +47,6 @@ describe("section narration", () => {
           "Artistic recognition. A bust dated 1828 is held in the National Portrait Gallery, London.",
       }),
     ]);
-    expect(sections.every((section) => section.narration.sourceHash.length > 8)).toBe(true);
-
     expect(
       buildArticleNarrationTracks({
         title: "Walter Savage Landor",
@@ -74,6 +74,37 @@ describe("section narration", () => {
         individuallyPlayable: true,
       },
     ]);
+  });
+
+  it("produces stable, text-sensitive narration identities", () => {
+    expect(hashNarrationText("Same text.")).toBe(hashNarrationText("Same text."));
+    expect(hashNarrationText("Same text.")).not.toBe(
+      hashNarrationText("Same texts."),
+    );
+    expect(hashNarrationText("")).toContain(
+      `section-narration:${ARTICLE_SECTION_NARRATION_VERSION}`,
+    );
+
+    const article = {
+      title: "Example",
+      summary: "Lead.",
+      sections: createSectionNarrations({
+        sections: [
+          {
+            wikiSectionIndex: "1",
+            title: "A",
+            level: 2,
+            content: "Body text.",
+          },
+        ],
+      }),
+    };
+    expect(buildArticleNarrationHash(article)).toBe(
+      buildArticleNarrationHash(article),
+    );
+    expect(
+      buildArticleNarrationHash({ ...article, summary: "Different lead." }),
+    ).not.toBe(buildArticleNarrationHash(article));
   });
 
   it("turns an empty parent into a queue-only transition and leaves an empty leaf silent", () => {
@@ -166,6 +197,29 @@ describe("section narration", () => {
       text:
         "Recognition. The gallery records two works. List with 2 items. Item 1: Portrait commission. Item 2: Public memorial. Table: Awards. Columns: Year; Work. Row 1: Year: 2020; Work: Example. Row 2: Year: 2021; Work: Another.",
     });
+  });
+
+  it("removes complete script blocks even when their text contains closing tags", () => {
+    const [section] = createSectionNarrations({
+      sections: [
+        {
+          wikiSectionIndex: "1",
+          title: "Items",
+          level: 2,
+          content: "Visible item.",
+        },
+      ],
+      parsedSource: {
+        html: [
+          "<h2>Items</h2>",
+          "<ul><li>Visible<script>const fake = '</b>'; forbidden words</script> item</li></ul>",
+        ].join(""),
+        sections: [{ index: "1", line: "Items", level: "2" }],
+      },
+    });
+
+    expect(section.narration.text).toContain("Visible item");
+    expect(section.narration.text).not.toContain("forbidden words");
   });
 
   it("caps large structured adaptations between complete items and announces the remainder", () => {
