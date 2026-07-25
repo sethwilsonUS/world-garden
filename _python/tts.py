@@ -9,11 +9,14 @@ OpenAI-first fallback orchestration in Next.js.
 
 import asyncio
 import json
+import logging
 import os
 import re
 from http.server import BaseHTTPRequestHandler
 
 import edge_tts
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_VOICE = "en-US-AriaNeural"
 MIN_TEXT_LENGTH = 10
@@ -86,8 +89,9 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             audio = asyncio.run(_generate(text, voice_id))
-        except Exception as exc:
-            self._json(500, {"error": str(exc)})
+        except Exception:
+            logger.exception("TTS generation failed")
+            self._json(500, {"error": "TTS generation failed"})
             return
 
         if not audio:
