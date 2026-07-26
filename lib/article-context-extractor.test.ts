@@ -155,7 +155,7 @@ describe("article context deterministic extraction", () => {
       extractArticleContextFromAssembly,
     );
     expect(validateContextManifest).toBe(validateContextManifestFromAssembly);
-    expect(ARTICLE_CONTEXT_EXTRACTOR_VERSION).toBe("2.0.7");
+    expect(ARTICLE_CONTEXT_EXTRACTOR_VERSION).toBe("2.0.8");
   });
 
   it("extracts complete semantic map, chart, timeline, diagram, and EasyTimeline blocks", () => {
@@ -912,6 +912,70 @@ describe("article context deterministic extraction", () => {
     const manifest = extractArticleContextFromSource(source, request);
     expect(manifest.blocks).toHaveLength(1);
     expect(manifest.blocks[0].kind).toBe("chart");
+  });
+
+  it("keeps comma-separated year lists out of numeric chart series", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<h2 id="Hydropower">Hydropower</h2>
+        <table class="wikitable">
+          <caption>Major hydropower stations in the Nile Basin</caption>
+          <tr><th>Hydropower station</th><th>Year completed</th><th>Power (MW, in 2025)</th></tr>
+          <tr><td>Aswan Low Dam</td><td>1902, 1912, 1933, 1985</td><td>550</td></tr>
+          <tr><td>Aswan High Dam</td><td>1970</td><td>2,100</td></tr>
+          <tr><td>Merowe Dam</td><td>2009</td><td>1,250</td></tr>
+          <tr><td>Upper Atbara and Setit</td><td>2017</td><td>320</td></tr>
+          <tr><td>Roseires Dam</td><td>1966</td><td>280</td></tr>
+        </table>`,
+      wikitext: "",
+      sections: [
+        { index: "1", line: "Hydropower", anchor: "Hydropower", level: "2" },
+      ],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+
+    expect(chart.chart.columns).toEqual([
+      expect.objectContaining({ label: "Hydropower station", dataType: "string" }),
+      expect.objectContaining({ label: "Year completed", dataType: "string" }),
+      expect.objectContaining({ label: "Power (MW, in 2025)", dataType: "number" }),
+    ]);
+    expect(chart.chart.series).toEqual([
+      expect.objectContaining({
+        label: "Power (MW, in 2025)",
+        xColumn: "hydropower-station",
+        yColumn: "power-mw-in-2025",
+      }),
+    ]);
+    expect(chart.chart.rows[0]).toMatchObject({
+      "hydropower-station": "Aswan Low Dam",
+      "year-completed": "1902, 1912, 1933, 1985",
+      "power-mw-in-2025": 550,
+    });
+    expect(chart.chart.rows[1]["power-mw-in-2025"]).toBe(2_100);
+  });
+
+  it("does not chart categorical completion years as quantitative measures", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Project</th><th>Year completed</th><th>Capacity (MW)</th></tr>
+        <tr><td>Alpha</td><td>1980</td><td>100</td></tr>
+        <tr><td>Beta</td><td>1990</td><td>200</td></tr>
+        <tr><td>Gamma</td><td>2000</td><td>300</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.series.map((series) => series.label)).toEqual([
+      "Capacity (MW)",
+    ]);
   });
 
   it("strips table navigation helpers with single-quoted class attributes", () => {
