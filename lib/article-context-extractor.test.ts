@@ -61,14 +61,21 @@ describe("article context extractor boundary", () => {
     expect(
       normalizeArticleContextRequest({
         ...request,
-        wikiPageId: " 123 ",
-        revisionId: " 456 ",
+        wikiPageId: " 000123 ",
+        revisionId: " 000456 ",
         title: " Example article ",
       }),
     ).toEqual(request);
-    expect(() =>
-      normalizeArticleContextRequest({ ...request, wikiPageId: "1 OR 1=1" }),
-    ).toThrow(ArticleContextInputError);
+    try {
+      normalizeArticleContextRequest({ ...request, wikiPageId: "1 OR 1=1" });
+      throw new Error("Expected invalid page identity to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ArticleContextInputError);
+      expect(error).toMatchObject({
+        name: "ArticleContextInputError",
+        message: "wikiPageId must be a positive numeric ID",
+      });
+    }
     expect(() =>
       normalizeArticleContextRequest({ ...request, language: "fr" }),
     ).toThrow(ArticleContextInputError);

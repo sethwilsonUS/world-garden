@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { addMp3Metadata } from "../../lib/audio-metadata";
 import * as ttsClient from "../../lib/tts-client";
@@ -6,11 +6,13 @@ import {
   buildTtsCacheKey,
   getTtsMetadata,
   getTtsProfile,
+  type TtsMetadata,
 } from "../../lib/tts-profile";
 import type { Id } from "../_generated/dataModel";
 import { createTestSection } from "../../lib/test-section-narration";
 import {
   assembleArticleAudio,
+  getArticleAudioSections,
   type ArticleAudioSource,
 } from "./articleAudioPipeline";
 
@@ -76,6 +78,10 @@ describe("assembleArticleAudio", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
     vi.unstubAllGlobals();
   });
 
@@ -285,5 +291,212 @@ describe("assembleArticleAudio", () => {
       expect.any(Object),
     );
     expect(result.metadata).toEqual(requestedMetadata);
+  });
+
+  it("falls back to the current profile when stored requested metadata is stale", async () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    const currentMetadata = getTtsMetadata(getTtsProfile());
+    const staleProfile = {
+      provider: "edge" as const,
+      model: "edge-tts",
+      voiceId: "en-US-AriaNeural",
+      promptVersion: "edge-default",
+      ttsNormVersion: "ttsNorm:1",
+    };
+    const staleMetadata = {
+      ...staleProfile,
+      ttsCacheKey: buildTtsCacheKey(staleProfile),
+    };
+    const sectionUrl = "https://cdn.test/current-profile.mp3";
+    const generate = vi
+      .spyOn(ttsClient, "generateTtsAudioWithMetadata")
+      .mockResolvedValue({
+        blob: new Blob([Uint8Array.of(0xff, 0xfb)], { type: "audio/mpeg" }),
+        metadata: currentMetadata,
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === sectionUrl) {
+          return createStreamOnlyAudioResponse(Uint8Array.of(0xff, 0xfb));
+        }
+        if (url.endsWith("/api/article/Stale_profile/artwork")) {
+          return new Response("not found", { status: 404 });
+        }
+        throw new Error(`Unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const result = await assembleArticleAudio({
+      article: {
+        _id: "article-stale-profile" as Id<"articles">,
+        title: "Stale profile",
+        slug: "Stale_profile",
+        summary:
+          "This summary is deliberately long enough to produce a speech request.",
+      },
+      albumTitle: "Curio Garden Article Audio",
+      baseUrl: "https://curiogarden.org",
+      requestedTtsMetadata: staleMetadata,
+      getCachedSectionAudioUrls: async () => ({}),
+      saveSectionAudio: async () => sectionUrl,
+      saveCombinedAudio: async ({ stream }) => {
+        await readStreamBytes(stream);
+        return { storageId: "combined-storage", byteLength: 2 };
+      },
+    });
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        provider: currentMetadata.provider,
+        voiceId: currentMetadata.voiceId,
+        expectedTtsCacheKey: currentMetadata.ttsCacheKey,
+      }),
+      expect.any(Object),
+    );
+    expect(result.metadata).toEqual(currentMetadata);
+  });
+
+  it("restarts a fallback export so every packaged section uses the produced profile", async () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    const openAiMetadata = getTtsMetadata(getTtsProfile("openai"));
+    const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
+    const article: ArticleAudioSource = {
+      _id: "article-provider-fallback" as Id<"articles">,
+      title: "Provider fallback",
+      slug: "Provider_fallback",
+      summary: "The lead section is generated before the provider changes.",
+      sections: [
+        createTestSection({
+          title: "Middle",
+          level: 2,
+          content:
+            "This section triggers the provider fallback without invalidating earlier work.",
+        }),
+        createTestSection({
+          title: "Final",
+          level: 2,
+          content:
+            "This section should use the fallback provider on its first attempt.",
+        }),
+      ],
+    };
+    const sections = getArticleAudioSections(article);
+    const [leadSection, middleSection, finalSection] = sections;
+    if (!leadSection || !middleSection || !finalSection) {
+      throw new Error("Expected lead, middle, and final narration tracks.");
+    }
+
+    const generationRequests: Array<{
+      text: string;
+      provider?: string;
+      expectedTtsCacheKey?: string;
+    }> = [];
+    const generate = vi
+      .spyOn(ttsClient, "generateTtsAudioWithMetadata")
+      .mockImplementation(async (request) => {
+        generationRequests.push(request);
+        const metadata =
+          request.provider === "edge" || request.text === middleSection.text
+            ? edgeMetadata
+            : openAiMetadata;
+        return {
+          blob: new Blob([`${metadata.provider}:${request.text}`], {
+            type: "audio/mpeg",
+          }),
+          metadata,
+        };
+      });
+    const saveSectionAudio = vi.fn(
+      async ({
+        sectionKey,
+        metadata,
+      }: {
+        sectionKey: string;
+        metadata: TtsMetadata;
+      }) => `https://cdn.test/${sectionKey}-${metadata.provider}.mp3`,
+    );
+    const finalEdgeCachedUrl = `https://cdn.test/${finalSection.sectionKey}-edge-cached.mp3`;
+    const cacheLookups: string[] = [];
+    const getCachedSectionAudioUrls = vi.fn(
+      async ({ ttsCacheKey }: { ttsCacheKey: string }) => {
+        cacheLookups.push(ttsCacheKey);
+        return ttsCacheKey === edgeMetadata.ttsCacheKey && finalSection
+          ? { [finalSection.sectionKey]: finalEdgeCachedUrl }
+          : {};
+      },
+    );
+    const fetchedSectionUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("https://cdn.test/")) {
+          fetchedSectionUrls.push(url);
+          return createStreamOnlyAudioResponse(Uint8Array.of(0xff, 0xfb));
+        }
+        if (url.endsWith("/api/article/Provider_fallback/artwork")) {
+          return new Response("not found", { status: 404 });
+        }
+        throw new Error(`Unexpected fetch request: ${url}`);
+      }),
+    );
+
+    const result = await assembleArticleAudio({
+      article,
+      albumTitle: "Curio Garden Article Audio",
+      baseUrl: "https://curiogarden.org",
+      getCachedSectionAudioUrls,
+      saveSectionAudio,
+      saveCombinedAudio: async ({ stream }) => {
+        await readStreamBytes(stream);
+        return { storageId: "combined-storage", byteLength: 6 };
+      },
+    });
+
+    expect(cacheLookups).toEqual([
+      openAiMetadata.ttsCacheKey,
+      edgeMetadata.ttsCacheKey,
+    ]);
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(
+      generationRequests.map(({ text, provider, expectedTtsCacheKey }) => ({
+        text,
+        provider,
+        expectedTtsCacheKey,
+      })),
+    ).toEqual([
+      {
+        text: leadSection.text,
+        provider: "openai",
+        expectedTtsCacheKey: openAiMetadata.ttsCacheKey,
+      },
+      {
+        text: middleSection.text,
+        provider: "openai",
+        expectedTtsCacheKey: openAiMetadata.ttsCacheKey,
+      },
+      {
+        text: leadSection.text,
+        provider: "edge",
+        expectedTtsCacheKey: edgeMetadata.ttsCacheKey,
+      },
+    ]);
+    expect(saveSectionAudio).toHaveBeenCalledTimes(3);
+    const packagedSectionUrls = fetchedSectionUrls.slice(-sections.length);
+    expect(packagedSectionUrls).toEqual([
+      `https://cdn.test/${leadSection.sectionKey}-edge.mp3`,
+      `https://cdn.test/${middleSection.sectionKey}-edge.mp3`,
+      finalEdgeCachedUrl,
+    ]);
+    expect(packagedSectionUrls.every((url) => url.includes("-edge"))).toBe(
+      true,
+    );
+    expect(result.generatedSectionCount).toBe(1);
+    expect(result.reusedSectionCount).toBe(2);
+    expect(result.metadata).toEqual(edgeMetadata);
   });
 });

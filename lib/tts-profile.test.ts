@@ -45,6 +45,44 @@ describe("active TTS profile identity", () => {
     expect(getActiveTtsProfile().provider).toBe("openai");
   });
 
+  it("rejects injected metadata that fails the complete profile validator", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    const metadata = edgeMetadata();
+
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...metadata,
+        voiceId: "not-an-edge-voice",
+        ttsCacheKey: buildTtsCacheKey({
+          ...metadata,
+          voiceId: "not-an-edge-voice",
+        }),
+      },
+    });
+    expect(getActiveTtsProfile().provider).toBe("openai");
+
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...metadata,
+        ttsNormVersion: "ttsNorm:1",
+        ttsCacheKey: buildTtsCacheKey({
+          ...metadata,
+          ttsNormVersion: "ttsNorm:1",
+        }),
+      },
+    });
+    expect(getActiveTtsProfile().provider).toBe("openai");
+
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...metadata,
+        model: undefined,
+      } as never,
+    });
+    expect(() => getActiveTtsProfile()).not.toThrow();
+    expect(getActiveTtsProfile().provider).toBe("openai");
+  });
+
   it("compares the complete profile and safely serializes bootstrap data", () => {
     const metadata = edgeMetadata();
 

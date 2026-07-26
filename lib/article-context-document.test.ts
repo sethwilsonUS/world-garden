@@ -170,6 +170,17 @@ describe("extractArticleContextFromDocument", () => {
     });
   });
 
+  it("includes revision identity in projected block IDs", () => {
+    const document = documentWithTable();
+    const first = extractArticleContextFromDocument(document).blocks[0].id;
+    const nextRevision = extractArticleContextFromDocument({
+      ...document,
+      identity: { ...document.identity, revisionId: "11" },
+    }).blocks[0].id;
+
+    expect(nextRevision).not.toBe(first);
+  });
+
   it("projects scope-row headers as a categorical chart column", () => {
     const document = documentWithTable();
     const header = (

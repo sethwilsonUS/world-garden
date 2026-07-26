@@ -13,6 +13,7 @@ import type {
   WikipediaParsedPageData,
   WikipediaRevisionIdentity,
 } from "@/lib/wikipedia-contracts";
+import { normalizeMediaWikiNumericId } from "@/lib/mediawiki-document/types";
 import {
   normalizeWikipediaSectionTitle,
   slugToWikipediaTitle,
@@ -39,20 +40,19 @@ const normalizeIdentity = (
   value: unknown,
 ): WikipediaRevisionIdentity | null => {
   if (!isRecord(value)) return null;
-  const wikiPageId =
-    typeof value.wikiPageId === "string" ? value.wikiPageId.trim() : "";
-  const revisionId =
-    typeof value.revisionId === "string" ? value.revisionId.trim() : "";
-  const title = typeof value.title === "string" ? value.title.trim() : "";
+  const wikiPageId = normalizeMediaWikiNumericId(value.wikiPageId);
+  const revisionId = normalizeMediaWikiNumericId(value.revisionId);
+  const title =
+    typeof value.title === "string"
+      ? value.title.replaceAll("_", " ").replace(/\s+/g, " ").trim()
+      : "";
   const language =
     typeof value.language === "string"
       ? value.language.trim().toLowerCase()
       : "";
   if (
-    !/^\d{1,20}$/.test(wikiPageId) ||
-    wikiPageId === "0" ||
-    !/^\d{1,20}$/.test(revisionId) ||
-    revisionId === "0" ||
+    !wikiPageId ||
+    !revisionId ||
     !title ||
     title.length > 300 ||
     language !== "en"

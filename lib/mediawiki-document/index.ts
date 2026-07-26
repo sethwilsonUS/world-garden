@@ -1,12 +1,8 @@
-import {
-  parse,
-  parseFragment,
-  type DefaultTreeAdapterTypes,
-  type ParserError,
-} from "parse5";
+import { parse, parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import {
   MEDIAWIKI_DOCUMENT_SCHEMA_VERSION,
   MediaWikiSourceError,
+  normalizeMediaWikiNumericId,
   type JsonValue,
   type LoadMediaWikiDocumentOptions,
   type MediaWikiArticleLink,
@@ -79,10 +75,10 @@ type ParsedSource = {
 
 class ParsoidRejectedError extends Error {}
 
-const recordParseError = (errors: ParserError[], error: ParserError): void => {
+const isSourceRecoveryError = (error: { code: string }): boolean => {
   // MediaWiki returns an HTML body fragment rather than a complete document.
   // parse5 correctly notes the absent doctype, but that is not source recovery.
-  if (error.code !== "missing-doctype") errors.push(error);
+  return error.code !== "missing-doctype";
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -229,7 +225,18 @@ type ParsedList = {
   unsupportedSourceOrder?: number;
 };
 
-const parseList = (element: Element, orders: Map<Node, number>): ParsedList => {
+type ParsedExtensionResult =
+  | { extension: MediaWikiExtensionSource }
+  | { reason: MediaWikiDocumentIssueCode }
+  | null;
+
+type ExtensionParseCache = WeakMap<Element, ParsedExtensionResult>;
+
+const parseList = (
+  element: Element,
+  orders: Map<Node, number>,
+  extensionCache: ExtensionParseCache,
+): ParsedList => {
   const style: MediaWikiList["style"] =
     element.tagName === "ol"
       ? "ordered"
@@ -279,7 +286,7 @@ const parseList = (element: Element, orders: Map<Node, number>): ParsedList => {
       }
       if (["ol", "ul", "dl"].includes(node.tagName)) {
         flushText();
-        const nested = parseList(node, orders);
+        const nested = parseList(node, orders, extensionCache);
         if (nested.unsupportedSourceOrder != null) {
           markUnsupported(node);
           unsupportedSourceOrder = Math.min(
@@ -300,7 +307,7 @@ const parseList = (element: Element, orders: Map<Node, number>): ParsedList => {
         return;
       }
       const embeddedSource = isEmbeddedSourceCandidate(node)
-        ? (parseChartExtension(node) ?? parseDataMwExtension(node))
+        ? parseExtension(node, extensionCache)
         : null;
       if (
         node.tagName === "table" ||
@@ -984,11 +991,6 @@ const containsUnversionedExternalData = (value: JsonValue): boolean => {
   return Object.values(record).some(containsUnversionedExternalData);
 };
 
-type ParsedExtensionResult =
-  | { extension: MediaWikiExtensionSource }
-  | { reason: MediaWikiDocumentIssueCode }
-  | null;
-
 const parseChartExtension = (element: Element): ParsedExtensionResult => {
   if (
     element.tagName !== "wiki-chart" &&
@@ -1347,6 +1349,16 @@ const parseDataMwExtension = (element: Element): ParsedExtensionResult => {
     : null;
 };
 
+const parseExtension = (
+  element: Element,
+  cache: ExtensionParseCache,
+): ParsedExtensionResult => {
+  if (cache.has(element)) return cache.get(element) ?? null;
+  const parsed = parseChartExtension(element) ?? parseDataMwExtension(element);
+  cache.set(element, parsed);
+  return parsed;
+};
+
 const isExplicitVisualExtension = (element: Element): boolean => {
   const extensionName = extensionNameFromType(element);
   return (
@@ -1363,8 +1375,21 @@ const isExplicitVisualExtension = (element: Element): boolean => {
  * separate from the broad embedded-source predicate so an unrelated extension
  * nested in a structural container cannot be emitted twice as a visual block.
  */
-const isNamedVisualSourceCandidate = (element: Element): boolean => {
+const isNamedVisualSourceCandidate = (
+  element: Element,
+  extensionCache: ExtensionParseCache,
+): boolean => {
   if (element.tagName === "figure" || isExplicitVisualExtension(element)) {
+    return true;
+  }
+  // A named chart remains a visual source even when its payload is malformed
+  // or over budget. Keeping it in the visual traversal lets extensionBlock
+  // preserve the typed failure instead of collapsing it into a generic
+  // container fallback.
+  if (
+    element.tagName === "wiki-chart" ||
+    attribute(element, "data-mw-chart") != null
+  ) {
     return true;
   }
   if (isFigureElement(element)) {
@@ -1380,9 +1405,7 @@ const isNamedVisualSourceCandidate = (element: Element): boolean => {
       );
     });
   }
-  const chart = parseChartExtension(element);
-  if (chart != null) return true;
-  const extension = parseDataMwExtension(element);
+  const extension = parseExtension(element, extensionCache);
   return extension != null && "extension" in extension;
 };
 
@@ -1391,12 +1414,13 @@ const extensionBlock = (
   sectionKey: string,
   orders: Map<Node, number>,
   issues: MediaWikiDocumentIssue[],
+  extensionCache: ExtensionParseCache,
 ): MediaWikiBlock | null => {
   const extensionName = extensionNameFromType(element);
   if (extensionName && NON_NARRATIVE_EXTENSION_NAMES.has(extensionName)) {
     return null;
   }
-  const parsed = parseChartExtension(element) ?? parseDataMwExtension(element);
+  const parsed = parseExtension(element, extensionCache);
   if (parsed == null) return null;
   const sourceOrder = orders.get(element) ?? 0;
   if ("extension" in parsed) {
@@ -1430,6 +1454,7 @@ const blockFromElement = (
   orders: Map<Node, number>,
   issues: MediaWikiDocumentIssue[],
   language: string,
+  extensionCache: ExtensionParseCache,
 ): MediaWikiBlock | null => {
   const extensionName = extensionNameFromType(node);
   if (extensionName === "poem") {
@@ -1447,7 +1472,13 @@ const blockFromElement = (
     const figure = figureBlock(node, sectionKey, orders, language);
     if (figure) return figure;
   }
-  const extension = extensionBlock(node, sectionKey, orders, issues);
+  const extension = extensionBlock(
+    node,
+    sectionKey,
+    orders,
+    issues,
+    extensionCache,
+  );
   if (extension) return extension;
 
   if (node.tagName === "pre") {
@@ -1505,7 +1536,7 @@ const blockFromElement = (
   }
 
   if (["ol", "ul", "dl"].includes(node.tagName)) {
-    const parsed = parseList(node, orders);
+    const parsed = parseList(node, orders, extensionCache);
     if (parsed.unsupportedSourceOrder != null) {
       const sourceOrder = orders.get(node) ?? 0;
       issues.push({
@@ -1577,6 +1608,7 @@ const collectBlocks = (
   orders: Map<Node, number>,
   issues: MediaWikiDocumentIssue[],
   language: string,
+  extensionCache: ExtensionParseCache,
 ): MediaWikiBlock[] => {
   const blocks: MediaWikiBlock[] = [];
   const emittedVisualElements = new Set<Element>();
@@ -1587,7 +1619,7 @@ const collectBlocks = (
     }
     if (node !== sectionElement && node.tagName === "section") return;
     if (/^h[1-6]$/.test(node.tagName) || shouldSkipText(node)) return;
-    if (isNamedVisualSourceCandidate(node)) {
+    if (isNamedVisualSourceCandidate(node, extensionCache)) {
       if (!emittedVisualElements.has(node)) {
         const block = blockFromElement(
           node,
@@ -1595,6 +1627,7 @@ const collectBlocks = (
           orders,
           issues,
           language,
+          extensionCache,
         );
         if (
           block &&
@@ -1636,7 +1669,14 @@ const collectBlocks = (
     if (/^h[1-6]$/.test(node.tagName)) return;
     if (shouldSkipText(node)) return;
 
-    const block = blockFromElement(node, sectionKey, orders, issues, language);
+    const block = blockFromElement(
+      node,
+      sectionKey,
+      orders,
+      issues,
+      language,
+      extensionCache,
+    );
     if (block) {
       blocks.push(block);
       if (block.kind === "figure" || block.kind === "extension") {
@@ -1924,12 +1964,14 @@ const parseSectionsFromParsoid = ({
   orders,
   language,
   issues,
+  extensionCache,
 }: {
   root: ParentNode;
   toc: TocEntry[];
   orders: Map<Node, number>;
   language: string;
   issues: MediaWikiDocumentIssue[];
+  extensionCache: ExtensionParseCache;
 }): MediaWikiDocumentSection[] => {
   const sectionElements = allElements(root).filter(
     (element) =>
@@ -1971,23 +2013,31 @@ const parseSectionsFromParsoid = ({
         ? "end-matter"
         : "body";
     roleByKey.set(key, role);
-    const blocks = collectBlocks(sectionElement, key, orders, issues, language);
+    const blocks = collectBlocks(
+      sectionElement,
+      key,
+      orders,
+      issues,
+      language,
+      extensionCache,
+    );
     const fallbackText = sectionDomFallbackText(sectionElement);
     const fidelity = blocks.some(
       (block) => block.kind === "unsupported" && block.affectsNarration,
     )
       ? "partial"
       : "complete";
+    const anchor =
+      key === "__summary__"
+        ? undefined
+        : tocEntry?.anchor || headingAnchor(sectionElement);
     return {
       key,
       title,
       level: key === "__summary__" ? 0 : tocEntry?.level || 1,
       sourceOrder: orders.get(sectionElement) ?? 0,
       ...(parentKey ? { parentKey } : {}),
-      ...(key !== "__summary__" &&
-      (tocEntry?.anchor || headingAnchor(sectionElement))
-        ? { anchor: tocEntry?.anchor || headingAnchor(sectionElement) }
-        : {}),
+      ...(anchor ? { anchor } : {}),
       role,
       fidelity,
       plaintextContent: fallbackText,
@@ -2044,28 +2094,35 @@ const parseSectionsFromLegacy = ({
   orders,
   language,
   issues,
+  extensionCache,
 }: {
   root: ParentNode;
   toc: TocEntry[];
   orders: Map<Node, number>;
   language: string;
   issues: MediaWikiDocumentIssue[];
+  extensionCache: ExtensionParseCache;
 }): MediaWikiDocumentSection[] => {
   const elements = allElements(root);
   const headings = elements.filter((element) =>
     /^h[2-6]$/.test(element.tagName),
   );
+  const normalizedTocTitles = toc.map((entry) => normalizeTitle(entry.line));
   const matchedHeadings: Array<{ heading: Element; toc: TocEntry }> = [];
   let tocCursor = 0;
   for (const heading of headings) {
     const anchor = attribute(heading, "id");
-    const title = textContent(heading);
-    const matchIndex = toc.findIndex(
-      (entry, index) =>
-        index >= tocCursor &&
-        ((anchor && entry.anchor === anchor) ||
-          normalizeTitle(entry.line) === normalizeTitle(title)),
-    );
+    const normalizedHeadingTitle = normalizeTitle(textContent(heading));
+    let matchIndex = -1;
+    for (let index = tocCursor; index < toc.length; index += 1) {
+      if (
+        (anchor && toc[index].anchor === anchor) ||
+        normalizedTocTitles[index] === normalizedHeadingTitle
+      ) {
+        matchIndex = index;
+        break;
+      }
+    }
     if (matchIndex < 0) continue;
     matchedHeadings.push({ heading, toc: toc[matchIndex] });
     tocCursor = matchIndex + 1;
@@ -2089,7 +2146,10 @@ const parseSectionsFromLegacy = ({
     ) {
       return false;
     }
-    const isNestedVisual = isNamedVisualSourceCandidate(element);
+    const isNestedVisual = isNamedVisualSourceCandidate(
+      element,
+      extensionCache,
+    );
     let parent = element.parentNode as Node | undefined;
     while (parent) {
       if (
@@ -2098,7 +2158,10 @@ const parseSectionsFromLegacy = ({
           isFigureElement(parent) ||
           isEmbeddedSourceCandidate(parent))
       ) {
-        if (!isNestedVisual || isNamedVisualSourceCandidate(parent)) {
+        if (
+          !isNestedVisual ||
+          isNamedVisualSourceCandidate(parent, extensionCache)
+        ) {
           return false;
         }
       }
@@ -2111,6 +2174,11 @@ const parseSectionsFromLegacy = ({
   });
   const linkElements = elements.filter(
     (element) => element.tagName === "a" && hasRelToken(element, "mw:WikiLink"),
+  );
+  const citationLinkElements = elements.filter(
+    (element) =>
+      element.tagName === "a" &&
+      citationIdFromHref(attribute(element, "href")) != null,
   );
   const semanticElementSet = new Set(semanticElements);
   const descriptors: Array<{
@@ -2181,26 +2249,51 @@ const parseSectionsFromLegacy = ({
     textRunsBySection.set(descriptor.key, sectionRuns);
   });
 
+  const bucketElementsBySection = (
+    candidates: readonly Element[],
+  ): Map<string, Element[]> => {
+    const buckets = new Map(
+      descriptors.map((descriptor) => [descriptor.key, [] as Element[]]),
+    );
+    let descriptorIndex = 0;
+    for (const element of candidates) {
+      const order = orders.get(element) ?? 0;
+      while (
+        descriptorIndex + 1 < descriptors.length &&
+        order > descriptors[descriptorIndex + 1].start
+      ) {
+        descriptorIndex += 1;
+      }
+      const descriptor = descriptors[descriptorIndex];
+      const end =
+        descriptors[descriptorIndex + 1]?.start ?? Number.POSITIVE_INFINITY;
+      if (order > descriptor.start && order < end) {
+        buckets.get(descriptor.key)!.push(element);
+      }
+    }
+    return buckets;
+  };
+  const semanticElementsBySection = bucketElementsBySection(semanticElements);
+  const linkElementsBySection = bucketElementsBySection(linkElements);
+  const citationLinksBySection = bucketElementsBySection(citationLinkElements);
+
   const roleByKey = new Map<string, MediaWikiSectionRole>();
-  return descriptors.map((descriptor, index) => {
-    const end = descriptors[index + 1]?.start ?? Number.POSITIVE_INFINITY;
+  return descriptors.map((descriptor) => {
     const sectionTextRuns = textRunsBySection.get(descriptor.key) ?? [];
     const blocks = [
-      ...semanticElements
-        .filter((element) => {
-          const order = orders.get(element) ?? 0;
-          return order > descriptor.start && order < end;
-        })
-        .flatMap((element) => {
+      ...(semanticElementsBySection.get(descriptor.key) ?? []).flatMap(
+        (element) => {
           const block = blockFromElement(
             element,
             descriptor.key,
             orders,
             issues,
             language,
+            extensionCache,
           );
           return block ? [block] : [];
-        }),
+        },
+      ),
       ...sectionTextRuns.flatMap((run) =>
         run.covered
           ? []
@@ -2231,25 +2324,13 @@ const parseSectionsFromLegacy = ({
     const fallbackText = normalizeText(
       sectionTextRuns.map((run) => run.text).join(" "),
     );
-    const links = linkElements
-      .filter((element) => {
-        const order = orders.get(element) ?? 0;
-        return order > descriptor.start && order < end;
-      })
-      .flatMap((element) => {
+    const links = (linkElementsBySection.get(descriptor.key) ?? []).flatMap(
+      (element) => {
         const link = articleLinkFromElement(element, language, orders);
         return link ? [link] : [];
-      });
-    const citationIds = elements
-      .filter((element) => {
-        if (element.tagName !== "a") return false;
-        const order = orders.get(element) ?? 0;
-        return (
-          order > descriptor.start &&
-          order < end &&
-          citationIdFromHref(attribute(element, "href")) != null
-        );
-      })
+      },
+    );
+    const citationIds = (citationLinksBySection.get(descriptor.key) ?? [])
       .flatMap((element) => {
         const id = citationIdFromHref(attribute(element, "href"));
         return id ? [id] : [];
@@ -2320,8 +2401,8 @@ const parseResponsePayload = (
     });
   }
   const parsed = value.parse;
-  const pageId = String(parsed.pageid ?? "");
-  const revisionId = String(parsed.revid ?? "");
+  const pageId = normalizeMediaWikiNumericId(parsed.pageid);
+  const revisionId = normalizeMediaWikiNumericId(parsed.revid);
   const title = typeof parsed.title === "string" ? parsed.title : "";
   if (
     pageId !== request.wikiPageId ||
@@ -2500,11 +2581,11 @@ const fetchParsedSource = async (
 const validateRequest = (
   request: MediaWikiRevisionRequest,
 ): MediaWikiRevisionRequest => {
+  const wikiPageId = normalizeMediaWikiNumericId(request.wikiPageId);
+  const revisionId = normalizeMediaWikiNumericId(request.revisionId);
   if (
-    !/^\d{1,20}$/.test(request.wikiPageId) ||
-    request.wikiPageId === "0" ||
-    !/^\d{1,20}$/.test(request.revisionId) ||
-    request.revisionId === "0" ||
+    !wikiPageId ||
+    !revisionId ||
     !normalizeText(request.title) ||
     request.language !== "en"
   ) {
@@ -2516,8 +2597,8 @@ const validateRequest = (
     });
   }
   return {
-    wikiPageId: request.wikiPageId,
-    revisionId: request.revisionId,
+    wikiPageId,
+    revisionId,
     title: normalizeText(request.title),
     language: "en",
   };
@@ -2696,7 +2777,7 @@ const alignSectionPlaintext = (
 
 type ParsedDocumentState = {
   root: ParentNode;
-  parseErrors: ParserError[];
+  parseRecovered: boolean;
   semanticIssues: MediaWikiDocumentIssue[];
   limitIssue: "node-limit" | "depth-limit" | null;
   sections: MediaWikiDocumentSection[];
@@ -2706,16 +2787,21 @@ const parseDocumentSource = (
   source: ParsedSource,
   request: MediaWikiRevisionRequest,
 ): ParsedDocumentState => {
-  const parseErrors: ParserError[] = [];
+  let parseRecovered = false;
   const semanticIssues: MediaWikiDocumentIssue[] = [];
   const root = parse(source.html, {
-    onParseError: (error) => recordParseError(parseErrors, error),
+    onParseError: (error) => {
+      if (!parseRecovered && isSourceRecoveryError(error)) {
+        parseRecovered = true;
+      }
+    },
   });
   const limitIssue = domLimitIssue(root);
   if (limitIssue) {
-    return { root, parseErrors, semanticIssues, limitIssue, sections: [] };
+    return { root, parseRecovered, semanticIssues, limitIssue, sections: [] };
   }
   const orders = nodeOrders(root);
+  const extensionCache: ExtensionParseCache = new WeakMap();
   const sections =
     source.format === "parsoid"
       ? parseSectionsFromParsoid({
@@ -2724,6 +2810,7 @@ const parseDocumentSource = (
           orders,
           language: request.language,
           issues: semanticIssues,
+          extensionCache,
         })
       : parseSectionsFromLegacy({
           root,
@@ -2731,8 +2818,9 @@ const parseDocumentSource = (
           orders,
           language: request.language,
           issues: semanticIssues,
+          extensionCache,
         });
-  return { root, parseErrors, semanticIssues, limitIssue: null, sections };
+  return { root, parseRecovered, semanticIssues, limitIssue: null, sections };
 };
 
 const hasCompleteParsoidContract = (
@@ -2865,12 +2953,14 @@ export const loadMediaWikiDocument = async (
     sections = aligned;
   }
   const issues: MediaWikiDocumentIssue[] = [
-    ...state.parseErrors.map(
-      (): MediaWikiDocumentIssue => ({
-        code: "parse-recovery",
-        severity: "skipped",
-      }),
-    ),
+    ...(state.parseRecovered
+      ? ([
+          {
+            code: "parse-recovery",
+            severity: "skipped",
+          },
+        ] satisfies MediaWikiDocumentIssue[])
+      : []),
     ...state.semanticIssues,
   ];
   const citations = collectCitations(state.root, request.language);

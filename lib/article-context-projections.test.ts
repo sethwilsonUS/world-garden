@@ -70,6 +70,78 @@ describe("semantic article-context projections", () => {
     ).toBeNull();
   });
 
+  it("keeps explicit tied ranking rows without admitting totals", () => {
+    const chart = extractChartFromTable(
+      table(
+        ["Rank", "NOC", "Gold", "Silver"],
+        [
+          ["1", "Gondor", "12", "8"],
+          ["=1", "Rohan", "11", "9"],
+          ["4", "The Shire", "5", "4"],
+          ["5th", "Dale", "4", "3"],
+          ["", "Total (4 NOCs)", "38", "28"],
+        ],
+      ),
+    );
+
+    expect(chart?.rows).toEqual([
+      { rank: 1, noc: "Gondor", gold: 12, silver: 8 },
+      { rank: 1, noc: "Rohan", gold: 11, silver: 9 },
+      { rank: 4, noc: "The Shire", gold: 5, silver: 4 },
+      { rank: 5, noc: "Dale", gold: 4, silver: 3 },
+    ]);
+  });
+
+  it("retains unranked rows without inheriting or fabricating a rank", () => {
+    const rows = [
+      ["1", "Gondor", "12", "8"],
+      ["2", "Rohan", "11", "9"],
+      ["3", "The Shire", "5", "4"],
+      ["4", "Dale", "4", "3"],
+    ];
+
+    const olympicChart = extractChartFromTable(
+      table(
+        ["Rank", "NOC", "Gold", "Silver"],
+        [...rows, ["–", "Individual Neutral Athletes", "1", "3"]],
+      ),
+    );
+    const outcomeChart = extractChartFromTable(
+      table(
+        ["Rank", "NOC", "Gold", "Silver"],
+        [...rows, ["DNF", "Mordor", "3", "2"]],
+      ),
+    );
+
+    expect(olympicChart?.rows.at(-1)).toMatchObject({
+      rank: null,
+      noc: "Individual Neutral Athletes",
+      gold: 1,
+      silver: 3,
+    });
+    expect(outcomeChart?.rows.at(-1)).toMatchObject({
+      rank: "DNF",
+      noc: "Mordor",
+      gold: 3,
+      silver: 2,
+    });
+  });
+
+  it("declines an explicitly ranked aggregate-looking entity instead of silently omitting it", () => {
+    expect(
+      extractChartFromTable(
+        table(
+          ["Rank", "Song", "Sales"],
+          [
+            ["1", "The Archer", "12"],
+            ["2", "Overall", "10"],
+            ["3", "The Prophecy", "8"],
+          ],
+        ),
+      ),
+    ).toBeNull();
+  });
+
   it("requires an explicit event column before projecting a timeline", () => {
     expect(
       extractTimelineFromTable(
@@ -169,6 +241,36 @@ describe("semantic article-context projections", () => {
     expect(normalized?.places).toHaveLength(2);
     expect(normalized?.routes).toHaveLength(1);
     expect(normalized?.areas).toHaveLength(1);
+  });
+
+  it("assigns collision-free IDs across nested and sibling geometries", () => {
+    const normalized = normalizeGeoJson(
+      {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            properties: { name: "Cluster" },
+            geometry: {
+              type: "MultiPoint",
+              coordinates: [
+                [0, 0],
+                [1, 1],
+              ],
+            },
+          },
+          {
+            type: "Feature",
+            properties: { name: "Cluster 2" },
+            geometry: { type: "Point", coordinates: [1, 1] },
+          },
+        ],
+      },
+      "Example",
+    );
+
+    expect(normalized?.places).toHaveLength(3);
+    expect(new Set(normalized?.places.map((place) => place.id)).size).toBe(3);
   });
 
   it("rejects malformed geometry atomically", () => {

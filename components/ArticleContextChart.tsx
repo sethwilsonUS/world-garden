@@ -936,6 +936,9 @@ const RankingOverview = ({
           {presentation.hiddenRowCount > 0
             ? `The overview pictures the first ${presentation.visibleRows.length} of ${presentation.rows.length} published entries in source ranking order. Expand Exact chart data for all ${presentation.rows.length}.`
             : `The overview pictures all ${presentation.rows.length} published entries in source ranking order.`}
+          {presentation.unrankedRowCount > 0
+            ? ` ${presentation.unrankedRowCount} ${presentation.unrankedRowCount === 1 ? "source entry has" : "source entries have"} no numeric rank and ${presentation.unrankedRowCount === 1 ? "remains" : "remain"} in source order.`
+            : ""}
         </p>
         <figcaption id={captionId} className="context-visual-caption">
           {caption} Bar lengths provide supporting metric context and do not
@@ -1102,12 +1105,15 @@ const StandardChartView = ({
   );
   const visualControlsReady =
     visualPhases[readinessScope] === "ready" || selectedPanelsReady;
-
-  if (!presentation) {
-    const fallbackSeries =
+  const fallbackSeries = useMemo(
+    () =>
       selectedSeries.length > 0
         ? selectedSeries
-        : block.chart.series.slice(0, 1);
+        : block.chart.series.slice(0, 1),
+    [block.chart.series, selectedSeries],
+  );
+
+  if (!presentation) {
     const fallbackRenderKind: Exclude<StandardChartRenderKind, "exact-only"> =
       fallbackSeries.every((series) => series.type === "pie")
         ? "pie"

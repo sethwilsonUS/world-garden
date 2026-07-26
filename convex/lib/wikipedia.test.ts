@@ -172,7 +172,12 @@ describe("fetchArticleByTitle semantic narration", () => {
         narration: { mode: "structured", sourceFormat: "list" },
       },
     ]);
-    const parseUrl = new URL(String(fetchSpy.mock.calls[1][0]));
+    const parseCall = fetchSpy.mock.calls.find(([input]) => {
+      const url = new URL(String(input));
+      return url.searchParams.get("action") === "parse";
+    });
+    expect(parseCall).toBeDefined();
+    const parseUrl = new URL(String(parseCall![0]));
     expect(parseUrl.searchParams.get("oldid")).toBe("456");
     expect(parseUrl.searchParams.get("parser")).toBe("parsoid");
   });

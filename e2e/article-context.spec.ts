@@ -492,7 +492,7 @@ const mockArticleAndContext = async (
     mapSourceFailures = 0,
     mapSourceFailureDelayMs = 0,
     mapSpriteFailure = false,
-    contextDelayMs = 0,
+    holdContextResponse = false,
     manifest = contextManifest,
   }: {
     mapStyleFailures?: number;
@@ -501,7 +501,7 @@ const mockArticleAndContext = async (
     mapSourceFailures?: number;
     mapSourceFailureDelayMs?: number;
     mapSpriteFailure?: boolean;
-    contextDelayMs?: number;
+    holdContextResponse?: boolean;
     manifest?: ContextManifest;
   } = {},
 ) => {
@@ -509,6 +509,12 @@ const mockArticleAndContext = async (
   let mapStyleRequests = 0;
   let mapSourceRequests = 0;
   let mapTileRequests = 0;
+  let releaseContextResponse = () => {};
+  const contextResponseGate = holdContextResponse
+    ? new Promise<void>((resolve) => {
+        releaseContextResponse = resolve;
+      })
+    : null;
 
   // Article audio may be warmed as the table of contents enters the viewport.
   // Keep that unrelated prefetch fully local to this context-focused spec.
@@ -736,9 +742,7 @@ const mockArticleAndContext = async (
       revisionId: "123456789",
       language: "en",
     });
-    if (contextDelayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, contextDelayMs));
-    }
+    await contextResponseGate;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -858,6 +862,7 @@ const mockArticleAndContext = async (
     getReportPayload: () => reportPayload,
     getMapStyleRequests: () => mapStyleRequests,
     getMapTileRequests: () => mapTileRequests,
+    releaseContextResponse,
   };
 };
 
@@ -868,25 +873,31 @@ test("visual context reports a truthful reduced-motion loading state", async ({
     reducedMotion: "reduce",
     forcedColors: "active",
   });
-  await mockArticleAndContext(page, { contextDelayMs: 1_000 });
+  const { releaseContextResponse } = await mockArticleAndContext(page, {
+    holdContextResponse: true,
+  });
   await page.goto("/article/Ada_Lovelace");
 
   const lane = page.locator('[data-context-lane-state="loading"]');
   const status = lane.getByRole("status");
   const spinner = lane.locator(".context-visual-spinner");
-  await expect(lane).toBeVisible();
-  await expect(lane.locator('[aria-busy="true"]')).toHaveCount(1);
-  await expect(status).toHaveText(
-    "Gathering maps, timelines, data, and diagrams with accessible descriptions…",
-  );
-  await expect(spinner).toBeVisible();
-  expect(
-    await status.evaluate((node) =>
-      Boolean(node.closest('[aria-busy="true"]')),
-    ),
-  ).toBe(false);
-  await expect(spinner).toHaveCSS("animation-name", "none");
-  await expect(spinner).toHaveCSS("border-top-style", "solid");
+  try {
+    await expect(lane).toBeVisible();
+    await expect(lane.locator('[aria-busy="true"]')).toHaveCount(1);
+    await expect(status).toHaveText(
+      "Gathering maps, timelines, data, and diagrams with accessible descriptions…",
+    );
+    await expect(spinner).toBeVisible();
+    expect(
+      await status.evaluate((node) =>
+        Boolean(node.closest('[aria-busy="true"]')),
+      ),
+    ).toBe(false);
+    await expect(spinner).toHaveCSS("animation-name", "none");
+    await expect(spinner).toHaveCSS("border-top-style", "solid");
+  } finally {
+    releaseContextResponse();
+  }
 
   await expect(
     page.getByRole("heading", {

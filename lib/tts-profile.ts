@@ -156,18 +156,50 @@ export const getConfiguredPrimaryTtsProvider = (): TtsProvider =>
     ),
   ) ?? "openai";
 
+export function isTtsMetadataValid(
+  metadata: Partial<TtsMetadata> | null | undefined,
+): metadata is TtsMetadata {
+  if (
+    (metadata?.provider !== "openai" && metadata?.provider !== "edge") ||
+    typeof metadata.model !== "string" ||
+    typeof metadata.voiceId !== "string" ||
+    typeof metadata.promptVersion !== "string" ||
+    typeof metadata.ttsNormVersion !== "string" ||
+    typeof metadata.ttsCacheKey !== "string"
+  ) {
+    return false;
+  }
+
+  const model = metadata.model.trim();
+  const promptVersion = metadata.promptVersion.trim();
+  const voiceIsValid =
+    metadata.provider === "openai"
+      ? isOpenAiTtsVoice(metadata.voiceId)
+      : isEdgeTtsVoice(metadata.voiceId);
+
+  return (
+    metadata.ttsNormVersion === TTS_NORM_VERSION &&
+    model.length > 0 &&
+    model.length <= 200 &&
+    promptVersion.length > 0 &&
+    promptVersion.length <= 200 &&
+    metadata.voiceId.length <= 200 &&
+    voiceIsValid &&
+    metadata.ttsCacheKey ===
+      buildTtsCacheKey({
+        provider: metadata.provider,
+        model: metadata.model,
+        voiceId: metadata.voiceId,
+        promptVersion: metadata.promptVersion,
+        ttsNormVersion: metadata.ttsNormVersion,
+      })
+  );
+}
+
 const getInjectedActiveTtsMetadata = (): TtsMetadata | null => {
   if (typeof window === "undefined") return null;
   const metadata = window.__CURIO_ACTIVE_TTS_METADATA__;
-  if (
-    !metadata ||
-    normalizeTtsProvider(metadata.provider) == null ||
-    !metadata.model?.trim() ||
-    !metadata.voiceId?.trim() ||
-    !metadata.promptVersion?.trim() ||
-    !metadata.ttsNormVersion?.trim() ||
-    metadata.ttsCacheKey !== buildTtsCacheKey(metadata)
-  ) {
+  if (!metadata || !isTtsMetadataValid(metadata)) {
     return null;
   }
   return metadata;
@@ -214,26 +246,6 @@ export const doesTtsMetadataMatch = (
   actual.promptVersion === expected.promptVersion &&
   actual.ttsNormVersion === expected.ttsNormVersion &&
   actual.ttsCacheKey === expected.ttsCacheKey;
-
-export const isTtsMetadataValid = (metadata: TtsMetadata): boolean => {
-  const model = metadata.model.trim();
-  const promptVersion = metadata.promptVersion.trim();
-  const voiceIsValid =
-    metadata.provider === "openai"
-      ? isOpenAiTtsVoice(metadata.voiceId)
-      : isEdgeTtsVoice(metadata.voiceId);
-
-  return (
-    metadata.ttsNormVersion === TTS_NORM_VERSION &&
-    model.length > 0 &&
-    model.length <= 200 &&
-    promptVersion.length > 0 &&
-    promptVersion.length <= 200 &&
-    metadata.voiceId.length <= 200 &&
-    voiceIsValid &&
-    metadata.ttsCacheKey === buildTtsCacheKey(metadata)
-  );
-};
 
 export const serializeTtsMetadataForInlineScript = (
   metadata: TtsMetadata,

@@ -3,6 +3,7 @@ import fc from "fast-check";
 import {
   loadMediaWikiDocument,
   MediaWikiSourceError,
+  normalizeMediaWikiNumericId,
   type MediaWikiDocumentRequest,
   type MediaWikiRevisionRequest,
 } from "./index";
@@ -43,6 +44,50 @@ const escapeAttribute = (value: string): string =>
     .replace(/>/g, "&gt;");
 
 describe("loadMediaWikiDocument", () => {
+  it("rejects unsafe numeric identity values before they can be rounded", () => {
+    expect(normalizeMediaWikiNumericId(Number.MAX_SAFE_INTEGER)).toBe(
+      String(Number.MAX_SAFE_INTEGER),
+    );
+    expect(normalizeMediaWikiNumericId(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+    expect(normalizeMediaWikiNumericId("00042")).toBe("42");
+    expect(normalizeMediaWikiNumericId("000")).toBeNull();
+  });
+
+  it("canonicalizes leading-zero page and revision IDs before fetching", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("oldid")).toBe(request.revisionId);
+      return jsonResponse(
+        parsoidPayload(
+          '<section data-mw-section-id="0"><p>Lead prose.</p></section>',
+        ),
+      );
+    });
+
+    const document = await loadMediaWikiDocument(
+      {
+        ...request,
+        wikiPageId: `000${request.wikiPageId}`,
+        revisionId: `000${request.revisionId}`,
+      },
+      { fetchImpl },
+    );
+
+    expect(document.identity).toEqual(request);
+  });
+
+  it("reports parse recovery once even when parse5 recovers multiple tokens", async () => {
+    const html =
+      '<section data-mw-section-id="0" a="1" a="2"><p><</p></section>';
+    const document = await loadMediaWikiDocument(request, {
+      fetchImpl: vi.fn(async () => jsonResponse(parsoidPayload(html))),
+    });
+
+    expect(
+      document.issues.filter((issue) => issue.code === "parse-recovery"),
+    ).toEqual([{ code: "parse-recovery", severity: "skipped" }]);
+  });
+
   it("loads revision-pinned Parsoid HTML into ordered semantic sections", async () => {
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
@@ -370,6 +415,55 @@ describe("loadMediaWikiDocument", () => {
         },
       ],
     });
+    expect(
+      createSectionNarrationsFromDocument(document)[0].narration,
+    ).toMatchObject({
+      mode: "verbatim",
+      usedRawFallback: true,
+      text: "Catalogue. Chart entry",
+    });
+  });
+
+  it("retains a typed failure for a malformed chart nested inside a list", async () => {
+    const html = [
+      '<section data-mw-section-id="0"><p>Lead.</p>',
+      '<section data-mw-section-id="1"><h2>Catalogue</h2>',
+      '<ul><li>Chart entry<wiki-chart data-mw-chart="{"></wiki-chart></li></ul>',
+      "</section></section>",
+    ].join("");
+    const document = await loadMediaWikiDocument(request, {
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          parsoidPayload(html, [{ index: "1", line: "Catalogue", level: 1 }]),
+        ),
+      ),
+    });
+
+    expect(document.sections[1]).toMatchObject({
+      fidelity: "partial",
+      blocks: [
+        {
+          kind: "unsupported",
+          sourceKind: "list",
+          reason: "unsupported-block",
+        },
+        {
+          kind: "unsupported",
+          sourceKind: "extension",
+          reason: "invalid-data-mw",
+        },
+      ],
+    });
+    expect(document.issues).toContainEqual(
+      expect.objectContaining({
+        code: "invalid-data-mw",
+        severity: "fallback",
+        sectionKey: "1",
+      }),
+    );
+    expect(
+      document.sections[1].blocks.some((block) => block.kind === "extension"),
+    ).toBe(false);
     expect(
       createSectionNarrationsFromDocument(document)[0].narration,
     ).toMatchObject({
@@ -1703,5 +1797,35 @@ describe("loadMediaWikiDocument", () => {
     expect(second.sourceHash).toBe(first.sourceHash);
     expect(second.documentHash).toBe(first.documentHash);
     expect(changed.sourceHash).not.toBe(first.sourceHash);
+  });
+
+  it("includes the pinned revision identity in semantic hashes", async () => {
+    const html =
+      '<section data-mw-section-id="0"><p>Same source text.</p></section>';
+    const load = (revisionId: string) =>
+      loadMediaWikiDocument(
+        { ...request, revisionId },
+        {
+          fetchImpl: vi.fn(async () =>
+            jsonResponse({
+              parse: {
+                pageid: Number(request.wikiPageId),
+                title: request.title,
+                revid: Number(revisionId),
+                tocdata: { sections: [] },
+                text: html,
+              },
+            }),
+          ),
+        },
+      );
+
+    const [first, nextRevision] = await Promise.all([
+      load("1342291773"),
+      load("1342291774"),
+    ]);
+
+    expect(nextRevision.sourceHash).not.toBe(first.sourceHash);
+    expect(nextRevision.documentHash).not.toBe(first.documentHash);
   });
 });

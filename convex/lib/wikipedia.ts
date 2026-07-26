@@ -7,6 +7,7 @@ import {
 import {
   loadMediaWikiDocument,
   MediaWikiSourceError,
+  normalizeMediaWikiNumericId,
   type MediaWikiDocumentRequest,
 } from "../../lib/mediawiki-document";
 import { createSectionNarrationsFromDocument } from "../../lib/section-narration-document";
@@ -60,11 +61,19 @@ type WikiThumbnail = {
 };
 
 const requireRevisionId = (value: unknown): string => {
-  const revisionId = String(value ?? "");
-  if (!/^\d{1,20}$/.test(revisionId) || revisionId === "0") {
+  const revisionId = normalizeMediaWikiNumericId(value);
+  if (!revisionId) {
     throw new Error("Wikipedia returned no usable revision identity");
   }
   return revisionId;
+};
+
+const requirePageId = (value: unknown): string => {
+  const pageId = normalizeMediaWikiNumericId(value);
+  if (!pageId) {
+    throw new Error("Wikipedia returned no usable page identity");
+  }
+  return pageId;
 };
 
 const fetchSummaryThumbnail = async (
@@ -82,13 +91,7 @@ const fetchSummaryThumbnail = async (
     const data = await response.json();
     const thumbnail = data.thumbnail as WikiThumbnail | undefined;
     return thumbnail;
-  } catch (error) {
-    if (
-      error instanceof MediaWikiSourceError &&
-      error.code === "identity-mismatch"
-    ) {
-      throw error;
-    }
+  } catch {
     return undefined;
   }
 };
@@ -117,13 +120,20 @@ export const searchWikipedia = async (
   const data = await response.json();
   const results = data.query?.search ?? [];
 
-  return results.map(
-    (item: { pageid: number; title: string; snippet: string }) => ({
-      wikiPageId: String(item.pageid),
-      title: item.title,
-      description: stripHtml(item.snippet),
-      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
-    }),
+  return results.flatMap(
+    (item: { pageid: number; title: string; snippet: string }) => {
+      const wikiPageId = normalizeMediaWikiNumericId(item.pageid);
+      return wikiPageId
+        ? [
+            {
+              wikiPageId,
+              title: item.title,
+              description: stripHtml(item.snippet),
+              url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
+            },
+          ]
+        : [];
+    },
   );
 };
 
@@ -131,11 +141,12 @@ const articleTopicMatches = async (
   wikiPageId: string,
   topics: string,
 ): Promise<boolean> => {
+  const canonicalPageId = requirePageId(wikiPageId);
   const params = new URLSearchParams({
     action: "query",
     format: "json",
     list: "search",
-    srsearch: `pageid:${wikiPageId} articletopic:${topics}`,
+    srsearch: `pageid:${canonicalPageId} articletopic:${topics}`,
     srlimit: "1",
     srwhat: "text",
     origin: "*",
@@ -153,7 +164,7 @@ const articleTopicMatches = async (
   const results = data.query?.search ?? [];
   return results.some(
     (item: { pageid?: number | string }) =>
-      String(item.pageid ?? "") === wikiPageId,
+      normalizeMediaWikiNumericId(item.pageid) === canonicalPageId,
   );
 };
 
@@ -176,10 +187,11 @@ export const fetchArticleBadgeKeys = async (
 export const fetchArticleByPageId = async (
   pageId: string,
 ): Promise<WikiArticle> => {
+  const canonicalPageId = requirePageId(pageId);
   const params = new URLSearchParams({
     action: "query",
     format: "json",
-    pageids: pageId,
+    pageids: canonicalPageId,
     prop: "extracts|revisions|info|pageimages",
     explaintext: "1",
     exsectionformat: "wiki",
@@ -199,13 +211,14 @@ export const fetchArticleByPageId = async (
   }
 
   const data = await response.json();
-  const page = data.query?.pages?.[pageId];
+  const page = data.query?.pages?.[canonicalPageId];
 
   if (!page || page.missing !== undefined) {
-    throw new Error(`Wikipedia article not found: pageId ${pageId}`);
+    throw new Error(`Wikipedia article not found: pageId ${canonicalPageId}`);
   }
 
   const revision = page.revisions?.[0];
+  const wikiPageId = requirePageId(page.pageid);
   const revisionId = requireRevisionId(revision?.revid);
   const fullText = page.extract ?? "";
   const contentText = cleanContentForTts(fullText);
@@ -214,7 +227,7 @@ export const fetchArticleByPageId = async (
     (await fetchSummaryThumbnail(page.title as string));
   const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
     buildRevisionNarration({
-      wikiPageId: String(page.pageid),
+      wikiPageId,
       title: page.title,
       revisionId,
       fullText,
@@ -223,7 +236,7 @@ export const fetchArticleByPageId = async (
   ]);
 
   return {
-    wikiPageId: String(page.pageid),
+    wikiPageId,
     title: page.title,
     language: "en",
     revisionId,
@@ -285,6 +298,7 @@ export const fetchArticleByTitle = async (
     | Array<Record<string, unknown>>
     | undefined;
   const revision = revisions?.[0];
+  const wikiPageId = requirePageId(page.pageid);
   const revisionId = requireRevisionId(revision?.revid);
   const fullText = (page.extract as string) ?? "";
   const contentText = cleanContentForTts(fullText);
@@ -293,7 +307,7 @@ export const fetchArticleByTitle = async (
     (await fetchSummaryThumbnail(page.title as string));
   const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
     buildRevisionNarration({
-      wikiPageId: String(page.pageid),
+      wikiPageId,
       title: page.title as string,
       revisionId,
       fullText,
@@ -302,7 +316,7 @@ export const fetchArticleByTitle = async (
   ]);
 
   return {
-    wikiPageId: String(page.pageid),
+    wikiPageId,
     title: page.title as string,
     language: "en",
     revisionId,
@@ -401,7 +415,7 @@ const buildRevisionNarration = async ({
       summary: plaintext.lead,
       sections: createSectionNarrations({
         sections: sourceSections,
-        sourceIdentity: [wikiPageId, revisionId, title].join(":"),
+        sourceIdentity: JSON.stringify([wikiPageId, revisionId, title]),
       }),
     };
   }
@@ -672,9 +686,10 @@ export const fetchSectionLinksByIndex = async (
     const qData = await qResponse.json();
     const pages = qData.query?.pages ?? {};
     for (const p of Object.values(pages) as Record<string, unknown>[]) {
-      if (p.pageid && p.missing === undefined && Number(p.ns) === 0) {
+      const wikiPageId = normalizeMediaWikiNumericId(p.pageid);
+      if (wikiPageId && p.missing === undefined && Number(p.ns) === 0) {
         resolved.push({
-          wikiPageId: String(p.pageid),
+          wikiPageId,
           title: p.title as string,
           description: p.description as string | undefined,
         });

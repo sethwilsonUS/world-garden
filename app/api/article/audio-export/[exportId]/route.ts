@@ -7,7 +7,6 @@ import {
   isPodcastDownloadRequest,
   PODCAST_MEDIA_CACHE_CONTROL,
 } from "@/lib/podcast-media-response";
-import { getActiveTtsCacheKey } from "@/lib/tts-profile";
 
 type ArticleAudioExport = Doc<"articleAudioExports"> & {
   audioUrl: string | null;
@@ -20,11 +19,24 @@ export const GET = async (
   const { exportId } = await params;
 
   try {
+    const storedIdentity = (await fetchQuery(
+      anyApi.articleExports.getArticleAudioExportDownloadIdentity,
+      {
+        exportId: exportId as Id<"articleAudioExports">,
+      },
+    )) as { ttsCacheKey: string } | null;
+    if (!storedIdentity) {
+      return NextResponse.json(
+        { error: "Article audio export not found" },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const articleExport = (await fetchQuery(
       anyApi.articleExports.getArticleAudioExportById,
       {
         exportId: exportId as Id<"articleAudioExports">,
-        ttsCacheKey: getActiveTtsCacheKey(),
+        ttsCacheKey: storedIdentity.ttsCacheKey,
       },
     )) as ArticleAudioExport | null;
 

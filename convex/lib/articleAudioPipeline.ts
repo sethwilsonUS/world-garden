@@ -12,6 +12,7 @@ import {
   doesTtsMetadataMatch,
   getTtsMetadata,
   getTtsProfile,
+  isTtsMetadataValid,
   type TtsMetadata,
 } from "../../lib/tts-profile";
 
@@ -244,18 +245,19 @@ export const assembleArticleAudio = async <TStorageId = string>({
   const assembleWithProfile = async (
     passMetadata: TtsMetadata,
     allowProviderFallback: boolean,
+    seededCachedUrls: Record<string, string> = {},
   ): Promise<AssembleArticleAudioResult<TStorageId>> => {
-    const cachedUrls = await getCachedSectionAudioUrls({
+    const loadedCachedUrls = await getCachedSectionAudioUrls({
       ttsCacheKey: passMetadata.ttsCacheKey,
       sourceHashes: sections.map(({ sectionKey, sourceHash }) => ({
         sectionKey,
         sourceHash,
       })),
     });
+    const cachedUrls = { ...loadedCachedUrls, ...seededCachedUrls };
     const sectionAudioUrls: string[] = [];
     let generatedSectionCount = 0;
     let reusedSectionCount = 0;
-    let producedMetadata: TtsMetadata | null = null;
 
     for (let index = 0; index < sections.length; index += 1) {
       const section = sections[index];
@@ -296,16 +298,39 @@ export const assembleArticleAudio = async <TStorageId = string>({
         if (!doesTtsMetadataMatch(metadata, passMetadata)) {
           if (
             allowProviderFallback &&
-            metadata.provider !== passMetadata.provider
+            metadata.provider !== passMetadata.provider &&
+            isTtsMetadataValid(metadata)
           ) {
-            return assembleWithProfile(metadata, false);
+            let fallbackSectionAudioUrl: string;
+            try {
+              fallbackSectionAudioUrl = await saveSectionAudio({
+                sectionKey: section.sectionKey,
+                sourceHash: section.sourceHash,
+                blob,
+                durationSeconds: estimateDurationSeconds(section.text),
+                metadata,
+              });
+            } catch (error) {
+              throw new Error(
+                `Saving audio for ${section.sectionKey} failed: ${getErrorMessage(error)}`,
+              );
+            }
+
+            // A combined export has one TTS profile identity. Restart the
+            // assembly under the fallback profile instead of retaining URLs
+            // generated or cached under the original profile. Seed the audio
+            // that triggered the fallback so the restart does not synthesize
+            // that section twice.
+            return assembleWithProfile(metadata, false, {
+              [section.sectionKey]: fallbackSectionAudioUrl,
+            });
+          } else {
+            throw new Error(
+              `TTS profile mismatch for ${section.sectionKey}: expected ${passMetadata.ttsCacheKey}, received ${metadata.ttsCacheKey}.`,
+            );
           }
-          throw new Error(
-            `TTS profile mismatch for ${section.sectionKey}: expected ${passMetadata.ttsCacheKey}, received ${metadata.ttsCacheKey}.`,
-          );
         }
 
-        producedMetadata = metadata;
         generatedSectionCount += 1;
 
         try {
@@ -377,12 +402,15 @@ export const assembleArticleAudio = async <TStorageId = string>({
       generatedSectionCount,
       reusedSectionCount,
       narrationHash: buildArticleNarrationHash(article),
-      metadata: producedMetadata ?? passMetadata,
+      metadata: passMetadata,
     };
   };
 
+  const currentTtsMetadata = getTtsMetadata(getTtsProfile());
   return assembleWithProfile(
-    requestedTtsMetadata ?? getTtsMetadata(getTtsProfile()),
+    requestedTtsMetadata && isTtsMetadataValid(requestedTtsMetadata)
+      ? requestedTtsMetadata
+      : currentTtsMetadata,
     true,
   );
 };

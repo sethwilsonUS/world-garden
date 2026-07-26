@@ -1,19 +1,191 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ARTICLE_PARSE_MEDIA_CACHE_VERSION,
   ARTICLE_CACHE_TTL_MS,
   canPersistNormalizedCachedNarration,
   cachedArticleToFetchResult,
+  canonicalizeWikipediaRevisionIdentity,
+  getArticleImages,
+  getParseCache,
+  getSectionLinksFromCache,
   hasCompleteArticleParseSectionIdentity,
   isArticleParseMediaCacheCompatible,
   isCachedArticleFresh,
   isCachedArticleNarrationCompatible,
+  isWikipediaRevisionCacheIdentityCompatible,
   normalizeCachedArticleForPersistence,
+  persistCachedNarrationFallback,
 } from "./articles";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
   hashNarrationText,
 } from "../lib/section-narration";
+
+describe("Wikipedia revision cache identity", () => {
+  const identity = {
+    wikiPageId: "42",
+    revisionId: "99",
+    title: "Walter Savage Landor",
+    language: "en",
+  };
+
+  it("canonicalizes numeric IDs, title spacing, and language at the action boundary", () => {
+    expect(
+      canonicalizeWikipediaRevisionIdentity({
+        wikiPageId: "00042",
+        revisionId: "00099",
+        title: "  Walter__Savage Landor  ",
+        language: " EN ",
+      }),
+    ).toEqual(identity);
+
+    expect(() =>
+      canonicalizeWikipediaRevisionIdentity({
+        ...identity,
+        wikiPageId: "42.0",
+      }),
+    ).toThrow("wikiPageId must be a positive numeric ID");
+    expect(() =>
+      canonicalizeWikipediaRevisionIdentity({
+        ...identity,
+        revisionId: "0",
+      }),
+    ).toThrow("revisionId must be a positive numeric ID");
+  });
+
+  it("uses the canonical identity for parse-cache reads from a public action", async () => {
+    const cached = {
+      ...identity,
+      linkCounts: [],
+      citations: [],
+      sectionCitations: [],
+      sectionIndexMap: [],
+      images: [],
+      mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
+      cachedAt: Date.now(),
+    };
+    const runQuery = vi.fn(async (...call: [unknown, unknown]) => {
+      expect(call).toHaveLength(2);
+      return cached;
+    });
+    const runMutation = vi.fn();
+    const handler = (
+      getArticleImages as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        { runQuery, runMutation },
+        {
+          wikiPageId: "00042",
+          revisionId: "00099",
+          title: " Walter__Savage Landor ",
+          language: "EN",
+        },
+      ),
+    ).resolves.toEqual([]);
+    expect(runQuery.mock.calls[0]?.[1]).toEqual(identity);
+    expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  it("requires page, revision, normalized title, and language while rejecting legacy rows", () => {
+    expect(
+      isWikipediaRevisionCacheIdentityCompatible(
+        {
+          wikiPageId: "00042",
+          revisionId: "00099",
+          title: "Walter_Savage  Landor",
+          language: "EN",
+        },
+        identity,
+      ),
+    ).toBe(true);
+    expect(
+      isWikipediaRevisionCacheIdentityCompatible(
+        { wikiPageId: "42", revisionId: "99" },
+        identity,
+      ),
+    ).toBe(false);
+    expect(
+      isWikipediaRevisionCacheIdentityCompatible(
+        { ...identity, title: "Nile" },
+        identity,
+      ),
+    ).toBe(false);
+    expect(
+      isWikipediaRevisionCacheIdentityCompatible(
+        { ...identity, language: "fr" },
+        identity,
+      ),
+    ).toBe(false);
+  });
+
+  it("makes mismatched and legacy parse-cache rows lazy misses", async () => {
+    const first = vi
+      .fn()
+      .mockResolvedValueOnce({ ...identity, title: "Nile" })
+      .mockResolvedValueOnce({
+        wikiPageId: identity.wikiPageId,
+        revisionId: identity.revisionId,
+      });
+    const query = vi.fn(() => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first,
+      };
+      return chain;
+    });
+    const handler = (
+      getParseCache as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(handler({ db: { query } }, identity)).resolves.toBeNull();
+    await expect(handler({ db: { query } }, identity)).resolves.toBeNull();
+  });
+
+  it("makes section-link rows without the complete source identity lazy misses", async () => {
+    const cacheIdentity = {
+      ...identity,
+      sectionTitle: "index:3",
+      links: [],
+      cachedAt: 1,
+    };
+    const first = vi
+      .fn()
+      .mockResolvedValueOnce({ ...cacheIdentity, title: "Nile" })
+      .mockResolvedValueOnce({
+        wikiPageId: identity.wikiPageId,
+        revisionId: identity.revisionId,
+        sectionTitle: "index:3",
+        links: [],
+        cachedAt: 1,
+      })
+      .mockResolvedValueOnce(cacheIdentity);
+    const query = vi.fn(() => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first,
+      };
+      return chain;
+    });
+    const handler = (
+      getSectionLinksFromCache as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+    const args = { ...identity, sectionTitle: "index:3" };
+
+    await expect(handler({ db: { query } }, args)).resolves.toBeNull();
+    await expect(handler({ db: { query } }, args)).resolves.toBeNull();
+    await expect(handler({ db: { query } }, args)).resolves.toEqual(
+      cacheIdentity,
+    );
+  });
+});
 
 describe("isCachedArticleFresh", () => {
   it("treats articles inside the cache TTL as fresh", () => {
@@ -201,6 +373,20 @@ describe("cachedArticleToFetchResult", () => {
       text: "Tiny section. Still source text.",
     });
   });
+
+  it("uses null as the compare-and-set identity for a legacy row without a version", () => {
+    const { mutationArgs } = normalizeCachedArticleForPersistence({
+      _id: "article-unversioned" as never,
+      wikiPageId: "123",
+      title: "Example article",
+      language: "en",
+      revisionId: "456",
+      lastFetchedAt: Date.UTC(2026, 3, 28, 12),
+      sections: [],
+    });
+
+    expect(mutationArgs.expectedNarrationVersion).toBeNull();
+  });
 });
 
 describe("canPersistNormalizedCachedNarration", () => {
@@ -234,6 +420,42 @@ describe("canPersistNormalizedCachedNarration", () => {
         expected,
       ),
     ).toBe(false);
+  });
+});
+
+describe("persistCachedNarrationFallback", () => {
+  const staleArticle = {
+    _id: "article-stale" as never,
+    wikiPageId: "123",
+    title: "Example article",
+    language: "en",
+    revisionId: "456",
+    lastFetchedAt: Date.UTC(2026, 3, 28, 12),
+    sections: [
+      {
+        title: "Tiny section",
+        level: 2,
+        content: "Still source text.",
+      },
+    ],
+  };
+
+  it("returns the last readable cache when persistence loses a concurrent race", async () => {
+    const ctx = {
+      runMutation: vi.fn(async () => ({ persisted: false })),
+      runQuery: vi.fn(async () => null),
+    };
+
+    const result = await persistCachedNarrationFallback(
+      ctx as never,
+      staleArticle,
+    );
+
+    expect(result.sections[0].narration).toMatchObject({
+      mode: "verbatim",
+      text: "Tiny section. Still source text.",
+      usedRawFallback: true,
+    });
   });
 });
 

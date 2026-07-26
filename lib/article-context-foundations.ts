@@ -8,6 +8,7 @@ import {
   type ContextSection,
   type ContextSource,
 } from "./article-context-types";
+import { normalizeMediaWikiNumericId } from "./mediawiki-document/types";
 
 const MAX_TEXT_LENGTH = 5_000;
 
@@ -121,19 +122,19 @@ export const sanitizeContextCaption = (
 export const normalizeArticleContextRequest = (
   input: ArticleContextRequest,
 ): ArticleContextRequest => {
-  const wikiPageId = String(input.wikiPageId ?? "").trim();
-  const revisionId = String(input.revisionId ?? "").trim();
+  const wikiPageId = normalizeMediaWikiNumericId(input.wikiPageId);
+  const revisionId = normalizeMediaWikiNumericId(input.revisionId);
   const title = sanitizeContextText(String(input.title ?? ""), 300);
   const language = String(input.language ?? "en")
     .trim()
     .toLowerCase();
 
-  if (!/^\d{1,20}$/.test(wikiPageId) || wikiPageId === "0") {
+  if (!wikiPageId) {
     throw new ArticleContextInputError(
       "wikiPageId must be a positive numeric ID",
     );
   }
-  if (!/^\d{1,20}$/.test(revisionId) || revisionId === "0") {
+  if (!revisionId) {
     throw new ArticleContextInputError(
       "revisionId must be a positive numeric ID",
     );
@@ -248,7 +249,12 @@ export const buildBaseBlock = ({
   extraSources?: ContextSource[];
 }): ContextBlockBase => ({
   id: `context-${kind}-${sha256(
-    `${request.wikiPageId}:${request.revisionId}:${section.index}:${sourceIdentity}`,
+    JSON.stringify([
+      request.wikiPageId,
+      request.revisionId,
+      section.index,
+      sourceIdentity,
+    ]),
   ).slice(0, 16)}`,
   kind,
   title: sanitizeContextText(title, 240),
@@ -270,4 +276,4 @@ export const uniqueId = (
   prefix: string,
   value: string,
   index: number,
-): string => `${prefix}-${sha256(`${value}:${index}`).slice(0, 10)}`;
+): string => `${prefix}-${sha256(JSON.stringify([value, index])).slice(0, 10)}`;

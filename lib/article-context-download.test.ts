@@ -64,7 +64,7 @@ const manifest: ContextManifest = {
 };
 
 describe("article context CSV downloads", () => {
-  it("keeps the structured CSV contract unchanged for schema v2", () => {
+  it("keeps the structured CSV contract unchanged for schema v3", () => {
     const [header] = serializeArticleContextCsv(manifest).split("\r\n");
     expect(header).toBe(
       "block_id,kind,section_index,section_title,item_type,item_id,label,start,end,latitude,longitude,series,x,value,unit,description,source_url,revision_id",
@@ -81,7 +81,7 @@ describe("article context CSV downloads", () => {
     expect(csv).toContain("'\rformula trigger");
   });
 
-  it("serializes the schema-v2 caption contract without legacy audio copy", () => {
+  it("serializes the schema-v3 caption contract without legacy audio copy", () => {
     const json = JSON.parse(serializeArticleContextJson(manifest));
 
     expect(json.schemaVersion).toBe(3);

@@ -114,22 +114,27 @@ const sentence = (value: string): string => {
 const narrateList = (list: MediaWikiList): NarrationUnit[] => {
   const totalItems = listItemCount(list);
   if (totalItems === 0) return [];
-  let globalOrdinal = 0;
+  const styleLabel = (style: MediaWikiList["style"]): string =>
+    style === "ordered"
+      ? "Numbered"
+      : style === "description"
+        ? "Description"
+        : "Bullet";
 
   const serializeList = (
     source: MediaWikiList,
-    parentLabel?: string,
+    parentReference?: string,
   ): NarrationUnit[] => {
     const units: NarrationUnit[] = [];
     source.items.forEach((item, localIndex) => {
-      globalOrdinal += 1;
       const label = String(
         source.style === "ordered"
           ? (source.start ?? 1) + localIndex
-          : globalOrdinal,
+          : localIndex + 1,
       );
-      const prefix = `Item ${label}${
-        parentLabel ? `, nested under item ${parentLabel}` : ""
+      const reference = `${styleLabel(source.style).toLocaleLowerCase()} item ${label}`;
+      const prefix = `${styleLabel(source.style)} item ${label}${
+        parentReference ? `, nested under ${parentReference}` : ""
       }`;
       let introduced = false;
       for (const part of item.parts) {
@@ -137,7 +142,7 @@ const narrateList = (list: MediaWikiList): NarrationUnit[] => {
           const text = sentence(part.text);
           units.push({
             text: introduced
-              ? `Continuing item ${label}: ${text}`
+              ? `Continuing ${reference}: ${text}`
               : `${prefix}: ${text}`,
             sourceItems: introduced ? 0 : 1,
             adapted: true,
@@ -149,14 +154,18 @@ const narrateList = (list: MediaWikiList): NarrationUnit[] => {
           units.push({ text: `${prefix}.`, sourceItems: 1, adapted: true });
           introduced = true;
         }
-        units.push(...serializeList(part.list, label));
+        units.push(...serializeList(part.list, reference));
       }
     });
     return units;
   };
 
   return [
-    { text: `List with ${totalItems} items.`, sourceItems: 0, adapted: true },
+    {
+      text: `${styleLabel(list.style)} list with ${totalItems} items.`,
+      sourceItems: 0,
+      adapted: true,
+    },
     ...serializeList(list),
   ];
 };
@@ -171,55 +180,84 @@ const narrateTable = (block: MediaWikiTableBlock): NarrationUnit[] => {
     row.some((cell) => cell?.kind === "data"),
   );
   if (dataRows.length === 0) return [];
-  const isRowHeader = (
-    cell: MediaWikiTableCell,
-    row: MediaWikiTableCell[],
-  ): boolean =>
-    cell.kind === "header" &&
-    (cell.scope === "row" ||
-      cell.scope === "row-group" ||
-      (cell.scope == null &&
-        row.some(
-          (candidate) =>
-            candidate?.kind === "data" &&
-            candidate.originRow === cell.originRow &&
-            candidate.originColumn > cell.originColumn,
-        )));
+  const originCellsByRow = new Map<number, MediaWikiTableCell[]>();
+  for (const cell of block.table.cells) {
+    const row = originCellsByRow.get(cell.originRow) ?? [];
+    row.push(cell);
+    originCellsByRow.set(cell.originRow, row);
+  }
+  const rowHeaderIds = new Set(
+    block.table.cells.flatMap((cell) =>
+      cell.kind === "header" &&
+      (cell.scope === "row" ||
+        cell.scope === "row-group" ||
+        (cell.scope == null &&
+          (originCellsByRow.get(cell.originRow) ?? []).some(
+            (candidate) =>
+              candidate.kind === "data" &&
+              candidate.originColumn > cell.originColumn,
+          )))
+        ? [cell.id]
+        : [],
+    ),
+  );
+  const isRowHeader = (cell: MediaWikiTableCell): boolean =>
+    rowHeaderIds.has(cell.id);
+  const fallbackHeadersByColumn = Array.from(
+    { length: block.table.columnCount },
+    (): MediaWikiTableCell[] => [],
+  );
+  for (const header of block.table.cells) {
+    if (header.kind !== "header" || isRowHeader(header)) continue;
+    const end = Math.min(
+      block.table.columnCount,
+      header.originColumn + header.columnSpan,
+    );
+    for (let column = header.originColumn; column < end; column += 1) {
+      fallbackHeadersByColumn[column].push(header);
+    }
+  }
+  fallbackHeadersByColumn.forEach((headers) =>
+    headers.sort(
+      (left, right) =>
+        left.originRow - right.originRow ||
+        left.originColumn - right.originColumn,
+    ),
+  );
+  const headerPathCache = new Map<string, string[]>();
   const columnPath = (
     cell: MediaWikiTableCell,
-    row: MediaWikiTableCell[],
     columnIndex: number,
   ): string[] => {
+    const cacheKey = `${cell.id}\u0000${columnIndex}`;
+    const cached = headerPathCache.get(cacheKey);
+    if (cached) return cached;
     const associated = cell.associatedHeaderCellIds
       .map((id) => cells.get(id))
       .filter(
         (header): header is MediaWikiTableCell =>
-          header != null && !isRowHeader(header, row),
+          header != null && !isRowHeader(header),
       )
       .map((header) => header.text)
       .filter(Boolean);
-    if (associated.length > 0) return associated;
-    const columnHeader = resolvedRows
-      .map((candidateRow) => candidateRow[columnIndex])
-      .find(
-        (candidate) =>
-          candidate?.kind === "header" &&
-          candidate.originRow < cell.originRow &&
-          !isRowHeader(candidate, row),
-      );
-    return columnHeader?.text ? [columnHeader.text] : [];
+    const nearestFallback = fallbackHeadersByColumn[columnIndex]
+      .filter((header) => header.originRow < cell.originRow)
+      .at(-1);
+    const path =
+      associated.length > 0
+        ? associated
+        : nearestFallback?.text
+          ? [nearestFallback.text]
+          : [];
+    headerPathCache.set(cacheKey, path);
+    return path;
   };
-  const firstDataRow = dataRows[0].filter((cell): cell is MediaWikiTableCell =>
-    Boolean(cell),
-  );
   const columnLabels = dataRows[0].map((cell, columnIndex) => {
     if (!cell) return `Column ${columnIndex + 1}`;
-    const path = columnPath(cell, firstDataRow, columnIndex);
+    const path = columnPath(cell, columnIndex);
     return (
       path.join(" — ") ||
-      (isRowHeader(cell, firstDataRow)
-        ? "Row heading"
-        : `Column ${columnIndex + 1}`)
+      (isRowHeader(cell) ? "Row heading" : `Column ${columnIndex + 1}`)
     );
   });
   const units: NarrationUnit[] = [];
@@ -239,20 +277,16 @@ const narrateTable = (block: MediaWikiTableBlock): NarrationUnit[] => {
   });
   dataRows.forEach((row, rowIndex) => {
     const seenCellIds = new Set<string>();
-    const uniqueCells = row.filter((cell): cell is MediaWikiTableCell =>
-      Boolean(cell),
-    );
     const rowHeaders: string[] = [];
     const values = row.flatMap((cell, columnIndex) => {
       if (!cell || seenCellIds.has(cell.id)) return [];
       seenCellIds.add(cell.id);
-      if (isRowHeader(cell, uniqueCells)) {
+      if (isRowHeader(cell)) {
         rowHeaders.push(cell.text);
         return [];
       }
       const header =
-        columnPath(cell, uniqueCells, columnIndex).join(" — ") ||
-        columnLabels[columnIndex];
+        columnPath(cell, columnIndex).join(" — ") || columnLabels[columnIndex];
       return [`${header}: ${cell.text}`];
     });
     if (rowHeaders.length > 0 || values.length > 0) {
@@ -403,13 +437,14 @@ export const createSectionNarrationsFromDocument = (
     (section) => section.key !== "__summary__" && section.role === "body",
   );
   return sections.map((section, index) => {
+    const hasUnsupportedNarration = section.blocks.some(
+      (block) => block.kind === "unsupported" && block.affectsNarration,
+    );
     const hasText = Boolean(
       section.fallback.text.trim() ||
       section.plaintextContent.trim() ||
-      semanticSectionText(section),
-    );
-    const hasUnsupportedNarration = section.blocks.some(
-      (block) => block.kind === "unsupported" && block.affectsNarration,
+      semanticSectionText(section) ||
+      hasUnsupportedNarration,
     );
     const hasChild =
       !hasText &&

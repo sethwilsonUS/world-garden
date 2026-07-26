@@ -79,59 +79,83 @@ const projectTable = (
   const width = block.table.columnCount;
   if (dataRows.some((row) => row.length !== width)) return null;
 
-  const isRowHeader = (
-    cell: MediaWikiTableCell,
-    row: MediaWikiTableCell[],
-  ): boolean =>
-    cell.kind === "header" &&
-    (cell.scope === "row" ||
-      cell.scope === "row-group" ||
-      (cell.scope == null &&
-        row.some(
-          (candidate) =>
-            candidate.kind === "data" &&
-            candidate.originRow === cell.originRow &&
-            candidate.originColumn > cell.originColumn,
-        )));
+  const originCellsByRow = new Map<number, MediaWikiTableCell[]>();
+  for (const cell of block.table.cells) {
+    const row = originCellsByRow.get(cell.originRow) ?? [];
+    row.push(cell);
+    originCellsByRow.set(cell.originRow, row);
+  }
+  const rowHeaderIds = new Set(
+    block.table.cells.flatMap((cell) =>
+      cell.kind === "header" &&
+      (cell.scope === "row" ||
+        cell.scope === "row-group" ||
+        (cell.scope == null &&
+          (originCellsByRow.get(cell.originRow) ?? []).some(
+            (candidate) =>
+              candidate.kind === "data" &&
+              candidate.originColumn > cell.originColumn,
+          )))
+        ? [cell.id]
+        : [],
+    ),
+  );
+  const isRowHeader = (cell: MediaWikiTableCell): boolean =>
+    rowHeaderIds.has(cell.id);
+  const fallbackHeadersByColumn = Array.from(
+    { length: width },
+    (): MediaWikiTableCell[] => [],
+  );
+  for (const header of block.table.cells) {
+    if (header.kind !== "header" || isRowHeader(header)) continue;
+    const end = Math.min(width, header.originColumn + header.columnSpan);
+    for (let column = header.originColumn; column < end; column += 1) {
+      fallbackHeadersByColumn[column].push(header);
+    }
+  }
+  fallbackHeadersByColumn.forEach((headers) =>
+    headers.sort(
+      (left, right) =>
+        left.originRow - right.originRow ||
+        left.originColumn - right.originColumn,
+    ),
+  );
+  const headerPathCache = new Map<string, string[]>();
   const columnHeaderPath = (
     cell: MediaWikiTableCell,
-    row: MediaWikiTableCell[],
     columnIndex: number,
   ): string[] => {
+    const cacheKey = `${cell.id}\u0000${columnIndex}`;
+    const cached = headerPathCache.get(cacheKey);
+    if (cached) return cached;
     const associated = cell.associatedHeaderCellIds
       .map((id) => cells.get(id))
       .filter(
         (header): header is MediaWikiTableCell =>
-          header != null && !isRowHeader(header, row),
+          header != null && !isRowHeader(header),
       )
       .map((header) => header.text)
       .filter(Boolean);
-    if (associated.length > 0) return associated;
-    const seenHeaderIds = new Set<string>();
-    return resolvedRows.flatMap((candidateRow) => {
-      const candidate = candidateRow[columnIndex];
-      if (
-        candidate?.kind !== "header" ||
-        candidate.originRow >= cell.originRow ||
-        isRowHeader(candidate, row) ||
-        seenHeaderIds.has(candidate.id)
-      ) {
-        return [];
-      }
-      seenHeaderIds.add(candidate.id);
-      return candidate.text ? [candidate.text] : [];
-    });
+    const path =
+      associated.length > 0
+        ? associated
+        : fallbackHeadersByColumn[columnIndex]
+            .filter((header) => header.originRow < cell.originRow)
+            .map((header) => header.text)
+            .filter(Boolean);
+    headerPathCache.set(cacheKey, path);
+    return path;
   };
   const headerPaths = dataRows[0].map((cell, columnIndex) =>
-    columnHeaderPath(cell, dataRows[0], columnIndex),
+    columnHeaderPath(cell, columnIndex),
   );
   if (headerPaths.some((path) => path.length === 0)) return null;
   if (
     dataRows.some((row) =>
       row.some(
         (cell, columnIndex) =>
-          (cell.columnSpan !== 1 && !isRowHeader(cell, row)) ||
-          columnHeaderPath(cell, row, columnIndex).join("\u0000") !==
+          (cell.columnSpan !== 1 && !isRowHeader(cell)) ||
+          columnHeaderPath(cell, columnIndex).join("\u0000") !==
             headerPaths[columnIndex].join("\u0000"),
       ),
     )

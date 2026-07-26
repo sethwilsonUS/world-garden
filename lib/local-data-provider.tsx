@@ -2,40 +2,11 @@
 
 import { ReactNode, useMemo } from "react";
 import { DataContext, type DataContextValue } from "./data-context";
-import { requestLocalWikipedia } from "@/lib/local-wikipedia-client";
-import type {
-  WikipediaParsedPageData,
-  WikipediaRevisionIdentity,
-} from "@/lib/wikipedia-contracts";
 import {
-  findWikipediaSectionMetadata,
-  wikipediaRevisionKey,
-} from "@/lib/wikipedia-utils";
-
-const parsedCache = new Map<string, WikipediaParsedPageData>();
-const MAX_PARSED_CACHE_ENTRIES = 32;
-
-const cacheParsedPage = (key: string, data: WikipediaParsedPageData): void => {
-  parsedCache.set(key, data);
-  if (parsedCache.size <= MAX_PARSED_CACHE_ENTRIES) return;
-  const oldestKey = parsedCache.keys().next().value as string | undefined;
-  if (oldestKey && oldestKey !== key) parsedCache.delete(oldestKey);
-};
-
-const getOrFetchParsed = async (
-  identity: WikipediaRevisionIdentity,
-  signal?: AbortSignal,
-): Promise<WikipediaParsedPageData> => {
-  const key = wikipediaRevisionKey(identity);
-  const cached = parsedCache.get(key);
-  if (cached) return cached;
-  const data = await requestLocalWikipedia(
-    { operation: "metadata", identity },
-    signal,
-  );
-  cacheParsedPage(key, data);
-  return data;
-};
+  requestLocalWikipedia,
+  requestLocalWikipediaMetadata,
+} from "@/lib/local-wikipedia-client";
+import { findWikipediaSectionMetadata } from "@/lib/wikipedia-utils";
 
 export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
   const value = useMemo<DataContextValue>(
@@ -52,12 +23,12 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
         requestLocalWikipedia({ operation: "article", slug }),
 
       getSectionLinkCounts: async ({ identity, signal }) => {
-        const data = await getOrFetchParsed(identity, signal);
+        const data = await requestLocalWikipediaMetadata(identity, signal);
         return data.linkCounts;
       },
 
       getCitationCounts: async ({ identity, signal }) => {
-        const data = await getOrFetchParsed(identity, signal);
+        const data = await requestLocalWikipediaMetadata(identity, signal);
         return data.sectionCitations.map(({ index, title, count }) => ({
           ...(index !== undefined ? { index } : {}),
           title,
@@ -82,7 +53,7 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
         sectionIndex,
         signal,
       }) => {
-        const data = await getOrFetchParsed(identity, signal);
+        const data = await requestLocalWikipediaMetadata(identity, signal);
         const sectionInfo = findWikipediaSectionMetadata(
           data.sectionCitations,
           { sectionTitle, sectionIndex },
@@ -94,7 +65,7 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
       },
 
       getArticleImages: async ({ identity, signal }) => {
-        const data = await getOrFetchParsed(identity, signal);
+        const data = await requestLocalWikipediaMetadata(identity, signal);
         return data.images;
       },
     }),

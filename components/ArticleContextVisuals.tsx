@@ -3,6 +3,8 @@
 import Image from "next/image";
 import {
   useCallback,
+  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -148,8 +150,13 @@ export const ContextDiagramView = ({
 }) => {
   const image = block.diagram.image;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const nearViewport = useNearViewport(scrollRef);
   const imageAttempt = `${block.provenance.sourceHash}:${image.src}:${image.width ?? "auto"}:${image.height ?? "auto"}`;
+  const activeImageAttemptRef = useRef(imageAttempt);
+  useLayoutEffect(() => {
+    activeImageAttemptRef.current = imageAttempt;
+  }, [imageAttempt]);
   const [zoomState, setZoomState] = useState<{
     key: string;
     value: number;
@@ -194,17 +201,18 @@ export const ContextDiagramView = ({
     });
   };
 
-  const handleImageLoad = useCallback(
-    (event: SyntheticEvent<HTMLImageElement>) => {
-      const imageElement = event.currentTarget;
+  const finishImageLoad = useCallback(
+    (imageElement: HTMLImageElement) => {
       const markReady = () => {
         setAttemptState((current) =>
-          current?.key === imageAttempt && current.phase === "error"
+          activeImageAttemptRef.current !== imageAttempt ||
+          (current?.key === imageAttempt && current.phase === "error")
             ? current
             : { key: imageAttempt, phase: "ready" },
         );
       };
       const handleDecodeFailure = () => {
+        if (activeImageAttemptRef.current !== imageAttempt) return;
         if (imageElement.complete && imageElement.naturalWidth > 0) {
           markReady();
           return;
@@ -225,9 +233,31 @@ export const ContextDiagramView = ({
     [imageAttempt],
   );
 
+  const handleImageLoad = useCallback(
+    (event: SyntheticEvent<HTMLImageElement>) => {
+      finishImageLoad(event.currentTarget);
+    },
+    [finishImageLoad],
+  );
+
   const handleImageError = useCallback(() => {
+    if (activeImageAttemptRef.current !== imageAttempt) return;
     setAttemptState({ key: imageAttempt, phase: "error" });
   }, [imageAttempt]);
+
+  useEffect(() => {
+    const imageElement = imageRef.current;
+    if (!nearViewport || !imageElement?.complete) return;
+    if (imageElement.naturalWidth <= 0) {
+      setAttemptState((current) =>
+        current?.key === imageAttempt && current.phase === "error"
+          ? current
+          : { key: imageAttempt, phase: "error" },
+      );
+      return;
+    }
+    finishImageLoad(imageElement);
+  }, [finishImageLoad, imageAttempt, nearViewport]);
 
   const statusLabel =
     phase === "deferred"
@@ -254,6 +284,7 @@ export const ContextDiagramView = ({
             tabIndex={imageReady ? 0 : -1}
           >
             <Image
+              ref={imageRef}
               src={image.src}
               alt={image.alt}
               aria-describedby={`${captionId} ${descriptionId}`}

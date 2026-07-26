@@ -8,12 +8,41 @@ import {
 } from "./wikipedia-utils";
 
 describe("Wikipedia client-safe utilities", () => {
-  it("keys the same page differently for each immutable revision", () => {
-    expect(wikipediaRevisionKey({ wikiPageId: "42", revisionId: "100" })).toBe(
-      "42:100",
+  it("keys canonical complete revision identities without delimiter collisions", () => {
+    const identity = {
+      wikiPageId: "42",
+      revisionId: "100",
+      title: "Walter Savage Landor",
+      language: "en",
+    };
+
+    expect(
+      wikipediaRevisionKey({
+        ...identity,
+        wikiPageId: "00042",
+        revisionId: "000100",
+        title: "Walter_Savage  Landor",
+        language: "EN",
+      }),
+    ).toBe(wikipediaRevisionKey(identity));
+    expect(wikipediaRevisionKey({ ...identity, revisionId: "101" })).not.toBe(
+      wikipediaRevisionKey(identity),
     );
-    expect(wikipediaRevisionKey({ wikiPageId: "42", revisionId: "101" })).toBe(
-      "42:101",
+    expect(
+      wikipediaRevisionKey({ ...identity, title: "Another article" }),
+    ).not.toBe(wikipediaRevisionKey(identity));
+    expect(
+      wikipediaRevisionKey({
+        ...identity,
+        wikiPageId: "1:2",
+        revisionId: "3",
+      }),
+    ).not.toBe(
+      wikipediaRevisionKey({
+        ...identity,
+        wikiPageId: "1",
+        revisionId: "2:3",
+      }),
     );
   });
 
@@ -52,10 +81,10 @@ describe("Wikipedia client-safe utilities", () => {
     ).toBeUndefined();
 
     expect(
-      findWikipediaSectionMetadata(
-        [{ title: "History", value: "legacy" }],
-        { sectionIndex: "8", sectionTitle: "  HISTORY " },
-      )?.value,
+      findWikipediaSectionMetadata([{ title: "History", value: "legacy" }], {
+        sectionIndex: "8",
+        sectionTitle: "  HISTORY ",
+      })?.value,
     ).toBe("legacy");
   });
 });

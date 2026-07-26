@@ -172,7 +172,7 @@ const addLegacyGeometry = ({
   geometry,
   name,
   description,
-  featureIndex,
+  identityPath,
   places,
   routes,
   areas,
@@ -180,7 +180,7 @@ const addLegacyGeometry = ({
   geometry: ContextMapGeometry;
   name: string;
   description?: string;
-  featureIndex: number;
+  identityPath: string;
   places: ContextMapPlace[];
   routes: ContextMapRoute[];
   areas: ContextMapArea[];
@@ -190,8 +190,8 @@ const addLegacyGeometry = ({
     places.push({
       id: uniqueId(
         "place",
-        `${name}:${geometry.coordinates.latitude}:${geometry.coordinates.longitude}`,
-        featureIndex,
+        `${identityPath}:${name}:${geometry.coordinates.latitude}:${geometry.coordinates.longitude}`,
+        0,
       ),
       name,
       ...geometry.coordinates,
@@ -205,7 +205,7 @@ const addLegacyGeometry = ({
         geometry: { type: "Point", coordinates },
         name: geometry.coordinates.length === 1 ? name : `${name} ${index + 1}`,
         description,
-        featureIndex: featureIndex * 1_000 + index,
+        identityPath: `${identityPath}.${index}`,
         places,
         routes,
         areas,
@@ -217,8 +217,8 @@ const addLegacyGeometry = ({
     routes.push({
       id: uniqueId(
         "route",
-        `${name}:${JSON.stringify(geometry.coordinates)}`,
-        featureIndex,
+        `${identityPath}:${name}:${JSON.stringify(geometry.coordinates)}`,
+        0,
       ),
       name,
       points: geometry.coordinates,
@@ -232,7 +232,7 @@ const addLegacyGeometry = ({
         geometry: { type: "LineString", coordinates },
         name: geometry.coordinates.length === 1 ? name : `${name} ${index + 1}`,
         description,
-        featureIndex: featureIndex * 1_000 + index,
+        identityPath: `${identityPath}.${index}`,
         places,
         routes,
         areas,
@@ -244,8 +244,8 @@ const addLegacyGeometry = ({
     areas.push({
       id: uniqueId(
         "area",
-        `${name}:${JSON.stringify(geometry.coordinates)}`,
-        featureIndex,
+        `${identityPath}:${name}:${JSON.stringify(geometry.coordinates)}`,
+        0,
       ),
       name,
       rings: geometry.coordinates,
@@ -259,7 +259,7 @@ const addLegacyGeometry = ({
         geometry: { type: "Polygon", coordinates },
         name: geometry.coordinates.length === 1 ? name : `${name} ${index + 1}`,
         description,
-        featureIndex: featureIndex * 1_000 + index,
+        identityPath: `${identityPath}.${index}`,
         places,
         routes,
         areas,
@@ -272,7 +272,7 @@ const addLegacyGeometry = ({
       geometry: child,
       name: geometry.geometries.length === 1 ? name : `${name} ${index + 1}`,
       description,
-      featureIndex: featureIndex * 1_000 + index,
+      identityPath: `${identityPath}.${index}`,
       places,
       routes,
       areas,
@@ -341,7 +341,7 @@ export const normalizeGeoJson = (
       geometry,
       name,
       description,
-      featureIndex: index,
+      identityPath: String(index),
       places,
       routes,
       areas,

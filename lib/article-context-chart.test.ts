@@ -18,25 +18,35 @@ describe("chart payload readiness keys", () => {
       { region: "Central", population: 20 },
       { region: "South", population: 30 },
     ];
-    const series = [{
-      id: "population",
-      label: "Population",
-      type: "bar" as const,
-      xColumn: "region",
-      yColumn: "population",
-      unit: "people",
-    }];
+    const series = [
+      {
+        id: "population",
+        label: "Population",
+        type: "bar" as const,
+        xColumn: "region",
+        yColumn: "population",
+        unit: "people",
+      },
+    ];
     const original = getContextChartPayloadKey(rows, series);
 
-    expect(getContextChartPayloadKey(
-      rows.map((row, index) => index === 1 ? { ...row, population: 25 } : row),
-      series,
-    )).not.toBe(original);
-    expect(getContextChartPayloadKey(rows, [
-      { ...series[0], label: "Residents" },
-    ])).not.toBe(original);
-    expect(getContextChartPayloadKey(rows.map((row) => ({ ...row })), series))
-      .toBe(original);
+    expect(
+      getContextChartPayloadKey(
+        rows.map((row, index) =>
+          index === 1 ? { ...row, population: 25 } : row,
+        ),
+        series,
+      ),
+    ).not.toBe(original);
+    expect(
+      getContextChartPayloadKey(rows, [{ ...series[0], label: "Residents" }]),
+    ).not.toBe(original);
+    expect(
+      getContextChartPayloadKey(
+        rows.map((row) => ({ ...row })),
+        series,
+      ),
+    ).toBe(original);
   });
 });
 
@@ -148,7 +158,7 @@ describe("ranked chart presentation", () => {
     ).toBe("123456");
   });
 
-  it("requires a usable rank for every leaderboard row", () => {
+  it("retains and counts unranked leaderboard rows in source order", () => {
     const block: ContextChartBlock = {
       ...base,
       chart: {
@@ -176,11 +186,15 @@ describe("ranked chart presentation", () => {
       },
     };
 
-    expect(getRankedChartPresentation(block)?.rows.map((row) => row.team)).toEqual([
-      "Alpha",
-      "Gamma",
-      "Delta",
-    ]);
+    expect(getRankedChartPresentation(block)).toMatchObject({
+      unrankedRowCount: 1,
+      rows: [
+        { team: "Alpha" },
+        { team: "Beta", position: null },
+        { team: "Gamma" },
+        { team: "Delta" },
+      ],
+    });
   });
 
   it("recognizes the geographic and subject entity aliases used by extraction", () => {
@@ -299,7 +313,13 @@ describe("standard chart presentation", () => {
         { venue: "B", capacity: 70_000 },
       ],
       series: [
-        { id: "capacity", label: "Capacity", type: "bar", xColumn: "venue", yColumn: "capacity" },
+        {
+          id: "capacity",
+          label: "Capacity",
+          type: "bar",
+          xColumn: "venue",
+          yColumn: "capacity",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -313,7 +333,13 @@ describe("standard chart presentation", () => {
         { item: "B", position: 2.5 },
       ],
       series: [
-        { id: "position", label: "Position", type: "bar", xColumn: "item", yColumn: "position" },
+        {
+          id: "position",
+          label: "Position",
+          type: "bar",
+          xColumn: "item",
+          yColumn: "position",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -365,22 +391,85 @@ describe("standard chart presentation", () => {
     const block = standardBlock({
       columns: [
         { key: "place", label: "Place", dataType: "string" },
-        { key: "population", label: "Population", dataType: "number", unit: "people" },
+        {
+          key: "population",
+          label: "Population",
+          dataType: "number",
+          unit: "people",
+        },
         { key: "share", label: "Share", dataType: "number", unit: "%" },
-        { key: "income", label: "Median income", dataType: "number", unit: "$" },
-        { key: "density", label: "Density", dataType: "number", unit: "people per km²" },
+        {
+          key: "income",
+          label: "Median income",
+          dataType: "number",
+          unit: "$",
+        },
+        {
+          key: "density",
+          label: "Density",
+          dataType: "number",
+          unit: "people per km²",
+        },
       ],
       rows: [
-        { place: "Alpha", population: 1000, share: 40, income: 52000, density: 80 },
-        { place: "Beta", population: 800, share: 32, income: 61000, density: 60 },
-        { place: "Gamma", population: 500, share: 20, income: 48000, density: 35 },
-        { place: "Delta", population: 200, share: 8, income: 44000, density: 12 },
+        {
+          place: "Alpha",
+          population: 1000,
+          share: 40,
+          income: 52000,
+          density: 80,
+        },
+        {
+          place: "Beta",
+          population: 800,
+          share: 32,
+          income: 61000,
+          density: 60,
+        },
+        {
+          place: "Gamma",
+          population: 500,
+          share: 20,
+          income: 48000,
+          density: 35,
+        },
+        {
+          place: "Delta",
+          population: 200,
+          share: 8,
+          income: 44000,
+          density: 12,
+        },
       ],
       series: [
-        { id: "population", label: "Population", type: "bar", xColumn: "place", yColumn: "population" },
-        { id: "share", label: "Share", type: "bar", xColumn: "place", yColumn: "share" },
-        { id: "income", label: "Median income", type: "bar", xColumn: "place", yColumn: "income" },
-        { id: "density", label: "Density", type: "bar", xColumn: "place", yColumn: "density" },
+        {
+          id: "population",
+          label: "Population",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "population",
+        },
+        {
+          id: "share",
+          label: "Share",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "share",
+        },
+        {
+          id: "income",
+          label: "Median income",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "income",
+        },
+        {
+          id: "density",
+          label: "Density",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "density",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -424,9 +513,27 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "total", label: "Total", type: "line", xColumn: "year", yColumn: "total" },
-        { id: "male", label: "Male", type: "line", xColumn: "year", yColumn: "male" },
-        { id: "female", label: "Female", type: "line", xColumn: "year", yColumn: "female" },
+        {
+          id: "total",
+          label: "Total",
+          type: "line",
+          xColumn: "year",
+          yColumn: "total",
+        },
+        {
+          id: "male",
+          label: "Male",
+          type: "line",
+          xColumn: "year",
+          yColumn: "male",
+        },
+        {
+          id: "female",
+          label: "Female",
+          type: "line",
+          xColumn: "year",
+          yColumn: "female",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -457,9 +564,27 @@ describe("standard chart presentation", () => {
         { place: "Gamma", population: 40, share: 20, income: 40000 },
       ],
       series: [
-        { id: "population", label: "Population", type: "bar", xColumn: "place", yColumn: "population" },
-        { id: "share", label: "% of world", type: "bar", xColumn: "place", yColumn: "share" },
-        { id: "income", label: "$ median income", type: "bar", xColumn: "place", yColumn: "income" },
+        {
+          id: "population",
+          label: "Population",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "population",
+        },
+        {
+          id: "share",
+          label: "% of world",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "share",
+        },
+        {
+          id: "income",
+          label: "$ median income",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "income",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -487,7 +612,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "bar", xColumn: "place", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -526,7 +657,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "bar", xColumn: "country", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "bar",
+          xColumn: "country",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -561,7 +698,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "bar", xColumn: "age", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "bar",
+          xColumn: "age",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -582,11 +725,22 @@ describe("standard chart presentation", () => {
     const block = standardBlock({
       columns: [
         { key: "year", label: "Year", dataType: "number" },
-        { key: "population", label: "Population", dataType: "number", unit: "people" },
+        {
+          key: "population",
+          label: "Population",
+          dataType: "number",
+          unit: "people",
+        },
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "line", xColumn: "year", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "line",
+          xColumn: "year",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -619,7 +773,13 @@ describe("standard chart presentation", () => {
         { year: "100 CE", population: 40 },
       ],
       series: [
-        { id: "population", label: "Population", type: "line", xColumn: "year", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "line",
+          xColumn: "year",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -635,7 +795,13 @@ describe("standard chart presentation", () => {
         { period: "2021–2022", revenue: 40 },
       ],
       series: [
-        { id: "revenue", label: "Revenue", type: "line", xColumn: "period", yColumn: "revenue" },
+        {
+          id: "revenue",
+          label: "Revenue",
+          type: "line",
+          xColumn: "period",
+          yColumn: "revenue",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -666,7 +832,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "line", xColumn: "year", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "line",
+          xColumn: "year",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -705,7 +877,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "line", xColumn: "year", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "line",
+          xColumn: "year",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -733,7 +911,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "line", xColumn: "year", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "line",
+          xColumn: "year",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -762,7 +946,13 @@ describe("standard chart presentation", () => {
         { year: 2021, population: 40 },
       ],
       series: [
-        { id: "population", label: "Population", type: "line", xColumn: "year", yColumn: "population" },
+        {
+          id: "population",
+          label: "Population",
+          type: "line",
+          xColumn: "year",
+          yColumn: "population",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -790,7 +980,13 @@ describe("standard chart presentation", () => {
       ],
       rows,
       series: [
-        { id: "audience", label: "Audience", type: "bar", xColumn: "name", yColumn: "audience" },
+        {
+          id: "audience",
+          label: "Audience",
+          type: "bar",
+          xColumn: "name",
+          yColumn: "audience",
+        },
       ],
       sourceChartType: "wikitable",
     });
@@ -823,11 +1019,41 @@ describe("standard chart presentation", () => {
         "pie-b": index + 5,
       })),
       series: [
-        { id: "bars", label: "Bars", type: "bar", xColumn: "year", yColumn: "bars" },
-        { id: "line", label: "Line", type: "line", xColumn: "year", yColumn: "line" },
-        { id: "area", label: "Area", type: "area", xColumn: "year", yColumn: "area" },
-        { id: "pie-a", label: "Pie A", type: "pie", xColumn: "year", yColumn: "pie-a" },
-        { id: "pie-b", label: "Pie B", type: "pie", xColumn: "year", yColumn: "pie-b" },
+        {
+          id: "bars",
+          label: "Bars",
+          type: "bar",
+          xColumn: "year",
+          yColumn: "bars",
+        },
+        {
+          id: "line",
+          label: "Line",
+          type: "line",
+          xColumn: "year",
+          yColumn: "line",
+        },
+        {
+          id: "area",
+          label: "Area",
+          type: "area",
+          xColumn: "year",
+          yColumn: "area",
+        },
+        {
+          id: "pie-a",
+          label: "Pie A",
+          type: "pie",
+          xColumn: "year",
+          yColumn: "pie-a",
+        },
+        {
+          id: "pie-b",
+          label: "Pie B",
+          type: "pie",
+          xColumn: "year",
+          yColumn: "pie-b",
+        },
       ],
       sourceChartType: "chart-extension",
     });
@@ -839,10 +1065,9 @@ describe("standard chart presentation", () => {
       "pie",
       "pie",
     ]);
-    expect(presentation?.families[1].series.map((series) => series.id)).toEqual([
-      "line",
-      "area",
-    ]);
+    expect(presentation?.families[1].series.map((series) => series.id)).toEqual(
+      ["line", "area"],
+    );
     expect(presentation?.families[2].series).toHaveLength(1);
     expect(presentation?.families[3].series).toHaveLength(1);
   });
@@ -861,20 +1086,36 @@ describe("standard chart presentation", () => {
         { place: "C", elevation: 3, latitude: 30, longitude: -90 },
       ],
       series: [
-        { id: "elevation", label: "Elevation", type: "bar", xColumn: "place", yColumn: "elevation" },
-        { id: "latitude", label: "Latitude", type: "bar", xColumn: "place", yColumn: "latitude" },
-        { id: "longitude", label: "Longitude", type: "bar", xColumn: "place", yColumn: "longitude" },
+        {
+          id: "elevation",
+          label: "Elevation",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "elevation",
+        },
+        {
+          id: "latitude",
+          label: "Latitude",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "latitude",
+        },
+        {
+          id: "longitude",
+          label: "Longitude",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "longitude",
+        },
       ],
       sourceChartType: "wikitable",
     });
 
     const presentation = getStandardChartPresentation(block);
     expect(presentation?.families).toHaveLength(3);
-    expect(presentation?.families.map((family) => family.series[0].id)).toEqual([
-      "elevation",
-      "latitude",
-      "longitude",
-    ]);
+    expect(presentation?.families.map((family) => family.series[0].id)).toEqual(
+      ["elevation", "latitude", "longitude"],
+    );
   });
 
   it("recomputes dense rows from the selected metric and excludes its blanks", () => {
@@ -886,26 +1127,46 @@ describe("standard chart presentation", () => {
     const block = standardBlock({
       columns: [
         { key: "place", label: "Place", dataType: "string" },
-        { key: "population", label: "Population", dataType: "number", unit: "people" },
-        { key: "households", label: "Households", dataType: "number", unit: "people" },
+        {
+          key: "population",
+          label: "Population",
+          dataType: "number",
+          unit: "people",
+        },
+        {
+          key: "households",
+          label: "Households",
+          dataType: "number",
+          unit: "people",
+        },
       ],
       rows,
       series: [
-        { id: "population", label: "Population", type: "bar", xColumn: "place", yColumn: "population" },
-        { id: "households", label: "Households", type: "bar", xColumn: "place", yColumn: "households" },
+        {
+          id: "population",
+          label: "Population",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "population",
+        },
+        {
+          id: "households",
+          label: "Households",
+          type: "bar",
+          xColumn: "place",
+          yColumn: "households",
+        },
       ],
       sourceChartType: "wikitable",
     });
     const presentation = getStandardChartPresentation(block);
     const family = presentation?.primaryFamily;
-    const households = family?.series.find((series) => series.id === "households");
+    const households = family?.series.find(
+      (series) => series.id === "households",
+    );
     expect(family).toBeDefined();
     expect(households).toBeDefined();
-    const view = getStandardChartFamilyView(
-      block,
-      family!,
-      [households!],
-    );
+    const view = getStandardChartFamilyView(block, family!, [households!]);
 
     expect(presentation?.visualRows[0].place).toBe("Place 1");
     expect(view).toMatchObject({
@@ -933,15 +1194,15 @@ describe("standard chart presentation", () => {
         unit: index < 5 ? "people" : index === 5 ? "%" : `$ unit ${index}`,
       })),
     ];
-    const series: ContextChartBlock["chart"]["series"] = columns.slice(1).map(
-      (column, index) => ({
+    const series: ContextChartBlock["chart"]["series"] = columns
+      .slice(1)
+      .map((column, index) => ({
         id: `value-${index + 1}`,
         label: column.label,
         type: "bar" as const,
         xColumn: "place",
         yColumn: column.key,
-      }),
-    );
+      }));
     const block = standardBlock({
       columns,
       rows: ["Alpha", "Beta", "Gamma"].map((place, rowIndex) => ({
@@ -971,22 +1232,41 @@ describe("standard chart presentation", () => {
       { category: "C", change: 8 },
     ];
     const barSeries = [
-      { id: "change", label: "Change", type: "bar" as const, xColumn: "category", yColumn: "change" },
+      {
+        id: "change",
+        label: "Change",
+        type: "bar" as const,
+        xColumn: "category",
+        yColumn: "change",
+      },
     ];
     const lineSeries = [
-      { id: "change", label: "Change", type: "line" as const, xColumn: "category", yColumn: "change" },
+      {
+        id: "change",
+        label: "Change",
+        type: "line" as const,
+        xColumn: "category",
+        yColumn: "change",
+      },
     ];
-    expect(shouldStandardChartUseZeroBaseline(barSeries, signedRows)).toBe(true);
+    expect(shouldStandardChartUseZeroBaseline(barSeries, signedRows)).toBe(
+      true,
+    );
     expect(
-      shouldStandardChartUseZeroBaseline(barSeries, signedRows.map((row) => ({
-        ...row,
-        change: Math.abs(row.change) + 1,
-      }))),
+      shouldStandardChartUseZeroBaseline(
+        barSeries,
+        signedRows.map((row) => ({
+          ...row,
+          change: Math.abs(row.change) + 1,
+        })),
+      ),
     ).toBe(true);
     expect(
       shouldStandardChartUseZeroBaseline(lineSeries, signedRows.slice(1)),
     ).toBe(false);
-    expect(shouldStandardChartUseZeroBaseline(lineSeries, signedRows)).toBe(true);
+    expect(shouldStandardChartUseZeroBaseline(lineSeries, signedRows)).toBe(
+      true,
+    );
 
     const block = standardBlock({
       columns: [

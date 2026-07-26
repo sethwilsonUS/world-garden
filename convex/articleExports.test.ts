@@ -1,14 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   findReusableArticleAudioExport,
+  getRecentArticleAudioExports,
   getArticleExportSections,
   isArticleAudioExportCompatible,
   isArticleAudioExportReusable,
   isRequestedTtsMetadataValid,
+  resolveRequestedArticleExportTtsMetadata,
 } from "./articleExports";
 import { buildTtsCacheKey, type TtsMetadata } from "../lib/tts-profile";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
+  buildArticleNarrationHash,
   buildArticleNarrationTracks,
 } from "../lib/section-narration";
 import { createTestSection } from "../lib/test-section-narration";
@@ -241,5 +244,126 @@ describe("isRequestedTtsMetadataValid", () => {
         voiceId: "en-US-GuyNeural",
       }),
     ).toBe(false);
+  });
+
+  it("replaces a stale stored profile with the worker's current identity", () => {
+    const resolved = resolveRequestedArticleExportTtsMetadata({
+      ...metadata,
+      ttsNormVersion: "ttsNorm:1",
+      ttsCacheKey: buildTtsCacheKey({
+        ...metadata,
+        ttsNormVersion: "ttsNorm:1",
+      }),
+    });
+
+    expect(isRequestedTtsMetadataValid(resolved)).toBe(true);
+    expect(resolved.ttsNormVersion).toBe("ttsNorm:2");
+    expect(resolved.ttsCacheKey).not.toContain("ttsNorm:1");
+  });
+});
+
+describe("getRecentArticleAudioExports", () => {
+  it("bounds candidates, skips dismissed reads, and stops once the compatible limit is filled", async () => {
+    const currentArticle = {
+      _id: "article-current",
+      title: "Current article",
+      summary: "Current narration source.",
+      sections: [],
+    };
+    const currentNarrationHash = buildArticleNarrationHash(
+      currentArticle as never,
+    );
+    const records = [
+      {
+        _id: "dismissed-export",
+        articleId: "article-dismissed",
+        clientId: "client-1",
+        title: "Dismissed",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: currentNarrationHash,
+        ttsCacheKey: "current-tts",
+        dismissedAt: 10,
+        createdAt: 1,
+        updatedAt: 4,
+      },
+      {
+        _id: "incompatible-export",
+        articleId: "article-old",
+        clientId: "client-1",
+        title: "Old",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: "old-narration",
+        ttsCacheKey: "current-tts",
+        createdAt: 1,
+        updatedAt: 3,
+      },
+      {
+        _id: "current-export",
+        articleId: "article-current",
+        clientId: "client-1",
+        title: "Current",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: currentNarrationHash,
+        ttsCacheKey: "current-tts",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      {
+        _id: "after-limit-export",
+        articleId: "article-after-limit",
+        clientId: "client-1",
+        title: "After limit",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: currentNarrationHash,
+        ttsCacheKey: "current-tts",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+    const take = vi.fn(async () => records);
+    const query = vi.fn(() => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        filter: vi.fn(() => chain),
+        order: vi.fn(() => chain),
+        take,
+      };
+      return chain;
+    });
+    const get = vi.fn(async (id: string) => {
+      if (id === "article-old") return currentArticle;
+      if (id === "article-current") return currentArticle;
+      throw new Error(`Unexpected article read: ${id}`);
+    });
+    const handler = (
+      getRecentArticleAudioExports as unknown as {
+        _handler: (
+          ctx: unknown,
+          args: unknown,
+        ) => Promise<Array<{ _id: string }>>;
+      }
+    )._handler;
+
+    const result = await handler(
+      {
+        db: { query, get },
+        storage: { getUrl: vi.fn() },
+      },
+      { clientId: "client-1", limit: 1, ttsCacheKey: "current-tts" },
+    );
+
+    expect(result.map((record) => record._id)).toEqual(["current-export"]);
+    expect(take).toHaveBeenCalledOnce();
+    expect(take).toHaveBeenCalledWith(50);
+    expect(get).not.toHaveBeenCalledWith("article-dismissed");
+    expect(get).not.toHaveBeenCalledWith("article-after-limit");
   });
 });

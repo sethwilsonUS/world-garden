@@ -115,6 +115,85 @@ const baseDocument = (): MediaWikiDocument => ({
 });
 
 describe("createSectionNarrationsFromDocument", () => {
+  it("uses raw narration for a narration-affecting block even without extracted text", () => {
+    const document = baseDocument();
+    const unsupportedOnly = {
+      ...document.sections[1],
+      title: "Source data",
+      fidelity: "partial" as const,
+      plaintextContent: "",
+      fallback: { text: "", source: "dom-text" as const },
+      blocks: [
+        {
+          kind: "unsupported" as const,
+          id: "unsupported-table",
+          sourceOrder: 2,
+          contentHash: "unsupported-table",
+          sourceKind: "table" as const,
+          reason: "malformed-table" as const,
+          affectsNarration: true,
+        },
+      ],
+    };
+
+    const [narration] = createSectionNarrationsFromDocument({
+      ...document,
+      sections: [document.sections[0], unsupportedOnly],
+    });
+
+    expect(narration.narration).toMatchObject({
+      mode: "verbatim",
+      text: "Source data.",
+      sourceFormat: "table",
+      usedRawFallback: true,
+    });
+  });
+
+  it("keeps empty parents as transitions and empty leaves as visible no-text sections", () => {
+    const document = baseDocument();
+    const emptySection = (key: string, title: string, level: number) => ({
+      key,
+      title,
+      level,
+      sourceOrder: Number(key),
+      parentKey: "__summary__",
+      role: "body" as const,
+      fidelity: "complete" as const,
+      plaintextContent: "",
+      fallback: { text: "", source: "dom-text" as const },
+      links: [],
+      citationIds: [],
+      blocks: [],
+    });
+    const narrations = createSectionNarrationsFromDocument({
+      ...document,
+      sections: [
+        document.sections[0],
+        emptySection("1", "Works", 1),
+        emptySection("2", "Poetry", 2),
+      ],
+    });
+
+    expect(narrations.map((section) => section.narration.mode)).toEqual([
+      "transition",
+      "none",
+    ]);
+    expect(narrations[0].narration.text).toBe("Next section: Works.");
+    expect(narrations[1].narration.text).toBe("");
+  });
+
+  it("includes the revision identity in each narration source hash", () => {
+    const document = baseDocument();
+    const first =
+      createSectionNarrationsFromDocument(document)[0].narration.sourceHash;
+    const nextRevision = createSectionNarrationsFromDocument({
+      ...document,
+      identity: { ...document.identity, revisionId: "1342291774" },
+    })[0].narration.sourceHash;
+
+    expect(nextRevision).not.toBe(first);
+  });
+
   it("keeps short prose verbatim and verbalizes recursive semantic lists", () => {
     const sections = createSectionNarrationsFromDocument(baseDocument());
 
@@ -131,7 +210,7 @@ describe("createSectionNarrationsFromDocument", () => {
       sourceFormat: "list",
       adapted: true,
       usedRawFallback: false,
-      text: "Works. List with 3 items. Item 1: Poetry. Item 2, nested under item 1: Early poems. Item 3: Prose.",
+      text: "Works. Bullet list with 3 items. Bullet item 1: Poetry. Bullet item 1, nested under bullet item 1: Early poems. Bullet item 2: Prose.",
     });
     expect(sections[0].narration.sourceHash).toContain("section-narration:2");
   });
@@ -182,7 +261,9 @@ describe("createSectionNarrationsFromDocument", () => {
     expect(
       createSectionNarrationsFromDocument({ ...document, sections })[1]
         .narration.text,
-    ).toBe("Works. List with 2 items. Item 5: Fifth. Item 6: Sixth.");
+    ).toBe(
+      "Works. Numbered list with 2 items. Numbered item 5: Fifth. Numbered item 6: Sixth.",
+    );
   });
 
   it("narrates text before and after a nested list in source order", () => {
@@ -246,7 +327,7 @@ describe("createSectionNarrationsFromDocument", () => {
       createSectionNarrationsFromDocument({ ...document, sections })[1]
         .narration.text,
     ).toBe(
-      "Works. List with 2 items. Item 1: Before. Item 2, nested under item 1: Nested. Continuing item 1: After.",
+      "Works. Bullet list with 2 items. Bullet item 1: Before. Bullet item 1, nested under bullet item 1: Nested. Continuing bullet item 1: After.",
     );
   });
 
@@ -393,6 +474,82 @@ describe("createSectionNarrationsFromDocument", () => {
       adapted: true,
       text: "Works. Awards follow. Table: Awards. Columns: Year; Work. Row 1: Year: 2020; Work: Example. Row 2: Year: 2021; Work: Another.",
     });
+  });
+
+  it("uses the nearest header above a data cell when associations are absent", () => {
+    const document = baseDocument();
+    const tableCells = [
+      {
+        id: "group",
+        kind: "header" as const,
+        text: "Medals",
+        originRow: 0,
+        originColumn: 0,
+        rowSpan: 1,
+        columnSpan: 1,
+        rowGroup: 0,
+        explicitHeaderIds: [],
+        associatedHeaderCellIds: [],
+        headerPath: [],
+      },
+      {
+        id: "leaf",
+        kind: "header" as const,
+        text: "Gold",
+        originRow: 1,
+        originColumn: 0,
+        rowSpan: 1,
+        columnSpan: 1,
+        rowGroup: 0,
+        explicitHeaderIds: [],
+        associatedHeaderCellIds: [],
+        headerPath: [],
+      },
+      {
+        id: "value",
+        kind: "data" as const,
+        text: "12",
+        originRow: 2,
+        originColumn: 0,
+        rowSpan: 1,
+        columnSpan: 1,
+        rowGroup: 1,
+        explicitHeaderIds: [],
+        associatedHeaderCellIds: [],
+        headerPath: [],
+      },
+    ];
+    const sections = document.sections.map((section) =>
+      section.key === "2"
+        ? {
+            ...section,
+            blocks: [
+              {
+                kind: "table" as const,
+                id: "nearest-header",
+                sourceOrder: 4,
+                contentHash: "nearest-header",
+                table: {
+                  caption: "",
+                  rowCount: 3,
+                  columnCount: 1,
+                  cells: tableCells,
+                  grid: [["group"], ["leaf"], ["value"]],
+                },
+              },
+            ],
+          }
+        : section,
+    );
+
+    const text = createSectionNarrationsFromDocument({
+      ...document,
+      sections,
+    })[1].narration.text;
+
+    expect(text).toContain("Columns: Gold.");
+    expect(text).toContain("Row 1: Gold: 12.");
+    expect(text).not.toContain("Columns: Medals.");
   });
 
   it("announces row headers once and keeps them out of data header paths", () => {
@@ -683,8 +840,8 @@ describe("createSectionNarrationsFromDocument", () => {
     })[1].narration;
 
     expect(narration.mode).toBe("structured");
-    expect(narration.text).toContain("Item 1: Catalogue.");
-    expect(narration.text).toContain("nested under item 1");
+    expect(narration.text).toContain("Bullet item 1: Catalogue.");
+    expect(narration.text).toContain("nested under bullet item 1");
     expect(narration.remainingSourceItems).toBeGreaterThan(0);
     expect(narration.remainingSourceItems).toBeLessThan(401);
   });

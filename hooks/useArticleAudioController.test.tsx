@@ -276,6 +276,37 @@ describe("useArticleAudioController", () => {
     });
   });
 
+  it("offers a ready combined export with the current narration and TTS identity", async () => {
+    const articleWithId = { ...article, _id: "article-1" };
+    const narrationHash = buildArticleNarrationHash(articleWithId);
+    const ttsCacheKey = getTtsMetadata(getActiveTtsProfile()).ttsCacheKey;
+    mocks.exportJobs.push({
+      _id: "current-export",
+      articleId: "article-1",
+      title: articleWithId.title,
+      status: "ready",
+      sectionCount: 4,
+      completedSectionCount: 4,
+      narrationHash,
+      ttsCacheKey,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    await act(async () => {
+      root.render(
+        <Harness onChange={captureController} articleValue={articleWithId} />,
+      );
+    });
+
+    await waitForExpectation(() => {
+      expect(controller().state.download.href).toBe(
+        "/api/article/audio-export/current-export?download=1",
+      );
+      expect(controller().state.download.status).toBe("ready");
+    });
+  });
+
   it("ignores a stale section completion after a newer request wins", async () => {
     const first = deferred<TtsAudioUrlResult>();
     const second = deferred<TtsAudioUrlResult>();

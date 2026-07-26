@@ -376,6 +376,8 @@ export const generateTtsAudioWithMetadata = async (
 ): Promise<TtsAudioResult> => {
   const chunks = splitTtsTextIntoChunks(text);
   const joinedText = chunks.join(" ");
+  const resolvedExpectedTtsCacheKey =
+    expectedTtsCacheKey ?? getTtsProfile(provider, voiceId).ttsCacheKey;
 
   if (!joinedText || joinedText.length < TTS_MIN_TEXT_LENGTH) {
     throw new Error("Text is too short to generate audio");
@@ -385,7 +387,7 @@ export const generateTtsAudioWithMetadata = async (
     chunks,
     voiceId,
     provider,
-    expectedTtsCacheKey,
+    expectedTtsCacheKey: resolvedExpectedTtsCacheKey,
     options,
   });
 };

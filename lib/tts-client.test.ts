@@ -57,6 +57,12 @@ describe("tts-client", () => {
       TTS_API_ROUTE,
       expect.objectContaining({ method: "POST" }),
     );
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      text,
+      expectedTtsCacheKey:
+        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+    });
     expect(await blob.text()).toBe(text);
   });
 
@@ -466,8 +472,16 @@ describe("tts-client", () => {
     });
 
     expect(calls).toEqual([
-      { text: "one two three" },
-      { text: "four five six" },
+      {
+        text: "one two three",
+        expectedTtsCacheKey:
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+      },
+      {
+        text: "four five six",
+        expectedTtsCacheKey:
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+      },
       {
         text: "one two three",
         provider: "edge",
@@ -546,8 +560,18 @@ describe("tts-client", () => {
     });
 
     expect(calls).toEqual([
-      { text: "one two three", provider: "openai" },
-      { text: "four five six", provider: "openai" },
+      {
+        text: "one two three",
+        provider: "openai",
+        expectedTtsCacheKey:
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+      },
+      {
+        text: "four five six",
+        provider: "openai",
+        expectedTtsCacheKey:
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+      },
       {
         text: "one two three",
         provider: "edge",

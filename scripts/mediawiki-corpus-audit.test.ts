@@ -1,11 +1,13 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAuditReport,
+  CachedMediaWikiFetch,
   hasAuditDiscrepancies,
   hasCompleteSectionNarrationCoverage,
+  loadCorpus,
   parseAuditArgs,
   renderMarkdownReport,
   summarizeArticleAudit,
@@ -15,6 +17,10 @@ import {
 } from "./mediawiki-corpus-audit";
 import type { MediaWikiDocument } from "../lib/mediawiki-document";
 import { createSectionNarrationsFromDocument } from "../lib/section-narration-document";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const entry: MediaWikiCorpusEntry = {
   wikiPageId: "384816",
@@ -242,6 +248,71 @@ describe("MediaWiki corpus audit", () => {
     );
   });
 
+  it("canonicalizes numeric identities loaded from the corpus", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "mediawiki-corpus-identities-"),
+    );
+    const corpusPath = path.join(directory, "corpus.json");
+    try {
+      await writeFile(
+        corpusPath,
+        JSON.stringify({
+          schemaVersion: 1,
+          articles: [
+            {
+              wikiPageId: "00042",
+              revisionId: "00099",
+              title: "Example",
+              language: "en",
+              expects: [],
+            },
+          ],
+        }),
+      );
+
+      await expect(loadCorpus(corpusPath)).resolves.toMatchObject({
+        articles: [{ wikiPageId: "42", revisionId: "99" }],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not persist failed MediaWiki responses in the audit cache", async () => {
+    const cacheDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "mediawiki-corpus-cache-"),
+    );
+    try {
+      const networkFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response("temporary failure", { status: 503 }),
+        )
+        .mockResolvedValueOnce(new Response("revision data", { status: 200 }));
+      const cachedFetch = new CachedMediaWikiFetch(cacheDirectory, false);
+      const url = "https://en.wikipedia.org/w/api.php?oldid=42";
+
+      await expect(cachedFetch.fetch(url)).resolves.toMatchObject({
+        status: 503,
+      });
+      await expect(cachedFetch.fetch(url)).resolves.toMatchObject({
+        status: 200,
+      });
+      await expect(cachedFetch.fetch(url)).resolves.toMatchObject({
+        status: 200,
+      });
+
+      expect(networkFetch).toHaveBeenCalledTimes(2);
+      expect(cachedFetch.metrics).toMatchObject({
+        requestCount: 3,
+        networkRequests: 2,
+        cacheHits: 1,
+      });
+    } finally {
+      await rm(cacheDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("aggregates section, block, issue, table, byte, and timing counts", () => {
     const article = summarizeArticleAudit({
       entry,
@@ -373,6 +444,75 @@ describe("MediaWiki corpus audit", () => {
         narrations.filter((section) => section.wikiSectionIndex !== "2"),
       ),
     ).toBe(false);
+    expect(
+      hasCompleteSectionNarrationCoverage(
+        bodySections,
+        narrations.map((section) =>
+          section.wikiSectionIndex === "2"
+            ? {
+                ...section,
+                narration: {
+                  ...section.narration,
+                  mode: "transition" as const,
+                  text: "Next section: Recognition.",
+                  sourceFormat: "heading" as const,
+                },
+              }
+            : section,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps empty-parent transitions in projection coverage without counting them as playable", () => {
+    const emptyParent = {
+      ...document.sections[1],
+      key: "parent",
+      title: "Parent",
+      level: 1,
+      sourceOrder: 2,
+      fidelity: "complete" as const,
+      plaintextContent: "",
+      fallback: { text: "", source: "dom-text" as const },
+      blocks: [],
+    };
+    const child = {
+      ...document.sections[2],
+      level: 2,
+      sourceOrder: 3,
+      parentKey: "parent",
+    };
+    const transitionDocument = {
+      ...document,
+      sections: [
+        document.sections[0],
+        emptyParent,
+        child,
+        document.sections[3],
+      ],
+    };
+    const narrations = createSectionNarrationsFromDocument(transitionDocument);
+    const bodySections = transitionDocument.sections.filter(
+      (section) => section.role === "body",
+    );
+    const article = summarizeArticleAudit({
+      entry: { ...entry, expects: [], narrationExpectations: undefined },
+      document: transitionDocument,
+      durationMs: 1,
+      fetch: fetchMetrics,
+    });
+
+    expect(narrations.map((section) => section.narration.mode)).toEqual([
+      "transition",
+      "verbatim",
+    ]);
+    expect(hasCompleteSectionNarrationCoverage(bodySections, narrations)).toBe(
+      true,
+    );
+    expect(article.projections).toMatchObject({
+      narrations: 2,
+      playableNarrations: 1,
+    });
   });
 
   it("rejects raw fallback for a section pinned as source-verbatim prose", () => {

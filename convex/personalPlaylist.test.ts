@@ -412,7 +412,7 @@ describe("personal playlist data helpers", () => {
       direction: "up",
     });
 
-    const ordered = getEpisodes().sort(
+    const ordered = [...getEpisodes()].sort(
       (left, right) => left.position - right.position,
     );
     expect(ordered.map((episode) => episode.slug)).toEqual(["venus", "mars"]);

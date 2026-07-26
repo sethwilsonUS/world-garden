@@ -213,11 +213,16 @@ const diagramBlock: ContextDiagramBlock = {
 describe("article context rich visual loading", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let originalImageDecode: PropertyDescriptor | undefined;
   let intersectionCallback:
     | ((entries: Array<{ isIntersecting: boolean }>) => void)
     | undefined;
 
   beforeEach(() => {
+    originalImageDecode = Object.getOwnPropertyDescriptor(
+      HTMLImageElement.prototype,
+      "decode",
+    );
     intersectionCallback = undefined;
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -274,6 +279,15 @@ describe("article context rich visual loading", () => {
     document
       .querySelectorAll("[data-visual-loading-test-outside]")
       .forEach((node) => node.remove());
+    if (originalImageDecode) {
+      Object.defineProperty(
+        HTMLImageElement.prototype,
+        "decode",
+        originalImageDecode,
+      );
+    } else {
+      delete (HTMLImageElement.prototype as { decode?: unknown }).decode;
+    }
     vi.restoreAllMocks();
   });
 
@@ -357,6 +371,44 @@ describe("article context rich visual loading", () => {
     expect(
       container.querySelectorAll('.context-visual-load-status[role="status"]'),
     ).toHaveLength(1);
+  });
+
+  it("keeps the fallback chart loader stable when no series is available", async () => {
+    const blockWithoutSeries: ContextChartBlock = {
+      ...chartBlock,
+      chart: { ...chartBlock.chart, series: [] },
+    };
+    await act(async () => {
+      root.render(
+        <ThemeProvider>
+          <ContextChartView
+            block={blockWithoutSeries}
+            caption={chartBlock.caption}
+            captionId="population-caption"
+          />
+        </ThemeProvider>,
+      );
+    });
+
+    await act(async () => {
+      intersectionCallback?.([{ isIntersecting: true }]);
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(echartsMock.init).toHaveBeenCalledOnce());
+    await act(async () => {
+      root.render(
+        <ThemeProvider>
+          <ContextChartView
+            block={blockWithoutSeries}
+            caption={chartBlock.caption}
+            captionId="population-caption"
+          />
+        </ThemeProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(echartsMock.init).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a narrow horizontal chart deferred and silent until it nears the viewport", async () => {
@@ -837,6 +889,123 @@ describe("article context rich visual loading", () => {
         ".context-diagram-controls button",
       )?.disabled,
     ).toBe(false);
+  });
+
+  it("recognizes a completed diagram when its source identity changes without a new URL", async () => {
+    const decode = vi.fn<() => Promise<void>>().mockResolvedValue();
+    Object.defineProperty(HTMLImageElement.prototype, "decode", {
+      configurable: true,
+      value: decode,
+    });
+
+    await act(async () => {
+      root.render(
+        <ContextDiagramView
+          block={diagramBlock}
+          caption={diagramBlock.caption}
+          captionId="system-caption"
+          descriptionId="system-description"
+        />,
+      );
+    });
+    await act(async () => {
+      intersectionCallback?.([{ isIntersecting: true }]);
+    });
+    const image = container.querySelector<HTMLImageElement>("img");
+    expect(image).not.toBeNull();
+    Object.defineProperties(image!, {
+      complete: { configurable: true, value: true },
+      naturalWidth: { configurable: true, value: 800 },
+    });
+    await act(async () => {
+      image?.dispatchEvent(new Event("load"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[data-visual-state="ready"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        <ContextDiagramView
+          block={{
+            ...diagramBlock,
+            provenance: {
+              ...diagramBlock.provenance,
+              sourceHash: "diagram-source-next-revision",
+            },
+          }}
+          caption={diagramBlock.caption}
+          captionId="system-caption"
+          descriptionId="system-description"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("img")).toBe(image);
+    expect(
+      container.querySelector('[data-visual-state="ready"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".context-diagram-controls button",
+      )?.disabled,
+    ).toBe(false);
+  });
+
+  it("recognizes a failed diagram when its source identity changes without a new URL", async () => {
+    await act(async () => {
+      root.render(
+        <ContextDiagramView
+          block={diagramBlock}
+          caption={diagramBlock.caption}
+          captionId="system-caption"
+          descriptionId="system-description"
+        />,
+      );
+    });
+    await act(async () => {
+      intersectionCallback?.([{ isIntersecting: true }]);
+    });
+    const image = container.querySelector<HTMLImageElement>("img");
+    expect(image).not.toBeNull();
+    Object.defineProperties(image!, {
+      complete: { configurable: true, value: true },
+      naturalWidth: { configurable: true, value: 0 },
+    });
+    await act(async () => {
+      image?.dispatchEvent(new Event("error"));
+    });
+    expect(
+      container.querySelector('[data-visual-state="error"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        <ContextDiagramView
+          block={{
+            ...diagramBlock,
+            provenance: {
+              ...diagramBlock.provenance,
+              sourceHash: "diagram-source-next-revision",
+            },
+          }}
+          caption={diagramBlock.caption}
+          captionId="system-caption"
+          descriptionId="system-description"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("img")).toBe(image);
+    expect(
+      container.querySelector('[data-visual-state="error"]'),
+    ).not.toBeNull();
+    expect(container.querySelector(".context-visual-spinner")).toBeNull();
   });
 
   it("keeps semantic diagram content when the source image fails", async () => {

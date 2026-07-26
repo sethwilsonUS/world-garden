@@ -8,6 +8,7 @@ import { performance } from "node:perf_hooks";
 import {
   loadMediaWikiDocument,
   MediaWikiSourceError,
+  normalizeMediaWikiNumericId,
   type MediaWikiBlock,
   type MediaWikiDocument,
   type MediaWikiDocumentSection,
@@ -419,7 +420,10 @@ export const hasCompleteSectionNarrationCoverage = (
     sections.every((section) => narrationKeys.has(section.key)) &&
     substantive.every((section) => {
       const narration = narrationByIndex.get(section.key);
-      return narration != null && narration.mode !== "none";
+      return (
+        narration != null &&
+        (narration.mode === "verbatim" || narration.mode === "structured")
+      );
     })
   );
 };
@@ -610,7 +614,9 @@ const detectArticleCapabilities = (
     projections: {
       narrations: narrations.length,
       playableNarrations: narrations.filter(
-        (section) => section.narration.mode !== "none",
+        (section) =>
+          section.narration.mode === "verbatim" ||
+          section.narration.mode === "structured",
       ).length,
       adaptedNarrations: narrations.filter(
         (section) => section.narration.adapted,
@@ -914,11 +920,9 @@ const isCorpusEntry = (value: unknown): value is MediaWikiCorpusEntry => {
   const entry = value as Record<string, unknown>;
   return (
     typeof entry.wikiPageId === "string" &&
-    /^\d{1,20}$/.test(entry.wikiPageId) &&
-    entry.wikiPageId !== "0" &&
+    normalizeMediaWikiNumericId(entry.wikiPageId) != null &&
     typeof entry.revisionId === "string" &&
-    /^\d{1,20}$/.test(entry.revisionId) &&
-    entry.revisionId !== "0" &&
+    normalizeMediaWikiNumericId(entry.revisionId) != null &&
     typeof entry.title === "string" &&
     Boolean(entry.title.trim()) &&
     entry.language === "en" &&
@@ -949,7 +953,11 @@ export const loadCorpus = async (
   }
   return {
     schemaVersion: 1,
-    articles: candidate.articles,
+    articles: candidate.articles.map((entry) => ({
+      ...entry,
+      wikiPageId: normalizeMediaWikiNumericId(entry.wikiPageId)!,
+      revisionId: normalizeMediaWikiNumericId(entry.revisionId)!,
+    })),
   };
 };
 
@@ -963,6 +971,8 @@ const isCachedResponse = (
     candidate.schemaVersion === CACHE_SCHEMA_VERSION &&
     candidate.url === expectedUrl &&
     typeof candidate.status === "number" &&
+    candidate.status >= 200 &&
+    candidate.status < 300 &&
     typeof candidate.statusText === "string" &&
     Boolean(candidate.headers) &&
     typeof candidate.headers === "object" &&
@@ -971,7 +981,7 @@ const isCachedResponse = (
   );
 };
 
-class CachedMediaWikiFetch {
+export class CachedMediaWikiFetch {
   private mutableMetrics = {
     requestCount: 0,
     cacheHits: 0,
@@ -1029,7 +1039,9 @@ class CachedMediaWikiFetch {
         bodyBase64: body.toString("base64"),
         bodyBytes: body.byteLength,
       };
-      await this.write(cachePath, cached);
+      if (response.ok) {
+        await this.write(cachePath, cached);
+      }
       this.mutableMetrics.responseBodyBytes += body.byteLength;
       this.mutableMetrics.networkBodyBytes += body.byteLength;
       return new Response(body, {

@@ -451,7 +451,11 @@ const chartSeriesDescription = (
   );
   const ranked = Boolean(
     rankColumn &&
-    chart.series.some((series) => series.xColumn !== rankColumn.key),
+    chart.series.some((series) => series.xColumn !== rankColumn.key) &&
+    chart.rows.every((row) => {
+      const value = row[rankColumn.key];
+      return typeof value === "number" && Number.isFinite(value);
+    }),
   );
   const descriptions: string[] = [];
   for (const series of chart.series) {
@@ -738,6 +742,46 @@ const parseTableNumber = (value: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const parseRankingPosition = (value: string): number | null => {
+  const normalized = value.replace(/[−–]/g, "-").trim().replace(/\s+/g, "");
+  const decorated =
+    normalized.match(/^(?:=|t-?)(\d+)=?$/i) ??
+    normalized.match(/^(\d+)(?:=|st|nd|rd|th|\((?:tie|tied)\))?$/i);
+  const rank = decorated ? Number(decorated[1]) : parseTableNumber(normalized);
+  return rank != null && Number.isSafeInteger(rank) && rank >= 1 ? rank : null;
+};
+
+const isAggregateRankingEntity = (value: string): boolean =>
+  /^(?:(?:grand )?totals?|overall|combined)(?:\s|\(|$)|^all (?:entries|nations|participants|teams)(?:\s|\(|$)/i.test(
+    sanitizeContextText(value, 300).trim(),
+  );
+
+const resolveRankingRows = (
+  table: ArticleContextTable,
+  rankingPositionIndex: number,
+  rankingEntityIndex: number,
+): string[][] | null => {
+  const rows: string[][] = [];
+  for (const row of table.rows) {
+    const rawRank = row[rankingPositionIndex]?.trim() ?? "";
+    const entity = row[rankingEntityIndex] ?? "";
+    const rank = parseRankingPosition(rawRank);
+    if (isAggregateRankingEntity(entity)) {
+      if (rank == null) continue;
+      return null;
+    }
+    if (!isNamedRankingEntity(entity)) continue;
+
+    const normalized = [...row];
+    // A semantic rowspan repeats its origin cell in every expanded grid row.
+    // A missing marker, blank, or non-numeric outcome therefore belongs to
+    // this source row; retain it instead of inheriting another entry's rank.
+    if (rank != null) normalized[rankingPositionIndex] = String(rank);
+    rows.push(normalized);
+  }
+  return rows;
+};
+
 const isExplicitlyMissingTableNumber = (value: string): boolean =>
   /^(?:[-–—?]|n\/?a|none|not available|tbd|to be determined|unknown)$/i.test(
     value.trim(),
@@ -847,17 +891,9 @@ export const extractChartFromTable = (
   const rankingEntityIndex = table.headers.findIndex(isRankingEntityHeader);
   const isRankingTable = rankingPositionIndex >= 0 && rankingEntityIndex >= 0;
   const sourceRows = isRankingTable
-    ? table.rows.filter((row) => {
-        const rank = parseTableNumber(row[rankingPositionIndex]);
-        return (
-          isNamedRankingEntity(row[rankingEntityIndex]) &&
-          rank != null &&
-          Number.isSafeInteger(rank) &&
-          rank >= 1
-        );
-      })
+    ? resolveRankingRows(table, rankingPositionIndex, rankingEntityIndex)
     : table.rows;
-  if (sourceRows.length < 3) return null;
+  if (!sourceRows || sourceRows.length < 3) return null;
 
   const usedKeys = new Set<string>();
   const keys = table.headers.map((header) => uniqueColumnKey(header, usedKeys));

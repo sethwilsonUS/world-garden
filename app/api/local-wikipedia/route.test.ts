@@ -26,7 +26,7 @@ vi.mock("@/convex/lib/wikipedia", () => ({
   fetchSectionLinksByIndex,
 }));
 
-import { POST } from "./route";
+let POST: typeof import("./route").POST;
 
 const emptyParsedData = (
   sectionIndexMap: WikipediaParsedPageData["sectionIndexMap"] = [],
@@ -58,10 +58,12 @@ const post = (body: unknown) =>
   );
 
 describe("POST /api/local-wikipedia", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "true");
     vi.stubEnv("LOCAL_MODE", "");
+    vi.resetModules();
+    ({ POST } = await import("./route"));
   });
 
   afterEach(() => {
@@ -116,6 +118,33 @@ describe("POST /api/local-wikipedia", () => {
     expect(fetchParsedPageData).toHaveBeenCalledTimes(2);
     expect(fetchParsedPageData).toHaveBeenNthCalledWith(1, firstRevision);
     expect(fetchParsedPageData).toHaveBeenNthCalledWith(2, nextRevision);
+  });
+
+  it("canonicalizes IDs while keeping title and language in the metadata cache identity", async () => {
+    fetchParsedPageData.mockImplementation(async () => emptyParsedData());
+    const canonical = identity("4121", "521");
+    const equivalent = {
+      ...canonical,
+      wikiPageId: "0004121",
+      revisionId: "000521",
+      title: "Article_4121",
+      language: "EN",
+    };
+    const mismatchedTitle = { ...canonical, title: "Different article" };
+
+    const first = await post({ operation: "metadata", identity: equivalent });
+    const repeated = await post({ operation: "metadata", identity: canonical });
+    const changed = await post({
+      operation: "metadata",
+      identity: mismatchedTitle,
+    });
+
+    expect(first.status).toBe(200);
+    expect(repeated.status).toBe(200);
+    expect(changed.status).toBe(200);
+    expect(fetchParsedPageData).toHaveBeenCalledTimes(2);
+    expect(fetchParsedPageData).toHaveBeenNthCalledWith(1, canonical);
+    expect(fetchParsedPageData).toHaveBeenNthCalledWith(2, mismatchedTitle);
   });
 
   it("does not let a failed parse poison the revision cache", async () => {

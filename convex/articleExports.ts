@@ -19,7 +19,12 @@ import {
   uploadBlobToConvexStorage,
   uploadStreamToConvexStorage,
 } from "./lib/storageUpload";
-import { isTtsMetadataValid, type TtsMetadata } from "../lib/tts-profile";
+import {
+  getTtsMetadata,
+  getTtsProfile,
+  isTtsMetadataValid,
+  type TtsMetadata,
+} from "../lib/tts-profile";
 import { buildArticleNarrationHash } from "../lib/section-narration";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
@@ -37,6 +42,13 @@ const ttsMetadataValidator = v.object({
 
 export const isRequestedTtsMetadataValid = (metadata: TtsMetadata): boolean =>
   isTtsMetadataValid(metadata);
+
+export const resolveRequestedArticleExportTtsMetadata = (
+  metadata: TtsMetadata | undefined,
+): TtsMetadata =>
+  metadata && isTtsMetadataValid(metadata)
+    ? metadata
+    : getTtsMetadata(getTtsProfile());
 
 export const getArticleExportSections = getArticleAudioSections;
 
@@ -119,30 +131,32 @@ export const getRecentArticleAudioExports = query({
       .withIndex("by_clientId_updatedAt", (q) =>
         q.eq("clientId", args.clientId),
       )
+      .filter((q) => q.eq(q.field("dismissedAt"), undefined))
       .order("desc")
       .take(MAX_RECENT_EXPORT_CANDIDATES);
-    const compatibleRecords = (
-      await Promise.all(
-        records.map(async (record) => {
-          const article = await ctx.db.get(record.articleId);
-          return article &&
-            isArticleAudioExportCompatible(
-              record,
-              args.ttsCacheKey,
-              buildArticleNarrationHash(article),
-            )
-            ? record
-            : null;
-        }),
-      )
-    ).filter((record): record is NonNullable<typeof record> => record !== null);
+    const compatibleRecords = [];
 
-    const filtered = compatibleRecords
-      .filter((record) => record.dismissedAt == null)
-      .slice(0, limit);
+    for (const record of records) {
+      // Keep this guard even though the database filter normally removes the
+      // row. It prevents an expensive article read if a mocked or future
+      // query implementation returns a dismissed record.
+      if (record.dismissedAt != null) continue;
+      const article = await ctx.db.get(record.articleId);
+      if (
+        article &&
+        isArticleAudioExportCompatible(
+          record,
+          args.ttsCacheKey,
+          buildArticleNarrationHash(article),
+        )
+      ) {
+        compatibleRecords.push(record);
+        if (compatibleRecords.length === limit) break;
+      }
+    }
 
     return await Promise.all(
-      filtered.map((record) => withStorageUrl(ctx, record)),
+      compatibleRecords.map((record) => withStorageUrl(ctx, record)),
     );
   },
 });
@@ -167,6 +181,31 @@ export const getArticleAudioExportById = query({
       return null;
     }
     return await withStorageUrl(ctx, record);
+  },
+});
+
+export const getArticleAudioExportDownloadIdentity = query({
+  args: {
+    exportId: v.id("articleAudioExports"),
+  },
+  async handler(ctx, args) {
+    const record = await ctx.db.get(args.exportId);
+    if (
+      !record ||
+      record.status !== "ready" ||
+      !record.storageId ||
+      !record.ttsCacheKey
+    ) {
+      return null;
+    }
+    const article = await ctx.db.get(record.articleId);
+    if (
+      !article ||
+      record.narrationHash !== buildArticleNarrationHash(article)
+    ) {
+      return null;
+    }
+    return { ttsCacheKey: record.ttsCacheKey };
   },
 });
 
@@ -323,6 +362,7 @@ export const markArticleAudioExportRunning = internalMutation({
   args: {
     exportId: v.id("articleAudioExports"),
     sectionCount: v.number(),
+    ttsMetadata: ttsMetadataValidator,
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
@@ -356,6 +396,8 @@ export const markArticleAudioExportRunning = internalMutation({
       stage: "rendering_audio",
       sectionCount: args.sectionCount,
       completedSectionCount: 0,
+      requestedTtsMetadata: args.ttsMetadata,
+      ttsCacheKey: args.ttsMetadata.ttsCacheKey,
       lastError: undefined,
       updatedAt: Date.now(),
     });
@@ -491,11 +533,15 @@ export const processArticleAudioExport = internalAction({
       return;
     }
 
+    const requestedTtsMetadata = resolveRequestedArticleExportTtsMetadata(
+      record.requestedTtsMetadata,
+    );
     const claim = await ctx.runMutation(
       internal.articleExports.markArticleAudioExportRunning,
       {
         exportId: args.exportId,
         sectionCount: sections.length,
+        ttsMetadata: requestedTtsMetadata,
       },
     );
     if (!claim.claimed) {
@@ -510,7 +556,7 @@ export const processArticleAudioExport = internalAction({
         },
         albumTitle: "Curio Garden Article Audio",
         baseUrl: args.baseUrl,
-        requestedTtsMetadata: record.requestedTtsMetadata,
+        requestedTtsMetadata,
         getCachedSectionAudioUrls: async ({ ttsCacheKey, sourceHashes }) => {
           const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
             articleId: article._id,

@@ -420,7 +420,7 @@ export const MapSchematic = ({
   captionId?: string;
   descriptionId?: string;
 }) => {
-  const presentation = createMapPresentation(block);
+  const presentation = useMemo(() => createMapPresentation(block), [block]);
   const coordinates = uniqueMapFeatureCoordinates(block);
   const extent = getCoordinateExtent(
     coordinates.length > 0 ? coordinates : [block.map.center],

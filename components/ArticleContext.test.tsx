@@ -315,7 +315,7 @@ describe("ArticleContext", () => {
       kind: "chart",
       title: "Tournament ranking data",
       caption:
-        "Points is listed for 13 ranked entries; the lowest is 1 for Team 13, and the highest is 13 for Team 1.",
+        "Points has 13 values; the lowest is 1 at Team 13, and the highest is 13 at Team 1.",
       chart: {
         columns: [
           { key: "position", label: "Position", dataType: "number" },
@@ -325,7 +325,7 @@ describe("ArticleContext", () => {
           { key: "final-result", label: "Final result", dataType: "string" },
         ],
         rows: Array.from({ length: 13 }, (_, index) => ({
-          position: index + 1,
+          position: index === 12 ? null : index + 1,
           team: `Team ${index + 1}`,
           points: 13 - index,
           won: Math.max(0, 6 - Math.floor(index / 2)),
@@ -369,6 +369,9 @@ describe("ArticleContext", () => {
     expect(markup.match(/<li>/g)).toHaveLength(8);
     expect(markup).toContain(
       "The overview pictures the first 8 of 13 published entries in source ranking order.",
+    );
+    expect(markup).toContain(
+      "1 source entry has no numeric rank and remains in source order.",
     );
     expect(markup).toContain(
       "Bar lengths provide supporting metric context and do not determine the published rank.",

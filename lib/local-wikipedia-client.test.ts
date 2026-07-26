@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestLocalWikipedia } from "./local-wikipedia-client";
+import {
+  requestLocalWikipedia,
+  requestLocalWikipediaMetadata,
+} from "./local-wikipedia-client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -45,5 +48,111 @@ describe("requestLocalWikipedia", () => {
     await expect(
       requestLocalWikipedia({ operation: "search", term: "Landor" }),
     ).rejects.toThrow("Wikipedia is unavailable");
+  });
+
+  it("rejects a non-JSON response with a safe client error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html>Upstream proxy error</html>", {
+        status: 502,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+
+    await expect(
+      requestLocalWikipedia({ operation: "search", term: "Landor" }),
+    ).rejects.toThrow("Local Wikipedia request failed");
+  });
+
+  it("deduplicates metadata work without one caller's abort poisoning another", async () => {
+    let finishRequest: ((response: Response) => void) | undefined;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishRequest = resolve;
+        }),
+    );
+    const identity = {
+      wikiPageId: "8842",
+      revisionId: "7711",
+      title: "Shared metadata",
+      language: "en",
+    } as const;
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+
+    const first = requestLocalWikipediaMetadata(
+      identity,
+      firstController.signal,
+    );
+    const second = requestLocalWikipediaMetadata(
+      identity,
+      secondController.signal,
+    );
+    firstController.abort();
+
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+    finishRequest?.(
+      new Response(
+        JSON.stringify({
+          data: {
+            linkCounts: [],
+            citations: [],
+            sectionCitations: [],
+            sectionIndexMap: [],
+            images: [],
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await expect(second).resolves.toMatchObject({ images: [] });
+    await expect(
+      requestLocalWikipediaMetadata(identity),
+    ).resolves.toMatchObject({ images: [] });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[1]).not.toHaveProperty("signal");
+  });
+
+  it("deduplicates only canonical, complete metadata identities", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              linkCounts: [],
+              citations: [],
+              sectionCitations: [],
+              sectionIndexMap: [],
+              images: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    const identity = {
+      wikiPageId: "9911",
+      revisionId: "8811",
+      title: "Canonical title",
+      language: "en",
+    } as const;
+
+    await requestLocalWikipediaMetadata({
+      ...identity,
+      wikiPageId: "0009911",
+      revisionId: "0008811",
+      title: "Canonical_title",
+      language: "EN",
+    });
+    await requestLocalWikipediaMetadata(identity);
+    await requestLocalWikipediaMetadata({
+      ...identity,
+      title: "Different title",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

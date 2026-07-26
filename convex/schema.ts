@@ -425,6 +425,9 @@ export default defineSchema({
     wikiPageId: v.string(),
     // Optional only for rows written before revision-pinned link caching.
     revisionId: v.optional(v.string()),
+    // Optional only for rows written before full revision identity caching.
+    title: v.optional(v.string()),
+    language: v.optional(v.string()),
     sectionTitle: v.string(),
     links: v.array(
       v.object({

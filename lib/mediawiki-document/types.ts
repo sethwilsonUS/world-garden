@@ -1,5 +1,7 @@
 export const MEDIAWIKI_DOCUMENT_SCHEMA_VERSION = 1 as const;
 
+export { normalizeMediaWikiNumericId } from "../wikipedia-utils";
+
 export type MediaWikiRevisionIdentity = Readonly<{
   wikiPageId: string;
   title: string;
