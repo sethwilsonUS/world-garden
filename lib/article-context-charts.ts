@@ -218,6 +218,11 @@ const isRankingMetadataMetric = (value: string): boolean =>
     normalizeTableHeader(value),
   );
 
+const isTemporalMetadataMetric = (value: string): boolean =>
+  /^(?:(?:calendar )?year|date|season|(?:year|date) (?:built|closed|completed|commissioned|established|founded|launched|opened|released|started)|(?:build|closure|completion|commissioning|establishment|foundation|launch|opening|release|start) (?:date|year))$/i.test(
+    normalizeTableHeader(value),
+  );
+
 const contextMetricPriority = (
   rawHeader: string,
   table: ParsedHtmlTable,
@@ -701,14 +706,30 @@ export const extractChartExtensionCandidates = ({
 };
 
 const parseTableNumber = (value: string): number | null => {
-  const normalized = value
-    .replace(/[−–]/g, "-")
-    .replace(/[,$£€¥%\s]/g, "")
-    .trim();
-  if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(normalized)) return null;
-  const parsed = Number(normalized);
+  let normalized = value.replace(/[−–]/g, "-").trim();
+  normalized = normalized.replace(/^([+-]?)\s*[$£€¥]\s*/, "$1");
+  normalized = normalized.replace(/\s*%\s*$/, "");
+  if (/[$£€¥%]/.test(normalized)) return null;
+
+  const plainNumber = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
+  const commaGroupedNumber = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
+  const spaceGroupedNumber = /^[+-]?\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:\.\d+)?$/;
+  if (
+    !plainNumber.test(normalized) &&
+    !commaGroupedNumber.test(normalized) &&
+    !spaceGroupedNumber.test(normalized)
+  ) {
+    return null;
+  }
+
+  const parsed = Number(normalized.replace(/[, \u00a0\u202f]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const isExplicitlyMissingTableNumber = (value: string): boolean =>
+  /^(?:[-–—?]|n\/?a|none|not available|tbd|to be determined|unknown)$/i.test(
+    value.trim(),
+  );
 
 const isSafeTableMetricLabel = (value: string): boolean => {
   const label = sanitizeContextText(value, 160).trim();
@@ -816,7 +837,12 @@ const extractChartFromTable = (
       .map((row) => row[columnIndex])
       .filter((value) => value.trim() !== "");
     const numeric = nonempty.filter((value) => parseTableNumber(value) != null);
-    return nonempty.length >= 3 && numeric.length / nonempty.length >= 0.8;
+    return nonempty.length >= 3 &&
+      numeric.length / nonempty.length >= 0.8 &&
+      nonempty.every(
+        (value) =>
+          parseTableNumber(value) != null || isExplicitlyMissingTableNumber(value),
+      );
   });
   if (
     numericColumns.some(
@@ -860,6 +886,7 @@ const extractChartFromTable = (
     .filter((index) => index >= 0)
     .filter((index) => index !== rankingPositionIndex)
     .filter((index) => !isSerialNumberHeader(table.headers[index]))
+    .filter((index) => !isTemporalMetadataMetric(table.headers[index]))
     .filter((index) => isSafeTableMetricLabel(table.headers[index]));
   const varyingSeriesIndexes = plottableSeriesIndexes.filter((index) => {
       const values = sourceRows.flatMap((row) => {
