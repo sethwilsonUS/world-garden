@@ -1,19 +1,15 @@
 import {
   type ArticleContextRequest,
-  type ContextDiagramBlock,
+  type ContextDiagramLegend,
   type ContextSource,
 } from "./article-context-types";
+import { isValidContextDiagramLegend } from "./article-context-legend";
 import {
   buildBaseBlock,
-  finiteNumber,
-  parseAttributes,
   sanitizeContextCaption,
   sanitizeContextText,
-  sectionAtOffset,
   uniqueId,
   type BlockCandidate,
-  type MediaWikiParsedSource,
-  type SectionBoundary,
 } from "./article-context-foundations";
 
 export const normalizeCommonsImageUrl = (value: string): string | null => {
@@ -36,36 +32,6 @@ export const normalizeCommonsImageUrl = (value: string): string | null => {
   return url.toString();
 };
 
-const commonsFileSource = (
-  figureHtml: string,
-  accessedAt: string,
-): ContextSource | null => {
-  const anchorAttrs = [...figureHtml.matchAll(/<a\b([^>]*)>/gi)]
-    .map((match) => parseAttributes(match[1]))
-    .find((attrs) =>
-      attrs.class?.split(/\s+/).includes("mw-file-description"),
-    );
-  const href = anchorAttrs?.href;
-  if (!href) return null;
-  const fileMatch = href.match(/\/wiki\/(?:File|Image):([^?#]+)/i);
-  if (!fileMatch) return null;
-  let fileName: string;
-  try {
-    fileName = decodeURIComponent(fileMatch[1]).replace(/_/g, " ");
-  } catch {
-    fileName = fileMatch[1].replace(/_/g, " ");
-  }
-  const safeName = sanitizeContextText(fileName, 300);
-  if (!safeName) return null;
-  return {
-    label: `Wikimedia Commons file: ${safeName}`,
-    url: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(
-      safeName.replace(/ /g, "_"),
-    )}`,
-    accessedAt,
-  };
-};
-
 /**
  * Favor precision when promoting figures. Topic nouns such as "system",
  * "orbit", "body", and "part" occur frequently in ordinary photo captions
@@ -83,10 +49,52 @@ const DIAGRAM_ARROW_NOTATION_PATTERN =
 const DIAGRAM_CIRCULAR_SEQUENCE_PATTERN =
   /(?:\bsequence\b.{0,180}\b(?:circle|spiral)\b|\b(?:circle|spiral)\b.{0,180}\bsequence\b)/i;
 
-const isDiagramCaption = (caption: string): boolean =>
-  EXPLICIT_DIAGRAM_CAPTION_PATTERN.test(caption) ||
-  DIAGRAM_ARROW_NOTATION_PATTERN.test(caption) ||
-  DIAGRAM_CIRCULAR_SEQUENCE_PATTERN.test(caption);
+const MAP_CHART_NOUNS = new Set(["map", "maps", "chart", "charts"]);
+
+const assetNameWords = (value: string): string[] =>
+  value
+    .replace(/^(?:File|Image):/i, "")
+    .replace(/\.[A-Za-z0-9]{2,5}$/u, "")
+    .replace(/[_/.-]+/gu, " ")
+    .toLocaleLowerCase()
+    .split(/\s+/u)
+    .filter(Boolean);
+
+const fileIdentityNamesMapOrChart = (value: string): boolean => {
+  const words = assetNameWords(value);
+  const nounIndex = words.findIndex((word) => MAP_CHART_NOUNS.has(word));
+  return nounIndex >= 0 && (nounIndex <= 3 || nounIndex === words.length - 1);
+};
+
+const proseIdentifiesMapOrChart = (value: string): boolean =>
+  /^(?:(?:an?|the)\s+)?(?:(?:current|old|new|official|interactive|historical|historic|alternate|alternative|simplified|political|electoral|route|service|subway|transit|system)\s+){0,4}(?:map|chart)\b/i.test(
+    value.trim(),
+  ) ||
+  /^(?:map|chart)\s+(?:of|showing|depicting|illustrating)\b/i.test(
+    value.trim(),
+  );
+
+const isDiagramDescription = ({
+  caption,
+  alt,
+  resourceTitle,
+}: {
+  caption: string;
+  alt: string;
+  resourceTitle: string;
+}): boolean => {
+  const combined = [caption, alt, resourceTitle].filter(Boolean).join(" ");
+  if (
+    EXPLICIT_DIAGRAM_CAPTION_PATTERN.test(combined) ||
+    DIAGRAM_ARROW_NOTATION_PATTERN.test(combined) ||
+    DIAGRAM_CIRCULAR_SEQUENCE_PATTERN.test(combined)
+  ) {
+    return true;
+  }
+  if (fileIdentityNamesMapOrChart(resourceTitle)) return true;
+  if (proseIdentifiesMapOrChart(alt)) return true;
+  return !resourceTitle && proseIdentifiesMapOrChart(caption);
+};
 
 const captionWalkthrough = (caption: string): string[] => {
   const sentences = caption
@@ -97,112 +105,154 @@ const captionWalkthrough = (caption: string): string[] => {
   return sentences.length > 0 ? sentences : [caption];
 };
 
-export const extractDiagramCandidates = ({
-  source,
+export const createDiagramCandidateFromFigure = ({
+  caption: rawCaption,
+  legend: rawLegend,
+  media,
+  regions,
   request,
   sourceHash,
   generatedAt,
-  boundaries,
+  section,
+  position,
+  sourceIdentity,
 }: {
-  source: MediaWikiParsedSource;
+  caption: string;
+  legend?: ContextDiagramLegend;
+  media: readonly {
+    kind: "image" | "video";
+    src: string;
+    resourceTitle?: string;
+    alt: string;
+    width?: number;
+    height?: number;
+  }[];
+  regions: readonly { label: string; description?: string }[];
   request: ArticleContextRequest;
   sourceHash: string;
   generatedAt: string;
-  boundaries: SectionBoundary[];
-}): BlockCandidate[] => {
-  const candidates: BlockCandidate[] = [];
-  let figureIndex = 0;
-  for (const match of source.html.matchAll(
-    /<figure\b([^>]*)>([\s\S]*?)<\/figure>/gi,
-  )) {
-    const figureHtml = match[2];
-    if (/<(?:video|audio|wiki-chart)\b/i.test(figureHtml)) continue;
-    const imageMatch = figureHtml.match(/<img\b([^>]*)>/i);
-    const captionMatch = figureHtml.match(
-      /<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i,
+  section: import("./article-context-types").ContextSection;
+  position: number;
+  sourceIdentity: string;
+}): BlockCandidate | null => {
+  const image = media.find((candidate) => candidate.kind === "image");
+  const src = image ? normalizeCommonsImageUrl(image.src) : null;
+  const parts = regions
+    .map((region, index) => ({
+      id: uniqueId("part", region.label, index),
+      label: sanitizeContextText(region.label, 200),
+      ...(region.description
+        ? { description: sanitizeContextText(region.description, 500) }
+        : {}),
+    }))
+    .filter(
+      (part, index, all) =>
+        Boolean(part.label) &&
+        all.findIndex(
+          (candidate) =>
+            candidate.label.toLocaleLowerCase() ===
+            part.label.toLocaleLowerCase(),
+        ) === index,
     );
-    if (!imageMatch || !captionMatch) continue;
-    const imageAttrs = parseAttributes(imageMatch[1]);
-    const src = normalizeCommonsImageUrl(imageAttrs.src ?? "");
-    const caption = sanitizeContextCaption(captionMatch[1], 2_500);
-    if (!src || caption.length < 40 || !isDiagramCaption(caption)) {
-      continue;
-    }
-    const width = finiteNumber(imageAttrs.width);
-    const height = finiteNumber(imageAttrs.height);
-    if ((width != null && width < 100) || (height != null && height < 100)) {
-      continue;
-    }
-    const parts = [...figureHtml.matchAll(/<area\b([^>]*)>/gi)]
-      .slice(0, 100)
-      .flatMap((areaMatch, index) => {
-        const attrs = parseAttributes(areaMatch[1]);
-        const label = sanitizeContextText(attrs.alt || attrs.title || "", 200);
-        return label
-          ? [
-              {
-                id: uniqueId("part", label, index),
-                label,
-                ...(attrs.title && attrs.title !== label
-                  ? { description: sanitizeContextText(attrs.title, 500) }
-                  : {}),
-              },
-            ]
-          : [];
-      })
-      .filter(
-        (part, index, all) =>
-          all.findIndex(
-            (candidate) =>
-              candidate.label.toLowerCase() === part.label.toLowerCase(),
-          ) === index,
-      );
-    const walkthrough = captionWalkthrough(caption);
-    if (walkthrough.length === 0 && parts.length === 0) continue;
-    const relationships: ContextDiagramBlock["diagram"]["relationships"] = [];
-    const section = sectionAtOffset(boundaries, match.index ?? 0);
-    const subject =
-      section.index === "__summary__" ? request.title : section.title;
-    const blockCaption = sanitizeContextText(walkthrough[0] || caption, 800);
-    const fileSource = commonsFileSource(figureHtml, generatedAt);
-    const base = buildBaseBlock({
-      request,
-      sourceHash,
-      generatedAt,
-      kind: "diagram",
-      section,
-      title: `${subject} diagram`,
-      caption: blockCaption,
-      longDescription: `${caption}${
-        parts.length > 0
-          ? ` Named regions in the source image are ${parts
-              .map((part) => part.label)
-              .join(", ")}.`
-          : ""
-      }`,
-      sourceIdentity: `figure:${figureIndex}:${src}:${caption}`,
-      extraSources: fileSource ? [fileSource] : [],
-    });
-    const block: ContextDiagramBlock = {
+  const sourceCaption = sanitizeContextCaption(rawCaption, 2_500);
+  const semanticDescription = {
+    caption: sourceCaption,
+    alt: sanitizeContextText(image?.alt ?? "", 1_000),
+    resourceTitle: sanitizeContextText(image?.resourceTitle ?? "", 1_000),
+  };
+  if (
+    !image ||
+    !src ||
+    (parts.length === 0 && !isDiagramDescription(semanticDescription))
+  ) {
+    return null;
+  }
+  if (
+    (image.width != null && image.width < 100) ||
+    (image.height != null && image.height < 100)
+  ) {
+    return null;
+  }
+  const caption =
+    sourceCaption ||
+    sanitizeContextCaption(image.alt, 2_500) ||
+    `${section.index === "__summary__" ? request.title : section.title} image map`;
+  const normalizedLegend: ContextDiagramLegend | undefined = rawLegend
+    ? {
+        description: sanitizeContextCaption(rawLegend.description, 800),
+        entries: rawLegend.entries.map((entry) => ({
+          color: entry.color.trim(),
+          text: sanitizeContextText(entry.text, 500),
+        })),
+        notes: rawLegend.notes.map((note) => sanitizeContextText(note, 2_000)),
+      }
+    : undefined;
+  const legend =
+    normalizedLegend && isValidContextDiagramLegend(normalizedLegend)
+      ? normalizedLegend
+      : undefined;
+  const captionSentences = captionWalkthrough(caption);
+  const subject =
+    section.index === "__summary__" ? request.title : section.title;
+  const visibleCaption = legend
+    ? legend.description ||
+      sanitizeContextCaption(image.alt, 800) ||
+      `${subject} source legend.`
+    : caption;
+  const walkthrough = legend ? [visibleCaption] : captionSentences;
+  const sourceTitle = image.resourceTitle?.replace(/^(?:File|Image):/i, "");
+  const extraSources: ContextSource[] = sourceTitle
+    ? [
+        {
+          label: `Wikimedia Commons file: ${sourceTitle.replace(/_/g, " ")}`,
+          url: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(
+            sourceTitle.replace(/ /g, "_"),
+          )}`,
+          accessedAt: generatedAt,
+        },
+      ]
+    : [];
+  const base = buildBaseBlock({
+    request,
+    sourceHash,
+    generatedAt,
+    kind: "diagram",
+    section,
+    title: `${subject} diagram`,
+    caption: sanitizeContextText(visibleCaption, 800),
+    longDescription: `${
+      legend
+        ? `A source-derived color legend with ${legend.entries.length} ${legend.entries.length === 1 ? "entry" : "entries"}${legend.notes.length > 0 ? ` and ${legend.notes.length} ${legend.notes.length === 1 ? "note" : "notes"}` : ""} follows below.`
+        : caption
+    }${
+      parts.length > 0
+        ? ` Named regions in the source image are ${parts
+            .map((part) => part.label)
+            .join(", ")}.`
+        : ""
+    }`,
+    sourceIdentity,
+    extraSources,
+  });
+  return {
+    block: {
       ...base,
       kind: "diagram",
       diagram: {
         image: {
           src,
-          alt: caption,
-          ...(width != null && width > 0 ? { width: Math.round(width) } : {}),
-          ...(height != null && height > 0
-            ? { height: Math.round(height) }
-            : {}),
+          alt: sanitizeContextText(image.alt, 1_000) || caption,
+          ...(image.width != null ? { width: Math.round(image.width) } : {}),
+          ...(image.height != null ? { height: Math.round(image.height) } : {}),
         },
         parts,
-        relationships,
+        relationships: [],
         walkthrough,
+        ...(legend ? { legend } : {}),
         caption,
       },
-    };
-    candidates.push({ block, position: match.index ?? 0, priority: 62 });
-    figureIndex += 1;
-  }
-  return candidates;
+    },
+    position,
+    priority: 62,
+  };
 };

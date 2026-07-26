@@ -11,6 +11,7 @@ import {
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import { type PlaybackRate } from "@/hooks/usePlaybackRate";
 import { createTestSection } from "@/lib/test-section-narration";
+import { ARTICLE_SECTION_NARRATION_VERSION } from "@/lib/section-narration";
 import { TableOfContents } from "./TableOfContents";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -63,19 +64,26 @@ const TableHarness = ({
   value,
   wikiPageId = "1",
   initialRate = 1,
+  articleSections = sections,
 }: {
   value: DataContextValue;
   wikiPageId?: string;
   initialRate?: PlaybackRate;
+  articleSections?: Section[];
 }) => {
   const [rate, setRate] = useState<PlaybackRate>(initialRate);
   return (
     <DataContext.Provider value={value}>
       <TableOfContents
-        articleTitle="Example article"
-        wikiPageId={wikiPageId}
+        identity={{
+          wikiPageId,
+          revisionId: `revision-${wikiPageId}`,
+          title: "Example article",
+          language: "en",
+          narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+        }}
         summaryText="A summary with enough words to estimate audio duration."
-        sections={sections}
+        sections={articleSections}
         sectionDurations={{ summary: 120, "section-0": 60 }}
         playback={idlePlayback}
         onListenSection={() => {}}
@@ -129,11 +137,11 @@ describe("TableOfContents interactions", () => {
 
   it("loads details independently and closes stale panels on article change", async () => {
     const value = dataValue({
-      getSectionLinkCounts: vi.fn(async ({ wikiPageId }) =>
-        wikiPageId === "1" ? [{ title: "History", count: 2 }] : [],
+      getSectionLinkCounts: vi.fn(async ({ identity }) =>
+        identity.wikiPageId === "1" ? [{ title: "History", count: 2 }] : [],
       ),
-      getCitationCounts: vi.fn(async ({ wikiPageId }) =>
-        wikiPageId === "1" ? [{ title: "History", count: 1 }] : [],
+      getCitationCounts: vi.fn(async ({ identity }) =>
+        identity.wikiPageId === "1" ? [{ title: "History", count: 1 }] : [],
       ),
       getSectionLinks: vi.fn(async () => [
         { wikiPageId: "linked", title: "Linked article" },
@@ -160,6 +168,17 @@ describe("TableOfContents interactions", () => {
       expect(details.getAttribute("aria-expanded")).toBe("true");
       expect(container.textContent).toContain("Linked article");
       expect(container.textContent).toContain("A cited source");
+      expect(value.getSectionLinks).toHaveBeenCalledWith({
+        identity: {
+          wikiPageId: "1",
+          revisionId: "revision-1",
+          title: "Example article",
+          language: "en",
+        },
+        sectionTitle: "History",
+        sectionIndex: "1",
+        signal: expect.any(AbortSignal),
+      });
     });
 
     await act(async () =>
@@ -170,5 +189,73 @@ describe("TableOfContents interactions", () => {
     ).toBeNull();
     expect(container.textContent).not.toContain("Linked article");
     expect(container.textContent).not.toContain("A cited source");
+  });
+
+  it("opens metadata for the correct one of two identically titled sections", async () => {
+    const duplicateSections: Section[] = [
+      createTestSection({
+        wikiSectionIndex: "3",
+        title: "History",
+        content: "The first history section.",
+      }),
+      createTestSection({
+        wikiSectionIndex: "8",
+        title: "History",
+        content: "The second history section.",
+      }),
+    ];
+    const getSectionCitations = vi.fn(async () => [
+      { id: "second", index: 2, text: "Second History source" },
+    ]);
+    const value = dataValue({
+      getSectionLinkCounts: async () => [
+        { index: "3", title: "History", count: 1 },
+        { index: "8", title: "History", count: 2 },
+      ],
+      getCitationCounts: async () => [
+        { index: "3", title: "History", count: 1 },
+        { index: "8", title: "History", count: 3 },
+      ],
+      getSectionLinks: async () => [
+        { wikiPageId: "linked-second", title: "Second linked article" },
+      ],
+      getSectionCitations,
+    });
+
+    await act(async () =>
+      root.render(
+        <TableHarness value={value} articleSections={duplicateSections} />,
+      ),
+    );
+    await waitForExpectation(() => {
+      expect(
+        container.querySelector('[aria-label="1 link · 1 citation"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[aria-label="2 links · 3 citations"]'),
+      ).not.toBeNull();
+    });
+
+    act(() =>
+      (
+        container.querySelector(
+          '[aria-label="2 links · 3 citations"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+
+    await waitForExpectation(() =>
+      expect(getSectionCitations).toHaveBeenCalledWith({
+        identity: {
+          wikiPageId: "1",
+          revisionId: "revision-1",
+          title: "Example article",
+          language: "en",
+        },
+        sectionTitle: "History",
+        sectionIndex: "8",
+        signal: expect.any(AbortSignal),
+      }),
+    );
   });
 });

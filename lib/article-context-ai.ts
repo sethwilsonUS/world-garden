@@ -1,11 +1,9 @@
 import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
-import {
-  getOpenAIClient,
-  isOpenAIConfigured,
-} from "@/lib/openai-client";
+import { getOpenAIClient, isOpenAIConfigured } from "@/lib/openai-client";
 import { consumeArticleContextAIQuota } from "@/lib/article-context-ai-quota";
+import { MAX_BLOCKS_PER_ARTICLE } from "@/lib/article-context-limits";
 import type {
   ContextBlock,
   ContextManifest,
@@ -25,7 +23,7 @@ const ContextDescriptionSchema = z.object({
         longDescription: z.string().min(1).max(3_200),
       }),
     )
-    .max(6),
+    .max(MAX_BLOCKS_PER_ARTICLE),
 });
 
 type ContextDescriptionResult = z.infer<typeof ContextDescriptionSchema>;
@@ -110,9 +108,7 @@ const normalizeNumericToken = (value: string): string =>
 
 const numericTokens = (value: string): Set<string> =>
   new Set(
-    (value.match(/[-+]?\d[\d,_]*(?:\.\d+)?/g) ?? []).map(
-      normalizeNumericToken,
-    ),
+    (value.match(/[-+]?\d[\d,_]*(?:\.\d+)?/g) ?? []).map(normalizeNumericToken),
   );
 
 /**

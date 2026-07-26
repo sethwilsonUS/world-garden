@@ -1,16 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   findReusableArticleAudioExport,
+  getArticleAudioExportDownloadIdentity,
+  getRecentArticleAudioExports,
   getArticleExportSections,
+  isArticleAudioExportCompatible,
+  isArticleAudioExportReusable,
+  isRequestedTtsMetadataValid,
+  MAX_RECENT_EXPORT_CANDIDATES,
+  normalizeRecentArticleAudioExportLimit,
+  resolveRequestedArticleExportTtsMetadata,
 } from "./articleExports";
-import { hashNarrationText } from "../lib/section-narration";
+import { buildTtsCacheKey, type TtsMetadata } from "../lib/tts-profile";
+import { TTS_NORM_VERSION } from "../lib/tts-normalize";
+import {
+  ARTICLE_SECTION_NARRATION_VERSION,
+  buildArticleNarrationHash,
+  buildArticleNarrationTracks,
+} from "../lib/section-narration";
 import { createTestSection } from "../lib/test-section-narration";
+
+const STALE_TTS_NORM_VERSION = `${TTS_NORM_VERSION}:stale`;
 
 describe("getArticleExportSections", () => {
   it("includes every narrated section", () => {
-    const result = getArticleExportSections({
+    const article = {
       _id: "article-1" as never,
       title: "Example article",
+      revisionId: "100",
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
       summary: "Lead summary with enough content to speak aloud.",
       sections: [
         createTestSection({
@@ -35,30 +53,30 @@ describe("getArticleExportSections", () => {
           },
         }),
       ],
-    });
+    };
+    const result = getArticleExportSections(article);
+    const sourceHashes = new Map(
+      buildArticleNarrationTracks(article).map((track) => [
+        track.sectionKey,
+        track.sourceHash,
+      ]),
+    );
 
     expect(result).toEqual([
       {
         sectionKey: "summary",
         text: "Lead summary with enough content to speak aloud.",
-        sourceHash: hashNarrationText(
-          "Lead summary with enough content to speak aloud.",
-        ),
+        sourceHash: sourceHashes.get("summary"),
       },
       {
         sectionKey: "section-0",
-        text:
-          "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
-        sourceHash: hashNarrationText(
-          "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
-        ),
+        text: "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
+        sourceHash: sourceHashes.get("section-0"),
       },
       {
         sectionKey: "section-1",
         text: "Election results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
-        sourceHash: hashNarrationText(
-          "Election results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
-        ),
+        sourceHash: sourceHashes.get("section-1"),
       },
     ]);
   });
@@ -67,6 +85,8 @@ describe("getArticleExportSections", () => {
     const articleWithVisualContext = {
       _id: "article-1" as never,
       title: "Example article",
+      revisionId: "100",
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
       summary: "Lead summary with enough content to speak aloud.",
       sections: [],
       contextBlocks: [
@@ -80,14 +100,15 @@ describe("getArticleExportSections", () => {
     };
 
     const result = getArticleExportSections(articleWithVisualContext);
+    const summarySourceHash = buildArticleNarrationTracks(
+      articleWithVisualContext,
+    )[0].sourceHash;
 
     expect(result).toEqual([
       {
         sectionKey: "summary",
         text: "Lead summary with enough content to speak aloud.",
-        sourceHash: hashNarrationText(
-          "Lead summary with enough content to speak aloud.",
-        ),
+        sourceHash: summarySourceHash,
       },
     ]);
     expect(JSON.stringify(result)).not.toContain("milestone");
@@ -97,6 +118,20 @@ describe("getArticleExportSections", () => {
 
 describe("findReusableArticleAudioExport", () => {
   it("does not reuse ready exports generated for a different TTS cache key", () => {
+    const edgeTtsCacheKey = buildTtsCacheKey({
+      provider: "edge",
+      model: "edge-tts",
+      voiceId: "en-US-AriaNeural",
+      promptVersion: "edge-default",
+      ttsNormVersion: TTS_NORM_VERSION,
+    });
+    const openAiTtsCacheKey = buildTtsCacheKey({
+      provider: "openai",
+      model: "gpt-4o-mini-tts",
+      voiceId: "marin",
+      promptVersion: "curio-warm-narrator-v1",
+      ttsNormVersion: TTS_NORM_VERSION,
+    });
     const reusable = findReusableArticleAudioExport(
       [
         {
@@ -104,18 +139,17 @@ describe("findReusableArticleAudioExport", () => {
           status: "ready",
           updatedAt: 1,
           narrationHash: "current-narration",
-          ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          ttsCacheKey: edgeTtsCacheKey,
         },
         {
           _id: "new-export",
           status: "ready",
           updatedAt: 2,
           narrationHash: "current-narration",
-          ttsCacheKey:
-            "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          ttsCacheKey: openAiTtsCacheKey,
         },
       ],
-      "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+      openAiTtsCacheKey,
       "current-narration",
     );
 
@@ -138,5 +172,259 @@ describe("findReusableArticleAudioExport", () => {
         "current-narration",
       ),
     ).toBeUndefined();
+  });
+
+  it("keeps a fallback export deliverable but does not reuse it as primary-profile audio", () => {
+    const fallbackExport = {
+      _id: "fallback-export",
+      status: "ready",
+      updatedAt: 1,
+      narrationHash: "current-narration",
+      ttsCacheKey: "requested-primary-profile",
+      producedTtsCacheKey: "produced-fallback-profile",
+    };
+
+    expect(
+      isArticleAudioExportCompatible(
+        fallbackExport,
+        "requested-primary-profile",
+        "current-narration",
+      ),
+    ).toBe(true);
+    expect(
+      isArticleAudioExportReusable(
+        fallbackExport,
+        "requested-primary-profile",
+        "current-narration",
+      ),
+    ).toBe(false);
+    expect(
+      findReusableArticleAudioExport(
+        [fallbackExport],
+        "requested-primary-profile",
+        "current-narration",
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("isArticleAudioExportCompatible", () => {
+  it("rejects exports from a different TTS profile even when narration matches", () => {
+    expect(
+      isArticleAudioExportCompatible(
+        {
+          narrationHash: "current-narration",
+          ttsCacheKey: "previous-profile",
+        },
+        "current-profile",
+        "current-narration",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts an export only when both TTS profile and narration match", () => {
+    expect(
+      isArticleAudioExportCompatible(
+        {
+          narrationHash: "current-narration",
+          ttsCacheKey: "current-profile",
+        },
+        "current-profile",
+        "current-narration",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isRequestedTtsMetadataValid", () => {
+  const metadata = (() => {
+    const profile = {
+      provider: "edge" as const,
+      model: "edge-tts",
+      voiceId: "en-US-AriaNeural",
+      promptVersion: "edge-default",
+      ttsNormVersion: TTS_NORM_VERSION,
+    };
+    return {
+      ...profile,
+      ttsCacheKey: buildTtsCacheKey(profile),
+    } satisfies TtsMetadata;
+  })();
+
+  it("accepts a complete profile supplied by the initiating server", () => {
+    expect(isRequestedTtsMetadataValid(metadata)).toBe(true);
+  });
+
+  it("rejects a profile whose cache identity does not match its fields", () => {
+    expect(
+      isRequestedTtsMetadataValid({
+        ...metadata,
+        voiceId: "en-US-GuyNeural",
+      }),
+    ).toBe(false);
+  });
+
+  it("replaces a stale stored profile with the worker's current identity", () => {
+    const resolved = resolveRequestedArticleExportTtsMetadata({
+      ...metadata,
+      ttsNormVersion: STALE_TTS_NORM_VERSION,
+      ttsCacheKey: buildTtsCacheKey({
+        ...metadata,
+        ttsNormVersion: STALE_TTS_NORM_VERSION,
+      }),
+    });
+
+    expect(isRequestedTtsMetadataValid(resolved)).toBe(true);
+    expect(resolved.ttsNormVersion).toBe(TTS_NORM_VERSION);
+    expect(resolved.ttsCacheKey).not.toContain(STALE_TTS_NORM_VERSION);
+  });
+});
+
+describe("getRecentArticleAudioExports", () => {
+  it.each([
+    { input: undefined, expected: 4 },
+    { input: 1.9, expected: 1 },
+    { input: 4.9, expected: 4 },
+    { input: 10.9, expected: 10 },
+    { input: Number.NaN, expected: 4 },
+    { input: Number.POSITIVE_INFINITY, expected: 4 },
+    { input: Number.NEGATIVE_INFINITY, expected: 4 },
+    { input: 0, expected: 1 },
+    { input: -5, expected: 1 },
+    { input: 11, expected: 10 },
+  ])(
+    "normalizes $input to an integer limit of $expected",
+    ({ input, expected }) => {
+      expect(normalizeRecentArticleAudioExportLimit(input)).toBe(expected);
+    },
+  );
+
+  it("bounds candidates, skips dismissed reads, and stops once the compatible limit is filled", async () => {
+    const currentArticle = {
+      _id: "article-current",
+      title: "Current article",
+      summary: "Current narration source.",
+      sections: [],
+    };
+    const currentNarrationHash = buildArticleNarrationHash(
+      currentArticle as never,
+    );
+    const records = [
+      {
+        _id: "dismissed-export",
+        articleId: "article-dismissed",
+        clientId: "client-1",
+        title: "Dismissed",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: currentNarrationHash,
+        ttsCacheKey: "current-tts",
+        dismissedAt: 10,
+        createdAt: 1,
+        updatedAt: 4,
+      },
+      {
+        _id: "incompatible-export",
+        articleId: "article-old",
+        clientId: "client-1",
+        title: "Old",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: "old-narration",
+        ttsCacheKey: "current-tts",
+        createdAt: 1,
+        updatedAt: 3,
+      },
+      {
+        _id: "current-export",
+        articleId: "article-current",
+        clientId: "client-1",
+        title: "Current",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: currentNarrationHash,
+        ttsCacheKey: "current-tts",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      {
+        _id: "after-limit-export",
+        articleId: "article-after-limit",
+        clientId: "client-1",
+        title: "After limit",
+        status: "ready",
+        sectionCount: 1,
+        completedSectionCount: 1,
+        narrationHash: currentNarrationHash,
+        ttsCacheKey: "current-tts",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+    const take = vi.fn(async () => records);
+    const query = vi.fn(() => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        filter: vi.fn(() => chain),
+        order: vi.fn(() => chain),
+        take,
+      };
+      return chain;
+    });
+    const get = vi.fn(async (id: string) => {
+      if (id === "article-old") return currentArticle;
+      if (id === "article-current") return currentArticle;
+      throw new Error(`Unexpected article read: ${id}`);
+    });
+    const handler = (
+      getRecentArticleAudioExports as unknown as {
+        _handler: (
+          ctx: unknown,
+          args: unknown,
+        ) => Promise<Array<{ _id: string }>>;
+      }
+    )._handler;
+
+    const result = await handler(
+      {
+        db: { query, get },
+        storage: { getUrl: vi.fn() },
+      },
+      { clientId: "client-1", limit: 1.5, ttsCacheKey: "current-tts" },
+    );
+
+    expect(result.map((record) => record._id)).toEqual(["current-export"]);
+    expect(take).toHaveBeenCalledOnce();
+    expect(take).toHaveBeenCalledWith(MAX_RECENT_EXPORT_CANDIDATES);
+    expect(get).not.toHaveBeenCalledWith("article-dismissed");
+    expect(get).not.toHaveBeenCalledWith("article-after-limit");
+  });
+});
+
+describe("getArticleAudioExportDownloadIdentity", () => {
+  it("returns null for a malformed Convex ID without reading the database", async () => {
+    const normalizeId = vi.fn(() => null);
+    const get = vi.fn();
+    const handler = (
+      getArticleAudioExportDownloadIdentity as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        { db: { normalizeId, get } },
+        { exportId: "definitely-not-a-convex-id" },
+      ),
+    ).resolves.toBeNull();
+
+    expect(normalizeId).toHaveBeenCalledWith(
+      "articleAudioExports",
+      "definitely-not-a-convex-id",
+    );
+    expect(get).not.toHaveBeenCalled();
   });
 });

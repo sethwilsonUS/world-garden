@@ -6,7 +6,9 @@ import {
   type Citation,
   type LinkedArticle,
   type LinkCount,
+  type WikipediaRevisionIdentity,
 } from "@/lib/data-context";
+import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 
 type SectionCountMap = Record<string, number>;
 
@@ -17,8 +19,9 @@ type SectionCountsState = {
 };
 
 type SectionDetailsArgs = {
-  wikiPageId: string;
+  identity: WikipediaRevisionIdentity;
   sectionTitle: string | null;
+  sectionIndex?: string;
   hasLinks: boolean;
   hasCitations: boolean;
 };
@@ -31,7 +34,9 @@ type SectionDetailsState = {
 
 const toCountMap = (counts: LinkCount[]): SectionCountMap => {
   const result: SectionCountMap = {};
-  for (const { title, count } of counts) result[title] = count;
+  for (const { index, title, count } of counts) {
+    result[index ?? title] = count;
+  }
   return result;
 };
 
@@ -42,12 +47,19 @@ const emptyCounts = (key: string): SectionCountsState => ({
 });
 
 const detailsKey = ({
-  wikiPageId,
+  identity,
   sectionTitle,
+  sectionIndex,
   hasLinks,
   hasCitations,
 }: SectionDetailsArgs): string =>
-  JSON.stringify([wikiPageId, sectionTitle, hasLinks, hasCitations]);
+  JSON.stringify([
+    wikipediaRevisionKey(identity),
+    sectionTitle,
+    sectionIndex,
+    hasLinks,
+    hasCitations,
+  ]);
 
 const emptyDetails = (
   key: string,
@@ -59,17 +71,25 @@ const emptyDetails = (
   citations: hasCitations ? null : [],
 });
 
-export const useArticleSectionCounts = (wikiPageId: string) => {
+export const useArticleSectionCounts = (
+  identity: WikipediaRevisionIdentity,
+) => {
   const { getSectionLinkCounts, getCitationCounts } = useData();
+  const { wikiPageId, revisionId, title, language } = identity;
+  const identityKey = wikipediaRevisionKey(identity);
   const [state, setState] = useState<SectionCountsState>(() =>
-    emptyCounts(wikiPageId),
+    emptyCounts(identityKey),
   );
 
   useEffect(() => {
     const controller = new AbortController();
-    const key = wikiPageId;
+    const key = identityKey;
+    const requestIdentity = { wikiPageId, revisionId, title, language };
 
-    void getSectionLinkCounts({ wikiPageId, signal: controller.signal })
+    void getSectionLinkCounts({
+      identity: requestIdentity,
+      signal: controller.signal,
+    })
       .then((counts) => {
         if (controller.signal.aborted) return;
         setState((current) => ({
@@ -85,7 +105,10 @@ export const useArticleSectionCounts = (wikiPageId: string) => {
         }));
       });
 
-    void getCitationCounts({ wikiPageId, signal: controller.signal })
+    void getCitationCounts({
+      identity: requestIdentity,
+      signal: controller.signal,
+    })
       .then((counts) => {
         if (controller.signal.aborted) return;
         setState((current) => ({
@@ -102,26 +125,37 @@ export const useArticleSectionCounts = (wikiPageId: string) => {
       });
 
     return () => controller.abort();
-  }, [getCitationCounts, getSectionLinkCounts, wikiPageId]);
+  }, [
+    getCitationCounts,
+    getSectionLinkCounts,
+    identityKey,
+    language,
+    revisionId,
+    title,
+    wikiPageId,
+  ]);
 
-  return state.key === wikiPageId ? state : emptyCounts(wikiPageId);
+  return state.key === identityKey ? state : emptyCounts(identityKey);
 };
 
 export const useArticleSectionDetails = (args: SectionDetailsArgs) => {
   const { getSectionLinks, getSectionCitations } = useData();
   const key = detailsKey(args);
-  const { wikiPageId, sectionTitle, hasLinks, hasCitations } = args;
+  const { identity, sectionTitle, sectionIndex, hasLinks, hasCitations } = args;
+  const { wikiPageId, revisionId, title, language } = identity;
   const [state, setState] = useState<SectionDetailsState>(() =>
     emptyDetails(key, hasLinks, hasCitations),
   );
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestIdentity = { wikiPageId, revisionId, title, language };
 
     if (hasLinks) {
       void getSectionLinks({
-        wikiPageId,
+        identity: requestIdentity,
         sectionTitle,
+        sectionIndex,
         signal: controller.signal,
       })
         .then((links) => {
@@ -146,8 +180,9 @@ export const useArticleSectionDetails = (args: SectionDetailsArgs) => {
 
     if (hasCitations) {
       void getSectionCitations({
-        wikiPageId,
+        identity: requestIdentity,
         sectionTitle,
+        sectionIndex,
         signal: controller.signal,
       })
         .then((citations) => {
@@ -178,6 +213,10 @@ export const useArticleSectionDetails = (args: SectionDetailsArgs) => {
     hasLinks,
     key,
     sectionTitle,
+    sectionIndex,
+    language,
+    revisionId,
+    title,
     wikiPageId,
   ]);
 

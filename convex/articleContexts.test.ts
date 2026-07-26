@@ -21,15 +21,9 @@ import {
   getArticleContextCacheForCtx as getArticleContextCacheForCtxFromCache,
   removeArticleContextCacheForCtx as removeArticleContextCacheForCtxFromCache,
 } from "./articleContextCache";
-import {
-  getArticleContextModerationForCtx as getArticleContextModerationForCtxFromModeration,
-} from "./articleContextModeration";
-import {
-  listArticleContextReportsForCtx as listArticleContextReportsForCtxFromReports,
-} from "./articleContextReports";
-import {
-  validateAndNormalizeManifestJson as validateAndNormalizeManifestJsonFromValidation,
-} from "./articleContextValidation";
+import { getArticleContextModerationForCtx as getArticleContextModerationForCtxFromModeration } from "./articleContextModeration";
+import { listArticleContextReportsForCtx as listArticleContextReportsForCtxFromReports } from "./articleContextReports";
+import { validateAndNormalizeManifestJson as validateAndNormalizeManifestJsonFromValidation } from "./articleContextValidation";
 
 type TableName =
   | "articleContextCaches"
@@ -274,6 +268,12 @@ describe("article context cache validation", () => {
         id: `timeline-${index}`,
       }),
     );
+    expect(
+      validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, tooMany.slice(0, MAX_ARTICLE_CONTEXT_BLOCKS)),
+        cacheKey,
+      ).blockCount,
+    ).toBe(MAX_ARTICLE_CONTEXT_BLOCKS);
     expect(() =>
       validateAndNormalizeManifestJson(
         manifestJson(cacheKey, tooMany),
@@ -301,9 +301,354 @@ describe("article context cache validation", () => {
       validateAndNormalizeManifestJson(JSON.stringify(parsed), cacheKey),
     ).toThrow("legacy audio copy");
   });
+
+  it("preserves bounded diagram legends and rejects unsafe color values", () => {
+    const diagram = {
+      id: "olympics-medal-map",
+      kind: "diagram",
+      title: "2024 Olympics medal map",
+      caption: "World map showing medal achievements.",
+      longDescription: "The source map and its complete legend.",
+      diagram: {
+        image: {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Medal_map.png",
+          alt: "World map showing medal achievements",
+          width: 1_200,
+          height: 675,
+        },
+        parts: [
+          {
+            id: "medal-countries",
+            label: "Countries represented by medal achievement",
+            description: "Each country is classified by its best medal.",
+          },
+          {
+            id: "non-participants",
+            label: "Countries that did not participate",
+          },
+        ],
+        relationships: [
+          {
+            fromId: "medal-countries",
+            toId: "non-participants",
+            label: "contrasts with",
+          },
+        ],
+        walkthrough: ["Read the source-derived medal legend."],
+        caption: "World map showing medal achievements.",
+        legend: {
+          description: "World map showing medal achievements.",
+          entries: [
+            {
+              color: "#FFD700",
+              text: "Countries that won at least one gold medal.",
+            },
+            {
+              color: "#C0C0C0",
+              text: "Countries that won silver medals but no gold medals.",
+            },
+          ],
+          notes: ["The Refugee Olympic Team is not represented on the map."],
+        },
+      },
+      provenance: {
+        sourceHash: cacheKey.sourceHash,
+        extractorVersion: cacheKey.extractorVersion,
+      },
+    };
+    const normalized = validateAndNormalizeManifestJson(
+      manifestJson(cacheKey, [diagram]),
+      cacheKey,
+    );
+    expect(
+      (
+        JSON.parse(normalized.manifestJson).blocks[0] as {
+          diagram: { legend: unknown };
+        }
+      ).diagram.legend,
+    ).toEqual(diagram.diagram.legend);
+
+    diagram.diagram.legend.entries[0]!.color =
+      "url(https://example.com/tracker)";
+    expect(() =>
+      validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, [diagram]),
+        cacheKey,
+      ),
+    ).toThrow("invalid legend");
+  });
+
+  it.each([
+    [
+      "missing image data",
+      (diagram: Record<string, unknown>) => {
+        delete diagram.image;
+      },
+    ],
+    [
+      "an unsafe image URL",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "javascript:alert(1)",
+          alt: "Unsafe image",
+        };
+      },
+    ],
+    [
+      "a direct SVG image URL",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.svg",
+          alt: "Unsafe vector image",
+        };
+      },
+    ],
+    [
+      "a math-rendering image URL",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/math/a/ab/Formula.png",
+          alt: "Math rendering",
+        };
+      },
+    ],
+    [
+      "an unsafe original image URL",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+          originalSrc: "https://example.com/tracker.png",
+          alt: "Example diagram",
+        };
+      },
+    ],
+    [
+      "blank image alternative text",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+          alt: " ",
+        };
+      },
+    ],
+    [
+      "unbounded image alternative text",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+          alt: "x".repeat(4_001),
+        };
+      },
+    ],
+    [
+      "a zero image dimension",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+          alt: "Example diagram",
+          width: 0,
+        };
+      },
+    ],
+    [
+      "a fractional image dimension",
+      (diagram: Record<string, unknown>) => {
+        diagram.image = {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+          alt: "Example diagram",
+          height: 1.5,
+        };
+      },
+    ],
+    [
+      "a malformed named part",
+      (diagram: Record<string, unknown>) => {
+        diagram.parts = [{ id: "part-1", label: "" }];
+      },
+    ],
+    [
+      "duplicate named-part IDs",
+      (diagram: Record<string, unknown>) => {
+        diagram.parts = [
+          { id: "part-1", label: "Part 1" },
+          { id: "part-1", label: "Part 2" },
+        ];
+      },
+    ],
+    [
+      "non-array named parts",
+      (diagram: Record<string, unknown>) => {
+        diagram.parts = { id: "part-1", label: "Part 1" };
+      },
+    ],
+    [
+      "malformed relationship fields",
+      (diagram: Record<string, unknown>) => {
+        diagram.relationships = [
+          {
+            fromId: "",
+            toId: "external-part",
+            label: 42,
+          },
+        ];
+      },
+    ],
+    [
+      "non-array relationships",
+      (diagram: Record<string, unknown>) => {
+        diagram.relationships = {
+          fromId: "medal-countries",
+          toId: "medal-countries",
+          label: "corresponds to",
+        };
+      },
+    ],
+    [
+      "an unbounded relationship label",
+      (diagram: Record<string, unknown>) => {
+        diagram.relationships = [
+          {
+            fromId: "medal-countries",
+            toId: "medal-countries",
+            label: "x".repeat(1_001),
+          },
+        ];
+      },
+    ],
+    [
+      "a missing walkthrough",
+      (diagram: Record<string, unknown>) => {
+        delete diagram.walkthrough;
+      },
+    ],
+    [
+      "an empty walkthrough",
+      (diagram: Record<string, unknown>) => {
+        diagram.walkthrough = [];
+      },
+    ],
+    [
+      "too many walkthrough steps",
+      (diagram: Record<string, unknown>) => {
+        diagram.walkthrough = Array.from(
+          { length: 13 },
+          (_, index) => `Step ${index + 1}`,
+        );
+      },
+    ],
+    [
+      "a blank diagram caption",
+      (diagram: Record<string, unknown>) => {
+        diagram.caption = " ";
+      },
+    ],
+  ])("rejects diagram cache data with %s", (_label, mutate) => {
+    const parsed = JSON.parse(manifestJson(cacheKey, [])) as {
+      blocks: Array<Record<string, unknown>>;
+    };
+    const validDiagram = {
+      id: "diagram-1",
+      kind: "diagram",
+      title: "Example diagram",
+      caption: "A complete diagram.",
+      longDescription: "The diagram identifies one named part.",
+      diagram: {
+        image: {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+          alt: "A complete example diagram",
+          width: 800,
+          height: 600,
+        },
+        parts: [{ id: "medal-countries", label: "Medal countries" }],
+        relationships: [],
+        walkthrough: ["Begin with the named part."],
+        caption: "A complete example diagram.",
+      },
+      provenance: {
+        sourceHash: cacheKey.sourceHash,
+        extractorVersion: cacheKey.extractorVersion,
+      },
+    };
+    mutate(validDiagram.diagram);
+    parsed.blocks = [validDiagram];
+
+    expect(() =>
+      validateAndNormalizeManifestJson(JSON.stringify(parsed), cacheKey),
+    ).toThrow("invalid diagram data");
+  });
+
+  it("accepts safe SVG thumbnails, omitted dimensions, and external relationship IDs", () => {
+    const diagram = {
+      id: "diagram-contract-boundaries",
+      kind: "diagram",
+      title: "Diagram contract boundaries",
+      caption: "A safe diagram with source-defined relationship IDs.",
+      longDescription:
+        "The relationship identifiers are meaningful even without named parts.",
+      diagram: {
+        image: {
+          src: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.svg/640px-Example.svg.png",
+          alt: "A raster thumbnail generated from a Commons SVG",
+        },
+        parts: [],
+        relationships: [
+          {
+            fromId: "source-node",
+            toId: "target-node",
+            label: "flows into",
+          },
+        ],
+        walkthrough: Array.from(
+          { length: 12 },
+          (_, index) => `Step ${index + 1}`,
+        ),
+        caption: "A safe diagram with source-defined relationship IDs.",
+      },
+      provenance: {
+        sourceHash: cacheKey.sourceHash,
+        extractorVersion: cacheKey.extractorVersion,
+      },
+    };
+
+    expect(() =>
+      validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, [diagram]),
+        cacheKey,
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("article context cache persistence", () => {
+  it("does not persist malformed diagram data", async () => {
+    const { ctx, tables } = createCtx();
+    const malformedDiagram = {
+      id: "malformed-diagram",
+      kind: "diagram",
+      title: "Malformed diagram",
+      caption: "This block must not reach durable storage.",
+      longDescription: "The required diagram image is missing.",
+      diagram: {
+        parts: [],
+        relationships: [],
+        walkthrough: ["No image is available."],
+        caption: "This block must not reach durable storage.",
+      },
+      provenance: {
+        sourceHash: cacheKey.sourceHash,
+        extractorVersion: cacheKey.extractorVersion,
+      },
+    };
+
+    await expect(
+      upsertArticleContextCacheForCtx(ctx, {
+        ...cacheKey,
+        manifestJson: manifestJson(cacheKey, [malformedDiagram]),
+      }),
+    ).rejects.toThrow("invalid diagram data");
+    expect(tables.articleContextCaches).toHaveLength(0);
+  });
+
   it("upserts an exact revision/hash key and reads it back", async () => {
     const { ctx, tables } = createCtx();
     const first = await upsertArticleContextCacheForCtx(ctx, {
@@ -368,7 +713,9 @@ describe("article context cache persistence", () => {
     await expect(removeArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBe(
       true,
     );
-    await expect(getArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBeNull();
+    await expect(
+      getArticleContextCacheForCtx(ctx, cacheKey),
+    ).resolves.toBeNull();
     await expect(
       getArticleContextCacheForCtx(ctx, otherKey),
     ).resolves.toMatchObject({ sourceHash: otherKey.sourceHash });
@@ -546,9 +893,9 @@ describe("article context reports and moderation", () => {
       note: "Source data needs review.",
       now: 100,
     });
-    expect(await getArticleContextModerationForCtx(ctx, blockKey)).toMatchObject(
-      { mode: "suppress", updatedAt: 100 },
-    );
+    expect(
+      await getArticleContextModerationForCtx(ctx, blockKey),
+    ).toMatchObject({ mode: "suppress", updatedAt: 100 });
 
     await setArticleContextModerationForCtx(ctx, {
       ...blockKey,

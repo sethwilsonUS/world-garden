@@ -1,111 +1,62 @@
 "use client";
 
 import { ReactNode, useMemo } from "react";
+import { DataContext, type DataContextValue } from "./data-context";
 import {
-  DataContext,
-  type DataContextValue,
-  type Article,
-} from "./data-context";
-import {
-  searchWikipedia,
-  fetchArticleByTitle,
-  fetchArticleBadgeKeys,
-  slugToTitle,
-  fetchParsedPageData,
-  fetchSectionLinksByIndex,
-  type ParsedPageData,
-} from "@/convex/lib/wikipedia";
-
-const parsedCache = new Map<string, ParsedPageData>();
-
-const getOrFetchParsed = async (
-  wikiPageId: string,
-  signal?: AbortSignal,
-): Promise<ParsedPageData> => {
-  const cached = parsedCache.get(wikiPageId);
-  if (cached) return cached;
-  const data = await fetchParsedPageData(wikiPageId, signal);
-  parsedCache.set(wikiPageId, data);
-  return data;
-};
+  requestLocalWikipedia,
+  requestLocalWikipediaMetadata,
+} from "@/lib/local-wikipedia-client";
+import { findWikipediaSectionMetadata } from "@/lib/wikipedia-utils";
 
 export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
   const value = useMemo<DataContextValue>(
     () => ({
       search: async ({ term }) => {
         if (!term.trim()) return [];
-        return searchWikipedia(term.trim());
+        return requestLocalWikipedia({
+          operation: "search",
+          term: term.trim(),
+        });
       },
 
-      fetchArticle: async ({ slug }) => {
-        const title = slugToTitle(slug);
-        const data = await fetchArticleByTitle(title);
-        let badgeKeys: Article["badgeKeys"];
+      fetchArticle: ({ slug }) =>
+        requestLocalWikipedia({ operation: "article", slug }),
 
-        try {
-          badgeKeys = await fetchArticleBadgeKeys(data.wikiPageId);
-        } catch {
-          badgeKeys = undefined;
-        }
-
-        const article: Article = {
-          wikiPageId: data.wikiPageId,
-          title: data.title,
-          language: data.language,
-          revisionId: data.revisionId,
-          narrationVersion: data.narrationVersion,
-          lastEdited: data.lastEdited,
-          summary: data.summary,
-          thumbnailUrl: data.thumbnailUrl,
-          thumbnailWidth: data.thumbnailWidth,
-          thumbnailHeight: data.thumbnailHeight,
-          thumbnailAttribution: data.thumbnailAttribution,
-          sections: data.sections,
-          badgeKeys,
-        };
-        return article;
-      },
-
-      getSectionLinkCounts: async ({ wikiPageId, signal }) => {
-        const data = await getOrFetchParsed(wikiPageId, signal);
+      getSectionLinkCounts: async ({ identity, signal }) => {
+        const data = await requestLocalWikipediaMetadata(identity, signal);
         return data.linkCounts;
       },
 
-      getCitationCounts: async ({ wikiPageId, signal }) => {
-        const data = await getOrFetchParsed(wikiPageId, signal);
-        return data.sectionCitations.map(({ title, count }) => ({
+      getCitationCounts: async ({ identity, signal }) => {
+        const data = await requestLocalWikipediaMetadata(identity, signal);
+        return data.sectionCitations.map(({ index, title, count }) => ({
+          ...(index !== undefined ? { index } : {}),
           title,
           count,
         }));
       },
 
-      getSectionLinks: async ({ wikiPageId, sectionTitle, signal }) => {
-        let sectionIndex = "0";
+      getSectionLinks: ({ identity, sectionTitle, sectionIndex, signal }) =>
+        requestLocalWikipedia(
+          {
+            operation: "section-links",
+            identity,
+            sectionTitle,
+            sectionIndex,
+          },
+          signal,
+        ),
 
-        if (sectionTitle !== null) {
-          const parseData = await getOrFetchParsed(wikiPageId, signal);
-          const normalise = (s: string) =>
-            s.replace(/<[^>]+>/g, "").trim().toLowerCase();
-          const target = normalise(sectionTitle);
-          const match = parseData.sectionIndexMap.find(
-            (s) => normalise(s.title) === target,
-          );
-          if (!match) return [];
-          sectionIndex = match.index;
-        }
-
-        return fetchSectionLinksByIndex(wikiPageId, sectionIndex, signal);
-      },
-
-      getSectionCitations: async ({ wikiPageId, sectionTitle, signal }) => {
-        const data = await getOrFetchParsed(wikiPageId, signal);
-        const key = sectionTitle ?? "__summary__";
-        const normalise = (s: string) =>
-          s.replace(/<[^>]+>/g, "").trim().toLowerCase();
-        const target = normalise(key);
-
-        const sectionInfo = data.sectionCitations.find(
-          (s) => normalise(s.title) === target,
+      getSectionCitations: async ({
+        identity,
+        sectionTitle,
+        sectionIndex,
+        signal,
+      }) => {
+        const data = await requestLocalWikipediaMetadata(identity, signal);
+        const sectionInfo = findWikipediaSectionMetadata(
+          data.sectionCitations,
+          { sectionTitle, sectionIndex },
         );
         if (!sectionInfo) return [];
 
@@ -113,8 +64,8 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
         return data.citations.filter((c) => idSet.has(c.id));
       },
 
-      getArticleImages: async ({ wikiPageId }) => {
-        const data = await getOrFetchParsed(wikiPageId);
+      getArticleImages: async ({ identity, signal }) => {
+        const data = await requestLocalWikipediaMetadata(identity, signal);
         return data.images;
       },
     }),

@@ -54,7 +54,10 @@ const emptyRow = (manifest: ContextManifest, block: ContextBlock): CsvRow => ({
 
 const chartCell = (value: ContextChartCell): CsvValue => value ?? "";
 
-const blockRows = (manifest: ContextManifest, block: ContextBlock): CsvRow[] => {
+const blockRows = (
+  manifest: ContextManifest,
+  block: ContextBlock,
+): CsvRow[] => {
   const base = emptyRow(manifest, block);
   if (block.kind === "map") {
     const places = block.map.places.map((place) => ({
@@ -131,7 +134,40 @@ const blockRows = (manifest: ContextManifest, block: ContextBlock): CsvRow[] => 
     label: `Step ${index + 1}`,
     description: step,
   }));
-  return [...parts, ...steps];
+  const legendEntries =
+    block.diagram.legend?.entries.map((entry, index) => ({
+      ...base,
+      item_type: "legend_entry",
+      item_id: `${block.id}:legend:${index + 1}`,
+      label: entry.text,
+      value: entry.color,
+    })) ?? [];
+  const legendNotes =
+    block.diagram.legend?.notes.map((note, index) => ({
+      ...base,
+      item_type: "legend_note",
+      item_id: `${block.id}:legend-note:${index + 1}`,
+      label: `Legend note ${index + 1}`,
+      description: note,
+    })) ?? [];
+  const legendDescription = block.diagram.legend
+    ? [
+        {
+          ...base,
+          item_type: "legend_description",
+          item_id: `${block.id}:legend-description`,
+          label: "Legend description",
+          description: block.diagram.legend.description,
+        },
+      ]
+    : [];
+  return [
+    ...parts,
+    ...steps,
+    ...legendDescription,
+    ...legendEntries,
+    ...legendNotes,
+  ];
 };
 
 const quoteCsv = (value: CsvValue): string => {
@@ -142,16 +178,21 @@ const quoteCsv = (value: CsvValue): string => {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 
-export const serializeArticleContextCsv = (manifest: ContextManifest): string => {
+export const serializeArticleContextCsv = (
+  manifest: ContextManifest,
+): string => {
   const rows = manifest.blocks.flatMap((block) => blockRows(manifest, block));
   return [
     CSV_HEADERS.join(","),
-    ...rows.map((row) => CSV_HEADERS.map((header) => quoteCsv(row[header])).join(",")),
+    ...rows.map((row) =>
+      CSV_HEADERS.map((header) => quoteCsv(row[header])).join(","),
+    ),
   ].join("\r\n");
 };
 
-export const serializeArticleContextJson = (manifest: ContextManifest): string =>
-  `${JSON.stringify(manifest, null, 2)}\n`;
+export const serializeArticleContextJson = (
+  manifest: ContextManifest,
+): string => `${JSON.stringify(manifest, null, 2)}\n`;
 
 const safeFileStem = (title: string): string =>
   title

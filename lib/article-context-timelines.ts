@@ -7,21 +7,13 @@ import {
 } from "./article-context-types";
 import {
   buildBaseBlock,
-  cleanWikitext,
-  findWikitextSection,
   sanitizeContextText,
-  sha256,
   uniqueId,
   type BlockCandidate,
-  type MediaWikiParsedSource,
 } from "./article-context-foundations";
+import type { ArticleContextTable } from "./article-context-table";
 
 const MAX_TIMELINE_EVENTS = 250;
-
-type TimelineTable = {
-  headers: string[];
-  rows: string[][];
-};
 
 const MONTHS: Record<string, number> = {
   january: 1,
@@ -386,128 +378,8 @@ export const createTimelineCandidate = ({
   return { block, position, priority };
 };
 
-const parseEasyTimelineDate = (
-  value: string,
-  format: "dmy" | "mdy" | "year",
-): ContextDateValue | null =>
-  parseSingleDate(value.trim(), { numericFormat: format });
-
-const STORM_TIMELINE_CATEGORIES: Record<string, string> = {
-  TD: "Tropical depression",
-  TS: "Tropical storm",
-  SD: "Subtropical depression",
-  SS: "Subtropical storm",
-  C1: "Category 1 hurricane",
-  C2: "Category 2 hurricane",
-  C3: "Category 3 hurricane",
-  C4: "Category 4 hurricane",
-  C5: "Category 5 hurricane",
-};
-
-const normalizeEasyTimelineCategory = (
-  value: string,
-  context: string,
-): string => {
-  const category = sanitizeContextText(value, 80);
-  if (!/(?:hurricane|storm|cyclone|typhoon|tropical)/i.test(context)) {
-    return category;
-  }
-  return STORM_TIMELINE_CATEGORIES[category.toUpperCase()] ?? category;
-};
-
-export const extractEasyTimelineCandidates = ({
-  source,
-  request,
-  sourceHash,
-  generatedAt,
-}: {
-  source: MediaWikiParsedSource;
-  request: ArticleContextRequest;
-  sourceHash: string;
-  generatedAt: string;
-}): BlockCandidate[] => {
-  const candidates: BlockCandidate[] = [];
-  let timelineIndex = 0;
-  for (const match of source.wikitext.matchAll(
-    /<timeline\b[^>]*>([\s\S]*?)<\/timeline>/gi,
-  )) {
-    const body = match[1];
-    if (body.length > 1_000_000) continue;
-    const formatMatch = body.match(/^\s*DateFormat\s*=\s*([^\s#]+)/im);
-    const formatText = formatMatch?.[1]?.toLowerCase() ?? "yyyy";
-    const numericFormat: "dmy" | "mdy" | "year" = formatText.startsWith("dd")
-      ? "dmy"
-      : formatText.startsWith("mm")
-        ? "mdy"
-        : "year";
-    const position = match.index ?? 0;
-    const section = findWikitextSection(
-      source.wikitext,
-      position,
-      source.sections,
-    );
-    const lines = body.split(/\r?\n/);
-    const events: ContextTimelineEvent[] = [];
-    let currentBar = "";
-    for (const line of lines) {
-      if (events.length > MAX_TIMELINE_EVENTS) break;
-      const barMatch = line.match(/^\s*(?:bar|barset)\s*:\s*([^\s]+)/i);
-      if (barMatch) currentBar = barMatch[1];
-      const extent = line.match(
-        /\bfrom\s*:\s*([^\s]+)\s+till\s*:\s*([^\s]+)([\s\S]*)$/i,
-      );
-      if (!extent || /^(month|months|axis|year|years)$/i.test(currentBar))
-        continue;
-      const trailing = extent[3];
-      const textMatch = trailing.match(/\btext\s*:\s*(?:"([^"]+)"|(.+?))\s*$/i);
-      if (!textMatch) continue;
-      const label = cleanWikitext(textMatch[1] ?? textMatch[2] ?? "", 300);
-      if (
-        !label ||
-        /^(january|february|march|april|may|june|july|august|september|october|november|december)$/i.test(
-          label,
-        )
-      ) {
-        continue;
-      }
-      const start = parseEasyTimelineDate(extent[1], numericFormat);
-      const end = parseEasyTimelineDate(extent[2], numericFormat);
-      if (!start || !end) continue;
-      const category = trailing.match(/\bcolor\s*:\s*([^\s]+)/i)?.[1];
-      const categoryContext = `${currentBar} ${section.title}`;
-      events.push({
-        id: uniqueId("event", `${start.sortKey}:${label}`, events.length),
-        label,
-        start: { ...start, precision: "range" },
-        end: { ...end, precision: "range" },
-        ...(category
-          ? {
-              category: normalizeEasyTimelineCategory(
-                category,
-                categoryContext,
-              ),
-            }
-          : {}),
-      });
-    }
-    const candidate = createTimelineCandidate({
-      events,
-      request,
-      sourceHash,
-      generatedAt,
-      section,
-      position,
-      priority: 92,
-      sourceIdentity: `easytimeline:${timelineIndex}:${sha256(body)}`,
-    });
-    if (candidate) candidates.push(candidate);
-    timelineIndex += 1;
-  }
-  return candidates;
-};
-
 export const extractTimelineFromTable = (
-  table: TimelineTable,
+  table: ArticleContextTable,
 ): ContextTimelineEvent[] | null => {
   const dateColumn = table.headers.findIndex((header) =>
     /(?:^|\b)(date|year|years|period|time|dates)(?:\b|$)/i.test(header),

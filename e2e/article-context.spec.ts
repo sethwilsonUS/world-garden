@@ -1,6 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
-import type { ContextManifest } from "../lib/article-context-types";
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Route,
+} from "@playwright/test";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  type ContextManifest,
+} from "../lib/article-context-types";
 
 const tinyPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -20,20 +29,20 @@ const provenance = {
   articleRevisionUrl:
     "https://en.wikipedia.org/w/index.php?title=Ada_Lovelace&oldid=123456789",
   sourceHash: "0123456789abcdef0123456789abcdef",
-  extractorVersion: "2.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   descriptionMethod: "ai-assisted" as const,
   model: "gpt-5.6-luna",
   promptVersion: "context-accessibility-v3",
 };
 
 const contextManifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   wikiPageId: "974",
   title: "Ada Lovelace",
   revisionId: "123456789",
   language: "en",
   sourceHash: "manifest-source-hash",
-  extractorVersion: "2.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [
     {
@@ -120,7 +129,8 @@ const contextManifest = {
               sortKey: 1837,
               precision: "year",
             },
-            description: "Babbage described a general-purpose mechanical computer.",
+            description:
+              "Babbage described a general-purpose mechanical computer.",
             category: "Invention",
           },
           {
@@ -132,7 +142,8 @@ const contextManifest = {
               sortKey: 1843,
               precision: "year",
             },
-            description: "Her translation and extensive notes appeared in print.",
+            description:
+              "Her translation and extensive notes appeared in print.",
             category: "Publication",
           },
         ],
@@ -153,7 +164,12 @@ const contextManifest = {
       chart: {
         columns: [
           { key: "document", label: "Document", dataType: "string" },
-          { key: "words", label: "Words", dataType: "number", unit: "thousands" },
+          {
+            key: "words",
+            label: "Words",
+            dataType: "number",
+            unit: "thousands",
+          },
         ],
         rows: [
           { document: "Source article", words: 8 },
@@ -192,9 +208,17 @@ const contextManifest = {
           height: 500,
         },
         parts: [
-          { id: "cards", label: "Punched cards", description: "The instruction input." },
+          {
+            id: "cards",
+            label: "Punched cards",
+            description: "The instruction input.",
+          },
           { id: "mill", label: "Mill", description: "The calculating unit." },
-          { id: "printer", label: "Printer", description: "The result output." },
+          {
+            id: "printer",
+            label: "Printer",
+            description: "The result output.",
+          },
         ],
         relationships: [
           { fromId: "cards", toId: "mill", label: "feed instructions into" },
@@ -209,6 +233,43 @@ const contextManifest = {
       },
     },
   ],
+} satisfies ContextManifest;
+
+const legendManifest = {
+  ...contextManifest,
+  blocks: contextManifest.blocks.flatMap((block) =>
+    block.kind === "diagram"
+      ? [
+          {
+            ...block,
+            title: "Olympic medal map",
+            caption: "World map showing medal achievements.",
+            longDescription:
+              "A source-derived color legend with 2 entries and 1 note follows below.",
+            diagram: {
+              ...block.diagram,
+              walkthrough: ["World map showing medal achievements."],
+              caption:
+                "World map showing medal achievements. Legend: gold medal countries and non-participants.",
+              legend: {
+                description: "World map showing medal achievements.",
+                entries: [
+                  {
+                    color: "#FFD700",
+                    text: "represents countries that won at least one gold medal.",
+                  },
+                  {
+                    color: "#ED1C24",
+                    text: "represents countries that did not participate.",
+                  },
+                ],
+                notes: ["Neutral athletes are not represented on the map."],
+              },
+            },
+          },
+        ]
+      : [],
+  ),
 } satisfies ContextManifest;
 
 const rankingManifest = {
@@ -237,16 +298,21 @@ const rankingManifest = {
           { key: "lost", label: "Lost", dataType: "number" },
           { key: "goalsFor", label: "Goals for", dataType: "number" },
           { key: "goalsAgainst", label: "Goals against", dataType: "number" },
-          { key: "goalDifference", label: "Goal difference", dataType: "number" },
+          {
+            key: "goalDifference",
+            label: "Goal difference",
+            dataType: "number",
+          },
           { key: "points", label: "Points", dataType: "number" },
           { key: "finalResult", label: "Final result", dataType: "string" },
         ],
         rows: Array.from({ length: 13 }, (_, index) => ({
           position: index + 1,
           group: String.fromCharCode(65 + (index % 12)),
-          team: index === 7
-            ? "A deliberately long national team name for reflow"
-            : `Team ${index + 1}`,
+          team:
+            index === 7
+              ? "A deliberately long national team name for reflow"
+              : `Team ${index + 1}`,
           played: 4,
           won: Math.max(0, 4 - Math.floor(index / 4)),
           drawn: index % 2,
@@ -311,17 +377,44 @@ const demographicChartManifest = {
       chart: {
         columns: [
           { key: "region", label: "Region", dataType: "string" },
-          { key: "population", label: "Population", dataType: "number", unit: "people" },
-          { key: "workingAge", label: "Working-age population", dataType: "number", unit: "people" },
-          { key: "share", label: "Share of world", dataType: "number", unit: "%" },
-          { key: "income", label: "Median household income", dataType: "number", unit: "$" },
+          {
+            key: "population",
+            label: "Population",
+            dataType: "number",
+            unit: "people",
+          },
+          {
+            key: "workingAge",
+            label: "Working-age population",
+            dataType: "number",
+            unit: "people",
+          },
+          {
+            key: "share",
+            label: "Share of world",
+            dataType: "number",
+            unit: "%",
+          },
+          {
+            key: "income",
+            label: "Median household income",
+            dataType: "number",
+            unit: "$",
+          },
         ],
         rows: [
-          { region: "World", population: 9_999_999, workingAge: 6_400_000, share: 100, income: 60_000 },
+          {
+            region: "World",
+            population: 9_999_999,
+            workingAge: 6_400_000,
+            share: 100,
+            income: 60_000,
+          },
           ...Array.from({ length: 15 }, (_, index) => ({
-            region: index === 14
-              ? "A deliberately long regional name for narrow-screen reflow"
-              : `Region ${index + 1}`,
+            region:
+              index === 14
+                ? "A deliberately long regional name for narrow-screen reflow"
+                : `Region ${index + 1}`,
             population: (index + 1) * 100_000,
             workingAge: (index + 1) * 64_000,
             share: Number(((index + 1) * 0.65).toFixed(2)),
@@ -430,6 +523,19 @@ const openDetailsWithKeyboard = async (page: Page, details: Locator) => {
   await expect(details).toHaveJSProperty("open", true);
 };
 
+const openVisualAidsWithKeyboard = async (page: Page) => {
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  await expect(disclosure.locator(":scope > summary")).toBeVisible();
+  if (
+    !(await disclosure.evaluate(
+      (details) => (details as HTMLDetailsElement).open,
+    ))
+  ) {
+    await openDetailsWithKeyboard(page, disclosure);
+  }
+  return disclosure;
+};
+
 const mockArticleAndContext = async (
   page: Page,
   {
@@ -439,6 +545,7 @@ const mockArticleAndContext = async (
     mapSourceFailures = 0,
     mapSourceFailureDelayMs = 0,
     mapSpriteFailure = false,
+    holdContextResponse = false,
     manifest = contextManifest,
   }: {
     mapStyleFailures?: number;
@@ -447,6 +554,7 @@ const mockArticleAndContext = async (
     mapSourceFailures?: number;
     mapSourceFailureDelayMs?: number;
     mapSpriteFailure?: boolean;
+    holdContextResponse?: boolean;
     manifest?: ContextManifest;
   } = {},
 ) => {
@@ -454,6 +562,12 @@ const mockArticleAndContext = async (
   let mapStyleRequests = 0;
   let mapSourceRequests = 0;
   let mapTileRequests = 0;
+  let releaseContextResponse = () => {};
+  const contextResponseGate = holdContextResponse
+    ? new Promise<void>((resolve) => {
+        releaseContextResponse = resolve;
+      })
+    : null;
 
   // Article audio may be warmed as the table of contents enters the viewport.
   // Keep that unrelated prefetch fully local to this context-focused spec.
@@ -461,9 +575,91 @@ const mockArticleAndContext = async (
     route.fulfill({
       status: 503,
       contentType: "application/json",
-      body: JSON.stringify({ error: "TTS is disabled in this browser fixture." }),
+      body: JSON.stringify({
+        error: "TTS is disabled in this browser fixture.",
+      }),
     }),
   );
+
+  await page.route("**/api/local-wikipedia", async (route) => {
+    const request = route.request().postDataJSON() as {
+      operation?: string;
+    };
+    if (request.operation === "article") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            wikiPageId: "974",
+            revisionId: "123456789",
+            title: "Ada Lovelace",
+            language: "en",
+            narrationVersion: 2,
+            lastEdited: "2026-07-10T12:00:00Z",
+            summary: "Ada Lovelace was an English mathematician and writer.",
+            thumbnailUrl:
+              "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
+            thumbnailWidth: 800,
+            thumbnailHeight: 1067,
+            sections: [
+              {
+                wikiSectionIndex: "1",
+                title: "Early life",
+                level: 2,
+                content:
+                  "She developed an enduring interest in mathematics and machines.",
+                narration: {
+                  mode: "verbatim",
+                  text: "Early life. She developed an enduring interest in mathematics and machines.",
+                  sourceFormat: "prose",
+                  adapted: false,
+                  usedRawFallback: false,
+                  sourceHash: "early-life-source-hash",
+                },
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+    if (request.operation === "metadata") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            linkCounts: [],
+            citations: [],
+            sectionCitations: [],
+            sectionIndexMap: [{ title: "Early life", index: "1" }],
+            images: [
+              {
+                src: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/330px-Ada_portrait.jpg",
+                originalSrc:
+                  "https://upload.wikimedia.org/wikipedia/commons/a/ab/Ada_portrait.jpg",
+                lightboxSrc:
+                  "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
+                lightboxWidth: 800,
+                lightboxHeight: 1067,
+                alt: "Portrait of Ada Lovelace",
+                caption: "Portrait of Ada Lovelace",
+                width: 330,
+                height: 440,
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [] }),
+    });
+  });
 
   await page.route("https://map-tiles.test/context/*/tiles/**", (route) => {
     mapTileRequests += 1;
@@ -479,55 +675,72 @@ const mockArticleAndContext = async (
       status: 503,
       contentType: "application/json",
       headers: { "access-control-allow-origin": "*" },
-      body: JSON.stringify({ error: "Map sprite unavailable in this fixture." }),
+      body: JSON.stringify({
+        error: "Map sprite unavailable in this fixture.",
+      }),
     }),
   );
 
-  await page.route("https://map-tiles.test/context/*/source.json", async (route) => {
-    mapSourceRequests += 1;
-    if (mapSourceRequests <= mapSourceFailures) {
-      if (mapSourceFailureDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, mapSourceFailureDelayMs));
+  await page.route(
+    "https://map-tiles.test/context/*/source.json",
+    async (route) => {
+      mapSourceRequests += 1;
+      if (mapSourceRequests <= mapSourceFailures) {
+        if (mapSourceFailureDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, mapSourceFailureDelayMs),
+          );
+        }
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          headers: { "access-control-allow-origin": "*" },
+          body: JSON.stringify({
+            error: "Map source metadata unavailable in this fixture.",
+          }),
+        });
+        return;
       }
+      const styleName = new URL(route.request().url()).pathname
+        .split("/")
+        .at(-2);
       await route.fulfill({
-        status: 503,
         contentType: "application/json",
         headers: { "access-control-allow-origin": "*" },
-        body: JSON.stringify({ error: "Map source metadata unavailable in this fixture." }),
+        body: JSON.stringify({
+          tiles: [
+            `https://map-tiles.test/context/${styleName}/tiles/{z}/{x}/{y}.png`,
+          ],
+          tileSize: 256,
+          minzoom: 0,
+          maxzoom: 22,
+        }),
       });
-      return;
-    }
-    const styleName = new URL(route.request().url()).pathname.split("/").at(-2);
-    await route.fulfill({
-      contentType: "application/json",
-      headers: { "access-control-allow-origin": "*" },
-      body: JSON.stringify({
-        tiles: [
-          `https://map-tiles.test/context/${styleName}/tiles/{z}/{x}/{y}.png`,
-        ],
-        tileSize: 256,
-        minzoom: 0,
-        maxzoom: 22,
-      }),
-    });
-  });
+    },
+  );
 
   const handleMapStyle = async (route: Route) => {
     mapStyleRequests += 1;
     if (mapStyleRequests <= mapStyleFailures) {
       if (mapStyleFailureDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, mapStyleFailureDelayMs));
+        await new Promise((resolve) =>
+          setTimeout(resolve, mapStyleFailureDelayMs),
+        );
       }
       await route.fulfill({
         status: 503,
         contentType: "application/json",
         headers: { "access-control-allow-origin": "*" },
-        body: JSON.stringify({ error: "Map style unavailable in this fixture." }),
+        body: JSON.stringify({
+          error: "Map style unavailable in this fixture.",
+        }),
       });
       return;
     }
     if (mapStyleSuccessDelayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, mapStyleSuccessDelayMs));
+      await new Promise((resolve) =>
+        setTimeout(resolve, mapStyleSuccessDelayMs),
+      );
     }
     const styleName = new URL(route.request().url()).pathname.split("/").at(-1);
     await route.fulfill({
@@ -556,8 +769,14 @@ const mockArticleAndContext = async (
       }),
     });
   };
-  await page.route("https://tiles.openfreemap.org/styles/liberty", handleMapStyle);
-  await page.route("https://tiles.openfreemap.org/styles/fiord", handleMapStyle);
+  await page.route(
+    "https://tiles.openfreemap.org/styles/liberty",
+    handleMapStyle,
+  );
+  await page.route(
+    "https://tiles.openfreemap.org/styles/fiord",
+    handleMapStyle,
+  );
 
   await page.route("**/api/article-context/report", async (route) => {
     reportPayload = route.request().postDataJSON();
@@ -576,6 +795,7 @@ const mockArticleAndContext = async (
       revisionId: "123456789",
       language: "en",
     });
+    await contextResponseGate;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -695,30 +915,134 @@ const mockArticleAndContext = async (
     getReportPayload: () => reportPayload,
     getMapStyleRequests: () => mapStyleRequests,
     getMapTileRequests: () => mapTileRequests,
+    releaseContextResponse,
   };
 };
+
+test("visual context reports a truthful reduced-motion loading state", async ({
+  page,
+}) => {
+  await page.emulateMedia({
+    reducedMotion: "reduce",
+    forcedColors: "active",
+  });
+  const { releaseContextResponse } = await mockArticleAndContext(page, {
+    holdContextResponse: true,
+  });
+  await page.goto("/article/Ada_Lovelace");
+
+  const lane = page.locator('[data-context-lane-state="loading"]');
+  const status = lane.getByRole("status");
+  const spinner = lane.locator(".context-visual-spinner");
+  try {
+    await expect(lane).toBeVisible();
+    await expect(lane.locator('[aria-busy="true"]')).toHaveCount(1);
+    await expect(status).toHaveText(
+      "Gathering maps, timelines, data, and diagrams with accessible descriptions…",
+    );
+    await expect(spinner).toBeVisible();
+    expect(
+      await status.evaluate((node) =>
+        Boolean(node.closest('[aria-busy="true"]')),
+      ),
+    ).toBe(false);
+    await expect(spinner).toHaveCSS("animation-name", "none");
+    await expect(spinner).toHaveCSS("border-top-style", "solid");
+  } finally {
+    releaseContextResponse();
+  }
+
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  await expect(disclosure.locator(":scope > summary")).toContainText(
+    "Explore 4 visual aids",
+  );
+  await expect(disclosure).toHaveJSProperty("open", false);
+  await expect(lane).toHaveCount(0);
+});
+
+test("diagram legends retain textual keys and visible boundaries in forced colors", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark", forcedColors: "active" });
+  await mockArticleAndContext(page, { manifest: legendManifest });
+  await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
+
+  const legend = page.locator(".context-diagram-legend");
+  await expect(legend).toBeVisible();
+  await expect(legend.locator(":scope > li")).toHaveCount(2);
+  await expect(legend.locator(".sr-only").nth(0)).toHaveText(
+    "Map color #FFD700:",
+  );
+  await expect(legend.locator(".sr-only").nth(1)).toHaveText(
+    "Map color #ED1C24:",
+  );
+
+  const colors = await legend
+    .locator(".context-diagram-legend-swatch")
+    .first()
+    .evaluate((swatch) => {
+      const systemColorProbe = document.createElement("span");
+      systemColorProbe.style.color = "CanvasText";
+      document.body.append(systemColorProbe);
+      const canvasText = getComputedStyle(systemColorProbe).color;
+      systemColorProbe.remove();
+      return {
+        border: getComputedStyle(swatch).borderTopColor,
+        canvasText,
+      };
+    });
+  expect(colors.border).toBe(colors.canvasText);
+});
 
 test("article context exposes equivalent semantics, provenance, and reporting", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   const reports = await mockArticleAndContext(page, {
-    mapStyleSuccessDelayMs: 500,
+    mapStyleSuccessDelayMs: 1_500,
   });
   const darkStyleRequest = page.waitForRequest(
     "https://tiles.openfreemap.org/styles/fiord",
   );
   await page.goto("/article/Ada_Lovelace");
 
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  const disclosureSummary = disclosure.locator(":scope > summary");
+  await expect(disclosureSummary).toBeVisible();
   await expect(
-    page.getByRole("heading", {
-      level: 2,
-      name: "Context that rewards a closer look",
-    }),
+    page.getByRole("heading", { level: 2, name: "Explore 4 visual aids" }),
   ).toBeVisible();
+  await expect(disclosureSummary).toContainText("Explore 4 visual aids");
+  await expect(disclosureSummary).toContainText(
+    "1 map · 1 timeline · 1 chart · 1 diagram",
+  );
+  await expect(disclosureSummary).toHaveAccessibleName(
+    /Explore 4 visual aids.*1 map.*1 timeline.*1 chart.*1 diagram/,
+  );
+  expect(
+    (await disclosureSummary.boundingBox())?.height ?? 0,
+  ).toBeGreaterThanOrEqual(44);
+  await expect(disclosure).toHaveJSProperty("open", false);
   await expect(page.locator("article.context-card")).toHaveCount(4);
+  await expect(page.locator("article.context-card").first()).toBeHidden();
   await expect(page.locator("#article-context-index")).toHaveCount(0);
   await expect(page.locator("details.context-explorer")).toHaveCount(0);
+  expect(reports.getMapStyleRequests()).toBe(0);
+  await expect(
+    page.locator("#article-context-chart-note-length .context-echarts svg"),
+  ).toHaveCount(0);
+
+  await disclosureSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(disclosure).toHaveJSProperty("open", true);
+  await expect(disclosureSummary).toBeFocused();
+  await expect(
+    page.getByText("Context that rewards a closer look", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(disclosure).toHaveJSProperty("open", false);
+  await expect(disclosureSummary).toBeFocused();
 
   const sectionLinks = page.locator("a.context-section-link");
   await expect(sectionLinks).toHaveCount(2);
@@ -740,7 +1064,26 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await sectionLinks.nth(0).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#article-context-map-journey$/);
+  await expect(disclosure).toHaveJSProperty("open", true);
   await expect(mapCard).toBeFocused();
+  const interactiveStatus = mapCard
+    .locator(".context-interactive-map")
+    .locator(".context-visual-load-status");
+  await expect(interactiveStatus).toHaveText("Loading interactive street map.");
+  const loadingMapBox = await mapCard
+    .locator(".context-map-canvas")
+    .boundingBox();
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
+  await darkStyleRequest;
+
+  await disclosureSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(disclosure).toHaveJSProperty("open", false);
+  await sectionLinks.nth(1).focus();
+  await page.evaluate(() => {
+    window.location.hash = "#article-context-chart-note-length";
+  });
+  await expect(disclosure).toHaveJSProperty("open", true);
 
   await expect(mapCard).toHaveAttribute(
     "aria-describedby",
@@ -752,25 +1095,29 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(mapCard.locator("#article-context-map-journey-description")).toHaveClass(
-    /sr-only/,
-  );
-  await expect(mapCard.locator("#article-context-map-journey-description")).toContainText(
+  await expect(
+    mapCard.locator("#article-context-map-journey-description"),
+  ).toHaveClass(/sr-only/);
+  await expect(
+    mapCard.locator("#article-context-map-journey-description"),
+  ).toContainText(
     "The map begins in London and follows a southeast route to Turin.",
   );
   expect(
     await mapCard.evaluate((card) => {
       const visual = card.querySelector("#map-journey-map-view");
-      const caption = card.querySelector("#article-context-map-journey-caption");
+      const caption = card.querySelector(
+        "#article-context-map-journey-caption",
+      );
       const places = card.querySelector("#map-journey-places-heading");
       return Boolean(
         visual &&
-          caption &&
-          places &&
-          (visual.compareDocumentPosition(caption) &
-            Node.DOCUMENT_POSITION_FOLLOWING) &&
-          (caption.compareDocumentPosition(places) &
-            Node.DOCUMENT_POSITION_FOLLOWING),
+        caption &&
+        places &&
+        visual.compareDocumentPosition(caption) &
+          Node.DOCUMENT_POSITION_FOLLOWING &&
+        caption.compareDocumentPosition(places) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
       );
     }),
   ).toBe(true);
@@ -781,11 +1128,15 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(mapDataDisclosure).toHaveJSProperty("open", false);
   await expect(mapDataSummary).toContainText("Exact map data");
   await expect(mapDataSummary).toContainText("2 places, 1 route, 1 area");
-  await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeHidden();
+  await expect(
+    mapCard.getByText("Latitude 51.5074, longitude -0.1278"),
+  ).toBeHidden();
   await openDetailsWithKeyboard(page, mapDataDisclosure);
   await expect(mapDataSummary).toBeFocused();
   await expect(mapCard.getByRole("list").first()).toContainText("London");
-  await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
+  await expect(
+    mapCard.getByText("Latitude 51.5074, longitude -0.1278"),
+  ).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Routes" })).toBeVisible();
   await expect(mapCard.getByText("Correspondence route")).toBeVisible();
   await expect(mapCard.getByRole("heading", { name: "Areas" })).toBeVisible();
@@ -797,22 +1148,25 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
   await darkStyleRequest;
   await expect.poll(reports.getMapStyleRequests).toBeGreaterThan(0);
-  const interactiveStatus = mapCard
-    .locator(".context-interactive-map")
-    .locator(".context-status");
-  await expect(interactiveStatus).toHaveText("Loading interactive map");
-  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
-  await expect(interactiveStatus).toHaveText("Interactive map ready");
+  await expect(interactiveStatus).toHaveText("Interactive map ready.");
+  const readyMapBox = await mapCard
+    .locator(".context-map-canvas")
+    .boundingBox();
+  expect(loadingMapBox).not.toBeNull();
+  expect(readyMapBox).not.toBeNull();
+  expect(
+    Math.abs((loadingMapBox?.height ?? 0) - (readyMapBox?.height ?? 0)),
+  ).toBeLessThanOrEqual(1);
   await expect.poll(reports.getMapTileRequests).toBeGreaterThan(0);
-  await expect(
-    mapCard.locator(".context-map-surface"),
-  ).toBeVisible();
+  await expect(mapCard.locator(".context-map-surface")).toBeVisible();
   await expect(mapCard.locator(".context-map-surface")).toHaveAttribute(
     "aria-label",
     "Interactive street map for Places in the correspondence",
   );
   await expect(
-    mapCard.locator('canvas[aria-label="Interactive street map for Places in the correspondence"]'),
+    mapCard.locator(
+      'canvas[aria-label="Interactive street map for Places in the correspondence"]',
+    ),
   ).toHaveAttribute(
     "aria-describedby",
     "article-context-map-journey-caption article-context-map-journey-description",
@@ -840,18 +1194,22 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(showMapButton).toBeFocused();
   await expect(mapCard.locator(".context-interactive-map")).toHaveCount(0);
   await expect(schematic).toBeVisible();
-  await expect(mapCard.getByText(/This coordinate overview is not a street map/)).toBeVisible();
+  await expect(
+    mapCard.getByText(/This coordinate overview is not a street map/),
+  ).toBeVisible();
   await expect(schematic.locator(".context-map-marker")).toHaveCount(2);
 
   await showMapButton.focus();
   await page.keyboard.press("Enter");
   await expect(showSchematicButton).toBeFocused();
   await expect(schematic).toHaveCount(0);
-  await expect(interactiveStatus).toHaveText("Interactive map ready");
+  await expect(interactiveStatus).toHaveText("Interactive map ready.");
   const mapCanvas = mapCard.locator(
     'canvas[aria-label="Interactive street map for Places in the correspondence"]',
   );
-  await mapCanvas.evaluate((canvas) => canvas.setAttribute("data-map-attempt", "dark"));
+  await mapCanvas.evaluate((canvas) =>
+    canvas.setAttribute("data-map-attempt", "dark"),
+  );
   const darkTileCount = reports.getMapTileRequests();
 
   const lightStyleRequest = page.waitForRequest(
@@ -863,14 +1221,16 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await switchToLightTheme.focus();
   await page.keyboard.press("Enter");
   await lightStyleRequest;
-  await expect(interactiveStatus).toHaveText("Loading interactive map");
+  await expect(interactiveStatus).toHaveText("Loading interactive street map.");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
-  await expect(mapCard.locator('canvas[data-map-attempt="dark"]')).toHaveCount(0);
+  await expect(mapCard.locator('canvas[data-map-attempt="dark"]')).toHaveCount(
+    0,
+  );
   await expect.poll(reports.getMapTileRequests).toBeGreaterThan(darkTileCount);
   await expect(
     page.locator('button[aria-label="Switch to dark theme"]:visible'),
   ).toBeVisible();
-  await expect(interactiveStatus).toHaveText("Interactive map ready");
+  await expect(interactiveStatus).toHaveText("Interactive map ready.");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await expect(schematic).toHaveCount(0);
 
@@ -882,17 +1242,21 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(timelineCard.locator('time[datetime="1837"]')).toHaveText("1837");
-  await expect(timelineCard.locator('time[datetime="1843"]')).toHaveText("1843");
+  await expect(timelineCard.locator('time[datetime="1837"]')).toHaveText(
+    "1837",
+  );
+  await expect(timelineCard.locator('time[datetime="1843"]')).toHaveText(
+    "1843",
+  );
   await expect(timelineCard.getByRole("listitem")).toHaveCount(2);
   await timelineCard.getByRole("button", { name: "Newest first" }).focus();
   await page.keyboard.press("Enter");
   await expect(timelineCard.getByRole("status")).toHaveText(
     "2 events, newest first",
   );
-  await expect(timelineCard.locator("ol.context-timeline-list > li").first()).toContainText(
-    "1843",
-  );
+  await expect(
+    timelineCard.locator("ol.context-timeline-list > li").first(),
+  ).toContainText("1843");
 
   const chartCard = page.locator("#article-context-chart-note-length");
   await chartCard.scrollIntoViewIfNeeded();
@@ -901,7 +1265,9 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   const dataTable = chartCard.getByRole("table", {
     name: "Exact data for Notes compared with the source article",
   });
-  const chartDataDisclosure = chartCard.locator("details.context-data-disclosure");
+  const chartDataDisclosure = chartCard.locator(
+    "details.context-data-disclosure",
+  );
   const chartDataSummary = chartDataDisclosure.locator(":scope > summary");
   await expect(chartDataDisclosure).toHaveJSProperty("open", false);
   await expect(chartDataSummary).toContainText("Exact chart data");
@@ -912,7 +1278,9 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(chartDataDisclosure).toHaveJSProperty("open", true);
   await expect(chartDataSummary).toBeFocused();
   await expect(dataTable.getByRole("columnheader")).toHaveCount(2);
-  await expect(dataTable.getByRole("rowheader", { name: "Source article" })).toBeVisible();
+  await expect(
+    dataTable.getByRole("rowheader", { name: "Source article" }),
+  ).toBeVisible();
   await expect(dataTable.getByRole("cell", { name: "20" })).toBeVisible();
 
   const diagramCard = page.locator("#article-context-diagram-engine");
@@ -926,33 +1294,64 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
       name: "Diagram showing punched cards feeding the mill, which sends results to a printer.",
     }),
   ).toBeVisible();
-  await expect(diagramCard.getByRole("heading", { name: "Named parts" })).toBeVisible();
   await expect(
-    diagramCard.locator("dl.context-parts-list dt", { hasText: "Punched cards" }),
+    diagramCard.getByRole("heading", { name: "Named parts" }),
   ).toBeVisible();
-  await expect(diagramCard.getByText(/Punched cards feed instructions into Mill/)).toBeVisible();
-  await expect(diagramCard.getByRole("heading", { name: "Walkthrough" })).toBeVisible();
+  await expect(
+    diagramCard.locator("dl.context-parts-list dt", {
+      hasText: "Punched cards",
+    }),
+  ).toBeVisible();
+  await expect(
+    diagramCard.getByText(/Punched cards feed instructions into Mill/),
+  ).toBeVisible();
+  await expect(
+    diagramCard.getByRole("heading", { name: "Walkthrough" }),
+  ).toBeVisible();
 
   const contextLane = page.locator("section.context-lane");
-  await expect(contextLane.getByRole("button", { name: /listen/i })).toHaveCount(0);
+  await expect(
+    contextLane.getByRole("button", { name: /listen/i }),
+  ).toHaveCount(0);
   const gallery = page.getByRole("heading", { name: "Gallery" }).locator("..");
   await expect(gallery).toBeVisible();
+  expect(
+    await gallery.evaluate((element) =>
+      Boolean(element.closest("details[data-visual-aids-disclosure]")),
+    ),
+  ).toBe(false);
   const [contextBox, galleryBox] = await Promise.all([
     contextLane.boundingBox(),
     gallery.boundingBox(),
   ]);
   expect(contextBox).not.toBeNull();
   expect(galleryBox).not.toBeNull();
-  expect(Math.abs((contextBox?.x ?? 0) - (galleryBox?.x ?? 0))).toBeLessThanOrEqual(1);
-  expect(Math.abs((contextBox?.width ?? 0) - (galleryBox?.width ?? 0))).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs((contextBox?.x ?? 0) - (galleryBox?.x ?? 0)),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs((contextBox?.width ?? 0) - (galleryBox?.width ?? 0)),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    (galleryBox?.y ?? 0) - ((contextBox?.y ?? 0) + (contextBox?.height ?? 0)),
+  ).toBeGreaterThanOrEqual(32);
+  const galleryBoundary = await gallery.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      borderTopWidth: Number.parseFloat(style.borderTopWidth),
+      paddingTop: Number.parseFloat(style.paddingTop),
+    };
+  });
+  expect(galleryBoundary.borderTopWidth).toBeGreaterThanOrEqual(1);
+  expect(galleryBoundary.paddingTop).toBeGreaterThanOrEqual(24);
   expect(
     await page.evaluate(() => {
       const lane = document.querySelector("section.context-lane");
       const galleryHeading = document.querySelector("#gallery-heading");
       return Boolean(
         lane &&
-          galleryHeading &&
-          lane.nextElementSibling?.contains(galleryHeading),
+        galleryHeading &&
+        lane.nextElementSibling?.contains(galleryHeading),
       );
     }),
   ).toBe(true);
@@ -964,15 +1363,21 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   );
   await expect(provenanceDetails).toContainText("Model: gpt-5.6-luna");
   await expect(
-    provenanceDetails.getByRole("link", { name: /Open the exact article revision/ }),
+    provenanceDetails.getByRole("link", {
+      name: /Open the exact article revision/,
+    }),
   ).toHaveAttribute("href", provenance.articleRevisionUrl);
 
   const reportDetails = mapCard.locator("details.context-report");
   await openDetailsWithKeyboard(page, reportDetails);
-  await reportDetails.getByLabel("What went wrong?").selectOption("inaccessible");
+  await reportDetails
+    .getByLabel("What went wrong?")
+    .selectOption("inaccessible");
   await reportDetails
     .getByLabel("Details (optional)")
-    .fill("The place sequence is difficult to follow with keyboard navigation.");
+    .fill(
+      "The place sequence is difficult to follow with keyboard navigation.",
+    );
   await reportDetails.getByRole("button", { name: "Send report" }).click();
   await expect(reportDetails.getByRole("status")).toHaveText(
     "Thank you. The context note was reported.",
@@ -982,7 +1387,8 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
     revisionId: "123456789",
     blockId: "map-journey",
     reason: "inaccessible",
-    details: "The place sequence is difficult to follow with keyboard navigation.",
+    details:
+      "The place sequence is difficult to follow with keyboard navigation.",
   });
 
   await expectNoSeriousAxeViolations(page);
@@ -997,10 +1403,11 @@ test("article map falls back accessibly and can retry after a style failure", as
     mapStyleFailureDelayMs: 1_000,
   });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const mapCard = page.locator("#article-context-map-journey");
-  const failureStatus = mapCard.locator(".context-map-failure-status");
-  await expect(failureStatus).toHaveText("");
+  const failureStatus = mapCard.locator('[data-visual-state="fallback"]');
+  await expect(failureStatus).toHaveCount(0);
   await mapCard.scrollIntoViewIfNeeded();
   const mapCanvas = mapCard.locator(
     'canvas[aria-label="Interactive street map for Places in the correspondence"]',
@@ -1009,9 +1416,11 @@ test("article map falls back accessibly and can retry after a style failure", as
   await mapCanvas.focus();
   await expect(mapCanvas).toBeFocused();
 
-  await expect(mapCard.getByText("Street map unavailable", { exact: true })).toBeVisible();
-  await expect(failureStatus).toHaveText(
-    "Street map unavailable. The coordinate overview is shown instead. Exact place, route, and area information is available in the expandable map data below.",
+  await expect(
+    mapCard.getByText("Street map unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(failureStatus).toContainText(
+    "Interactive street map unavailable.",
   );
   await expect(mapCard.locator(".context-map-schematic")).toBeVisible();
   const retryButton = mapCard.getByRole("button", {
@@ -1026,12 +1435,10 @@ test("article map falls back accessibly and can retry after a style failure", as
   await expect(showSchematicButton).toBeFocused();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
   await expect(
-    mapCard.locator(".context-interactive-map .context-status"),
-  ).toHaveText("Interactive map ready");
-  await expect(failureStatus).toHaveText("");
-  await expect(
-    mapCard.locator(".context-map-surface"),
-  ).toBeVisible();
+    mapCard.locator(".context-interactive-map .context-visual-load-status"),
+  ).toHaveText("Interactive map ready.");
+  await expect(failureStatus).toHaveCount(0);
+  await expect(mapCard.locator(".context-map-surface")).toBeVisible();
 });
 
 test("article map falls back when its source metadata cannot load", async ({
@@ -1040,13 +1447,16 @@ test("article map falls back when its source metadata cannot load", async ({
   await page.emulateMedia({ colorScheme: "dark" });
   await mockArticleAndContext(page, { mapSourceFailures: 1 });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const mapCard = page.locator("#article-context-map-journey");
   await mapCard.scrollIntoViewIfNeeded();
 
-  await expect(mapCard.getByText("Street map unavailable", { exact: true })).toBeVisible();
-  await expect(mapCard.locator(".context-map-failure-status")).toContainText(
-    "Street map unavailable",
+  await expect(
+    mapCard.getByText("Street map unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(mapCard.locator('[data-visual-state="fallback"]')).toContainText(
+    "Interactive street map unavailable",
   );
   await expect(mapCard.locator(".context-map-schematic")).toBeVisible();
   await mapCard
@@ -1054,8 +1464,8 @@ test("article map falls back when its source metadata cannot load", async ({
     .click();
 
   await expect(
-    mapCard.locator(".context-interactive-map .context-status"),
-  ).toHaveText("Interactive map ready");
+    mapCard.locator(".context-interactive-map .context-visual-load-status"),
+  ).toHaveText("Interactive map ready.");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
 });
@@ -1066,22 +1476,25 @@ test("article map remains usable when decorative sprite resources fail", async (
   await page.emulateMedia({ colorScheme: "dark" });
   await mockArticleAndContext(page, { mapSpriteFailure: true });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const mapCard = page.locator("#article-context-map-journey");
   await mapCard.scrollIntoViewIfNeeded();
 
   await expect(
-    mapCard.locator(".context-interactive-map .context-status"),
-  ).toHaveText(
+    mapCard.locator(".context-interactive-map .context-visual-load-status"),
+  ).toContainText(
     "Some map details could not load. Exact place, route, and area information is available in the expandable map data below.",
   );
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
   await expect(mapCard.locator(".context-map-schematic")).toHaveCount(0);
-  await expect(mapCard.locator(".context-map-failure-status")).toHaveText("");
+  await expect(mapCard.locator('[data-visual-state="fallback"]')).toHaveCount(
+    0,
+  );
 });
 
-test("rich visuals initialize without IntersectionObserver or a disclosure click", async ({
+test("rich visuals wait for the disclosure without IntersectionObserver", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -1090,25 +1503,32 @@ test("rich visuals initialize without IntersectionObserver or a disclosure click
       value: undefined,
     });
   });
-  await mockArticleAndContext(page);
+  const requests = await mockArticleAndContext(page);
+
+  await page.goto("/article/Ada_Lovelace");
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  await expect(disclosure.locator(":scope > summary")).toBeVisible();
+  await expect(disclosure).toHaveJSProperty("open", false);
+  expect(requests.getMapStyleRequests()).toBe(0);
+  await expect(
+    page.locator("#article-context-chart-note-length .context-echarts svg"),
+  ).toHaveCount(0);
+
   const mapStyleRequest = page.waitForRequest(
     "https://tiles.openfreemap.org/styles/liberty",
   );
-
-  await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
   await mapStyleRequest;
 
   await expect(
     page.locator(
-      "#article-context-map-journey .context-interactive-map .context-status",
+      "#article-context-map-journey .context-interactive-map .context-visual-load-status",
     ),
-  ).toHaveText("Interactive map ready");
+  ).toHaveText("Interactive map ready.");
   await expect(
     page.locator("#article-context-chart-note-length .context-echarts svg"),
   ).toBeAttached();
-  await expect(
-    page.locator("details.context-data-disclosure"),
-  ).toHaveCount(2);
+  await expect(page.locator("details.context-data-disclosure")).toHaveCount(2);
   expect(
     await page
       .locator("details.context-data-disclosure")
@@ -1125,10 +1545,13 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
   await page.setViewportSize({ width: 320, height: 720 });
   await mockArticleAndContext(page, { manifest: rankingManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const card = page.locator("#article-context-ranking-one");
   await card.scrollIntoViewIfNeeded();
-  await expect(card.getByRole("heading", { name: "Tournament ranking data" })).toBeVisible();
+  await expect(
+    card.getByRole("heading", { name: "Tournament ranking data" }),
+  ).toBeVisible();
   const rankingList = card.getByRole("list", {
     name: "Points for the first 8 published entries in Tournament ranking data",
   });
@@ -1147,10 +1570,9 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
   expect(firstRankingSnapshot).toContain("Points:");
   expect(firstRankingSnapshot).toContain('strong: "12"');
   await expect(rankingList.locator(".context-ranked-bar-track")).toHaveCount(8);
-  await expect(rankingList.locator(".context-ranked-bar-track").first()).toHaveAttribute(
-    "aria-hidden",
-    "true",
-  );
+  await expect(
+    rankingList.locator(".context-ranked-bar-track").first(),
+  ).toHaveAttribute("aria-hidden", "true");
   await expect(
     card.getByText(
       "The overview pictures the first 8 of 13 published entries in source ranking order. Expand Exact chart data for all 13.",
@@ -1161,7 +1583,9 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
     name: "Metrics shown in the ranking overview",
   });
   await expect(metricControls.getByRole("checkbox")).toHaveCount(4);
-  const pointsCheckbox = metricControls.getByRole("checkbox", { name: "Points" });
+  const pointsCheckbox = metricControls.getByRole("checkbox", {
+    name: "Points",
+  });
   const goalDifferenceCheckbox = metricControls.getByRole("checkbox", {
     name: "Goal difference",
   });
@@ -1179,7 +1603,11 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
     name: "Goal difference for the first 8 published entries in Tournament ranking data",
   });
   await expect(goalDifferenceList.locator(":scope > li")).toHaveCount(8);
-  expect(await goalDifferenceList.locator(".context-ranked-bar-fill-negative").count()).toBeGreaterThan(0);
+  expect(
+    await goalDifferenceList
+      .locator(".context-ranked-bar-fill-negative")
+      .count(),
+  ).toBeGreaterThan(0);
   await pointsCheckbox.focus();
   await page.keyboard.press("Space");
   await expect(pointsCheckbox).not.toBeChecked();
@@ -1206,7 +1634,9 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
   await expect(table.getByRole("columnheader")).toHaveCount(12);
   await expect(table.getByRole("rowheader")).toHaveCount(13);
   await expect(table.getByRole("rowheader").first()).toHaveText("Team 1");
-  await expect(table.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+  await expect(
+    table.locator("tbody tr").first().locator("td").first(),
+  ).toHaveText("1");
 
   const tableScroller = card.locator(".context-table-wrap");
   expect(
@@ -1222,7 +1652,9 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
     .toBeGreaterThan(0);
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(1);
   await expectNoSeriousAxeViolations(page);
@@ -1234,6 +1666,7 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await page.setViewportSize({ width: 320, height: 760 });
   await mockArticleAndContext(page, { manifest: demographicChartManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const card = page.locator("#article-context-demographic-chart");
   await card.scrollIntoViewIfNeeded();
@@ -1259,7 +1692,9 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(workingAge).toBeEnabled();
   await expect(share).not.toBeChecked();
   await expect(card.locator(".context-standard-chart-panel")).toHaveCount(1);
-  await expect(card.getByRole("heading", { name: "Counts (people)" })).toBeVisible();
+  await expect(
+    card.getByRole("heading", { name: "Counts (people)" }),
+  ).toBeVisible();
   const mobileBars = card.locator(".context-mobile-category-bars").first();
   await mobileBars.scrollIntoViewIfNeeded();
   await expect(mobileBars).toBeVisible();
@@ -1275,7 +1710,12 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   );
   await expect(mobileBars.locator(".context-mobile-bar-track")).toHaveCount(24);
   expect(
-    (await mobileBars.locator(".context-mobile-bar-track").first().boundingBox())?.width ?? 0,
+    (
+      await mobileBars
+        .locator(".context-mobile-bar-track")
+        .first()
+        .boundingBox()
+    )?.width ?? 0,
   ).toBeGreaterThan(240);
   await expect(
     card.getByText(
@@ -1289,7 +1729,9 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(share).toBeChecked();
   await expect(population).toBeEnabled();
   await expect(card.locator(".context-standard-chart-panel")).toHaveCount(2);
-  await expect(card.getByRole("heading", { name: "Percent (%)" })).toBeVisible();
+  await expect(
+    card.getByRole("heading", { name: "Percent (%)" }),
+  ).toBeVisible();
   await expect(card.locator(".context-mobile-category-bars")).toHaveCount(2);
   await expect(card.getByRole("status")).toHaveText(
     "Population, Working-age population, and Share of world shown across 2 separate scales.",
@@ -1303,7 +1745,9 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(population).not.toBeChecked();
   await expect(share).toBeDisabled();
   await expect(card.locator(".context-standard-chart-panel")).toHaveCount(1);
-  await expect(card.getByRole("heading", { name: "Counts (people)" })).toHaveCount(0);
+  await expect(
+    card.getByRole("heading", { name: "Counts (people)" }),
+  ).toHaveCount(0);
   await expect(card.locator(".context-mobile-category-bars")).toHaveCount(1);
   await expect(card.getByRole("status")).toHaveText(
     "Share of world shown on one compatible scale.",
@@ -1317,7 +1761,9 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
 
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(1);
 
@@ -1325,29 +1771,16 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(card.locator(".context-mobile-category-bars")).toBeHidden();
   const desktopChart = card.locator(".context-echarts").first();
   await expect(desktopChart.locator("svg")).toBeVisible();
-  const desktopSurface = card.locator(".context-echarts-surface").first();
-  await expect(desktopSurface).toHaveAttribute("aria-busy", "false");
-  await desktopSurface.evaluate((surface) => {
-    const testWindow = window as typeof window & {
-      __contextChartBusyObserver?: MutationObserver;
-      __contextChartBusyStates?: string[];
-    };
-    testWindow.__contextChartBusyStates = [];
-    testWindow.__contextChartBusyObserver = new MutationObserver(() => {
-      testWindow.__contextChartBusyStates?.push(
-        surface.getAttribute("aria-busy") ?? "missing",
-      );
-    });
-    testWindow.__contextChartBusyObserver.observe(surface, {
-      attributeFilter: ["aria-busy"],
-    });
-  });
+  const desktopBusyRegion = card.locator(".context-echarts").first();
+  await expect(desktopBusyRegion).toHaveAttribute("aria-busy", "false");
   expect(
-    await desktopChart.locator("svg").evaluate((svg) =>
-      Array.from(svg.querySelectorAll("path, rect")).every(
-        (mark) => getComputedStyle(mark).cursor !== "pointer",
+    await desktopChart
+      .locator("svg")
+      .evaluate((svg) =>
+        Array.from(svg.querySelectorAll("path, rect")).every(
+          (mark) => getComputedStyle(mark).cursor !== "pointer",
+        ),
       ),
-    ),
   ).toBe(true);
 
   await page.setViewportSize({ width: 320, height: 760 });
@@ -1355,15 +1788,7 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
 
   await page.setViewportSize({ width: 900, height: 760 });
   await expect(desktopChart.locator("svg")).toBeVisible();
-  await expect(desktopSurface).toHaveAttribute("aria-busy", "false");
-  expect(
-    await page.evaluate(() => {
-      const testWindow = window as typeof window & {
-        __contextChartBusyStates?: string[];
-      };
-      return testWindow.__contextChartBusyStates;
-    }),
-  ).toEqual(["true", "false"]);
+  await expect(desktopBusyRegion).toHaveAttribute("aria-busy", "false");
 
   await page.setViewportSize({ width: 320, height: 760 });
   await expect(card.locator(".context-mobile-category-bars")).toBeVisible();
@@ -1382,7 +1807,9 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await expect(table.getByRole("columnheader")).toHaveCount(5);
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(1);
   await expectNoSeriousAxeViolations(page);
@@ -1394,6 +1821,7 @@ test("ordinal chart peaks use exact positions rather than proportional bars", as
   await page.setViewportSize({ width: 320, height: 760 });
   await mockArticleAndContext(page, { manifest: ordinalPositionManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const card = page.locator("#article-context-song-chart-peaks");
   await card.scrollIntoViewIfNeeded();
@@ -1425,34 +1853,48 @@ test("ordinal chart peaks use exact positions rather than proportional bars", as
     name: 'Exact data for Chart performance for "30 Days"',
   });
   await expect(table).toBeVisible();
-  await expect(table.getByRole("row", {
-    name: "Euro Digital Song Sales (Billboard) 1",
-  })).toBeVisible();
-  await expect(table.getByRole("row", { name: "Ireland (IRMA) 13" })).toBeVisible();
-  await expect(table.getByRole("row", {
-    name: "Scotland Singles (Official Charts) 2",
-  })).toBeVisible();
-  await expect(table.getByRole("row", {
-    name: "UK Singles (Official Charts) 7",
-  })).toBeVisible();
+  await expect(
+    table.getByRole("row", {
+      name: "Euro Digital Song Sales (Billboard) 1",
+    }),
+  ).toBeVisible();
+  await expect(
+    table.getByRole("row", { name: "Ireland (IRMA) 13" }),
+  ).toBeVisible();
+  await expect(
+    table.getByRole("row", {
+      name: "Scotland Singles (Official Charts) 2",
+    }),
+  ).toBeVisible();
+  await expect(
+    table.getByRole("row", {
+      name: "UK Singles (Official Charts) 7",
+    }),
+  ).toBeVisible();
 
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(1);
 
-  const mobileCards = await results.locator(":scope > div").evaluateAll((items) =>
-    items.map((item) => item.getBoundingClientRect()),
+  const mobileCards = await results
+    .locator(":scope > div")
+    .evaluateAll((items) => items.map((item) => item.getBoundingClientRect()));
+  expect(new Set(mobileCards.map((rect) => Math.round(rect.left))).size).toBe(
+    1,
   );
-  expect(new Set(mobileCards.map((rect) => Math.round(rect.left))).size).toBe(1);
   await expectNoSeriousAxeViolations(page);
 
   await page.setViewportSize({ width: 900, height: 760 });
-  const desktopCards = await results.locator(":scope > div").evaluateAll((items) =>
-    items.map((item) => item.getBoundingClientRect()),
+  const desktopCards = await results
+    .locator(":scope > div")
+    .evaluateAll((items) => items.map((item) => item.getBoundingClientRect()));
+  expect(new Set(desktopCards.map((rect) => Math.round(rect.left))).size).toBe(
+    2,
   );
-  expect(new Set(desktopCards.map((rect) => Math.round(rect.left))).size).toBe(2);
   await expectNoSeriousAxeViolations(page);
 });
 
@@ -1479,8 +1921,8 @@ test("an article with no visual context leaves no empty lane or spacer", async (
       const galleryHeading = document.querySelector("#gallery-heading");
       return Boolean(
         tableOfContentsShell &&
-          galleryHeading &&
-          tableOfContentsShell.nextElementSibling?.contains(galleryHeading),
+        galleryHeading &&
+        tableOfContentsShell.nextElementSibling?.contains(galleryHeading),
       );
     }),
   ).toBe(true);
@@ -1524,7 +1966,9 @@ test("a hero and Gallery image do not receive a third Context diagram copy", asy
   const gallery = page.getByRole("heading", { name: "Gallery" }).locator("..");
   await expect(gallery).toBeVisible();
   await expect(
-    gallery.getByRole("button", { name: /Open image 1 of 1: Portrait of Ada Lovelace/ }),
+    gallery.getByRole("button", {
+      name: /Open image 1 of 1: Portrait of Ada Lovelace/,
+    }),
   ).toBeVisible();
   await expect(page.locator("#article-context-diagram-engine")).toHaveCount(0);
   await expect(page.locator("section.context-lane")).toHaveCount(0);
@@ -1538,6 +1982,7 @@ test("visual context remains usable at 200 percent zoom with forced colors", asy
   await page.emulateMedia({ forcedColors: "active" });
   await mockArticleAndContext(page);
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
   await page.evaluate(() => {
     document.documentElement.style.setProperty("zoom", "2");
   });
@@ -1550,12 +1995,16 @@ test("visual context remains usable at 200 percent zoom with forced colors", asy
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(mapCard.getByRole("button", { name: "Show coordinate overview" })).toBeVisible();
+  await expect(
+    mapCard.getByRole("button", { name: "Show coordinate overview" }),
+  ).toBeVisible();
   await openDetailsWithKeyboard(
     page,
     mapCard.locator("details.context-data-disclosure"),
   );
-  await expect(mapCard.getByText("Latitude 51.5074, longitude -0.1278")).toBeVisible();
+  await expect(
+    mapCard.getByText("Latitude 51.5074, longitude -0.1278"),
+  ).toBeVisible();
 
   const chartCard = page.locator("#article-context-chart-note-length");
   await chartCard.scrollIntoViewIfNeeded();
@@ -1570,7 +2019,9 @@ test("visual context remains usable at 200 percent zoom with forced colors", asy
   ).toBeVisible();
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(1);
 });
@@ -1582,40 +2033,49 @@ test("article context reflows at a narrow viewport and honors reduced motion", a
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockArticleAndContext(page);
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   await expect(page.locator("article.context-card")).toHaveCount(4);
+  await expect(page.locator(".context-visual-disclosure-chevron")).toHaveCSS(
+    "transition-duration",
+    "0s",
+  );
   const tocRows = page.locator(".toc-row");
   expect(await tocRows.count()).toBeGreaterThan(0);
-  const tocRowLayoutViolations = await tocRows.evaluateAll(
-    (rows) =>
-      rows.flatMap((row, index) => {
-        const copy = row.children.item(0);
-        const action = row.children.item(1);
-        if (!(copy instanceof HTMLElement) || !(action instanceof HTMLElement)) {
-          return [];
-        }
-        const copyRect = copy.getBoundingClientRect();
-        const actionRect = action.getBoundingClientRect();
-        return copyRect.bottom <= actionRect.top + 0.5
-          ? []
-          : [{
+  const tocRowLayoutViolations = await tocRows.evaluateAll((rows) =>
+    rows.flatMap((row, index) => {
+      const copy = row.children.item(0);
+      const action = row.children.item(1);
+      if (!(copy instanceof HTMLElement) || !(action instanceof HTMLElement)) {
+        return [];
+      }
+      const copyRect = copy.getBoundingClientRect();
+      const actionRect = action.getBoundingClientRect();
+      return copyRect.bottom <= actionRect.top + 0.5
+        ? []
+        : [
+            {
               index,
               copyBottom: copyRect.bottom,
               actionTop: actionRect.top,
               text: row.textContent?.replace(/\s+/g, " ").trim(),
-            }];
-      }),
+            },
+          ];
+    }),
   );
   expect(tocRowLayoutViolations).toEqual([]);
   const diagramCard = page.locator("#article-context-diagram-engine");
   await diagramCard.scrollIntoViewIfNeeded();
   const zoomIn = diagramCard.getByRole("button", { name: "Zoom in" });
+  await expect(zoomIn).toBeEnabled();
   await zoomIn.focus();
   await page.keyboard.press("Enter");
-  await expect(diagramCard.getByText("125 percent")).toBeVisible();
+  await expect(
+    diagramCard.getByText("125 percent", { exact: true }),
+  ).toBeVisible();
 
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBe(320);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    320,
+  );
   await expectNoSeriousAxeViolations(page);
 });

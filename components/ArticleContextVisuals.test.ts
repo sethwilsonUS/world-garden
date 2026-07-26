@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ContextMapBlock } from "@/lib/article-context-types";
 import {
+  createMapGeoJsonFeatures,
   fitMapToFeatures,
   getFallbackBarGeometry,
   getMapFeatureBounds,
 } from "./ArticleContextVisuals";
 
-const mapBlock = (
-  map: ContextMapBlock["map"],
-): ContextMapBlock => ({ map }) as ContextMapBlock;
+const mapBlock = (map: ContextMapBlock["map"]): ContextMapBlock =>
+  ({ map }) as ContextMapBlock;
 
 describe("article context fallback chart geometry", () => {
   it("anchors positive and negative bars to the same zero baseline", () => {
@@ -36,9 +36,7 @@ describe("article context map camera", () => {
     const block = mapBlock({
       center: { latitude: 47, longitude: 4 },
       suggestedZoom: 4,
-      places: [
-        { id: "west", name: "West", latitude: 48, longitude: -11 },
-      ],
+      places: [{ id: "west", name: "West", latitude: 48, longitude: -11 }],
       routes: [
         {
           id: "south-route",
@@ -53,16 +51,21 @@ describe("article context map camera", () => {
         {
           id: "northeast-area",
           name: "Northeast area",
-          rings: [[
-            { latitude: 55, longitude: 12 },
-            { latitude: 61, longitude: 18 },
-            { latitude: 58, longitude: 15 },
-          ]],
+          rings: [
+            [
+              { latitude: 55, longitude: 12 },
+              { latitude: 61, longitude: 18 },
+              { latitude: 58, longitude: 15 },
+            ],
+          ],
         },
       ],
     });
 
-    expect(getMapFeatureBounds(block)).toEqual([[-11, 33], [18, 61]]);
+    expect(getMapFeatureBounds(block)).toEqual([
+      [-11, 33],
+      [18, 61],
+    ]);
   });
 
   it("uses the compact antimeridian-crossing interval", () => {
@@ -76,7 +79,94 @@ describe("article context map camera", () => {
       areas: [],
     });
 
-    expect(getMapFeatureBounds(block)).toEqual([[179, -10], [181, 12]]);
+    expect(getMapFeatureBounds(block)).toEqual([
+      [179, -10],
+      [181, 12],
+    ]);
+  });
+
+  it("uses complete semantic feature geometry instead of legacy projections", () => {
+    const block = mapBlock({
+      center: { latitude: 45, longitude: 0 },
+      features: [
+        {
+          id: "mixed-feature",
+          name: "Mixed feature",
+          geometry: {
+            type: "GeometryCollection",
+            geometries: [
+              {
+                type: "Point",
+                coordinates: { latitude: 12, longitude: 170 },
+              },
+              {
+                type: "Polygon",
+                coordinates: [
+                  [
+                    { latitude: 0, longitude: -170 },
+                    { latitude: 20, longitude: -170 },
+                    { latitude: 20, longitude: -160 },
+                    { latitude: 0, longitude: -170 },
+                  ],
+                  [
+                    { latitude: 5, longitude: -168 },
+                    { latitude: 10, longitude: -168 },
+                    { latitude: 5, longitude: -165 },
+                    { latitude: 5, longitude: -168 },
+                  ],
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      // These are deliberately contradictory. Once complete semantic features
+      // exist, the legacy projections must not affect either rendering or fit.
+      places: [{ id: "legacy", name: "Legacy", latitude: 80, longitude: 0 }],
+      routes: [],
+      areas: [],
+    });
+
+    expect(getMapFeatureBounds(block)).toEqual([
+      [170, 0],
+      [200, 20],
+    ]);
+    expect(createMapGeoJsonFeatures(block)).toEqual([
+      {
+        type: "Feature",
+        properties: {
+          kind: "place",
+          id: "mixed-feature-geometry-0",
+          name: "Mixed feature 1",
+        },
+        geometry: { type: "Point", coordinates: [170, 12] },
+      },
+      {
+        type: "Feature",
+        properties: {
+          kind: "area",
+          id: "mixed-feature-geometry-1",
+          name: "Mixed feature 2",
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [-170, 0],
+              [-170, 20],
+              [-160, 20],
+              [-170, 0],
+            ],
+            [
+              [-168, 5],
+              [-168, 10],
+              [-165, 5],
+              [-168, 5],
+            ],
+          ],
+        },
+      },
+    ]);
   });
 
   it("fits multiple features and centers a lone feature instead of a stale source center", () => {
@@ -84,8 +174,18 @@ describe("article context map camera", () => {
       center: { latitude: 34, longitude: -99.5 },
       suggestedZoom: 4,
       places: [
-        { id: "vancouver", name: "Vancouver", latitude: 49.28, longitude: -123.12 },
-        { id: "mexico-city", name: "Mexico City", latitude: 19.43, longitude: -99.13 },
+        {
+          id: "vancouver",
+          name: "Vancouver",
+          latitude: 49.28,
+          longitude: -123.12,
+        },
+        {
+          id: "mexico-city",
+          name: "Mexico City",
+          latitude: 19.43,
+          longitude: -99.13,
+        },
       ],
       routes: [],
       areas: [],
@@ -93,9 +193,14 @@ describe("article context map camera", () => {
     const fitBounds = vi.fn();
     const jumpTo = vi.fn();
 
-    expect(fitMapToFeatures({ fitBounds, jumpTo }, multiPoint)).toBe("features");
+    expect(fitMapToFeatures({ fitBounds, jumpTo }, multiPoint)).toBe(
+      "features",
+    );
     expect(fitBounds).toHaveBeenCalledWith(
-      [[-123.12, 19.43], [-99.13, 49.28]],
+      [
+        [-123.12, 19.43],
+        [-99.13, 49.28],
+      ],
       {
         padding: 40,
         maxZoom: 10,
@@ -110,9 +215,7 @@ describe("article context map camera", () => {
     const onePoint = mapBlock({
       center: { latitude: 0, longitude: 0 },
       suggestedZoom: 7,
-      places: [
-        { id: "rome", name: "Rome", latitude: 41.9, longitude: 12.5 },
-      ],
+      places: [{ id: "rome", name: "Rome", latitude: 41.9, longitude: 12.5 }],
       routes: [],
       areas: [],
     });

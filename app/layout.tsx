@@ -9,6 +9,11 @@ import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistratio
 import { TrendingBriefWarmup } from "@/components/TrendingBriefWarmup";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import {
+  getActiveTtsProfile,
+  getTtsMetadata,
+  serializeTtsMetadataForInlineScript,
+} from "@/lib/tts-profile";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -68,6 +73,10 @@ const themeToggleCss = `
 .light .theme-icon-moon { display: inline-flex; }
 `;
 
+const activeTtsMetadataScript = `window.__CURIO_ACTIVE_TTS_METADATA__=${serializeTtsMetadataForInlineScript(
+  getTtsMetadata(getActiveTtsProfile()),
+)};`;
+
 const clerkAppearance = {
   variables: {
     colorPrimary: "var(--color-accent)",
@@ -108,7 +117,9 @@ export default function RootLayout({
           <AccessibleLayout
             authEnabled={!isLocal}
             authControls={isLocal ? undefined : <AuthNavControls />}
-            mobileAuthControls={isLocal ? undefined : <AuthNavControls mobile />}
+            mobileAuthControls={
+              isLocal ? undefined : <AuthNavControls mobile />
+            }
           >
             {children}
           </AccessibleLayout>
@@ -124,13 +135,17 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: activeTtsMetadataScript }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style dangerouslySetInnerHTML={{ __html: themeToggleCss }} />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#171717" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta
+          name="apple-mobile-web-app-status-bar-style"
+          content="black-translucent"
+        />
         <meta name="apple-mobile-web-app-title" content="Curio Garden" />
       </head>
       <body

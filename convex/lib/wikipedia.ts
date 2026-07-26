@@ -2,28 +2,178 @@ import {
   ARTICLE_SECTION_NARRATION_VERSION,
   createSectionNarrations,
   type NarratedSection,
-  type ParsedSectionNarrationSource,
   type SectionNarrationSource,
 } from "../../lib/section-narration";
+import {
+  loadMediaWikiDocument,
+  MediaWikiSourceError,
+  normalizeMediaWikiNumericId,
+  type MediaWikiDocument,
+  type MediaWikiDocumentRequest,
+} from "../../lib/mediawiki-document";
+import { createSectionNarrationsFromDocument } from "../../lib/section-narration-document";
+import { createParsedPageDataFromDocument } from "../../lib/mediawiki-document-metadata";
 import {
   BADGE_KEYS,
   getBadgeTopicQuery,
   type BadgeKey,
 } from "../../lib/badges";
 import {
-  buildWikimediaSourceFallback,
   fetchWikimediaMediaDetails,
   getAttributionForImageUrl,
-  getWikimediaFileTitleFromUrl,
   type WikimediaMediaAttribution,
 } from "../../lib/wikimedia-media";
-import { isArticleGalleryImageCandidate } from "../../lib/article-image-policy";
+import type { WikipediaRevisionIdentity } from "../../lib/wikipedia-contracts";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
 const USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
-const PARSE_SOURCE_TIMEOUT_MS = 8_000;
+
+/** Keep related-article UI work bounded while preserving source order. */
+export const MAX_SECTION_LINK_SOURCE_TITLES = 250;
+/** One deadline covers both revision parsing and all description batches. */
+export const SECTION_LINKS_TIMEOUT_MS = 25_000;
+const SECTION_LINKS_BATCH_SIZE = 50;
+const MAX_SECTION_LINK_RESPONSE_BYTES = 15 * 1024 * 1024;
+const MAX_SECTION_LINK_TITLE_MAPPINGS = 4_096;
+
+const invalidSectionLinkResponse = (message: string): MediaWikiSourceError =>
+  new MediaWikiSourceError({
+    code: "invalid-response",
+    message,
+    retryable: true,
+  });
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw (
+      signal.reason ??
+      new DOMException("The operation was aborted.", "AbortError")
+    );
+  }
+};
+
+const readBoundedSectionLinkJson = async (
+  response: Response,
+): Promise<unknown> => {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_SECTION_LINK_RESPONSE_BYTES
+  ) {
+    throw new MediaWikiSourceError({
+      code: "response-too-large",
+      message: "Wikipedia section-link response exceeded the safe size limit",
+    });
+  }
+  if (!response.body) {
+    throw invalidSectionLinkResponse(
+      "Resolving Wikipedia section links returned an empty body",
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_SECTION_LINK_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new MediaWikiSourceError({
+          code: "response-too-large",
+          message:
+            "Wikipedia section-link response exceeded the safe size limit",
+        });
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+  } catch (error) {
+    if (error instanceof MediaWikiSourceError) throw error;
+    throw invalidSectionLinkResponse(
+      "Resolving Wikipedia section links returned an unreadable body",
+    );
+  } finally {
+    reader.releaseLock();
+  }
+
+  try {
+    return JSON.parse(chunks.join(""));
+  } catch {
+    throw invalidSectionLinkResponse(
+      "Resolving Wikipedia section links returned invalid JSON",
+    );
+  }
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const comparableWikipediaTitle = (value: string): string =>
+  value.replaceAll("_", " ").trim();
+
+const resolveExpectedSectionLinkTitles = (
+  batch: readonly string[],
+  queryData: Record<string, unknown>,
+): Set<string> => {
+  let expectedTitles = batch.map(comparableWikipediaTitle);
+  for (const field of ["normalized", "converted", "redirects"] as const) {
+    const value = queryData[field];
+    if (value === undefined) continue;
+    if (
+      !Array.isArray(value) ||
+      value.length > MAX_SECTION_LINK_TITLE_MAPPINGS
+    ) {
+      throw invalidSectionLinkResponse(
+        `Resolving Wikipedia section links returned invalid ${field} mappings`,
+      );
+    }
+    const mappings = new Map<string, string>();
+    for (const entry of value) {
+      if (
+        !isRecord(entry) ||
+        typeof entry.from !== "string" ||
+        !entry.from.trim() ||
+        typeof entry.to !== "string" ||
+        !entry.to.trim()
+      ) {
+        throw invalidSectionLinkResponse(
+          `Resolving Wikipedia section links returned invalid ${field} mappings`,
+        );
+      }
+      const from = comparableWikipediaTitle(entry.from);
+      const to = comparableWikipediaTitle(entry.to);
+      if (mappings.has(from)) {
+        throw invalidSectionLinkResponse(
+          `Resolving Wikipedia section links returned unexpected ${field} mappings`,
+        );
+      }
+      mappings.set(from, to);
+    }
+    const usedMappings = new Set<string>();
+    expectedTitles = expectedTitles.map((initialTitle) => {
+      let title = initialTitle;
+      const path = new Set<string>();
+      while (mappings.has(title) && !path.has(title)) {
+        path.add(title);
+        usedMappings.add(title);
+        title = mappings.get(title)!;
+      }
+      return title;
+    });
+    if (usedMappings.size !== mappings.size) {
+      throw invalidSectionLinkResponse(
+        `Resolving Wikipedia section links returned unexpected ${field} mappings`,
+      );
+    }
+  }
+  return new Set(expectedTitles);
+};
 
 export type WikiSearchResult = {
   wikiPageId: string;
@@ -56,6 +206,22 @@ type WikiThumbnail = {
   height: number;
 };
 
+const requireRevisionId = (value: unknown): string => {
+  const revisionId = normalizeMediaWikiNumericId(value);
+  if (!revisionId) {
+    throw new Error("Wikipedia returned no usable revision identity");
+  }
+  return revisionId;
+};
+
+const requirePageId = (value: unknown): string => {
+  const pageId = normalizeMediaWikiNumericId(value);
+  if (!pageId) {
+    throw new Error("Wikipedia returned no usable page identity");
+  }
+  return pageId;
+};
+
 const fetchSummaryThumbnail = async (
   title: string,
 ): Promise<WikiThumbnail | undefined> => {
@@ -71,59 +237,6 @@ const fetchSummaryThumbnail = async (
     const data = await response.json();
     const thumbnail = data.thumbnail as WikiThumbnail | undefined;
     return thumbnail;
-  } catch {
-    return undefined;
-  }
-};
-
-const fetchRevisionParsedSource = async (
-  revisionId: string,
-): Promise<ParsedSectionNarrationSource | undefined> => {
-  if (!/^\d+$/.test(revisionId)) return undefined;
-  try {
-    const params = new URLSearchParams({
-      action: "parse",
-      format: "json",
-      formatversion: "2",
-      oldid: revisionId,
-      prop: "text|sections",
-      disableeditsection: "1",
-      disablelimitreport: "1",
-      origin: "*",
-    });
-    const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-      headers: { "User-Agent": USER_AGENT },
-      signal: AbortSignal.timeout(PARSE_SOURCE_TIMEOUT_MS),
-    });
-    if (!response.ok) return undefined;
-    const data = await response.json();
-    if (String(data.parse?.revid ?? "") !== revisionId) return undefined;
-    const html = data.parse?.text;
-    const sections = data.parse?.sections;
-    if (typeof html !== "string" || !Array.isArray(sections)) return undefined;
-    return {
-      html,
-      sections: sections.flatMap((section: unknown) => {
-        if (!section || typeof section !== "object") return [];
-        const candidate = section as Record<string, unknown>;
-        if (
-          typeof candidate.index !== "string" ||
-          typeof candidate.line !== "string"
-        ) {
-          return [];
-        }
-        return [{
-          index: candidate.index,
-          line: candidate.line,
-          ...(typeof candidate.anchor === "string"
-            ? { anchor: candidate.anchor }
-            : {}),
-          ...(typeof candidate.level === "string"
-            ? { level: candidate.level }
-            : {}),
-        }];
-      }),
-    };
   } catch {
     return undefined;
   }
@@ -153,13 +266,20 @@ export const searchWikipedia = async (
   const data = await response.json();
   const results = data.query?.search ?? [];
 
-  return results.map(
-    (item: { pageid: number; title: string; snippet: string }) => ({
-      wikiPageId: String(item.pageid),
-      title: item.title,
-      description: stripHtml(item.snippet),
-      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
-    }),
+  return results.flatMap(
+    (item: { pageid: number; title: string; snippet: string }) => {
+      const wikiPageId = normalizeMediaWikiNumericId(item.pageid);
+      return wikiPageId
+        ? [
+            {
+              wikiPageId,
+              title: item.title,
+              description: stripHtml(item.snippet),
+              url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
+            },
+          ]
+        : [];
+    },
   );
 };
 
@@ -167,11 +287,12 @@ const articleTopicMatches = async (
   wikiPageId: string,
   topics: string,
 ): Promise<boolean> => {
+  const canonicalPageId = requirePageId(wikiPageId);
   const params = new URLSearchParams({
     action: "query",
     format: "json",
     list: "search",
-    srsearch: `pageid:${wikiPageId} articletopic:${topics}`,
+    srsearch: `pageid:${canonicalPageId} articletopic:${topics}`,
     srlimit: "1",
     srwhat: "text",
     origin: "*",
@@ -188,7 +309,8 @@ const articleTopicMatches = async (
   const data = await response.json();
   const results = data.query?.search ?? [];
   return results.some(
-    (item: { pageid?: number | string }) => String(item.pageid ?? "") === wikiPageId,
+    (item: { pageid?: number | string }) =>
+      normalizeMediaWikiNumericId(item.pageid) === canonicalPageId,
   );
 };
 
@@ -197,7 +319,10 @@ export const fetchArticleBadgeKeys = async (
 ): Promise<BadgeKey[]> => {
   const matches = await Promise.all(
     BADGE_KEYS.map(async (key) => {
-      const didMatch = await articleTopicMatches(wikiPageId, getBadgeTopicQuery(key));
+      const didMatch = await articleTopicMatches(
+        wikiPageId,
+        getBadgeTopicQuery(key),
+      );
       return didMatch ? key : null;
     }),
   );
@@ -208,10 +333,11 @@ export const fetchArticleBadgeKeys = async (
 export const fetchArticleByPageId = async (
   pageId: string,
 ): Promise<WikiArticle> => {
+  const canonicalPageId = requirePageId(pageId);
   const params = new URLSearchParams({
     action: "query",
     format: "json",
-    pageids: pageId,
+    pageids: canonicalPageId,
     prop: "extracts|revisions|info|pageimages",
     explaintext: "1",
     exsectionformat: "wiki",
@@ -231,27 +357,32 @@ export const fetchArticleByPageId = async (
   }
 
   const data = await response.json();
-  const page = data.query?.pages?.[pageId];
+  const page = data.query?.pages?.[canonicalPageId];
 
   if (!page || page.missing !== undefined) {
-    throw new Error(`Wikipedia article not found: pageId ${pageId}`);
+    throw new Error(`Wikipedia article not found: pageId ${canonicalPageId}`);
   }
 
   const revision = page.revisions?.[0];
-  const revisionId = revision ? String(revision.revid) : "unknown";
+  const wikiPageId = requirePageId(page.pageid);
+  const revisionId = requireRevisionId(revision?.revid);
   const fullText = page.extract ?? "";
   const contentText = cleanContentForTts(fullText);
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
-  const [parsedSource, thumbnailAttribution] = await Promise.all([
-    fetchRevisionParsedSource(revisionId),
+  const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
+    buildRevisionNarration({
+      wikiPageId,
+      title: page.title,
+      revisionId,
+      fullText,
+    }),
     getAttributionForImageUrl(thumbnail?.source),
   ]);
-  const { summary, sections } = parseSections(fullText, parsedSource);
 
   return {
-    wikiPageId: String(page.pageid),
+    wikiPageId,
     title: page.title,
     language: "en",
     revisionId,
@@ -309,22 +440,29 @@ export const fetchArticleByTitle = async (
     throw new Error(`Wikipedia article not found: "${title}"`);
   }
 
-  const revisions = page.revisions as Array<Record<string, unknown>> | undefined;
+  const revisions = page.revisions as
+    | Array<Record<string, unknown>>
+    | undefined;
   const revision = revisions?.[0];
-  const revisionId = revision ? String(revision.revid) : "unknown";
+  const wikiPageId = requirePageId(page.pageid);
+  const revisionId = requireRevisionId(revision?.revid);
   const fullText = (page.extract as string) ?? "";
   const contentText = cleanContentForTts(fullText);
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
-  const [parsedSource, thumbnailAttribution] = await Promise.all([
-    fetchRevisionParsedSource(revisionId),
+  const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
+    buildRevisionNarration({
+      wikiPageId,
+      title: page.title as string,
+      revisionId,
+      fullText,
+    }),
     getAttributionForImageUrl(thumbnail?.source),
   ]);
-  const { summary, sections } = parseSections(fullText, parsedSource);
 
   return {
-    wikiPageId: String(page.pageid),
+    wikiPageId,
     title: page.title as string,
     language: "en",
     revisionId,
@@ -352,13 +490,89 @@ const NOISE_SECTIONS = new Set([
   "footnotes",
 ]);
 
+const splitPlaintextArticle = (
+  fullText: string,
+): NonNullable<MediaWikiDocumentRequest["plaintext"]> => {
+  // MediaWiki's plaintext extract represents section boundaries as wikitext
+  // headings. This is the only structural regex in the ingestion path; HTML
+  // structure is always read from parse5's semantic tree.
+  const headingPattern = /^(={2,})\s*(.+?)\s*\1$/gm;
+  const matches = [...fullText.matchAll(headingPattern)];
+  const leadEnd = matches[0]?.index ?? fullText.length;
+  return {
+    lead: cleanSectionContent(fullText.slice(0, leadEnd)),
+    sections: matches.map((match, index) => ({
+      index: String(index + 1),
+      title: match[2].trim(),
+      level: match[1].length,
+      text: cleanSectionContent(
+        fullText.slice(
+          (match.index ?? 0) + match[0].length,
+          matches[index + 1]?.index ?? fullText.length,
+        ),
+      ),
+    })),
+  };
+};
+
+const buildRevisionNarration = async ({
+  wikiPageId,
+  title,
+  revisionId,
+  fullText,
+}: {
+  wikiPageId: string;
+  title: string;
+  revisionId: string;
+  fullText: string;
+}): Promise<{ summary: string; sections: WikiSection[] }> => {
+  const plaintext = splitPlaintextArticle(fullText);
+  const sourceSections: SectionNarrationSource[] = plaintext.sections
+    .filter((section) => !NOISE_SECTIONS.has(section.title.toLowerCase()))
+    .map((section) => ({
+      wikiSectionIndex: section.index,
+      title: section.title,
+      level: section.level,
+      content: section.text,
+    }));
+
+  try {
+    const document = await loadMediaWikiDocument({
+      wikiPageId,
+      title,
+      revisionId,
+      language: "en",
+      plaintext,
+    });
+    return {
+      summary: plaintext.lead,
+      sections: createSectionNarrationsFromDocument(document),
+    };
+  } catch (error) {
+    if (
+      error instanceof MediaWikiSourceError &&
+      error.code === "identity-mismatch"
+    ) {
+      throw error;
+    }
+    // Unavailable parsed HTML must never resurrect the old suitability
+    // heuristics. The revision's plaintext stays listenable.
+    return {
+      summary: plaintext.lead,
+      sections: createSectionNarrations({
+        sections: sourceSections,
+        sourceIdentity: JSON.stringify([wikiPageId, revisionId, title]),
+      }),
+    };
+  }
+};
+
 /**
  * Split Wikipedia plaintext (from explaintext=1) into a lead summary
  * and an ordered array of sections. Filters out reference/noise sections.
  */
 export const parseSections = (
   fullText: string,
-  parsedSource?: ParsedSectionNarrationSource,
 ): {
   summary: string;
   sections: WikiSection[];
@@ -375,7 +589,6 @@ export const parseSections = (
   );
 
   const rawSections: SectionNarrationSource[] = [];
-  let parsedCursor = 0;
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
     const level = m[1].length;
@@ -390,22 +603,8 @@ export const parseSections = (
       fullText.substring(contentStart, contentEnd),
     );
 
-    const normalizedTitle = title.trim().toLocaleLowerCase();
-    const parsedIndex = parsedSource?.sections.findIndex(
-      (section, index) =>
-        index >= parsedCursor &&
-        stripHtml(section.line).trim().toLocaleLowerCase() === normalizedTitle,
-    );
-    const parsedSection =
-      parsedIndex != null && parsedIndex >= 0
-        ? parsedSource?.sections[parsedIndex]
-        : undefined;
-    if (parsedIndex != null && parsedIndex >= 0) parsedCursor = parsedIndex + 1;
-
     rawSections.push({
-      wikiSectionIndex:
-        parsedSection?.index ??
-        (parsedSource ? `unmatched-${i + 1}` : String(i + 1)),
+      wikiSectionIndex: String(i + 1),
       title,
       level,
       content,
@@ -414,10 +613,7 @@ export const parseSections = (
 
   return {
     summary,
-    sections: createSectionNarrations({
-      sections: rawSections,
-      parsedSource,
-    }),
+    sections: createSectionNarrations({ sections: rawSections }),
   };
 };
 
@@ -442,6 +638,7 @@ export const stripHtml = (html: string): string => {
 };
 
 export type WikiSectionLinkCount = {
+  index?: string;
   title: string;
   count: number;
 };
@@ -454,6 +651,7 @@ export type WikiCitation = {
 };
 
 export type SectionCitationInfo = {
+  index?: string;
   title: string;
   count: number;
   citationIds: string[];
@@ -487,287 +685,18 @@ export type ParsedPageData = {
   images: WikiArticleImage[];
 };
 
-const decodeEntities = (s: string) =>
-  s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
-      String.fromCodePoint(parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&ndash;/g, "\u2013")
-    .replace(/&mdash;/g, "\u2014");
-
-const stripTags = (s: string) => s.replace(/<[^>]+>/g, "").trim();
-
-const extractLinkCounts = (
-  html: string,
-  sections: { line: string; level: string }[],
-): WikiSectionLinkCount[] => {
-  const headingRe = /<h([2-6])\b[^>]*>([\s\S]*?)<\/h\1>/g;
-  const linkRe = /<a\s[^>]*href="\/wiki\/([^"#]+)"[^>]*>/g;
-  const countLinks = (chunk: string) => {
-    let n = 0;
-    for (const m of chunk.matchAll(linkRe)) {
-      if (!m[1].includes(":")) n++;
-    }
-    return n;
-  };
-
-  const headings = [...html.matchAll(headingRe)];
-  const result: WikiSectionLinkCount[] = [];
-
-  const leadEnd = headings.length > 0 ? headings[0].index! : html.length;
-  result.push({ title: "__summary__", count: countLinks(html.slice(0, leadEnd)) });
-
-  for (let i = 0; i < headings.length; i++) {
-    const chunkStart = headings[i].index! + headings[i][0].length;
-    const chunkEnd =
-      i + 1 < headings.length ? headings[i + 1].index! : html.length;
-    const chunk = html.slice(chunkStart, chunkEnd);
-
-    const headingText = decodeEntities(stripTags(headings[i][2]));
-    const normalised = headingText.toLowerCase();
-    const matchedSection = sections.find(
-      (s) => decodeEntities(stripTags(s.line)).toLowerCase() === normalised,
-    );
-    if (matchedSection) {
-      result.push({
-        title: decodeEntities(stripTags(matchedSection.line)),
-        count: countLinks(chunk),
-      });
-    }
-  }
-
-  return result;
-};
-
-/**
- * Match individual <li id="cite_note-*"> elements by their start tags
- * and slice between them.
- *
- * Wikipedia encodes underscores as &#95; in id attributes but uses
- * literal underscores in href fragment references. We decode numeric
- * HTML entities in the id values so they match the href-based IDs
- * that extractSectionCitations collects.
- */
-const extractCitations = (html: string): WikiCitation[] => {
-  const citeNoteRe =
-    /<li\b[^>]*\bid="(cite(?:_|&#95;)note(?:_|&#95;|-)[^"]+)"[^>]*>/gi;
-  const matches = [...html.matchAll(citeNoteRe)];
-  if (matches.length === 0) return [];
-
-  const decodeNumericEntities = (s: string) =>
-    s.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code)));
-
-  const linkHrefRe =
-    /<a\b[^>]*class="external[^"]*"[^>]*href="([^"]+)"[^>]*>/i;
-  const citations: WikiCitation[] = [];
-
-  for (let i = 0; i < matches.length; i++) {
-    const id = decodeNumericEntities(matches[i][1]);
-    const start = matches[i].index! + matches[i][0].length;
-    const end = i + 1 < matches.length ? matches[i + 1].index! : html.length;
-    const content = html.slice(start, end);
-
-    const text = content
-      .replace(/<span class="mw-cite-backlink">[\s\S]*?<\/span>/gi, "")
-      .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, "")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&#(\d+);/g, (_, code) =>
-        String.fromCharCode(parseInt(code)),
-      )
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/\s+/g, " ")
-      .trim();
-
-    if (!text || text.length < 5) continue;
-
-    const urlMatch = content.match(linkHrefRe);
-    citations.push({
-      id,
-      index: citations.length + 1,
-      text,
-      url: urlMatch?.[1],
+export const createCacheableParsedPageData = (
+  document: MediaWikiDocument,
+): ParsedPageData => {
+  if (document.sourceFormat === "plaintext" || document.fallbackReason) {
+    throw new MediaWikiSourceError({
+      code: "invalid-response",
+      message:
+        "Wikipedia semantic metadata unexpectedly fell back to plaintext",
+      retryable: true,
     });
   }
-
-  return citations;
-};
-
-/**
- * For each section of the HTML, find which cite_note IDs are referenced
- * via inline <a href="#cite_note-*"> links. Returns per-section counts
- * and ID lists so callers can look up full citation text on demand.
- */
-const extractSectionCitations = (
-  html: string,
-  sections: { line: string; level: string }[],
-): SectionCitationInfo[] => {
-  const headingRe = /<h([2-6])\b[^>]*>([\s\S]*?)<\/h\1>/g;
-  const citeRefRe = /href="#(cite_note-[^"]+)"/g;
-
-  const headings = [...html.matchAll(headingRe)];
-  const result: SectionCitationInfo[] = [];
-
-  const leadEnd = headings.length > 0 ? headings[0].index! : html.length;
-  const leadIds = [
-    ...new Set([...html.slice(0, leadEnd).matchAll(citeRefRe)].map((m) => m[1])),
-  ];
-  result.push({ title: "__summary__", count: leadIds.length, citationIds: leadIds });
-
-  for (let i = 0; i < headings.length; i++) {
-    const chunkStart = headings[i].index!;
-    const chunkEnd =
-      i + 1 < headings.length ? headings[i + 1].index! : html.length;
-    const chunk = html.slice(chunkStart, chunkEnd);
-
-    const headingText = decodeEntities(stripTags(headings[i][2]));
-    const normalised = headingText.toLowerCase();
-    const matchedSection = sections.find(
-      (s) => decodeEntities(stripTags(s.line)).toLowerCase() === normalised,
-    );
-    const title = matchedSection
-      ? decodeEntities(stripTags(matchedSection.line))
-      : headingText;
-
-    const ids = [
-      ...new Set([...chunk.matchAll(citeRefRe)].map((m) => m[1])),
-    ];
-    result.push({ title, count: ids.length, citationIds: ids });
-  }
-
-  return result;
-};
-
-/**
- * Upscale a Wikipedia thumbnail URL to a larger size. Thumbnail URLs follow
- * the pattern .../thumb/<path>/<size>px-<filename>. We replace the size
- * prefix and keep the rest intact. Non-thumb URLs are returned as-is.
- */
-export const upscaleThumbUrl = (url: string): string => {
-  const thumbRe = /(\/thumb\/.*\/)(\d+)(px-[^/]+)$/;
-  const match = url.match(thumbRe);
-  if (!match) return url;
-  return url.replace(thumbRe, `$1800$3`);
-};
-
-/**
- * Convert a Wikipedia thumbnail URL to the full-size original by stripping
- * the /thumb/ segment and the trailing size prefix. Non-thumb URLs (already
- * pointing at the original) are returned as-is.
- *
- *   .../thumb/5/53/File.jpg/250px-File.jpg  →  .../5/53/File.jpg
- */
-export const toOriginalUrl = (url: string): string => {
-  const thumbRe = /\/thumb\/(.*\/)(\d+px-[^/]+)$/;
-  const match = url.match(thumbRe);
-  if (!match) return url;
-  const pathWithoutFile = match[1];
-  return url.replace(/\/thumb\/.*$/, "/" + pathWithoutFile.replace(/\/$/, ""));
-};
-
-export const extractImages = (html: string): WikiArticleImage[] => {
-  const figureRe = /<figure\b([^>]*)>([\s\S]*?)<\/figure>/gi;
-  const imgRe = /<img\b([^>]*)>/i;
-  const captionRe = /<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i;
-  const attrRe = (name: string) => new RegExp(`${name}="([^"]*)"`, "i");
-
-  const images: WikiArticleImage[] = [];
-  const seenSrcs = new Set<string>();
-
-  for (const figMatch of html.matchAll(figureRe)) {
-    const figAttrs = figMatch[1];
-    const figHtml = figMatch[2];
-
-    const typeofVal = figAttrs.match(attrRe("typeof"))?.[1] ?? "";
-    if (typeofVal.includes("mw:Error")) continue;
-
-    const imgMatch = figHtml.match(imgRe);
-
-    if (imgMatch) {
-      const attrs = imgMatch[1];
-      let src = attrs.match(attrRe("src"))?.[1] ?? "";
-      if (!src) continue;
-
-      if (src.startsWith("//")) src = "https:" + src;
-
-      const width = parseInt(attrs.match(attrRe("width"))?.[1] ?? "0", 10);
-      const height = parseInt(attrs.match(attrRe("height"))?.[1] ?? "0", 10);
-      if (!isArticleGalleryImageCandidate({ src, width, height })) continue;
-
-      const originalSrc = toOriginalUrl(src);
-      const sourceTitle = getWikimediaFileTitleFromUrl(originalSrc);
-
-      const alt = decodeEntities(attrs.match(attrRe("alt"))?.[1] ?? "");
-      const captionMatch = figHtml.match(captionRe);
-      const caption = captionMatch
-        ? decodeEntities(stripTags(captionMatch[1])).replace(/\s+/g, " ").trim()
-        : "";
-
-      const normalizedSrc = src.replace(/\/\d+px-/, "/SIZE-");
-      if (seenSrcs.has(normalizedSrc)) continue;
-      seenSrcs.add(normalizedSrc);
-
-      images.push({
-        src,
-        originalSrc: originalSrc !== src ? originalSrc : undefined,
-        alt,
-        caption,
-        ...(width > 0 ? { width } : {}),
-        ...(height > 0 ? { height } : {}),
-        ...(sourceTitle
-          ? { attribution: buildWikimediaSourceFallback(sourceTitle) }
-          : {}),
-      });
-
-      continue;
-    }
-
-    const videoRe = /<video\b([^>]*)>/i;
-    const sourceRe = /<source\b[^>]*src="([^"]*)"[^>]*>/i;
-    const videoMatch = figHtml.match(videoRe);
-    if (!videoMatch) continue;
-
-    const videoAttrs = videoMatch[1];
-    let poster = videoAttrs.match(attrRe("poster"))?.[1] ?? "";
-    if (!poster) continue;
-    if (poster.startsWith("//")) poster = "https:" + poster;
-
-    const sourceMatch = figHtml.match(sourceRe);
-    let videoSrc = sourceMatch?.[1] ?? "";
-    if (videoSrc.startsWith("//")) videoSrc = "https:" + videoSrc;
-
-    const captionMatch = figHtml.match(captionRe);
-    const caption = captionMatch
-      ? decodeEntities(stripTags(captionMatch[1])).replace(/\s+/g, " ").trim()
-      : "";
-
-    if (seenSrcs.has(poster)) continue;
-    seenSrcs.add(poster);
-    const videoSourceTitle = getWikimediaFileTitleFromUrl(videoSrc || poster);
-
-    images.push({
-      src: poster,
-      alt: caption,
-      caption,
-      ...(videoSrc ? { videoSrc } : {}),
-      ...(videoSourceTitle
-        ? {
-            attribution: buildWikimediaSourceFallback(videoSourceTitle),
-          }
-        : {}),
-    });
-  }
-
-  return images;
+  return createParsedPageDataFromDocument(document);
 };
 
 /**
@@ -776,37 +705,32 @@ export const extractImages = (html: string): WikiArticleImage[] => {
  * result in Convex so subsequent requests hit the database.
  */
 export const fetchParsedPageData = async (
-  pageId: string,
+  identity: WikipediaRevisionIdentity,
   signal?: AbortSignal,
 ): Promise<ParsedPageData> => {
-  const params = new URLSearchParams({
-    action: "parse",
-    format: "json",
-    pageid: pageId,
-    prop: "text|sections",
-    origin: "*",
-  });
-
-  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
-    signal,
-  });
-  if (!response.ok) {
-    return {
-      linkCounts: [],
-      citations: [],
-      sectionCitations: [],
-      sectionIndexMap: [],
-      images: [],
-    };
+  throwIfAborted(signal);
+  const empty: ParsedPageData = {
+    linkCounts: [],
+    citations: [],
+    sectionCitations: [],
+    sectionIndexMap: [],
+    images: [],
+  };
+  if (identity.language !== "en") {
+    return empty;
   }
+  const document = await loadMediaWikiDocument(
+    {
+      wikiPageId: identity.wikiPageId,
+      title: identity.title,
+      revisionId: identity.revisionId,
+      language: "en",
+    },
+    { signal },
+  );
+  const parsed = createCacheableParsedPageData(document);
 
-  const data = await response.json();
-  const html: string = data.parse?.text?.["*"] ?? "";
-  const sections: { line: string; level: string; index: string }[] =
-    data.parse?.sections ?? [];
-
-  const images = extractImages(html);
+  const images = parsed.images;
   const mediaRequests = images.flatMap((image) => {
     const sourceTitle = image.attribution?.sourceTitle;
     const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
@@ -819,13 +743,7 @@ export const fetchParsedPageData = async (
   );
 
   return {
-    linkCounts: extractLinkCounts(html, sections),
-    citations: extractCitations(html),
-    sectionCitations: extractSectionCitations(html, sections),
-    sectionIndexMap: sections.map((s) => ({
-      title: stripTags(s.line),
-      index: s.index,
-    })),
+    ...parsed,
     images: images.map((image) => {
       const sourceTitle = image.attribution?.sourceTitle;
       const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
@@ -855,72 +773,197 @@ export const fetchParsedPageData = async (
 };
 
 /**
- * Fetch internal article links for a known section index. Skips the extra
- * sections-lookup call that the old fetchSectionLinks required — the caller
- * is expected to resolve the index from cached ParsedPageData.
+ * Resolve internal article links for a known semantic-document section index,
+ * then enrich those revision-matched targets with current descriptions.
  */
 export const fetchSectionLinksByIndex = async (
-  pageId: string,
+  identity: WikipediaRevisionIdentity,
   sectionIndex: string,
   signal?: AbortSignal,
 ): Promise<WikiLinkedArticle[]> => {
-  const params = new URLSearchParams({
-    action: "parse",
-    format: "json",
-    pageid: pageId,
-    prop: "links",
-    section: sectionIndex,
-    origin: "*",
-  });
-  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
-    signal,
-  });
-  if (!response.ok) return [];
+  throwIfAborted(signal);
+  if (identity.language !== "en") return [];
+  const timeoutController = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => timeoutController.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    timeoutController.abort();
+  }, SECTION_LINKS_TIMEOUT_MS);
 
-  const data = await response.json();
-  const links: { ns: number; "*": string; exists?: string }[] =
-    data.parse?.links ?? [];
-  const articleTitles = links
-    .filter((l) => l.ns === 0 && "exists" in l)
-    .map((l) => l["*"]);
+  try {
+    const document = await loadMediaWikiDocument(
+      {
+        wikiPageId: identity.wikiPageId,
+        title: identity.title,
+        revisionId: identity.revisionId,
+        language: "en",
+      },
+      { signal: timeoutController.signal },
+    );
+    if (document.sourceFormat === "plaintext" || document.fallbackReason) {
+      throw new MediaWikiSourceError({
+        code: "invalid-response",
+        message: "Wikipedia section links unexpectedly fell back to plaintext",
+        retryable: true,
+      });
+    }
+    const section = document.sections.find(
+      (candidate) =>
+        candidate.key === (sectionIndex === "0" ? "__summary__" : sectionIndex),
+    );
+    const articleTitles = [
+      ...new Set((section?.links ?? []).map((link) => link.targetTitle)),
+    ].slice(0, MAX_SECTION_LINK_SOURCE_TITLES);
 
-  if (articleTitles.length === 0) return [];
+    if (articleTitles.length === 0) return [];
 
-  const resolved: WikiLinkedArticle[] = [];
-  const BATCH_SIZE = 50;
-
-  for (let i = 0; i < articleTitles.length; i += BATCH_SIZE) {
-    const batch = articleTitles.slice(i, i + BATCH_SIZE);
-    const qParams = new URLSearchParams({
-      action: "query",
-      format: "json",
-      titles: batch.join("|"),
-      prop: "description",
-      redirects: "1",
-      origin: "*",
-    });
-    const qResponse = await fetch(`${WIKI_ACTION_API}?${qParams}`, {
-      headers: { "User-Agent": USER_AGENT },
-      signal,
-    });
-    if (!qResponse.ok) continue;
-
-    const qData = await qResponse.json();
-    const pages = qData.query?.pages ?? {};
-    for (const p of Object.values(pages) as Record<string, unknown>[]) {
-      if (p.pageid && p.missing === undefined) {
-        resolved.push({
-          wikiPageId: String(p.pageid),
-          title: p.title as string,
-          description: p.description as string | undefined,
+    const resolved: WikiLinkedArticle[] = [];
+    for (
+      let index = 0;
+      index < articleTitles.length;
+      index += SECTION_LINKS_BATCH_SIZE
+    ) {
+      const batch = articleTitles.slice(
+        index,
+        index + SECTION_LINKS_BATCH_SIZE,
+      );
+      const qParams = new URLSearchParams({
+        action: "query",
+        format: "json",
+        titles: batch.join("|"),
+        prop: "description",
+        redirects: "1",
+        origin: "*",
+      });
+      let qResponse: Response;
+      try {
+        qResponse = await fetch(`${WIKI_ACTION_API}?${qParams}`, {
+          headers: { "User-Agent": USER_AGENT },
+          signal: timeoutController.signal,
+        });
+      } catch (error) {
+        if (signal?.aborted || timedOut) throw error;
+        throw new MediaWikiSourceError({
+          code: "http-error",
+          message: "Resolving Wikipedia section links failed",
+          retryable: true,
         });
       }
-    }
-  }
+      if (!qResponse.ok) {
+        throw new MediaWikiSourceError({
+          code: "http-error",
+          message: `Resolving Wikipedia section links failed: ${qResponse.status}`,
+          retryable: qResponse.status === 429 || qResponse.status >= 500,
+        });
+      }
 
-  resolved.sort((a, b) => a.title.localeCompare(b.title));
-  return resolved;
+      const qData = await readBoundedSectionLinkJson(qResponse);
+      const queryData = isRecord(qData) ? qData.query : undefined;
+      const pages = isRecord(queryData) ? queryData.pages : undefined;
+      if (!isRecord(queryData) || !isRecord(pages)) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned no pages",
+        );
+      }
+      const pageValues = Object.values(pages);
+      if (pageValues.length === 0 || pageValues.length > batch.length) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned an invalid page count",
+        );
+      }
+      const expectedTitles = resolveExpectedSectionLinkTitles(batch, queryData);
+      if (pageValues.length !== expectedTitles.size) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned an incomplete page set",
+        );
+      }
+      const returnedTitles = new Set<string>();
+      for (const value of pageValues) {
+        if (!isRecord(value)) {
+          throw invalidSectionLinkResponse(
+            "Resolving Wikipedia section links returned a malformed page",
+          );
+        }
+        const page = value;
+        if (typeof page.title !== "string" || !page.title.trim()) {
+          throw invalidSectionLinkResponse(
+            "Resolving Wikipedia section links returned a page without a title",
+          );
+        }
+        const title = comparableWikipediaTitle(page.title);
+        if (!expectedTitles.has(title) || returnedTitles.has(title)) {
+          throw invalidSectionLinkResponse(
+            "Resolving Wikipedia section links returned an unexpected page",
+          );
+        }
+        returnedTitles.add(title);
+
+        const missing = Object.hasOwn(page, "missing");
+        if (missing) {
+          if (page.missing !== "" && page.missing !== true) {
+            throw invalidSectionLinkResponse(
+              "Resolving Wikipedia section links returned an invalid missing-page marker",
+            );
+          }
+          continue;
+        }
+        if (
+          typeof page.pageid !== "number" ||
+          !Number.isSafeInteger(page.pageid) ||
+          page.pageid <= 0 ||
+          typeof page.ns !== "number" ||
+          !Number.isSafeInteger(page.ns)
+        ) {
+          throw invalidSectionLinkResponse(
+            "Resolving Wikipedia section links returned an invalid page identity",
+          );
+        }
+        const wikiPageId = normalizeMediaWikiNumericId(page.pageid);
+        if (!wikiPageId) {
+          throw invalidSectionLinkResponse(
+            "Resolving Wikipedia section links returned an invalid page identity",
+          );
+        }
+        if (page.ns === 0) {
+          resolved.push({
+            wikiPageId,
+            title: page.title,
+            ...(typeof page.description === "string"
+              ? { description: page.description }
+              : {}),
+          });
+        }
+      }
+      if (returnedTitles.size !== expectedTitles.size) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned an incomplete page set",
+        );
+      }
+    }
+
+    resolved.sort((a, b) => a.title.localeCompare(b.title));
+    return resolved;
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
+    if (timedOut) {
+      throw new MediaWikiSourceError({
+        code: "timeout",
+        message: "Resolving Wikipedia section links timed out",
+        retryable: true,
+      });
+    }
+    if (error instanceof MediaWikiSourceError) throw error;
+    throw new MediaWikiSourceError({
+      code: "http-error",
+      message: "Resolving Wikipedia section links failed",
+      retryable: true,
+    });
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
 };
 
 export const cleanContentForTts = (text: string): string => {

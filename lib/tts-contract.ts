@@ -12,6 +12,8 @@ export type TtsRequest = {
   text: string;
   voiceId?: string;
   provider?: TtsProvider;
+  /** Reject before generation if the server's active profile has changed. */
+  expectedTtsCacheKey?: string;
 };
 
 const parsePositiveInt = (value: string | undefined): number | null => {

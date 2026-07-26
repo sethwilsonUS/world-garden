@@ -8,6 +8,8 @@ import type {
   ContextBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
+import { MAX_BLOCKS_PER_ARTICLE } from "@/lib/article-context-limits";
+import { ARTICLE_CONTEXT_EXTRACTOR_VERSION } from "@/lib/article-context-types";
 import { useArticleContext } from "./useArticleContext";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -55,19 +57,23 @@ const manifest = (
   id: string,
   overrides: Partial<ContextManifest> = {},
 ): ContextManifest => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   wikiPageId: id,
   title: `Article ${id}`,
   revisionId: `${id}00`,
   language: "en",
   sourceHash: `hash-${id}`,
-  extractorVersion: "2.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [],
   ...overrides,
 });
 
-const block = (id: string, title: string, order: number): ContextBlock => ({
+const block = (
+  id: string,
+  title: string,
+  order: number,
+): Extract<ContextBlock, { kind: "diagram" }> => ({
   id,
   kind: "diagram",
   title,
@@ -87,7 +93,7 @@ const block = (id: string, title: string, order: number): ContextBlock => ({
     articleRevisionUrl:
       "https://en.wikipedia.org/w/index.php?title=Example&oldid=100",
     sourceHash: "hash-example",
-    extractorVersion: "2.0.0",
+    extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
     descriptionMethod: "deterministic",
   },
   diagram: {
@@ -111,7 +117,7 @@ const Probe = ({ value }: { value: ArticleContextRequest | null }) => {
           ? `${state.manifest.title}:${state.manifest.blocks
               .map((block) => block.id)
               .join(",")}`
-          : state.error ?? ""}
+          : (state.error ?? "")}
       </output>
       <button type="button" onClick={state.retry}>
         Retry
@@ -214,7 +220,9 @@ describe("useArticleContext", () => {
     expect(signal?.aborted).toBe(true);
 
     await act(async () => {
-      pending.resolve(response({ context: manifest("1"), cacheStatus: "miss" }));
+      pending.resolve(
+        response({ context: manifest("1"), cacheStatus: "miss" }),
+      );
     });
     expect(errorSpy).not.toHaveBeenCalled();
   });
@@ -336,6 +344,31 @@ describe("useArticleContext", () => {
           }),
           cacheStatus: "miss",
         }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("malformed-legend", {
+            blocks: [
+              {
+                ...block("broken-legend", "Broken legend", 1),
+                diagram: {
+                  ...block("broken-legend", "Broken legend", 1).diagram,
+                  legend: {
+                    description: "A source diagram with an unsafe legend.",
+                    entries: [
+                      {
+                        color: "url(https://example.com/tracker)",
+                        text: "Unsafe color",
+                      },
+                    ],
+                    notes: [],
+                  },
+                },
+              } as ContextBlock,
+            ],
+          }),
+          cacheStatus: "miss",
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -354,7 +387,12 @@ describe("useArticleContext", () => {
       );
     });
 
-    for (const id of ["incomplete", "cache-status", "malformed-block"]) {
+    for (const id of [
+      "incomplete",
+      "cache-status",
+      "malformed-block",
+      "malformed-legend",
+    ]) {
       await act(async () => root.render(<Probe value={request(id)} />));
       await waitForExpectation(() => {
         expect(output.dataset.status).toBe("error");
@@ -363,5 +401,51 @@ describe("useArticleContext", () => {
         );
       });
     }
+  });
+
+  it("accepts the shared visual limit and rejects one block beyond it", async () => {
+    const blocksAtLimit = Array.from(
+      { length: MAX_BLOCKS_PER_ARTICLE },
+      (_, index) => block(`visual-${index + 1}`, `Visual ${index + 1}`, index),
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("at-limit", { blocks: blocksAtLimit }),
+          cacheStatus: "miss",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("over-limit", {
+            blocks: [
+              ...blocksAtLimit,
+              block(
+                "visual-over-limit",
+                "Visual over limit",
+                MAX_BLOCKS_PER_ARTICLE,
+              ),
+            ],
+          }),
+          cacheStatus: "miss",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<Probe value={request("at-limit")} />));
+    const output = container.querySelector("output")!;
+    await waitForExpectation(() => {
+      expect(output.dataset.status).toBe("ready");
+      expect(output.textContent).toContain(`visual-${MAX_BLOCKS_PER_ARTICLE}`);
+    });
+
+    await act(async () => root.render(<Probe value={request("over-limit")} />));
+    await waitForExpectation(() => {
+      expect(output.dataset.status).toBe("error");
+      expect(output.textContent).toBe(
+        "Visual context returned an unexpected response.",
+      );
+    });
   });
 });

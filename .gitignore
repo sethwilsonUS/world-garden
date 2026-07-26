@@ -27,6 +27,7 @@
 # test artifacts
 test.mp3
 .reports/
+.cache/mediawiki-corpus/
 
 # debug
 npm-debug.log*

@@ -7,7 +7,10 @@ import {
   HOMEPAGE_PREVIEW_LIMITS,
   type HomepageArticleRef,
 } from "@/lib/homepage-articles";
-import { getTodayWikipediaData, type TodayWikipediaData } from "@/lib/today-snapshot";
+import {
+  getTodayWikipediaData,
+  type TodayWikipediaData,
+} from "@/lib/today-snapshot";
 import {
   generateTtsAudioWithMetadata,
   type TtsAudioResult,
@@ -31,6 +34,9 @@ type CachedSummaryAudio = {
 
 type WarmArticle = {
   _id: string;
+  title: string;
+  revisionId: string;
+  narrationVersion: number;
   summary?: string;
 };
 
@@ -69,7 +75,10 @@ export type HomepageAudioWarmDependencies = {
     expected: TtsMetadata,
   ) => Promise<CachedSummaryAudio>;
   verifyAudioUrl: (url: string) => Promise<void>;
-  generateAudio: (text: string, expected: TtsMetadata) => Promise<TtsAudioResult>;
+  generateAudio: (
+    text: string,
+    expected: TtsMetadata,
+  ) => Promise<TtsAudioResult>;
   saveSummary: (args: SaveSummaryAudioArgs) => Promise<void>;
   now: () => number;
 };
@@ -178,9 +187,18 @@ const createProductionDependencies = (
       { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
     );
   },
-  async saveSummary({ articleId, sourceHash, blob, durationSeconds, metadata }) {
+  async saveSummary({
+    articleId,
+    sourceHash,
+    blob,
+    durationSeconds,
+    metadata,
+  }) {
     const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {});
-    const storageId = await uploadBlobToConvexStorage(uploadUrl as string, blob);
+    const storageId = await uploadBlobToConvexStorage(
+      uploadUrl as string,
+      blob,
+    );
     await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
       articleId,
       sectionKey: "summary",
@@ -226,13 +244,13 @@ export const warmHomepageArticleSummaries = async ({
   const warmArticle = async (ref: HomepageArticleRef): Promise<void> => {
     try {
       const article = await dependencies.fetchArticle(ref);
-      const summaryTrack = buildArticleNarrationTracks({
-        title: ref.title,
-        summary: article.summary,
-        sections: [],
-      }).find((track) => track.sectionKey === "summary");
+      const summaryTrack = buildArticleNarrationTracks(article).find(
+        (track) => track.sectionKey === "summary",
+      );
       if (!summaryTrack || summaryTrack.text.length < MIN_SUMMARY_LENGTH) {
-        throw new Error("Article summary is unavailable or too short for audio");
+        throw new Error(
+          "Article summary is unavailable or too short for audio",
+        );
       }
 
       const summary = summaryTrack.text;

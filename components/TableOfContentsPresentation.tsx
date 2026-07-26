@@ -5,6 +5,7 @@ import { ArticleLink } from "@/components/ArticleLink";
 import { formatTime } from "@/lib/formatTime";
 import { formatRate } from "@/hooks/usePlaybackRate";
 import { useArticleSectionDetails } from "@/hooks/useArticleSectionMetadata";
+import type { WikipediaRevisionIdentity } from "@/lib/data-context";
 
 export const PlayIcon = () => {
   return (
@@ -104,7 +105,8 @@ export const SectionDetailsBadge = ({
 
   const parts: string[] = [];
   if (links > 0) parts.push(`${links} link${links === 1 ? "" : "s"}`);
-  if (citations > 0) parts.push(`${citations} citation${citations === 1 ? "" : "s"}`);
+  if (citations > 0)
+    parts.push(`${citations} citation${citations === 1 ? "" : "s"}`);
   const label = parts.join(" · ");
 
   return (
@@ -136,13 +138,15 @@ export const SectionDetailsBadge = ({
 };
 
 export const SectionDetailsPanel = ({
-  wikiPageId,
+  identity,
   sectionTitle,
+  sectionIndex,
   hasLinks,
   hasCitations,
 }: {
-  wikiPageId: string;
+  identity: WikipediaRevisionIdentity;
   sectionTitle: string | null;
+  sectionIndex?: string;
   hasLinks: boolean;
   hasCitations: boolean;
 }) => {
@@ -152,8 +156,9 @@ export const SectionDetailsPanel = ({
     linksLoading,
     citationsLoading: citesLoading,
   } = useArticleSectionDetails({
-    wikiPageId,
+    identity,
     sectionTitle,
+    sectionIndex,
     hasLinks,
     hasCitations,
   });
@@ -164,11 +169,7 @@ export const SectionDetailsPanel = ({
 
   return (
     <div className="px-3 pt-1 pb-2">
-      {loading && (
-        <p className="text-[0.6875rem] text-muted m-0">
-          Loading...
-        </p>
-      )}
+      {loading && <p className="text-[0.6875rem] text-muted m-0">Loading...</p>}
 
       {!linksLoading && links !== null && links.length > 0 && (
         <nav aria-label={`Links in ${sectionLabel}`}>
@@ -177,7 +178,10 @@ export const SectionDetailsPanel = ({
               Links
             </p>
           )}
-          <ul className="list-none m-0 p-0" style={{ columnWidth: "180px", columnGap: "8px" }}>
+          <ul
+            className="list-none m-0 p-0"
+            style={{ columnWidth: "180px", columnGap: "8px" }}
+          >
             {links.map((article) => (
               <li key={article.wikiPageId} className="break-inside-avoid">
                 <ArticleLink
@@ -263,7 +267,13 @@ export const SectionDetailsPanel = ({
   );
 };
 
-export const SpeedButton = ({ rate, onClick }: { rate: number; onClick: () => void }) => (
+export const SpeedButton = ({
+  rate,
+  onClick,
+}: {
+  rate: number;
+  onClick: () => void;
+}) => (
   <button
     onClick={onClick}
     aria-label={`Playback speed ${formatRate(rate)}. Click to change.`}

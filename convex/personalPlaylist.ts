@@ -1,10 +1,21 @@
-import { action, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthenticatedViewerTokenIdentifier } from "./bookmarks";
-import { getArticleAudioSections, type ArticleAudioSource } from "./lib/articleAudioPipeline";
+import {
+  getArticleAudioSections,
+  type ArticleAudioSource,
+} from "./lib/articleAudioPipeline";
 import { processViewerPlaylistEpisodeForCtx } from "./lib/personalPlaylistWorker";
 import { buildArticleNarrationHash } from "../lib/section-narration";
+import { isTtsMetadataValid, type TtsMetadata } from "../lib/tts-profile";
 import {
   completeViewerPlaylistEpisodeForCtx,
   ensureViewerPersonalPodcastFeedForCtx,
@@ -33,11 +44,28 @@ export {
 };
 
 const moveDirectionValidator = v.union(v.literal("up"), v.literal("down"));
+const ttsMetadataValidator = v.object({
+  provider: v.union(v.literal("openai"), v.literal("edge")),
+  model: v.string(),
+  voiceId: v.string(),
+  promptVersion: v.string(),
+  ttsNormVersion: v.string(),
+  ttsCacheKey: v.string(),
+});
+
+const assertRequestedTtsMetadataValid = (
+  metadata: TtsMetadata | undefined,
+): void => {
+  if (metadata && !isTtsMetadataValid(metadata)) {
+    throw new Error("Invalid TTS profile identity.");
+  }
+};
 
 export const getViewerFeedToken = query({
   args: {},
   async handler(ctx) {
-    const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
     const feed = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
     return feed?.feedToken ?? null;
   },
@@ -46,7 +74,8 @@ export const getViewerFeedToken = query({
 export const listViewerPlaylistEpisodes = query({
   args: {},
   async handler(ctx) {
-    const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
     return await listViewerPlaylistEpisodesForCtx(ctx, viewerTokenIdentifier);
   },
 });
@@ -55,15 +84,14 @@ export const addViewerPlaylistEpisodeBySlug = action({
   args: {
     slug: v.string(),
     baseUrl: v.string(),
+    ttsMetadata: v.optional(ttsMetadataValidator),
   },
-  async handler(
-    ctx,
-    args,
-  ): Promise<UpsertViewerPlaylistEpisodeResult> {
+  async handler(ctx, args): Promise<UpsertViewerPlaylistEpisodeResult> {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
     }
+    assertRequestedTtsMetadataValid(args.ttsMetadata);
 
     const viewerTokenIdentifier = identity.tokenIdentifier;
     const article = (await ctx.runAction(api.articles.fetchAndCacheBySlug, {
@@ -86,6 +114,7 @@ export const addViewerPlaylistEpisodeBySlug = action({
         imageUrl: article.thumbnailUrl,
         sectionCount: getArticleAudioSections(article).length,
         narrationHash: buildArticleNarrationHash(article),
+        requestedTtsMetadata: args.ttsMetadata,
       },
     );
 
@@ -110,7 +139,8 @@ export const moveViewerPlaylistEpisode = mutation({
     direction: moveDirectionValidator,
   },
   async handler(ctx, args) {
-    const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
     return await moveViewerPlaylistEpisodeForCtx(ctx, {
       viewerTokenIdentifier,
       episodeId: args.episodeId,
@@ -124,7 +154,8 @@ export const removeViewerPlaylistEpisode = mutation({
     episodeId: v.id("personalPlaylistEpisodes"),
   },
   async handler(ctx, args) {
-    const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
     return await removeViewerPlaylistEpisodeForCtx(ctx, {
       viewerTokenIdentifier,
       episodeId: args.episodeId,
@@ -136,12 +167,16 @@ export const retryViewerPlaylistEpisode = mutation({
   args: {
     episodeId: v.id("personalPlaylistEpisodes"),
     baseUrl: v.string(),
+    ttsMetadata: v.optional(ttsMetadataValidator),
   },
   async handler(ctx, args) {
-    const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
+    assertRequestedTtsMetadataValid(args.ttsMetadata);
     const result = await retryViewerPlaylistEpisodeForCtx(ctx, {
       viewerTokenIdentifier,
       episodeId: args.episodeId,
+      requestedTtsMetadata: args.ttsMetadata,
     });
 
     if (!result.queued) {
@@ -180,10 +215,9 @@ export const getFeedEpisodesByToken = query({
       return null;
     }
 
-    const episodes = (await listViewerPlaylistEpisodesForCtx(
-      ctx,
-      feed.viewerTokenIdentifier,
-    )).filter((episode) => episode.status === "ready");
+    const episodes = (
+      await listViewerPlaylistEpisodesForCtx(ctx, feed.viewerTokenIdentifier)
+    ).filter((episode) => episode.status === "ready");
 
     return {
       feed,
@@ -227,6 +261,7 @@ export const upsertViewerPlaylistEpisodeInternal = internalMutation({
     imageUrl: v.optional(v.string()),
     sectionCount: v.number(),
     narrationHash: v.string(),
+    requestedTtsMetadata: v.optional(ttsMetadataValidator),
   },
   async handler(ctx, args) {
     return await upsertViewerPlaylistEpisodeForCtx(ctx, args);
@@ -238,7 +273,9 @@ export const getPersonalPlaylistEpisodeInternal = internalQuery({
     episodeId: v.id("personalPlaylistEpisodes"),
   },
   async handler(ctx, args) {
-    return (await ctx.db.get(args.episodeId)) as PersonalPlaylistEpisodeDoc | null;
+    return (await ctx.db.get(
+      args.episodeId,
+    )) as PersonalPlaylistEpisodeDoc | null;
   },
 });
 

@@ -1,19 +1,112 @@
-import { describe, expect, it } from "vitest";
-import { isEdgeTtsVoice } from "./tts-profile";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildTtsCacheKey,
+  doesTtsMetadataMatch,
+  getActiveTtsProfile,
+  isTtsMetadataValid,
+  serializeTtsMetadataForInlineScript,
+  type TtsMetadata,
+} from "./tts-profile";
 
-describe("isEdgeTtsVoice", () => {
-  it("accepts standard Edge neural voice IDs", () => {
-    expect(isEdgeTtsVoice("en-US-AriaNeural")).toBe(true);
-    expect(isEdgeTtsVoice("de-DE-ConradNeural")).toBe(true);
+const edgeMetadata = (): TtsMetadata => {
+  const metadata = {
+    provider: "edge" as const,
+    model: "edge-tts",
+    voiceId: "en-US-AriaNeural",
+    promptVersion: "edge-default",
+    ttsNormVersion: "ttsNorm:2",
+  };
+  return { ...metadata, ttsCacheKey: buildTtsCacheKey(metadata) };
+};
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+describe("active TTS profile identity", () => {
+  it("uses the server-injected public profile instead of a browser env guess", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    const metadata = edgeMetadata();
+    vi.stubGlobal("window", { __CURIO_ACTIVE_TTS_METADATA__: metadata });
+
+    expect(getActiveTtsProfile()).toEqual(metadata);
   });
 
-  it("accepts Azure Dragon HD Edge-compatible voice IDs", () => {
-    expect(isEdgeTtsVoice("en-US-Brian:DragonHDLatestNeural")).toBe(true);
-    expect(isEdgeTtsVoice("de-DE-Conrad:DragonHDOmniLatestNeural")).toBe(true);
+  it("rejects a tampered injected cache key", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...edgeMetadata(),
+        ttsCacheKey: "not-the-profile-key",
+      },
+    });
+
+    expect(getActiveTtsProfile().provider).toBe("openai");
   });
 
-  it("rejects malformed Edge voice IDs", () => {
-    expect(isEdgeTtsVoice("marin")).toBe(false);
-    expect(isEdgeTtsVoice("en-US-Brian:UnknownLatestNeural")).toBe(false);
+  it("rejects injected metadata that fails the complete profile validator", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    const metadata = edgeMetadata();
+
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...metadata,
+        voiceId: "not-an-edge-voice",
+        ttsCacheKey: buildTtsCacheKey({
+          ...metadata,
+          voiceId: "not-an-edge-voice",
+        }),
+      },
+    });
+    expect(getActiveTtsProfile().provider).toBe("openai");
+
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...metadata,
+        ttsNormVersion: "ttsNorm:1",
+        ttsCacheKey: buildTtsCacheKey({
+          ...metadata,
+          ttsNormVersion: "ttsNorm:1",
+        }),
+      },
+    });
+    expect(getActiveTtsProfile().provider).toBe("openai");
+
+    vi.stubGlobal("window", {
+      __CURIO_ACTIVE_TTS_METADATA__: {
+        ...metadata,
+        model: undefined,
+      } as never,
+    });
+    expect(() => getActiveTtsProfile()).not.toThrow();
+    expect(getActiveTtsProfile().provider).toBe("openai");
+  });
+
+  it("compares the complete profile and safely serializes bootstrap data", () => {
+    const metadata = edgeMetadata();
+
+    expect(doesTtsMetadataMatch({ ...metadata }, metadata)).toBe(true);
+    expect(
+      doesTtsMetadataMatch({ ...metadata, voiceId: "another-voice" }, metadata),
+    ).toBe(false);
+    expect(
+      serializeTtsMetadataForInlineScript({
+        ...metadata,
+        voiceId: "voice</script><script>alert(1)</script>",
+      }),
+    ).not.toContain("<");
+  });
+
+  it("validates a complete cache identity before a client can queue work", () => {
+    const metadata = edgeMetadata();
+
+    expect(isTtsMetadataValid(metadata)).toBe(true);
+    expect(
+      isTtsMetadataValid({
+        ...metadata,
+        voiceId: "en-US-GuyNeural",
+      }),
+    ).toBe(false);
   });
 });

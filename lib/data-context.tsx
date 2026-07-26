@@ -1,87 +1,52 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { BadgeKey } from "@/lib/badges";
-import type { NarratedSection } from "@/lib/section-narration";
-import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
+import type {
+  WikipediaArticle,
+  WikipediaArticleImage,
+  WikipediaCitation,
+  WikipediaLinkedArticle,
+  WikipediaRevisionIdentity,
+  WikipediaSearchResult,
+  WikipediaSection,
+  WikipediaSectionCount,
+} from "@/lib/wikipedia-contracts";
 
-export type SearchResult = {
-  wikiPageId: string;
-  title: string;
-  description: string;
-  url: string;
-};
-
-export type Section = NarratedSection;
-
-export type Article = {
-  wikiPageId: string;
-  title: string;
-  language: string;
-  revisionId: string;
-  narrationVersion: number;
-  lastEdited?: string;
-  summary?: string;
-  thumbnailUrl?: string;
-  thumbnailWidth?: number;
-  thumbnailHeight?: number;
-  thumbnailAttribution?: WikimediaMediaAttribution;
-  sections?: Section[];
-  badgeKeys?: BadgeKey[];
-};
-
-export type LinkedArticle = {
-  wikiPageId: string;
-  title: string;
-  description?: string;
-};
-
-export type Citation = {
-  id: string;
-  index: number;
-  text: string;
-  url?: string;
-};
-
-export type LinkCount = { title: string; count: number };
-
-export type ArticleImage = {
-  src: string;
-  originalSrc?: string;
-  lightboxSrc?: string;
-  lightboxWidth?: number;
-  lightboxHeight?: number;
-  alt: string;
-  caption: string;
-  width?: number;
-  height?: number;
-  videoSrc?: string;
-  attribution?: WikimediaMediaAttribution;
-};
+export type SearchResult = WikipediaSearchResult;
+export type Section = WikipediaSection;
+export type Article = WikipediaArticle;
+export type LinkedArticle = WikipediaLinkedArticle;
+export type Citation = WikipediaCitation;
+export type LinkCount = WikipediaSectionCount;
+export type ArticleImage = WikipediaArticleImage;
+export type { WikipediaRevisionIdentity } from "@/lib/wikipedia-contracts";
 
 export type DataContextValue = {
   search: (args: { term: string }) => Promise<SearchResult[]>;
   fetchArticle: (args: { slug: string }) => Promise<Article>;
   getSectionLinkCounts: (args: {
-    wikiPageId: string;
+    identity: WikipediaRevisionIdentity;
     signal?: AbortSignal;
   }) => Promise<LinkCount[]>;
   getCitationCounts: (args: {
-    wikiPageId: string;
+    identity: WikipediaRevisionIdentity;
     signal?: AbortSignal;
   }) => Promise<LinkCount[]>;
   getSectionLinks: (args: {
-    wikiPageId: string;
+    identity: WikipediaRevisionIdentity;
     sectionTitle: string | null;
+    sectionIndex?: string;
     signal?: AbortSignal;
   }) => Promise<LinkedArticle[]>;
   getSectionCitations: (args: {
-    wikiPageId: string;
+    identity: WikipediaRevisionIdentity;
     sectionTitle: string | null;
+    sectionIndex?: string;
     signal?: AbortSignal;
   }) => Promise<Citation[]>;
   getArticleImages: (args: {
-    wikiPageId: string;
+    identity: WikipediaRevisionIdentity;
+    signal?: AbortSignal;
   }) => Promise<ArticleImage[]>;
 };
 

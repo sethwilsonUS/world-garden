@@ -18,6 +18,7 @@ import {
   ArticleAudioExportTray,
   type TrayJob,
 } from "@/components/ArticleAudioExportTray";
+import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
 
 const CLIENT_ID_STORAGE_KEY = "cg-article-audio-export-client-id";
 
@@ -30,6 +31,7 @@ type ArticleAudioExportJob = {
   sectionCount: number;
   completedSectionCount: number;
   narrationHash?: string;
+  ttsCacheKey?: string;
   lastError?: string;
   audioUrl?: string | null;
   createdAt: number;
@@ -84,7 +86,9 @@ const readClientIdSnapshot = (): string | null => {
   if (typeof window === "undefined") return null;
 
   try {
-    return window.localStorage.getItem(CLIENT_ID_STORAGE_KEY) ?? fallbackClientId;
+    return (
+      window.localStorage.getItem(CLIENT_ID_STORAGE_KEY) ?? fallbackClientId
+    );
   } catch {
     return fallbackClientId;
   }
@@ -139,16 +143,21 @@ export const ArticleAudioExportProvider = ({
     () => true,
     () => false,
   );
-  const [clientId, setClientId] = useState<string | null>(
-    readClientIdSnapshot,
-  );
+  const [clientId, setClientId] = useState<string | null>(readClientIdSnapshot);
   const [startingJobs, setStartingJobs] = useState<StartingJob[]>([]);
-  const [directDownloads, setDirectDownloads] = useState<DirectDownloadToast[]>([]);
+  const [directDownloads, setDirectDownloads] = useState<DirectDownloadToast[]>(
+    [],
+  );
   const [announcements, setAnnouncements] = useState({
     polite: "",
     assertive: "",
   });
   const previousStatusesRef = useRef<Record<string, string>>({});
+  const activeTtsMetadata = useMemo(
+    () => getTtsMetadata(getActiveTtsProfile()),
+    [],
+  );
+  const activeTtsCacheKey = activeTtsMetadata.ttsCacheKey;
 
   useEffect(() => {
     let cancelled = false;
@@ -164,9 +173,15 @@ export const ArticleAudioExportProvider = ({
 
   const queriedJobs = useQuery(
     api.articleExports.getRecentArticleAudioExports,
-    clientId ? { clientId, limit: 4 } : "skip",
+    clientId ? { clientId, limit: 4, ttsCacheKey: activeTtsCacheKey } : "skip",
   );
-  const jobs = useMemo(() => queriedJobs ?? [], [queriedJobs]);
+  const jobs = useMemo(
+    () =>
+      (queriedJobs ?? []).filter(
+        (job) => job.ttsCacheKey === activeTtsCacheKey,
+      ),
+    [activeTtsCacheKey, queriedJobs],
+  );
   const mergedJobs = useMemo(() => {
     const activeArticleIds = new Set<string>(
       jobs.map((job) => job.articleId as string),
@@ -183,6 +198,7 @@ export const ArticleAudioExportProvider = ({
             stage: "queued",
             sectionCount: 0,
             completedSectionCount: 0,
+            ttsCacheKey: activeTtsCacheKey,
             createdAt: job.startedAt,
             updatedAt: job.startedAt,
           }) satisfies ArticleAudioExportJob,
@@ -191,7 +207,7 @@ export const ArticleAudioExportProvider = ({
     return [...optimisticJobs, ...(jobs as ArticleAudioExportJob[])]
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 4);
-  }, [jobs, startingJobs]);
+  }, [activeTtsCacheKey, jobs, startingJobs]);
   const trayJobs = useMemo<TrayJob[]>(() => {
     const exportJobs = mergedJobs.map(
       (job) =>
@@ -286,8 +302,7 @@ export const ArticleAudioExportProvider = ({
   const queueExport = useCallback(
     async ({ articleId, title }: { articleId: string; title: string }) => {
       const resolvedClientId =
-        clientId ??
-        (typeof window === "undefined" ? "" : ensureClientId());
+        clientId ?? (typeof window === "undefined" ? "" : ensureClientId());
 
       if (!resolvedClientId) {
         throw new Error("Article export client is not ready yet.");
@@ -308,6 +323,7 @@ export const ArticleAudioExportProvider = ({
           clientId: resolvedClientId,
           articleId: articleId as Id<"articles">,
           baseUrl: resolveArticleExportBaseUrl(window.location.origin),
+          ttsMetadata: activeTtsMetadata,
         });
         return {
           exportId: result.exportId as string,
@@ -319,7 +335,7 @@ export const ArticleAudioExportProvider = ({
         );
       }
     },
-    [clientId, startExport],
+    [activeTtsMetadata, clientId, startExport],
   );
 
   const dismissExport = useCallback(
@@ -398,7 +414,9 @@ export const ArticleAudioExportProvider = ({
             void dismissExport(exportId);
           }}
           onRetry={(articleId) => {
-            const matchingJob = mergedJobs.find((job) => job.articleId === articleId);
+            const matchingJob = mergedJobs.find(
+              (job) => job.articleId === articleId,
+            );
             void queueExport({
               articleId,
               title: matchingJob?.title ?? "Wikipedia article",

@@ -9,6 +9,7 @@ import {
   type DataContextValue,
   type LinkedArticle,
   type LinkCount,
+  type WikipediaRevisionIdentity,
 } from "@/lib/data-context";
 import {
   useArticleSectionCounts,
@@ -45,9 +46,7 @@ const waitForExpectation = async (assertion: () => void) => {
   );
 };
 
-const dataValue = (
-  overrides: Partial<DataContextValue>,
-): DataContextValue => ({
+const dataValue = (overrides: Partial<DataContextValue>): DataContextValue => ({
   search: async () => [],
   fetchArticle: async () => {
     throw new Error("not used");
@@ -60,9 +59,26 @@ const dataValue = (
   ...overrides,
 });
 
-const CountsProbe = ({ wikiPageId }: { wikiPageId: string }) => {
-  const { linkCounts, citationCounts } =
-    useArticleSectionCounts(wikiPageId);
+const identity = (
+  wikiPageId: string,
+  revisionId = `revision-${wikiPageId}`,
+): WikipediaRevisionIdentity => ({
+  wikiPageId,
+  revisionId,
+  title: `Article ${wikiPageId}`,
+  language: "en",
+});
+
+const CountsProbe = ({
+  wikiPageId,
+  revisionId,
+}: {
+  wikiPageId: string;
+  revisionId?: string;
+}) => {
+  const { linkCounts, citationCounts } = useArticleSectionCounts(
+    identity(wikiPageId, revisionId),
+  );
   return (
     <output
       data-links={JSON.stringify(linkCounts)}
@@ -73,18 +89,23 @@ const CountsProbe = ({ wikiPageId }: { wikiPageId: string }) => {
 
 const DetailsProbe = ({
   wikiPageId,
+  revisionId,
   sectionTitle,
+  sectionIndex,
   hasLinks = true,
   hasCitations = true,
 }: {
   wikiPageId: string;
+  revisionId?: string;
   sectionTitle: string | null;
+  sectionIndex?: string;
   hasLinks?: boolean;
   hasCitations?: boolean;
 }) => {
   const state = useArticleSectionDetails({
-    wikiPageId,
+    identity: identity(wikiPageId, revisionId),
     sectionTitle,
+    sectionIndex,
     hasLinks,
     hasCitations,
   });
@@ -116,17 +137,77 @@ describe("article section metadata hooks", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps duplicate heading counts distinct by MediaWiki section index", async () => {
+    const value = dataValue({
+      getSectionLinkCounts: async () => [
+        { index: "3", title: "History", count: 1 },
+        { index: "8", title: "History", count: 2 },
+      ],
+      getCitationCounts: async () => [
+        { index: "3", title: "History", count: 4 },
+        { index: "8", title: "History", count: 5 },
+      ],
+    });
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={value}>
+          <CountsProbe wikiPageId="1" />
+        </DataContext.Provider>,
+      );
+    });
+
+    await waitForExpectation(() => {
+      const output = container.querySelector("output")!;
+      expect(output.dataset.links).toBe('{"3":1,"8":2}');
+      expect(output.dataset.citations).toBe('{"3":4,"8":5}');
+    });
+  });
+
+  it("passes MediaWiki section identity to duplicate-heading citation lookup", async () => {
+    const getSectionCitations = vi.fn(async () => [
+      { id: "second", index: 2, text: "Second History source" },
+    ]);
+    const value = dataValue({ getSectionCitations });
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={value}>
+          <DetailsProbe
+            wikiPageId="1"
+            sectionTitle="History"
+            sectionIndex="8"
+            hasLinks={false}
+          />
+        </DataContext.Provider>,
+      );
+    });
+
+    await waitForExpectation(() =>
+      expect(getSectionCitations).toHaveBeenCalledWith({
+        identity: identity("1"),
+        sectionTitle: "History",
+        sectionIndex: "8",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
   it("resets counts for a new article and ignores late old responses", async () => {
     const oldLinks = deferred<LinkCount[]>();
     const oldCitations = deferred<LinkCount[]>();
     const newLinks = deferred<LinkCount[]>();
     const newCitations = deferred<LinkCount[]>();
     const value = dataValue({
-      getSectionLinkCounts: vi.fn(({ wikiPageId }) =>
-        wikiPageId === "old" ? oldLinks.promise : newLinks.promise,
+      getSectionLinkCounts: vi.fn(({ identity: requestIdentity }) =>
+        requestIdentity.wikiPageId === "old"
+          ? oldLinks.promise
+          : newLinks.promise,
       ),
-      getCitationCounts: vi.fn(({ wikiPageId }) =>
-        wikiPageId === "old" ? oldCitations.promise : newCitations.promise,
+      getCitationCounts: vi.fn(({ identity: requestIdentity }) =>
+        requestIdentity.wikiPageId === "old"
+          ? oldCitations.promise
+          : newCitations.promise,
       ),
     });
 
@@ -139,14 +220,14 @@ describe("article section metadata hooks", () => {
     });
     await waitForExpectation(() =>
       expect(value.getSectionLinkCounts).toHaveBeenCalledWith({
-        wikiPageId: "old",
+        identity: identity("old"),
         signal: expect.any(AbortSignal),
       }),
     );
     const oldLinkSignal = vi.mocked(value.getSectionLinkCounts).mock.calls[0][0]
       .signal!;
-    const oldCitationSignal = vi.mocked(value.getCitationCounts).mock.calls[0][0]
-      .signal!;
+    const oldCitationSignal = vi.mocked(value.getCitationCounts).mock
+      .calls[0][0].signal!;
     expect(oldLinkSignal).toBe(oldCitationSignal);
     expect(oldLinkSignal.aborted).toBe(false);
 
@@ -179,6 +260,54 @@ describe("article section metadata hooks", () => {
     });
   });
 
+  it("resets counts when the revision changes on the same page", async () => {
+    const oldLinks = deferred<LinkCount[]>();
+    const currentLinks = deferred<LinkCount[]>();
+    const getSectionLinkCounts = vi.fn(({ identity: requestIdentity }) =>
+      requestIdentity.revisionId === "100"
+        ? oldLinks.promise
+        : currentLinks.promise,
+    );
+    const value = dataValue({
+      getSectionLinkCounts,
+      getCitationCounts: async () => [],
+    });
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={value}>
+          <CountsProbe wikiPageId="same" revisionId="100" />
+        </DataContext.Provider>,
+      );
+    });
+    const oldSignal = vi.mocked(getSectionLinkCounts).mock.calls[0][0].signal!;
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={value}>
+          <CountsProbe wikiPageId="same" revisionId="101" />
+        </DataContext.Provider>,
+      );
+    });
+
+    expect(oldSignal.aborted).toBe(true);
+    expect(getSectionLinkCounts).toHaveBeenLastCalledWith({
+      identity: identity("same", "101"),
+      signal: expect.any(AbortSignal),
+    });
+    expect(container.querySelector("output")?.dataset.links).toBe("null");
+
+    await act(async () => {
+      oldLinks.resolve([{ title: "Stale", count: 1 }]);
+      currentLinks.resolve([{ title: "Current", count: 2 }]);
+    });
+    await waitForExpectation(() =>
+      expect(container.querySelector("output")?.dataset.links).toBe(
+        '{"Current":2}',
+      ),
+    );
+  });
+
   it("resets details by compound key and keeps partial failures graceful", async () => {
     const oldLinks = deferred<LinkedArticle[]>();
     const oldCitations = deferred<Citation[]>();
@@ -205,8 +334,8 @@ describe("article section metadata hooks", () => {
     );
     const oldLinkSignal = vi.mocked(value.getSectionLinks).mock.calls[0][0]
       .signal!;
-    const oldCitationSignal = vi.mocked(value.getSectionCitations).mock.calls[0][0]
-      .signal!;
+    const oldCitationSignal = vi.mocked(value.getSectionCitations).mock
+      .calls[0][0].signal!;
     expect(oldLinkSignal).toBe(oldCitationSignal);
     expect(oldLinkSignal.aborted).toBe(false);
 
@@ -233,9 +362,7 @@ describe("article section metadata hooks", () => {
 
     await act(async () => {
       newLinks.reject(new Error("supplemental links failed"));
-      newCitations.resolve([
-        { id: "new", index: 1, text: "New citation" },
-      ]);
+      newCitations.resolve([{ id: "new", index: 1, text: "New citation" }]);
     });
     await waitForExpectation(() => {
       expect(output.dataset.links).toBe("[]");

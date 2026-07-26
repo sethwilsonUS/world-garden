@@ -7,7 +7,12 @@ import type {
   ContextBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
-import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "@/lib/article-context-types";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+} from "@/lib/article-context-types";
+import { isValidContextDiagramLegend } from "@/lib/article-context-legend";
+import { MAX_BLOCKS_PER_ARTICLE } from "@/lib/article-context-limits";
 
 export type ArticleContextLoadState =
   | { status: "idle" | "loading"; manifest: null; error: null }
@@ -55,6 +60,36 @@ const isCoordinate = (value: unknown): boolean =>
   isRecord(value) &&
   isFiniteNumber(value.latitude) &&
   isFiniteNumber(value.longitude);
+
+const isCoordinateArray = (value: unknown): boolean =>
+  Array.isArray(value) && value.every(isCoordinate);
+
+const isMapGeometry = (value: unknown, depth = 0): boolean => {
+  if (!isRecord(value) || depth > 8) return false;
+  if (value.type === "Point") return isCoordinate(value.coordinates);
+  if (value.type === "MultiPoint" || value.type === "LineString") {
+    return isCoordinateArray(value.coordinates);
+  }
+  if (value.type === "MultiLineString" || value.type === "Polygon") {
+    return (
+      Array.isArray(value.coordinates) &&
+      value.coordinates.every(isCoordinateArray)
+    );
+  }
+  if (value.type === "MultiPolygon") {
+    return (
+      Array.isArray(value.coordinates) &&
+      value.coordinates.every(
+        (polygon) => Array.isArray(polygon) && polygon.every(isCoordinateArray),
+      )
+    );
+  }
+  return (
+    value.type === "GeometryCollection" &&
+    Array.isArray(value.geometries) &&
+    value.geometries.every((geometry) => isMapGeometry(geometry, depth + 1))
+  );
+};
 
 const isContextSource = (value: unknown): boolean =>
   isRecord(value) &&
@@ -110,6 +145,19 @@ const isMapBlock = (value: UnknownRecord): boolean => {
   return (
     isCoordinate(map.center) &&
     isOptional(map.suggestedZoom, isFiniteNumber) &&
+    isOptional(
+      map.features,
+      (features) =>
+        Array.isArray(features) &&
+        features.every(
+          (feature) =>
+            isRecord(feature) &&
+            isString(feature.id) &&
+            isString(feature.name) &&
+            isOptional(feature.description, isString) &&
+            isMapGeometry(feature.geometry),
+        ),
+    ) &&
     Array.isArray(map.places) &&
     map.places.every(
       (place) =>
@@ -184,6 +232,10 @@ const isChartBlock = (value: UnknownRecord): boolean =>
       isRecord(column) &&
       isString(column.key) &&
       isString(column.label) &&
+      isOptional(
+        column.headerPath,
+        (path) => Array.isArray(path) && path.every(isString),
+      ) &&
       ["string", "number"].includes(String(column.dataType)) &&
       isOptional(column.unit, isString),
   ) &&
@@ -232,6 +284,7 @@ const isDiagramBlock = (value: UnknownRecord): boolean =>
   ) &&
   Array.isArray(value.diagram.walkthrough) &&
   value.diagram.walkthrough.every(isString) &&
+  isOptional(value.diagram.legend, isValidContextDiagramLegend) &&
   isString(value.diagram.caption);
 
 const isContextBlock = (value: unknown): value is ContextBlock => {
@@ -251,9 +304,10 @@ const isContextManifest = (value: unknown): value is ContextManifest =>
   isString(value.revisionId) &&
   isString(value.language) &&
   isString(value.sourceHash) &&
-  isString(value.extractorVersion) &&
+  value.extractorVersion === ARTICLE_CONTEXT_EXTRACTOR_VERSION &&
   isString(value.generatedAt) &&
   Array.isArray(value.blocks) &&
+  value.blocks.length <= MAX_BLOCKS_PER_ARTICLE &&
   value.blocks.every(isContextBlock);
 
 const isArticleContextApiResponse = (
@@ -276,18 +330,17 @@ export const useArticleContext = (request: ArticleContextRequest | null) => {
     ? JSON.stringify([wikiPageId, revisionId, language, title])
     : "";
   const requestSnapshot = useMemo<ArticleContextRequest | null>(
-    () =>
-      hasRequest
-        ? { wikiPageId, title, revisionId, language }
-        : null,
+    () => (hasRequest ? { wikiPageId, title, revisionId, language } : null),
     [hasRequest, language, revisionId, title, wikiPageId],
   );
   const [reloadToken, setReloadToken] = useState(0);
-  const [keyedState, setKeyedState] = useState<KeyedArticleContextState>(() => ({
-    key: requestKey,
-    requestSnapshot,
-    state: hasRequest ? loadingState() : idleState(),
-  }));
+  const [keyedState, setKeyedState] = useState<KeyedArticleContextState>(
+    () => ({
+      key: requestKey,
+      requestSnapshot,
+      state: hasRequest ? loadingState() : idleState(),
+    }),
+  );
 
   useEffect(() => {
     if (!requestSnapshot) return;

@@ -13,6 +13,7 @@ import {
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { type Id } from "@/convex/_generated/dataModel";
+import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
@@ -50,9 +51,8 @@ type PersonalPlaylistContextValue = {
   isInPlaylist: (slug: string) => boolean;
 };
 
-const PersonalPlaylistContext = createContext<PersonalPlaylistContextValue | null>(
-  null,
-);
+const PersonalPlaylistContext =
+  createContext<PersonalPlaylistContextValue | null>(null);
 
 const resolveServerBaseUrl = (origin: string): string => {
   try {
@@ -95,15 +95,16 @@ export const PersonalPlaylistProvider = ({
   children: ReactNode;
 }) => {
   const { isLoaded: isClerkLoaded, isSignedIn } = useAuth();
-  const {
-    isLoading: isConvexAuthLoading,
-    isAuthenticated,
-  } = useConvexAuth();
+  const { isLoading: isConvexAuthLoading, isAuthenticated } = useConvexAuth();
   const canUseAccountApi = Boolean(isSignedIn && isAuthenticated);
 
   const [addingSlugs, setAddingSlugs] = useState<Set<string>>(new Set());
   const [politeMessage, setPoliteMessage] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
+  const activeTtsMetadata = useMemo(
+    () => getTtsMetadata(getActiveTtsProfile()),
+    [],
+  );
 
   const entries = useQuery(
     api.personalPlaylist.listViewerPlaylistEpisodes,
@@ -117,9 +118,15 @@ export const PersonalPlaylistProvider = ({
   const addEpisodeBySlug = useAction(
     api.personalPlaylist.addViewerPlaylistEpisodeBySlug,
   );
-  const removeEpisode = useMutation(api.personalPlaylist.removeViewerPlaylistEpisode);
-  const moveEpisode = useMutation(api.personalPlaylist.moveViewerPlaylistEpisode);
-  const retryEpisode = useMutation(api.personalPlaylist.retryViewerPlaylistEpisode);
+  const removeEpisode = useMutation(
+    api.personalPlaylist.removeViewerPlaylistEpisode,
+  );
+  const moveEpisode = useMutation(
+    api.personalPlaylist.moveViewerPlaylistEpisode,
+  );
+  const retryEpisode = useMutation(
+    api.personalPlaylist.retryViewerPlaylistEpisode,
+  );
 
   useEffect(() => {
     if (!politeMessage && !alertMessage) return;
@@ -146,6 +153,7 @@ export const PersonalPlaylistProvider = ({
         const result = await addEpisodeBySlug({
           slug,
           baseUrl: resolveServerBaseUrl(window.location.origin),
+          ttsMetadata: activeTtsMetadata,
         });
 
         setPoliteMessage(
@@ -168,12 +176,14 @@ export const PersonalPlaylistProvider = ({
         });
       }
     },
-    [addEpisodeBySlug, canUseAccountApi, isSignedIn],
+    [activeTtsMetadata, addEpisodeBySlug, canUseAccountApi, isSignedIn],
   );
 
   const remove = useCallback(
     async (episodeId: string, title: string) => {
-      await removeEpisode({ episodeId: episodeId as Id<"personalPlaylistEpisodes"> });
+      await removeEpisode({
+        episodeId: episodeId as Id<"personalPlaylistEpisodes">,
+      });
       setPoliteMessage(`${title} removed from your playlist.`);
     },
     [removeEpisode],
@@ -210,6 +220,7 @@ export const PersonalPlaylistProvider = ({
       const result = await retryEpisode({
         episodeId: episodeId as Id<"personalPlaylistEpisodes">,
         baseUrl: resolveServerBaseUrl(window.location.origin),
+        ttsMetadata: activeTtsMetadata,
       });
 
       if (result.queued) {
@@ -219,7 +230,7 @@ export const PersonalPlaylistProvider = ({
 
       setAlertMessage(`Could not retry ${title} right now.`);
     },
-    [retryEpisode],
+    [activeTtsMetadata, retryEpisode],
   );
 
   const value = useMemo<PersonalPlaylistContextValue>(
@@ -239,7 +250,8 @@ export const PersonalPlaylistProvider = ({
       moveDown,
       retry,
       isAdding: (slug) => addingSlugs.has(slug),
-      isInPlaylist: (slug) => (entries ?? []).some((entry) => entry.slug === slug),
+      isInPlaylist: (slug) =>
+        (entries ?? []).some((entry) => entry.slug === slug),
     }),
     [
       addBySlug,
@@ -262,7 +274,12 @@ export const PersonalPlaylistProvider = ({
       <div className="sr-only" aria-live="polite" role="status">
         {politeMessage}
       </div>
-      <div className="sr-only" aria-live="assertive" aria-atomic="true" role="alert">
+      <div
+        className="sr-only"
+        aria-live="assertive"
+        aria-atomic="true"
+        role="alert"
+      >
         {alertMessage}
       </div>
     </PersonalPlaylistContext.Provider>

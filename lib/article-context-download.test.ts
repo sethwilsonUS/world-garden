@@ -37,8 +37,7 @@ const manifest: ContextManifest = {
       ],
       provenance: {
         articleUrl: "https://en.wikipedia.org/wiki/Formula_safety",
-        articleRevisionUrl:
-          "https://en.wikipedia.org/w/index.php?oldid=100",
+        articleRevisionUrl: "https://en.wikipedia.org/w/index.php?oldid=100",
         sourceHash: "abc123",
         extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
         descriptionMethod: "deterministic",
@@ -59,13 +58,27 @@ const manifest: ContextManifest = {
         ],
         relationships: [],
         walkthrough: [],
+        legend: {
+          description: "Formula safety legend.",
+          entries: [
+            {
+              color: "#FFD700",
+              text: "Countries that won at least one gold medal.",
+            },
+            {
+              color: "#C0C0C0",
+              text: "Countries that won silver medals but no gold medals.",
+            },
+          ],
+          notes: ["The Refugee Olympic Team is not represented on the map."],
+        },
       },
     },
   ],
 };
 
 describe("article context CSV downloads", () => {
-  it("keeps the structured CSV contract unchanged for schema v2", () => {
+  it("keeps the structured CSV contract unchanged for schema v3", () => {
     const [header] = serializeArticleContextCsv(manifest).split("\r\n");
     expect(header).toBe(
       "block_id,kind,section_index,section_title,item_type,item_id,label,start,end,latitude,longitude,series,x,value,unit,description,source_url,revision_id",
@@ -82,12 +95,36 @@ describe("article context CSV downloads", () => {
     expect(csv).toContain("'\rformula trigger");
   });
 
-  it("serializes the schema-v2 caption contract without legacy audio copy", () => {
+  it("serializes the schema-v3 caption contract without legacy audio copy", () => {
     const json = JSON.parse(serializeArticleContextJson(manifest));
 
-    expect(json.schemaVersion).toBe(2);
+    expect(json.schemaVersion).toBe(3);
     expect(json.blocks[0].caption).toBe("Four labels are shown.");
     expect(json.blocks[0]).not.toHaveProperty("takeaway");
     expect(json.blocks[0]).not.toHaveProperty("spokenSummary");
+  });
+
+  it("preserves typed legend colors, labels, and notes in JSON and CSV", () => {
+    const json = JSON.parse(serializeArticleContextJson(manifest));
+    expect(json.blocks[0].diagram.legend).toEqual(
+      manifest.blocks[0].kind === "diagram"
+        ? manifest.blocks[0].diagram.legend
+        : undefined,
+    );
+
+    const csv = serializeArticleContextCsv(manifest);
+    expect(csv).toContain(
+      "legend_description,context-diagram-formula-safety:legend-description,Legend description,,,,,,,,,Formula safety legend.",
+    );
+    expect(csv).toContain(
+      "legend_entry,context-diagram-formula-safety:legend:1,Countries that won at least one gold medal.",
+    );
+    expect(csv).toContain("#FFD700");
+    expect(csv).toContain(
+      "legend_note,context-diagram-formula-safety:legend-note:1,Legend note 1",
+    );
+    expect(csv).toContain(
+      "The Refugee Olympic Team is not represented on the map.",
+    );
   });
 });

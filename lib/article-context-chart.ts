@@ -26,10 +26,12 @@ const isRankLabel = (value: string): boolean =>
   );
 
 const isOrdinalPositionLabel = (value: string): boolean => {
-  const withoutTrailingContext = value.trim().replace(
-    /\s*(?:\([^()]{1,40}\)|[-–—]\s*(?:[A-Z]{2,4}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}))\s*$/,
-    "",
-  );
+  const withoutTrailingContext = value
+    .trim()
+    .replace(
+      /\s*(?:\([^()]{1,40}\)|[-–—]\s*(?:[A-Z]{2,4}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}))\s*$/,
+      "",
+    );
   return /^(?:(?:peak|highest|best)(?: chart)? position|chart position|pos|position|rank|ranks|ranking|place|seed)$/.test(
     normalizeLabel(withoutTrailingContext),
   );
@@ -57,6 +59,7 @@ export type RankedChartPresentation = {
   rows: ContextChartBlock["chart"]["rows"];
   visibleRows: ContextChartBlock["chart"]["rows"];
   hiddenRowCount: number;
+  unrankedRowCount: number;
 };
 
 export type OrdinalPositionPresentation = {
@@ -97,8 +100,8 @@ export const getOrdinalPositionPresentation = (
   if (
     !categoryColumn ||
     !measureColumn ||
-    !isOrdinalPositionLabel(measureSeries.label) &&
-      !isOrdinalPositionLabel(measureColumn.label)
+    (!isOrdinalPositionLabel(measureSeries.label) &&
+      !isOrdinalPositionLabel(measureColumn.label))
   ) {
     return null;
   }
@@ -118,14 +121,15 @@ export const getOrdinalPositionPresentation = (
 
   const rows = displayableRows.filter((row) => {
     const value = row[measureSeries.yColumn];
-    return typeof value === "number" &&
-      Number.isSafeInteger(value) &&
-      value >= 1;
+    return (
+      typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+    );
   });
   if (rows.length < 2) return null;
-  const safeLimit = Number.isSafeInteger(limit) && limit >= 3
-    ? limit
-    : DEFAULT_CATEGORY_OVERVIEW_LIMIT;
+  const safeLimit =
+    Number.isSafeInteger(limit) && limit >= 3
+      ? limit
+      : DEFAULT_CATEGORY_OVERVIEW_LIMIT;
   const visibleRows = rows.slice(0, safeLimit);
 
   return {
@@ -149,8 +153,8 @@ export const getRankedChartPresentation = (
   block: ContextChartBlock,
   limit = DEFAULT_RANKING_OVERVIEW_LIMIT,
 ): RankedChartPresentation | null => {
-  const rankColumn = block.chart.columns.find((column) =>
-    column.dataType === "number" && isRankLabel(column.label),
+  const rankColumn = block.chart.columns.find(
+    (column) => column.dataType === "number" && isRankLabel(column.label),
   );
   const entityColumn = block.chart.columns.find((column) =>
     isEntityLabel(column.label),
@@ -161,15 +165,14 @@ export const getRankedChartPresentation = (
   const measureSeries = availableSeries[0];
   if (!rankColumn || !entityColumn || !measureSeries) return null;
 
-  const rows = block.chart.rows.filter(
-    (row) =>
-      hasDisplayValue(row[rankColumn.key]) &&
-      hasDisplayValue(row[entityColumn.key]),
+  const rows = block.chart.rows.filter((row) =>
+    hasDisplayValue(row[entityColumn.key]),
   );
   if (rows.length < 3) return null;
-  const safeLimit = Number.isSafeInteger(limit) && limit >= 3
-    ? limit
-    : DEFAULT_RANKING_OVERVIEW_LIMIT;
+  const safeLimit =
+    Number.isSafeInteger(limit) && limit >= 3
+      ? limit
+      : DEFAULT_RANKING_OVERVIEW_LIMIT;
   const visibleRows = rows.slice(0, safeLimit);
 
   return {
@@ -183,6 +186,9 @@ export const getRankedChartPresentation = (
     rows,
     visibleRows,
     hiddenRowCount: Math.max(0, rows.length - visibleRows.length),
+    unrankedRowCount: rows.filter(
+      (row) => !hasDisplayValue(row[rankColumn.key]),
+    ).length,
   };
 };
 
@@ -230,28 +236,25 @@ export type StandardChartScaleKind =
 
 export type StandardChartMarkFamily = "bar" | "line" | "pie";
 
-export type StandardChartRenderKind =
-  | "bar"
-  | "exact-only"
-  | "line"
-  | "pie";
+export type StandardChartRenderKind = "bar" | "exact-only" | "line" | "pie";
 
 export const getContextChartPayloadKey = (
   rows: ContextChartBlock["chart"]["rows"],
   series: ContextChartSeries[],
-): string => JSON.stringify({
-  series: series.map(({ id, label, type, xColumn, yColumn, unit }) => [
-    id,
-    label,
-    type,
-    xColumn,
-    yColumn,
-    unit ?? null,
-  ]),
-  values: rows.map((row) =>
-    series.map(({ xColumn, yColumn }) => [row[xColumn], row[yColumn]]),
-  ),
-});
+): string =>
+  JSON.stringify({
+    series: series.map(({ id, label, type, xColumn, yColumn, unit }) => [
+      id,
+      label,
+      type,
+      xColumn,
+      yColumn,
+      unit ?? null,
+    ]),
+    values: rows.map((row) =>
+      series.map(({ xColumn, yColumn }) => [row[xColumn], row[yColumn]]),
+    ),
+  });
 
 export type StandardChartScaleFamily = {
   id: string;
@@ -346,7 +349,8 @@ const scaleFromUnit = (unit: string): SeriesScale => {
   }
 
   const currency = (() => {
-    if (/^(?:\$|us\$|usd|u s dollars?|dollars?)$/.test(normalized)) return "usd";
+    if (/^(?:\$|us\$|usd|u s dollars?|dollars?)$/.test(normalized))
+      return "usd";
     if (/^(?:£|gbp|pounds?)$/.test(normalized)) return "gbp";
     if (/^(?:€|eur|euros?)$/.test(normalized)) return "eur";
     if (/^(?:¥|jpy|yen)$/.test(normalized)) return "jpy";
@@ -361,7 +365,11 @@ const scaleFromUnit = (unit: string): SeriesScale => {
     };
   }
 
-  if (/\b(?:per|\/).*\b(?:km2|kilometers?2|square (?:km|kilometers?)|mi2|square (?:mi|miles?))\b/.test(normalized)) {
+  if (
+    /\b(?:per|\/).*\b(?:km2|kilometers?2|square (?:km|kilometers?)|mi2|square (?:mi|miles?))\b/.test(
+      normalized,
+    )
+  ) {
     return {
       key: `density:${normalized}`,
       kind: "density",
@@ -369,7 +377,11 @@ const scaleFromUnit = (unit: string): SeriesScale => {
       unit,
     };
   }
-  if (/^(?:km2|kilometers?2|square (?:km|kilometers?)|mi2|square (?:mi|miles?)|m2|meters?2|square (?:m|meters?))$/.test(normalized)) {
+  if (
+    /^(?:km2|kilometers?2|square (?:km|kilometers?)|mi2|square (?:mi|miles?)|m2|meters?2|square (?:m|meters?))$/.test(
+      normalized,
+    )
+  ) {
     return {
       key: `area:${normalized}`,
       kind: "area",
@@ -377,10 +389,23 @@ const scaleFromUnit = (unit: string): SeriesScale => {
       unit,
     };
   }
-  if (/^(?:people|persons?|residents?|inhabitants?|population|households?)$/.test(normalized)) {
-    return { key: "count:people", kind: "count", label: `Counts (${unit})`, unit };
+  if (
+    /^(?:people|persons?|residents?|inhabitants?|population|households?)$/.test(
+      normalized,
+    )
+  ) {
+    return {
+      key: "count:people",
+      kind: "count",
+      label: `Counts (${unit})`,
+      unit,
+    };
   }
-  if (/^(?:thousand|thousands|000|000s|million|millions|billion|billions)$/.test(normalized)) {
+  if (
+    /^(?:thousand|thousands|000|000s|million|millions|billion|billions)$/.test(
+      normalized,
+    )
+  ) {
     return {
       key: `scaled-count:${normalized.replace(/s$/, "")}`,
       kind: "scaled-count",
@@ -414,7 +439,10 @@ const scaleFromUnit = (unit: string): SeriesScale => {
 
 const scaleFromLabel = (label: string, seriesId: string): SeriesScale => {
   const normalized = normalizeLabel(label);
-  if (label.includes("%") || /(?:^| )(?:percent|percentage|pct|share)(?: |$)/.test(normalized)) {
+  if (
+    label.includes("%") ||
+    /(?:^| )(?:percent|percentage|pct|share)(?: |$)/.test(normalized)
+  ) {
     return { key: "percent", kind: "percent", label: "Percent" };
   }
   if (/[$£€¥]/u.test(label)) {
@@ -431,23 +459,41 @@ const scaleFromLabel = (label: string, seriesId: string): SeriesScale => {
       label: "Density",
     };
   }
-  if (/(?:^| )(?:income|revenue|sales|price|cost|gross domestic product|gdp)(?: |$)/.test(normalized)) {
-    return { key: "semantic:currency", kind: "currency", label: "Currency values" };
+  if (
+    /(?:^| )(?:income|revenue|sales|price|cost|gross domestic product|gdp)(?: |$)/.test(
+      normalized,
+    )
+  ) {
+    return {
+      key: "semantic:currency",
+      kind: "currency",
+      label: "Currency values",
+    };
   }
   if (/(?:^| )(?:land area|area|surface area)(?: |$)/.test(normalized)) {
     return { key: "semantic:area", kind: "area", label: "Area" };
   }
-  if (/(?:^| )(?:median age|mean age|average age|duration|years old)(?: |$)/.test(normalized)) {
+  if (
+    /(?:^| )(?:median age|mean age|average age|duration|years old)(?: |$)/.test(
+      normalized,
+    )
+  ) {
     return { key: "semantic:duration", kind: "duration", label: "Durations" };
   }
-  if (/(?:^| )(?:ratio|rate|per 100|per 1000|per capita)(?: |$)/.test(normalized)) {
+  if (
+    /(?:^| )(?:ratio|rate|per 100|per 1000|per capita)(?: |$)/.test(normalized)
+  ) {
     return {
       key: `semantic:rate:${normalized}`,
       kind: "rate",
       label: "Rate or ratio",
     };
   }
-  if (/(?:^| )(?:population|households?|residents?|inhabitants?|number|count)(?: |$)/.test(normalized)) {
+  if (
+    /(?:^| )(?:population|households?|residents?|inhabitants?|number|count)(?: |$)/.test(
+      normalized,
+    )
+  ) {
     return { key: "semantic:count", kind: "count", label: "Counts" };
   }
   if (/(?:^| )(?:score|rating|index|coefficient)(?: |$)/.test(normalized)) {
@@ -475,14 +521,8 @@ const getSeriesScale = (
   return unit ? scaleFromUnit(unit) : scaleFromLabel(series.label, series.id);
 };
 
-const getMarkFamily = (
-  series: ContextChartSeries,
-): StandardChartMarkFamily =>
-  series.type === "pie"
-    ? "pie"
-    : series.type === "bar"
-      ? "bar"
-      : "line";
+const getMarkFamily = (series: ContextChartSeries): StandardChartMarkFamily =>
+  series.type === "pie" ? "pie" : series.type === "bar" ? "bar" : "line";
 
 const formatList = (values: string[]): string => {
   if (values.length < 2) return values[0] ?? "No series";
@@ -507,9 +547,7 @@ const isAggregateCategory = (value: ContextChartCell | undefined): boolean => {
 
 const temporalKey = (value: ContextChartCell | undefined): number | null => {
   if (typeof value === "number") {
-    return Number.isInteger(value) && Math.abs(value) <= 9999
-      ? value
-      : null;
+    return Number.isInteger(value) && Math.abs(value) <= 9999 ? value : null;
   }
   if (typeof value !== "string") return null;
   const normalized = value
@@ -543,7 +581,8 @@ const temporalKey = (value: ContextChartCell | undefined): number | null => {
   }
   const year = normalized.match(/^(-?\d{1,4})(?:s)?$/);
   if (year) return Number(year[1]);
-  const yearQuarter = normalized.match(/^(\d{4})\s*(?:[-–—]\s*)?q([1-4])$/i) ??
+  const yearQuarter =
+    normalized.match(/^(\d{4})\s*(?:[-–—]\s*)?q([1-4])$/i) ??
     normalized.match(/^q([1-4])\s*(\d{4})$/i);
   if (yearQuarter) {
     const firstIsYear = yearQuarter[1].length === 4;
@@ -567,18 +606,30 @@ const isChronologicalPresentation = (
   rows: ContextChartBlock["chart"]["rows"],
   series: ContextChartSeries[],
 ): boolean => {
-  if (!series.every((candidate) => candidate.type === "line" || candidate.type === "area")) {
+  if (
+    !series.every(
+      (candidate) => candidate.type === "line" || candidate.type === "area",
+    )
+  ) {
     return false;
   }
-  if (!/(?:^|\b)(?:date|year|month|quarter|period|time|week|day)(?:\b|$)/i.test(categoryColumn.label)) {
+  if (
+    !/(?:^|\b)(?:date|year|month|quarter|period|time|week|day)(?:\b|$)/i.test(
+      categoryColumn.label,
+    )
+  ) {
     return false;
   }
   const keys = rows.map((row) => temporalKey(row[categoryColumn.key]));
   if (keys.length < 3 || keys.some((key) => key === null)) return false;
   const values = keys as number[];
-  const differences = values.slice(1).map((value, index) => value - values[index]);
-  return differences.every((difference) => difference > 0) ||
-    differences.every((difference) => difference < 0);
+  const differences = values
+    .slice(1)
+    .map((value, index) => value - values[index]);
+  return (
+    differences.every((difference) => difference > 0) ||
+    differences.every((difference) => difference < 0)
+  );
 };
 
 const hasSemanticSourceOrder = (
@@ -592,7 +643,9 @@ const hasSemanticSourceOrder = (
   /(?:^|\b)(?:age|age group|band|bucket|class|grade|level|stage|phase|step|order|sequence|range|interval|month|quarter|period)(?:\b|$)/i.test(
     categoryColumn.label,
   ) ||
-  series.every((candidate) => candidate.type === "line" || candidate.type === "area");
+  series.every(
+    (candidate) => candidate.type === "line" || candidate.type === "area",
+  );
 
 export const shouldStandardChartUseZeroBaseline = (
   series: ContextChartSeries[],
@@ -614,8 +667,11 @@ export const shouldStandardChartUseZeroBaseline = (
   return values.some((value) => value < 0) && values.some((value) => value > 0);
 };
 
-const countLabel = (count: number, singular: string, plural = `${singular}s`): string =>
-  `${count} ${count === 1 ? singular : plural}`;
+const countLabel = (
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+): string => `${count} ${count === 1 ? singular : plural}`;
 
 const typedCategoryKey = (value: ContextChartCell | undefined): string =>
   `${typeof value}:${String(value)}`;
@@ -658,65 +714,77 @@ export const getStandardChartFamilyView = (
       return typeof value === "number" && Number.isFinite(value);
     }),
   );
-  const unusableRowCount = sourceRows.length - aggregateRowCount - usableRows.length;
-  const chronological = family.markFamily === "line" &&
+  const unusableRowCount =
+    sourceRows.length - aggregateRowCount - usableRows.length;
+  const chronological =
+    family.markFamily === "line" &&
     isChronologicalPresentation(categoryColumn, usableRows, activeSeries);
   const categoryKeys = usableRows.map((row) =>
     typedCategoryKey(row[categoryColumn.key]),
   );
   const hasUniqueMeaningfulCategories =
-    categoryKeys.length >= 3 && new Set(categoryKeys).size === categoryKeys.length;
-  const safeLimit = Number.isSafeInteger(categoryLimit) && categoryLimit >= 3
-    ? categoryLimit
-    : DEFAULT_CATEGORY_OVERVIEW_LIMIT;
-  const renderKind: StandardChartRenderKind = family.markFamily === "line"
-    ? chronological
-      ? "line"
-      : hasUniqueMeaningfulCategories && usableRows.length <= safeLimit
-        ? "bar"
-        : "exact-only"
-    : family.markFamily;
-  const preserveSourceOrder = chronological ||
+    categoryKeys.length >= 3 &&
+    new Set(categoryKeys).size === categoryKeys.length;
+  const safeLimit =
+    Number.isSafeInteger(categoryLimit) && categoryLimit >= 3
+      ? categoryLimit
+      : DEFAULT_CATEGORY_OVERVIEW_LIMIT;
+  const renderKind: StandardChartRenderKind =
+    family.markFamily === "line"
+      ? chronological
+        ? "line"
+        : hasUniqueMeaningfulCategories && usableRows.length <= safeLimit
+          ? "bar"
+          : "exact-only"
+      : family.markFamily;
+  const preserveSourceOrder =
+    chronological ||
     family.markFamily === "line" ||
     hasSemanticSourceOrder(block, categoryColumn, activeSeries);
   const canTruncate = renderKind === "bar" || renderKind === "pie";
-  const truncated = canTruncate &&
+  const truncated =
+    canTruncate &&
     family.markFamily !== "line" &&
     usableRows.length > safeLimit;
-  const orderedRows = truncated && !preserveSourceOrder
-    ? usableRows
-        .map((row, index) => ({ row, index }))
-        .sort((left, right) => {
-          const leftValue = left.row[anchorSeries.yColumn];
-          const rightValue = right.row[anchorSeries.yColumn];
-          const leftNumber = typeof leftValue === "number" && Number.isFinite(leftValue)
-            ? leftValue
-            : Number.NEGATIVE_INFINITY;
-          const rightNumber = typeof rightValue === "number" && Number.isFinite(rightValue)
-            ? rightValue
-            : Number.NEGATIVE_INFINITY;
-          return rightNumber - leftNumber || left.index - right.index;
-        })
-        .map(({ row }) => row)
-    : usableRows;
-  const visualRows = renderKind === "exact-only"
-    ? []
-    : truncated
-      ? orderedRows.slice(0, safeLimit)
-      : orderedRows;
+  const orderedRows =
+    truncated && !preserveSourceOrder
+      ? usableRows
+          .map((row, index) => ({ row, index }))
+          .sort((left, right) => {
+            const leftValue = left.row[anchorSeries.yColumn];
+            const rightValue = right.row[anchorSeries.yColumn];
+            const leftNumber =
+              typeof leftValue === "number" && Number.isFinite(leftValue)
+                ? leftValue
+                : Number.NEGATIVE_INFINITY;
+            const rightNumber =
+              typeof rightValue === "number" && Number.isFinite(rightValue)
+                ? rightValue
+                : Number.NEGATIVE_INFINITY;
+            return rightNumber - leftNumber || left.index - right.index;
+          })
+          .map(({ row }) => row)
+      : usableRows;
+  const visualRows =
+    renderKind === "exact-only"
+      ? []
+      : truncated
+        ? orderedRows.slice(0, safeLimit)
+        : orderedRows;
   const truncatedRowCount = truncated
     ? usableRows.length - visualRows.length
     : 0;
   const hiddenRowCount = sourceRows.length - visualRows.length;
-  const rowSelection: StandardChartRowSelection = renderKind === "exact-only"
-    ? "exact-only"
-    : chronological
-      ? "chronological"
-      : truncated
-        ? preserveSourceOrder
-          ? "source-order"
-          : "top-values"
-        : "all";
+  const rowSelection: StandardChartRowSelection =
+    renderKind === "exact-only"
+      ? "exact-only"
+      : chronological
+        ? "chronological"
+        : truncated
+          ? preserveSourceOrder
+            ? "source-order"
+            : "top-values"
+          : "all";
   const hiddenDetails = [
     aggregateRowCount > 0
       ? `${countLabel(aggregateRowCount, "aggregate row")} kept in Exact chart data`
@@ -727,19 +795,22 @@ export const getStandardChartFamilyView = (
         } kept in Exact chart data`
       : "",
   ].filter(Boolean);
-  const suffix = hiddenDetails.length > 0 ? ` ${hiddenDetails.join("; ")}.` : "";
-  const rowSummary = renderKind === "exact-only"
-    ? `The visual overview is omitted because the source line does not have a unique ordered chronology; all ${countLabel(sourceRows.length, "source row")} remain in Exact chart data.`
-    : family.markFamily === "line" && !chronological
-      ? `Showing all ${countLabel(visualRows.length, "category", "categories")} in source order as bars because the source line does not have a unique ordered chronology.${suffix}`
-      : chronological
-        ? `Showing all ${countLabel(visualRows.length, "chronological value")} in source order.${suffix}`
-        : truncated
-          ? preserveSourceOrder
-            ? `Showing the first ${visualRows.length} of ${usableRows.length} categories in meaningful source order; ${truncatedRowCount} more remain in Exact chart data.${suffix}`
-            : `Showing the top ${visualRows.length} of ${usableRows.length} categories by ${anchorSeries.label}; ${truncatedRowCount} more remain in Exact chart data.${suffix}`
-          : `Showing all ${countLabel(visualRows.length, "non-aggregate category", "non-aggregate categories")}.${suffix}`;
-  const zeroBaseline = renderKind === "bar" ||
+  const suffix =
+    hiddenDetails.length > 0 ? ` ${hiddenDetails.join("; ")}.` : "";
+  const rowSummary =
+    renderKind === "exact-only"
+      ? `The visual overview is omitted because the source line does not have a unique ordered chronology; all ${countLabel(sourceRows.length, "source row")} remain in Exact chart data.`
+      : family.markFamily === "line" && !chronological
+        ? `Showing all ${countLabel(visualRows.length, "category", "categories")} in source order as bars because the source line does not have a unique ordered chronology.${suffix}`
+        : chronological
+          ? `Showing all ${countLabel(visualRows.length, "chronological value")} in source order.${suffix}`
+          : truncated
+            ? preserveSourceOrder
+              ? `Showing the first ${visualRows.length} of ${usableRows.length} categories in meaningful source order; ${truncatedRowCount} more remain in Exact chart data.${suffix}`
+              : `Showing the top ${visualRows.length} of ${usableRows.length} categories by ${anchorSeries.label}; ${truncatedRowCount} more remain in Exact chart data.${suffix}`
+            : `Showing all ${countLabel(visualRows.length, "non-aggregate category", "non-aggregate categories")}.${suffix}`;
+  const zeroBaseline =
+    renderKind === "bar" ||
     shouldStandardChartUseZeroBaseline(activeSeries, visualRows);
 
   return {
@@ -789,11 +860,14 @@ export const getStandardChartPresentation = (
   );
   if (!categoryColumn) return null;
 
-  const grouped = new Map<string, {
-    markFamily: StandardChartMarkFamily;
-    scale: SeriesScale;
-    series: ContextChartSeries[];
-  }>();
+  const grouped = new Map<
+    string,
+    {
+      markFamily: StandardChartMarkFamily;
+      scale: SeriesScale;
+      series: ContextChartSeries[];
+    }
+  >();
   for (const series of usableSeries) {
     const scale = getSeriesScale(block, series);
     const markFamily = getMarkFamily(series);
@@ -814,7 +888,8 @@ export const getStandardChartPresentation = (
     ) {
       break;
     }
-    const remainingOptionCount = MAX_STANDARD_SERIES_OPTIONS - exposedSeriesCount;
+    const remainingOptionCount =
+      MAX_STANDARD_SERIES_OPTIONS - exposedSeriesCount;
     const series = family.series.slice(
       0,
       Math.min(MAX_STANDARD_FAMILY_SERIES, remainingOptionCount),
@@ -835,11 +910,12 @@ export const getStandardChartPresentation = (
       series,
       primarySeries,
       hiddenSeriesCount: family.series.length - series.length,
-      selectionSummary: family.scale.kind === "unspecified"
-        ? `${series[0].label} uses its own scale because the source does not state a compatible unit.`
-        : `${formatList(series.map((candidate) => candidate.label))} ${
-            series.length === 1 ? "uses" : "share"
-          } the ${family.scale.label.toLocaleLowerCase()} scale.`,
+      selectionSummary:
+        family.scale.kind === "unspecified"
+          ? `${series[0].label} uses its own scale because the source does not state a compatible unit.`
+          : `${formatList(series.map((candidate) => candidate.label))} ${
+              series.length === 1 ? "uses" : "share"
+            } the ${family.scale.label.toLocaleLowerCase()} scale.`,
       zeroBaseline,
     });
     exposedSeriesCount += series.length;
@@ -896,7 +972,8 @@ export const getStandardChartPresentation = (
     availableSeries,
     defaultSeries,
     optionalSeries: availableSeries.filter(
-      (series) => !defaultSeries.some((candidate) => candidate.id === series.id),
+      (series) =>
+        !defaultSeries.some((candidate) => candidate.id === series.id),
     ),
     sourceRows: primaryView.sourceRows,
     visualRows: primaryView.visualRows,
@@ -924,7 +1001,8 @@ export const formatContextChartCell = (
   if (value === null || value === undefined || String(value).trim() === "") {
     return "Not available";
   }
-  if (typeof value !== "number" || !Number.isFinite(value)) return String(value);
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return String(value);
 
   const columnLabel = normalizeLabel(column?.label ?? "");
   const identifierColumn =

@@ -7,6 +7,7 @@ import {
   DataContext,
   type ArticleImage,
   type DataContextValue,
+  type WikipediaRevisionIdentity,
 } from "@/lib/data-context";
 import { useArticleGalleryImages } from "./useArticleGalleryImages";
 
@@ -54,8 +55,26 @@ const dataValue = (
   getArticleImages,
 });
 
-const Probe = ({ wikiPageId }: { wikiPageId: string }) => {
-  const { images, loading } = useArticleGalleryImages(wikiPageId);
+const identity = (
+  wikiPageId: string,
+  revisionId = `revision-${wikiPageId}`,
+): WikipediaRevisionIdentity => ({
+  wikiPageId,
+  revisionId,
+  title: `Article ${wikiPageId}`,
+  language: "en",
+});
+
+const Probe = ({
+  wikiPageId,
+  revisionId,
+}: {
+  wikiPageId: string;
+  revisionId?: string;
+}) => {
+  const { images, loading } = useArticleGalleryImages(
+    identity(wikiPageId, revisionId),
+  );
   return (
     <output data-loading={String(loading)}>
       {images.map((image) => image.alt).join(",")}
@@ -90,8 +109,10 @@ describe("useArticleGalleryImages", () => {
   it("clears old images on key change and ignores the late old response", async () => {
     const oldImages = deferred<ArticleImage[]>();
     const newImages = deferred<ArticleImage[]>();
-    const getArticleImages = vi.fn(({ wikiPageId }) =>
-      wikiPageId === "old" ? oldImages.promise : newImages.promise,
+    const getArticleImages = vi.fn(({ identity: requestIdentity }) =>
+      requestIdentity.wikiPageId === "old"
+        ? oldImages.promise
+        : newImages.promise,
     );
     const value = dataValue(getArticleImages);
 
@@ -103,7 +124,10 @@ describe("useArticleGalleryImages", () => {
       );
     });
     await waitForExpectation(() =>
-      expect(getArticleImages).toHaveBeenCalledWith({ wikiPageId: "old" }),
+      expect(getArticleImages).toHaveBeenCalledWith({
+        identity: identity("old"),
+        signal: expect.any(AbortSignal),
+      }),
     );
 
     await act(async () => {
@@ -126,6 +150,44 @@ describe("useArticleGalleryImages", () => {
       expect(output.dataset.loading).toBe("false");
       expect(output.textContent).toBe("New image");
     });
+  });
+
+  it("clears images when only the article revision changes", async () => {
+    const oldImages = deferred<ArticleImage[]>();
+    const currentImages = deferred<ArticleImage[]>();
+    const getArticleImages = vi.fn(({ identity: requestIdentity }) =>
+      requestIdentity.revisionId === "200"
+        ? oldImages.promise
+        : currentImages.promise,
+    );
+    const value = dataValue(getArticleImages);
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={value}>
+          <Probe wikiPageId="same" revisionId="200" />
+        </DataContext.Provider>,
+      );
+    });
+    const oldSignal = getArticleImages.mock.calls[0][0].signal as AbortSignal;
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={value}>
+          <Probe wikiPageId="same" revisionId="201" />
+        </DataContext.Provider>,
+      );
+    });
+
+    expect(oldSignal.aborted).toBe(true);
+    expect(container.textContent).toBe("");
+    await act(async () => {
+      oldImages.resolve([image("Stale image")]);
+      currentImages.resolve([image("Current image")]);
+    });
+    await waitForExpectation(() =>
+      expect(container.textContent).toBe("Current image"),
+    );
   });
 
   it("settles a new-key failure to an empty supplemental gallery", async () => {

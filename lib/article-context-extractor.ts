@@ -3,30 +3,26 @@ import {
   type ContextManifest,
 } from "./article-context-types";
 import {
-  fetchRevisionMatchedMediaWikiSource,
   normalizeArticleContextRequest,
   type ArticleContextExtractorOptions,
+  ArticleContextUpstreamError,
 } from "./article-context-foundations";
-import { extractArticleContextFromSource } from "./article-context-assembly";
+import {
+  loadMediaWikiDocument,
+  MediaWikiSourceError,
+} from "./mediawiki-document";
+import { extractArticleContextFromDocument } from "./article-context-document";
 
 export {
   ArticleContextInputError,
   ArticleContextUpstreamError,
-  fetchRevisionMatchedMediaWikiSource,
   normalizeArticleContextRequest,
   sanitizeContextCaption,
   sanitizeContextText,
 } from "./article-context-foundations";
-export {
-  extractArticleContextFromSource,
-  validateContextManifest,
-} from "./article-context-assembly";
+export { validateContextManifest } from "./article-context-validation";
 export { parseContextDateRange } from "./article-context-timelines";
-export type {
-  ArticleContextExtractorOptions,
-  MediaWikiParsedSource,
-  MediaWikiSectionSource,
-} from "./article-context-foundations";
+export type { ArticleContextExtractorOptions } from "./article-context-foundations";
 
 /** Network + pure extraction convenience; callers may wrap this in any cache. */
 export const fetchArticleContextManifest = async (
@@ -34,6 +30,21 @@ export const fetchArticleContextManifest = async (
   options: ArticleContextExtractorOptions = {},
 ): Promise<ContextManifest> => {
   const request = normalizeArticleContextRequest(input);
-  const source = await fetchRevisionMatchedMediaWikiSource(request, options);
-  return extractArticleContextFromSource(source, request, { now: options.now });
+  try {
+    const document = await loadMediaWikiDocument(
+      {
+        wikiPageId: request.wikiPageId,
+        title: request.title,
+        revisionId: request.revisionId,
+        language: "en",
+      },
+      { fetchImpl: options.fetchImpl, signal: options.signal },
+    );
+    return extractArticleContextFromDocument(document, { now: options.now });
+  } catch (error) {
+    if (error instanceof MediaWikiSourceError) {
+      throw new ArticleContextUpstreamError(error.message, error.statusCode);
+    }
+    throw error;
+  }
 };

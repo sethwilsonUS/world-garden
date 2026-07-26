@@ -45,6 +45,15 @@ const ttsAudioVariant = v.object({
   createdAt: v.number(),
 });
 
+const ttsMetadata = v.object({
+  provider: v.union(v.literal("openai"), v.literal("edge")),
+  model: v.string(),
+  voiceId: v.string(),
+  promptVersion: v.string(),
+  ttsNormVersion: v.string(),
+  ttsCacheKey: v.string(),
+});
+
 const articleAudioExportStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -206,6 +215,7 @@ export default defineSchema({
     stage: v.optional(articleAudioExportStage),
     sectionCount: v.optional(v.number()),
     narrationHash: v.optional(v.string()),
+    requestedTtsMetadata: v.optional(ttsMetadata),
     completedSectionCount: v.optional(v.number()),
     storageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
@@ -252,7 +262,11 @@ export default defineSchema({
     durationSeconds: v.optional(v.number()),
   })
     .index("by_article_section", ["articleId", "sectionKey"])
-    .index("by_article_section_tts", ["articleId", "sectionKey", "ttsNormVersion"])
+    .index("by_article_section_tts", [
+      "articleId",
+      "sectionKey",
+      "ttsNormVersion",
+    ])
     .index("by_article_section_cache_source", [
       "articleId",
       "sectionKey",
@@ -262,8 +276,16 @@ export default defineSchema({
 
   articleParseCache: defineTable({
     wikiPageId: v.string(),
+    // Optional only for rows written before revision-pinned metadata caching.
+    revisionId: v.optional(v.string()),
+    title: v.optional(v.string()),
+    language: v.optional(v.string()),
     linkCounts: v.array(
-      v.object({ title: v.string(), count: v.number() }),
+      v.object({
+        index: v.optional(v.string()),
+        title: v.string(),
+        count: v.number(),
+      }),
     ),
     citations: v.array(
       v.object({
@@ -275,6 +297,7 @@ export default defineSchema({
     ),
     sectionCitations: v.array(
       v.object({
+        index: v.optional(v.string()),
         title: v.string(),
         count: v.number(),
         citationIds: v.array(v.string()),
@@ -302,7 +325,9 @@ export default defineSchema({
     ),
     mediaMetadataVersion: v.optional(v.number()),
     cachedAt: v.number(),
-  }).index("by_wikiPageId", ["wikiPageId"]),
+  })
+    .index("by_wikiPageId", ["wikiPageId"])
+    .index("by_wikiPageId_revisionId", ["wikiPageId", "revisionId"]),
 
   articleContextCaches: defineTable({
     wikiPageId: v.string(),
@@ -398,6 +423,11 @@ export default defineSchema({
 
   sectionLinksCache: defineTable({
     wikiPageId: v.string(),
+    // Optional only for rows written before revision-pinned link caching.
+    revisionId: v.optional(v.string()),
+    // Optional only for rows written before full revision identity caching.
+    title: v.optional(v.string()),
+    language: v.optional(v.string()),
     sectionTitle: v.string(),
     links: v.array(
       v.object({
@@ -407,7 +437,13 @@ export default defineSchema({
       }),
     ),
     cachedAt: v.number(),
-  }).index("by_wikiPageId_section", ["wikiPageId", "sectionTitle"]),
+  })
+    .index("by_wikiPageId_section", ["wikiPageId", "sectionTitle"])
+    .index("by_wikiPageId_revisionId_section", [
+      "wikiPageId",
+      "revisionId",
+      "sectionTitle",
+    ]),
 
   featuredPodcastEpisodes: defineTable({
     featuredDate: v.string(),
@@ -658,6 +694,8 @@ export default defineSchema({
     narrationHash: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     byteLength: v.optional(v.number()),
+    requestedTtsMetadata: v.optional(ttsMetadata),
+    producedTtsCacheKey: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
     lastError: v.optional(v.string()),
     dismissedAt: v.optional(v.number()),

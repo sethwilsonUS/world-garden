@@ -2,10 +2,8 @@
 
 import { useMemo, useState, type RefObject } from "react";
 import { InfoTooltip } from "@/components/InfoTooltip";
-import type { Section } from "@/lib/data-context";
-import {
-  buildArticleNarrationTracks,
-} from "@/lib/section-narration";
+import type { Section, WikipediaRevisionIdentity } from "@/lib/data-context";
+import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
@@ -33,6 +31,7 @@ import {
 } from "@/components/TableOfContentsPresentation";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import { useArticleSectionCounts } from "@/hooks/useArticleSectionMetadata";
+import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 
 export type {
   AudioPlaybackMode,
@@ -41,8 +40,7 @@ export type {
 } from "@/lib/article-audio-playback";
 
 type TableOfContentsProps = {
-  articleTitle: string;
-  wikiPageId: string;
+  identity: WikipediaRevisionIdentity & { narrationVersion: number };
   summaryText?: string;
   sections: Section[];
   sectionDurations?: Record<string, number>;
@@ -73,7 +71,10 @@ type TableOfContentsProps = {
 
 export const TTS_WORDS_PER_SECOND = 2.5;
 
-export const formatDuration = (totalSeconds: number, estimated: boolean): string => {
+export const formatDuration = (
+  totalSeconds: number,
+  estimated: boolean,
+): string => {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
@@ -90,7 +91,10 @@ export const formatDuration = (totalSeconds: number, estimated: boolean): string
 const pluralize = (n: number, unit: string): string =>
   `${n} ${unit}${n === 1 ? "" : "s"}`;
 
-export const formatDurationAccessible = (totalSeconds: number, estimated: boolean): string => {
+export const formatDurationAccessible = (
+  totalSeconds: number,
+  estimated: boolean,
+): string => {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
@@ -132,18 +136,25 @@ const durationLabelAccessible = (
   rate = 1,
 ): string => {
   const actual = durations?.[sectionKey];
-  if (actual != null) return formatDurationAccessible(Math.round(actual / rate), false);
+  if (actual != null)
+    return formatDurationAccessible(Math.round(actual / rate), false);
   return estimateDurationAccessible(text, rate);
 };
 
 const rowClass =
   "toc-row flex flex-col items-stretch justify-between gap-2 w-full py-2.5 px-3 rounded-xl text-left sm:flex-row sm:items-center sm:gap-4";
 
-const pillClass = "inline-flex items-center gap-[5px] px-3 py-[5px] rounded-full font-semibold text-xs leading-none whitespace-nowrap shrink-0";
+const pillClass =
+  "inline-flex items-center gap-[5px] px-3 py-[5px] rounded-full font-semibold text-xs leading-none whitespace-nowrap shrink-0";
+
+const sectionMetadataCount = (
+  counts: Record<string, number> | null,
+  sectionIndex: string,
+  legacyTitle: string,
+): number | undefined => counts?.[sectionIndex] ?? counts?.[legacyTitle];
 
 export const TableOfContents = ({
-  articleTitle,
-  wikiPageId,
+  identity,
   summaryText,
   sections,
   sectionDurations,
@@ -171,17 +182,21 @@ export const TableOfContents = ({
   fallbackVoiceNotice,
   contextBlocks = [],
 }: TableOfContentsProps) => {
-  const { linkCounts, citationCounts } =
-    useArticleSectionCounts(wikiPageId);
+  const { title: articleTitle, wikiPageId } = identity;
+  const { linkCounts, citationCounts } = useArticleSectionCounts(identity);
   const [openPanelState, setOpenPanelState] = useState<{
-    wikiPageId: string;
+    revisionKey: string;
     panel: string | null;
-  }>(() => ({ wikiPageId, panel: null }));
+  }>(() => ({
+    revisionKey: wikipediaRevisionKey(identity),
+    panel: null,
+  }));
+  const revisionKey = wikipediaRevisionKey(identity);
   const openPanel =
-    openPanelState.wikiPageId === wikiPageId ? openPanelState.panel : null;
+    openPanelState.revisionKey === revisionKey ? openPanelState.panel : null;
   const togglePanel = (panel: string) => {
     setOpenPanelState({
-      wikiPageId,
+      revisionKey,
       panel: openPanel === panel ? null : panel,
     });
   };
@@ -214,10 +229,18 @@ export const TableOfContents = ({
     () =>
       buildArticleNarrationTracks({
         title: articleTitle,
+        revisionId: identity.revisionId,
+        narrationVersion: identity.narrationVersion,
         summary: summaryText,
         sections,
       }),
-    [articleTitle, sections, summaryText],
+    [
+      articleTitle,
+      identity.narrationVersion,
+      identity.revisionId,
+      sections,
+      summaryText,
+    ],
   );
   const sectionTracks = narrationTracks.filter(
     (track) => track.sectionIdx !== null,
@@ -253,8 +276,7 @@ export const TableOfContents = ({
         total += actual;
       } else {
         total += Math.round(
-          track.text.split(/\s+/).filter(Boolean).length /
-            TTS_WORDS_PER_SECOND,
+          track.text.split(/\s+/).filter(Boolean).length / TTS_WORDS_PER_SECOND,
         );
         allActual = false;
       }
@@ -296,7 +318,8 @@ export const TableOfContents = ({
             Explore this article
           </h2>
           <p className="text-[0.8125rem] text-muted m-0 leading-normal">
-            {allActual ? "Playtime" : "Estimated playtime"}{playbackRate !== 1 ? ` at ${playbackRate}x` : ""}:{" "}
+            {allActual ? "Playtime" : "Estimated playtime"}
+            {playbackRate !== 1 ? ` at ${playbackRate}x` : ""}:{" "}
             <span className="font-mono font-medium text-foreground-2">
               <span aria-hidden="true">{totalPlaytime}</span>
               <span className="sr-only">{totalPlaytimeAccessible}</span>
@@ -332,7 +355,9 @@ export const TableOfContents = ({
             isPlayingAll
               ? "bg-surface-3 text-foreground border border-border cursor-pointer"
               : `search-submit bg-btn-primary text-btn-primary-text border-0 ${
-                  isGenerating || downloading ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                  isGenerating || downloading
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer"
                 }`
           }`}
           aria-label={
@@ -438,7 +463,9 @@ export const TableOfContents = ({
             type="button"
             onClick={onStopPlayAll}
             className="inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 cursor-pointer"
-            aria-label={summaryOnly ? "Stop summary" : "Stop playing all sections"}
+            aria-label={
+              summaryOnly ? "Stop summary" : "Stop playing all sections"
+            }
           >
             <svg
               viewBox="0 0 24 24"
@@ -459,7 +486,9 @@ export const TableOfContents = ({
             onClick={onSkipSection}
             disabled={!canSkipSection}
             className={`inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 ${
-              !canSkipSection ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+              !canSkipSection
+                ? "cursor-not-allowed opacity-70"
+                : "cursor-pointer"
             }`}
             aria-label="Skip to next section"
           >
@@ -478,8 +507,8 @@ export const TableOfContents = ({
           </button>
         )}
 
-        {(onDownloadAll || downloadHref) && (
-          downloadHref && !downloading ? (
+        {(onDownloadAll || downloadHref) &&
+          (downloadHref && !downloading ? (
             <ManagedAudioDownloadButton
               href={downloadHref}
               title={articleTitle}
@@ -522,12 +551,9 @@ export const TableOfContents = ({
                   <DownloadSpinnerIcon />
                   {`${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0} ready`}
                 </>
-              ) : (
-                undefined
-              )}
+              ) : undefined}
             </AudioDownloadButton>
-          ) : null
-        )}
+          ) : null)}
 
         {onPlaybackRateChange && (
           <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
@@ -559,9 +585,7 @@ export const TableOfContents = ({
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">
           {/* Summary entry */}
-          <li
-            className={`toc-item${isSummaryActive ? " bg-accent-bg" : ""}`}
-          >
+          <li className={`toc-item${isSummaryActive ? " bg-accent-bg" : ""}`}>
             <div className={rowClass}>
               <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
                 <span
@@ -571,13 +595,35 @@ export const TableOfContents = ({
                 </span>
                 {summaryText && (
                   <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
-                    <span aria-hidden="true">{durationLabel("summary", summaryText, sectionDurations, playbackRate)}</span>
-                    <span className="sr-only">{durationLabelAccessible("summary", summaryText, sectionDurations, playbackRate)}</span>
+                    <span aria-hidden="true">
+                      {durationLabel(
+                        "summary",
+                        summaryText,
+                        sectionDurations,
+                        playbackRate,
+                      )}
+                    </span>
+                    <span className="sr-only">
+                      {durationLabelAccessible(
+                        "summary",
+                        summaryText,
+                        sectionDurations,
+                        playbackRate,
+                      )}
+                    </span>
                   </span>
                 )}
                 <SectionDetailsBadge
-                  linkCount={linkCounts?.["__summary__"]}
-                  citationCount={citationCounts?.["__summary__"]}
+                  linkCount={sectionMetadataCount(
+                    linkCounts,
+                    "__summary__",
+                    "__summary__",
+                  )}
+                  citationCount={sectionMetadataCount(
+                    citationCounts,
+                    "__summary__",
+                    "__summary__",
+                  )}
                   isOpen={openPanel === "summary"}
                   onToggle={() => togglePanel("summary")}
                 />
@@ -590,7 +636,10 @@ export const TableOfContents = ({
                 onFocus={onWarmSummary}
                 onPointerDown={onWarmSummary}
                 onTouchStart={onWarmSummary}
-                onClick={(e) => { onListenSummary(); e.currentTarget.focus(); }}
+                onClick={(e) => {
+                  onListenSummary();
+                  e.currentTarget.focus();
+                }}
                 aria-label={`Listen to summary of ${articleTitle}`}
                 className={`${pillClass} self-start sm:self-auto border cursor-pointer pointer-events-auto ${
                   isSummaryActive && !isSummaryLoading
@@ -627,10 +676,22 @@ export const TableOfContents = ({
             )}
             {openPanel === "summary" && (
               <SectionDetailsPanel
-                wikiPageId={wikiPageId}
+                identity={identity}
                 sectionTitle={null}
-                hasLinks={(linkCounts?.["__summary__"] ?? 0) > 0}
-                hasCitations={(citationCounts?.["__summary__"] ?? 0) > 0}
+                hasLinks={
+                  (sectionMetadataCount(
+                    linkCounts,
+                    "__summary__",
+                    "__summary__",
+                  ) ?? 0) > 0
+                }
+                hasCitations={
+                  (sectionMetadataCount(
+                    citationCounts,
+                    "__summary__",
+                    "__summary__",
+                  ) ?? 0) > 0
+                }
               />
             )}
           </li>
@@ -656,14 +717,15 @@ export const TableOfContents = ({
                 ? "This heading has no text of its own. Its title is spoken as a brief transition during Play All, downloads, and podcasts."
                 : "Wikipedia does not provide any text for this heading, so there is nothing to narrate.";
               return (
-                <li
-                  key={index}
-                  className="toc-item mt-0.5"
-                >
+                <li key={index} className="toc-item mt-0.5">
                   <div
                     role="group"
                     className={`${rowClass} cursor-default text-muted`}
-                    style={indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined}
+                    style={
+                      indent > 0
+                        ? { paddingLeft: `${indent + 12}px` }
+                        : undefined
+                    }
                     aria-label={`${section.title} — ${statusLabel.toLowerCase()}`}
                   >
                     <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
@@ -677,6 +739,7 @@ export const TableOfContents = ({
                           contextBlocks,
                           index,
                           section.title,
+                          section.wikiSectionIndex,
                         )}
                       />
                     </span>
@@ -707,7 +770,9 @@ export const TableOfContents = ({
               >
                 <div
                   className={`${rowClass} cursor-default`}
-                  style={indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined}
+                  style={
+                    indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined
+                  }
                 >
                   <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
                     <span
@@ -716,8 +781,22 @@ export const TableOfContents = ({
                       {section.title}
                     </span>
                     <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
-                      <span aria-hidden="true">{durationLabel(`section-${index}`, section.narration.text, sectionDurations, playbackRate)}</span>
-                      <span className="sr-only">{durationLabelAccessible(`section-${index}`, section.narration.text, sectionDurations, playbackRate)}</span>
+                      <span aria-hidden="true">
+                        {durationLabel(
+                          `section-${index}`,
+                          section.narration.text,
+                          sectionDurations,
+                          playbackRate,
+                        )}
+                      </span>
+                      <span className="sr-only">
+                        {durationLabelAccessible(
+                          `section-${index}`,
+                          section.narration.text,
+                          sectionDurations,
+                          playbackRate,
+                        )}
+                      </span>
                     </span>
                     {section.narration.adapted && (
                       <span className="inline-flex items-center gap-1.5">
@@ -736,11 +815,30 @@ export const TableOfContents = ({
                           buttonClassName="size-6"
                           tooltipClassName="w-64"
                         />
+                        {section.narration.remainingSourceItems ? (
+                          <a
+                            href={`https://en.wikipedia.org/w/index.php?oldid=${encodeURIComponent(identity.revisionId)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="linked-article-link text-xs text-accent underline underline-offset-2"
+                            aria-label={`View the complete source data for ${section.title} on Wikipedia; ${section.narration.remainingSourceItems} ${section.narration.remainingSourceItems === 1 ? "item remains" : "items remain"}; opens in a new tab`}
+                          >
+                            View complete source data
+                          </a>
+                        ) : null}
                       </span>
                     )}
                     <SectionDetailsBadge
-                      linkCount={linkCounts?.[section.title]}
-                      citationCount={citationCounts?.[section.title]}
+                      linkCount={sectionMetadataCount(
+                        linkCounts,
+                        section.wikiSectionIndex,
+                        section.title,
+                      )}
+                      citationCount={sectionMetadataCount(
+                        citationCounts,
+                        section.wikiSectionIndex,
+                        section.title,
+                      )}
                       isOpen={openPanel === `section-${index}`}
                       onToggle={() => togglePanel(`section-${index}`)}
                     />
@@ -749,6 +847,7 @@ export const TableOfContents = ({
                         contextBlocks,
                         index,
                         section.title,
+                        section.wikiSectionIndex,
                       )}
                     />
                   </span>
@@ -758,7 +857,12 @@ export const TableOfContents = ({
                     onFocus={() => onWarmSection?.(index)}
                     onPointerDown={() => onWarmSection?.(index)}
                     onTouchStart={() => onWarmSection?.(index)}
-                    onClick={(e) => { if (!isLoading) { onListenSection(index); e.currentTarget.focus(); } }}
+                    onClick={(e) => {
+                      if (!isLoading) {
+                        onListenSection(index);
+                        e.currentTarget.focus();
+                      }
+                    }}
                     aria-disabled={isLoading || undefined}
                     aria-label={
                       isLoading
@@ -802,10 +906,23 @@ export const TableOfContents = ({
                 )}
                 {openPanel === `section-${index}` && (
                   <SectionDetailsPanel
-                    wikiPageId={wikiPageId}
+                    identity={identity}
                     sectionTitle={section.title}
-                    hasLinks={(linkCounts?.[section.title] ?? 0) > 0}
-                    hasCitations={(citationCounts?.[section.title] ?? 0) > 0}
+                    sectionIndex={section.wikiSectionIndex}
+                    hasLinks={
+                      (sectionMetadataCount(
+                        linkCounts,
+                        section.wikiSectionIndex,
+                        section.title,
+                      ) ?? 0) > 0
+                    }
+                    hasCitations={
+                      (sectionMetadataCount(
+                        citationCounts,
+                        section.wikiSectionIndex,
+                        section.title,
+                      ) ?? 0) > 0
+                    }
                   />
                 )}
               </li>

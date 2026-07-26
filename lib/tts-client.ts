@@ -164,7 +164,9 @@ export const splitTtsTextIntoChunks = (
   const paragraphs = splitIntoParagraphs(normalized);
   if (paragraphs.length > 1) {
     return packSegments(
-      paragraphs.flatMap((paragraph) => splitLongParagraph(paragraph, maxWords)),
+      paragraphs.flatMap((paragraph) =>
+        splitLongParagraph(paragraph, maxWords),
+      ),
       maxWords,
     );
   }
@@ -172,11 +174,10 @@ export const splitTtsTextIntoChunks = (
   return splitLongParagraph(normalized, maxWords);
 };
 
-const fetchSingleTtsAudioWithMetadata = async ({
-  text,
-  voiceId,
-  provider,
-}: TtsRequest, options?: TtsClientOptions): Promise<SingleTtsAudioResult> => {
+const fetchSingleTtsAudioWithMetadata = async (
+  { text, voiceId, provider, expectedTtsCacheKey }: TtsRequest,
+  options?: TtsClientOptions,
+): Promise<SingleTtsAudioResult> => {
   const requestHeaders = new Headers(options?.headers);
   requestHeaders.set("Content-Type", "application/json");
   const timeoutMs = getClientTtsTimeoutMs();
@@ -192,6 +193,7 @@ const fetchSingleTtsAudioWithMetadata = async ({
       text,
       ...(voiceId ? { voiceId } : {}),
       ...(provider ? { provider } : {}),
+      ...(expectedTtsCacheKey ? { expectedTtsCacheKey } : {}),
     }),
     ...(controller ? { signal: controller.signal } : {}),
   });
@@ -268,12 +270,14 @@ const generateTtsAudioForChunks = async ({
   chunks,
   voiceId,
   provider,
+  expectedTtsCacheKey,
   options,
   fallbackReason,
 }: {
   chunks: string[];
   voiceId?: string;
   provider?: TtsProvider;
+  expectedTtsCacheKey?: string;
   options?: TtsClientOptions;
   fallbackReason?: TtsFallbackReason;
 }): Promise<TtsAudioResult> => {
@@ -291,7 +295,7 @@ const generateTtsAudioForChunks = async ({
 
         try {
           results[index] = await fetchSingleTtsAudioWithMetadata(
-            { text: chunk, voiceId, provider },
+            { text: chunk, voiceId, provider, expectedTtsCacheKey },
             options,
           );
         } catch (error) {
@@ -321,8 +325,9 @@ const generateTtsAudioForChunks = async ({
     ) {
       return generateTtsAudioForChunks({
         chunks,
-        voiceId,
+        voiceId: result.metadata.voiceId,
         provider: result.metadata.provider,
+        expectedTtsCacheKey: result.metadata.ttsCacheKey,
         options,
         fallbackReason: activeFallbackReason,
       });
@@ -354,25 +359,25 @@ const generateTtsAudioForChunks = async ({
   };
 };
 
-export const generateTtsAudio = async ({
-  text,
-  voiceId,
-  provider,
-}: TtsRequest, options?: TtsClientOptions): Promise<Blob> => {
+export const generateTtsAudio = async (
+  { text, voiceId, provider, expectedTtsCacheKey }: TtsRequest,
+  options?: TtsClientOptions,
+): Promise<Blob> => {
   const result = await generateTtsAudioWithMetadata(
-    { text, voiceId, provider },
+    { text, voiceId, provider, expectedTtsCacheKey },
     options,
   );
   return result.blob;
 };
 
-export const generateTtsAudioWithMetadata = async ({
-  text,
-  voiceId,
-  provider,
-}: TtsRequest, options?: TtsClientOptions): Promise<TtsAudioResult> => {
+export const generateTtsAudioWithMetadata = async (
+  { text, voiceId, provider, expectedTtsCacheKey }: TtsRequest,
+  options?: TtsClientOptions,
+): Promise<TtsAudioResult> => {
   const chunks = splitTtsTextIntoChunks(text);
   const joinedText = chunks.join(" ");
+  const resolvedExpectedTtsCacheKey =
+    expectedTtsCacheKey ?? getTtsProfile(provider, voiceId).ttsCacheKey;
 
   if (!joinedText || joinedText.length < TTS_MIN_TEXT_LENGTH) {
     throw new Error("Text is too short to generate audio");
@@ -382,6 +387,7 @@ export const generateTtsAudioWithMetadata = async ({
     chunks,
     voiceId,
     provider,
+    expectedTtsCacheKey: resolvedExpectedTtsCacheKey,
     options,
   });
 };
@@ -389,7 +395,8 @@ export const generateTtsAudioWithMetadata = async ({
 export const generateTtsAudioUrl = async (
   request: TtsRequest,
   options?: TtsClientOptions,
-): Promise<string> => URL.createObjectURL(await generateTtsAudio(request, options));
+): Promise<string> =>
+  URL.createObjectURL(await generateTtsAudio(request, options));
 
 export const generateTtsAudioUrlWithMetadata = async (
   request: TtsRequest,

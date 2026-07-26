@@ -20,7 +20,8 @@ const expectNoSeriousAxeViolations = async (page: Page) => {
   });
   const results = await new AxeBuilder({ page }).analyze();
   const serious = results.violations.filter(
-    (violation) => violation.impact === "critical" || violation.impact === "serious",
+    (violation) =>
+      violation.impact === "critical" || violation.impact === "serious",
   );
   expect(serious).toEqual([]);
 };
@@ -55,7 +56,8 @@ const todayFixture = {
         creator: "Alfred Edward Chalon",
         licenseName: "Public domain",
         sourceTitle: "File:Ada Lovelace portrait.jpg",
-        sourceUrl: "https://commons.wikimedia.org/wiki/File:Ada_Lovelace_portrait.jpg",
+        sourceUrl:
+          "https://commons.wikimedia.org/wiki/File:Ada_Lovelace_portrait.jpg",
       },
     },
   },
@@ -76,16 +78,17 @@ const todayFixture = {
           ]
         : [],
     segments: [
-      { type: "text", text: `... that accessible fact ${index + 1} invites another question?` },
+      {
+        type: "text",
+        text: `... that accessible fact ${index + 1} invites another question?`,
+      },
     ],
   })),
   inTheNews: Array.from({ length: 3 }, (_, index) => ({
     story: `News story ${index + 1}`,
     links: [],
   })),
-  onThisDay: [
-    { year: 1969, text: "A notable event happened.", pages: [] },
-  ],
+  onThisDay: [{ year: 1969, text: "A notable event happened.", pages: [] }],
   trending: Array.from({ length: 5 }, (_, index) => ({
     title: `Trending topic ${index + 1}`,
     extract: "A concise explanation of the topic.",
@@ -100,10 +103,16 @@ const todayFixture = {
 
 const mockHomeData = async (page: Page) => {
   await page.route("**/api/featured", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify(todayFixture) }),
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(todayFixture),
+    }),
   );
   await page.route("**/api/trending/brief", (route) =>
-    route.fulfill({ contentType: "application/json", body: JSON.stringify({ brief: null }) }),
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ brief: null }),
+    }),
   );
   await page.route("https://upload.wikimedia.org/**", (route) =>
     route.fulfill({ contentType: "image/png", body: tinyPng }),
@@ -142,14 +151,156 @@ const mockArticleData = async (
 ) => {
   const lightboxRequests: string[] = [];
 
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "TTS is disabled in this browser fixture.",
+      }),
+    }),
+  );
+
+  await page.route("**/api/local-wikipedia", async (route) => {
+    const request = route.request().postDataJSON() as {
+      operation?: string;
+    };
+
+    if (request.operation === "article") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            wikiPageId: "974",
+            revisionId: "123456789",
+            title: "Ada Lovelace",
+            language: "en",
+            narrationVersion: 2,
+            lastEdited: "2026-07-10T12:00:00Z",
+            summary: "Ada Lovelace was an English mathematician and writer.",
+            thumbnailUrl:
+              "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
+            thumbnailWidth: 800,
+            thumbnailHeight: 1067,
+            thumbnailAttribution: {
+              creator: "Alfred Edward Chalon",
+              licenseName: "Public domain",
+              sourceTitle: "File:Ada portrait.jpg",
+              sourceUrl:
+                "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
+            },
+            sections: [
+              {
+                wikiSectionIndex: "1",
+                title: "Early life",
+                level: 2,
+                content:
+                  "She developed an enduring interest in mathematics and machines.",
+                narration: {
+                  mode: "verbatim",
+                  text: "Early life. She developed an enduring interest in mathematics and machines.",
+                  sourceFormat: "prose",
+                  adapted: false,
+                  usedRawFallback: false,
+                  sourceHash: "early-life-source-hash",
+                },
+              },
+              {
+                wikiSectionIndex: "2",
+                title: "Recognition",
+                level: 2,
+                content: "Honours Year Award 1843 Published notes",
+                narration: {
+                  mode: "structured",
+                  text: "Recognition. Table: Honours. Year: 1843; Award: Published notes.",
+                  sourceFormat: "table",
+                  adapted: true,
+                  usedRawFallback: false,
+                  sourceHash: "recognition-source-hash",
+                },
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+
+    if (request.operation === "metadata") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            linkCounts: [],
+            citations: [],
+            sectionCitations: [],
+            sectionIndexMap: [
+              { title: "Early life", index: "1" },
+              { title: "Recognition", index: "2" },
+            ],
+            images: [
+              {
+                src: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/330px-Ada_portrait.jpg",
+                originalSrc:
+                  "https://upload.wikimedia.org/wikipedia/commons/a/ab/Ada_portrait.jpg",
+                lightboxSrc:
+                  "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/1600px-Ada_portrait.jpg",
+                lightboxWidth: 1600,
+                lightboxHeight: 2133,
+                alt: "Portrait of Ada Lovelace",
+                caption: "Portrait of Ada Lovelace",
+                width: 330,
+                height: 440,
+                attribution: {
+                  creator: "Alfred Edward Chalon",
+                  licenseName: "Public domain",
+                  sourceTitle: "File:Ada portrait.jpg",
+                  sourceUrl:
+                    "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
+                },
+              },
+              {
+                src: analyticalThumbnailUrl,
+                originalSrc:
+                  "https://upload.wikimedia.org/wikipedia/commons/c/cf/Analytical_Engine.jpg",
+                lightboxSrc: analyticalLightboxUrl,
+                lightboxWidth: 1600,
+                lightboxHeight: 1067,
+                alt: "Analytical Engine mechanisms",
+                caption: "Analytical Engine at the Science Museum",
+                width: 330,
+                height: 220,
+                attribution: {
+                  creator: "Science Museum",
+                  licenseName: "Public domain",
+                  sourceTitle: "File:Analytical Engine.jpg",
+                  sourceUrl:
+                    "https://commons.wikimedia.org/wiki/File:Analytical_Engine.jpg",
+                },
+              },
+            ],
+          },
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [] }),
+    });
+  });
+
   await page.route("https://upload.wikimedia.org/**", (route) => {
     const requestUrl = route.request().url();
     if (requestUrl.includes("/1600px-")) lightboxRequests.push(requestUrl);
     if (
       (options.failAnalyticalLightbox &&
         requestUrl === analyticalLightboxUrl) ||
-      (options.failAnalyticalThumbnail &&
-        requestUrl === analyticalThumbnailUrl)
+      (options.failAnalyticalThumbnail && requestUrl === analyticalThumbnailUrl)
     ) {
       return route.fulfill({
         status: 404,
@@ -168,7 +319,9 @@ const mockArticleData = async (
     const pages = Object.fromEntries(
       titles.map((title, index) => {
         const analytical = title.includes("Analytical Engine");
-        const filename = analytical ? "Analytical_Engine.jpg" : "Ada_portrait.jpg";
+        const filename = analytical
+          ? "Analytical_Engine.jpg"
+          : "Ada_portrait.jpg";
         const directory = analytical ? "c/cf" : "a/ab";
         const creator = analytical ? "Science Museum" : "Alfred Edward Chalon";
         const originalWidth = 2400;
@@ -221,7 +374,8 @@ const mockArticleData = async (
                 title: "File:Ada portrait.jpg",
                 imageinfo: [
                   {
-                    descriptionurl: "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
+                    descriptionurl:
+                      "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
                     extmetadata: {
                       Artist: { value: "Alfred Edward Chalon" },
                       LicenseShortName: { value: "Public domain" },
@@ -295,9 +449,12 @@ const mockArticleData = async (
               title: "Ada Lovelace",
               extract:
                 "Ada Lovelace was an English mathematician and writer.\n\n== Early life ==\n\nShe developed an enduring interest in mathematics and machines.\n\n== Recognition ==\n\nYear Award\n1843 Published notes",
-              revisions: [{ revid: 123456789, timestamp: "2026-07-10T12:00:00Z" }],
+              revisions: [
+                { revid: 123456789, timestamp: "2026-07-10T12:00:00Z" },
+              ],
               thumbnail: {
-                source: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
+                source:
+                  "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
                 width: 800,
                 height: 1067,
               },
@@ -311,23 +468,35 @@ const mockArticleData = async (
   return { lightboxRequests };
 };
 
-test("home presents the product and expands the curated daily preview", async ({ page }) => {
+test("home presents the product and expands the curated daily preview", async ({
+  page,
+}) => {
   await mockHomeData(page);
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Curio Garden" })).toBeVisible();
-  await expect(page.getByRole("searchbox", { name: "Search topic" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Curio Garden" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("searchbox", { name: "Search topic" }),
+  ).toBeVisible();
   await expect(
     page.getByText(
       "Explore any Wikipedia article as clear, section-by-section audio, then keep listening wherever curiosity takes you.",
     ),
   ).toBeVisible();
   await expect(page.getByText("Audio-first Wikipedia")).toHaveCount(0);
-  await expect(page.getByText("accessible fact 4", { exact: false })).toBeHidden();
+  await expect(
+    page.getByText("accessible fact 4", { exact: false }),
+  ).toBeHidden();
 
   await page.getByRole("button", { name: "Show all 4 facts" }).click();
-  await expect(page.getByText("accessible fact 4", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Show fewer facts" })).toBeFocused();
+  await expect(
+    page.getByText("accessible fact 4", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Show fewer facts" }),
+  ).toBeFocused();
   await expectNoSeriousAxeViolations(page);
 });
 
@@ -402,13 +571,21 @@ test.describe("date-only labels stay on the Wikimedia calendar date", () => {
   });
 });
 
-test("article exposes revision and media provenance in an accessible lightbox", async ({ page }) => {
+test("article exposes revision and media provenance in an accessible lightbox", async ({
+  page,
+}) => {
   const { lightboxRequests } = await mockArticleData(page);
   await page.goto("/article/Ada_Lovelace");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Ada Lovelace" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Revision 123456789/ }).first()).toBeVisible();
-  await expect(page.getByText("Image by Alfred Edward Chalon", { exact: false }).first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Ada Lovelace" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Revision 123456789/ }).first(),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Image by Alfred Edward Chalon", { exact: false }).first(),
+  ).toBeVisible();
 
   const heroLightboxButton = page.getByRole("button", {
     name: "View full image for Ada Lovelace",
@@ -417,7 +594,9 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await page.emulateMedia({ forcedColors: "active" });
   await expectVisibleFocusOutline(heroLightboxButton);
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog", { name: "Image gallery" })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Image gallery" }),
+  ).toBeVisible();
   await expect(page.getByText("Creator: Alfred Edward Chalon")).toBeVisible();
   const heroCloseButton = page.getByRole("button", { name: "Close lightbox" });
   await expect(heroCloseButton).toBeFocused();
@@ -430,7 +609,10 @@ test("article exposes revision and media provenance in an accessible lightbox", 
     name: "Open image 2 of 2: Analytical Engine at the Science Museum",
   });
   await expect(additionalPhotoButton).toBeVisible();
-  await expect(additionalPhotoButton).toHaveAttribute("aria-haspopup", "dialog");
+  await expect(additionalPhotoButton).toHaveAttribute(
+    "aria-haspopup",
+    "dialog",
+  );
   expect(lightboxRequests).not.toContain(analyticalLightboxUrl);
 
   await additionalPhotoButton.focus();
@@ -523,7 +705,9 @@ test("article keeps structured source sections playable with an accessible adapt
   await expect(
     page.getByRole("heading", { level: 2, name: "Explore this article" }),
   ).toBeVisible();
-  await expect(page.getByText("Adapted for audio", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Adapted for audio", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Listen to Recognition" }),
   ).toBeVisible();
@@ -533,16 +717,16 @@ test("article keeps structured source sections playable with an accessible adapt
     }),
   ).toBeVisible();
   await expect(page.getByText("Not suited for audio")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Listen to Recognition" })
-    .focus();
+  await page.getByRole("button", { name: "Listen to Recognition" }).focus();
   await expectVisibleFocusOutline(
     page.getByRole("button", { name: "Listen to Recognition" }),
   );
   await expectNoSeriousAxeViolations(page);
 });
 
-test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and falls back", async ({ page }) => {
+test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and falls back", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 320, height: 720 });
   const { lightboxRequests } = await mockArticleData(page, {
     failAnalyticalLightbox: true,
@@ -567,7 +751,9 @@ test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and fall
   await expect(
     dialog.getByRole("img", { name: "Analytical Engine mechanisms" }),
   ).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    320,
+  );
   await expectNoSeriousAxeViolations(page);
 
   await page.keyboard.press("Escape");
@@ -583,13 +769,19 @@ test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and fall
   await expect(
     dialog.getByRole("button", { name: "Close lightbox" }),
   ).toBeFocused();
-  await expect.poll(() => lightboxRequests.length).toBeGreaterThan(requestCount);
+  await expect
+    .poll(() => lightboxRequests.length)
+    .toBeGreaterThan(requestCount);
   const details = dialog.getByLabel("Image details");
   await expect(details).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(dialog.getByRole("button", { name: "Previous image" })).toBeFocused();
+  await expect(
+    dialog.getByRole("button", { name: "Previous image" }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(dialog.getByRole("button", { name: "Next image" })).toBeFocused();
+  await expect(
+    dialog.getByRole("button", { name: "Next image" }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(details).toBeFocused();
   expect(
@@ -597,7 +789,9 @@ test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and fall
       element.contains(document.activeElement),
     ),
   ).toBe(true);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(640);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    640,
+  );
   await expectNoSeriousAxeViolations(page);
 
   await page.keyboard.press("Escape");
@@ -605,7 +799,9 @@ test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and fall
   await expect(opener).toBeFocused();
 });
 
-test("gallery lightbox reports a total image failure once", async ({ page }) => {
+test("gallery lightbox reports a total image failure once", async ({
+  page,
+}) => {
   await mockArticleData(page, {
     failAnalyticalLightbox: true,
     failAnalyticalThumbnail: true,
@@ -635,20 +831,33 @@ test("gallery lightbox reports a total image failure once", async ({ page }) => 
   ).toHaveCount(0);
 });
 
-test("mobile navigation, theme, reflow, and project story remain usable", async ({ page }) => {
+test("mobile navigation, theme, reflow, and project story remain usable", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto("/about");
 
-  await expect(page.getByRole("heading", { level: 1, name: "Free knowledge, made listenable." })).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Free knowledge, made listenable.",
+    }),
+  ).toBeVisible();
   await expect(page.getByText("Seth Wilson")).toBeVisible();
   await page.getByRole("button", { name: "Open menu" }).click();
-  await expect(page.getByRole("navigation", { name: "Mobile navigation" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Mobile navigation" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open menu" })).toBeFocused();
 
-  const themeButton = page.getByRole("button", { name: /Switch to .* theme/ }).first();
+  const themeButton = page
+    .getByRole("button", { name: /Switch to .* theme/ })
+    .first();
   await themeButton.click();
   await expect(page.locator("html")).toHaveClass(/light|dark/);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    320,
+  );
   await expectNoSeriousAxeViolations(page);
 });

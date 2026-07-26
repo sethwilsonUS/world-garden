@@ -48,6 +48,8 @@ type ReportProgressFn = (args: {
 type UseBadgeListenTrackingArgs = {
   articleId?: Id<"articles">;
   wikiPageId?: string;
+  revisionId?: string;
+  narrationVersion?: number;
   slug: string;
   title?: string;
   summaryText?: string;
@@ -100,6 +102,8 @@ const coerceBadgeListenProgressResult = (
 export const useBadgeListenTracking = ({
   articleId,
   wikiPageId,
+  revisionId,
+  narrationVersion,
   slug,
   title,
   summaryText,
@@ -119,24 +123,30 @@ export const useBadgeListenTracking = ({
   const isPlayingRef = useRef(isPlaying);
   const currentSectionKeyRef = useRef<string | null>(trackingSectionKey);
   const pendingRangesRef = useRef<HeardRange[]>([]);
-  const lastSampleRef = useRef<{ currentTime: number; observedAt: number } | null>(
-    null,
-  );
+  const lastSampleRef = useRef<{
+    currentTime: number;
+    observedAt: number;
+  } | null>(null);
   const knownDurationsRef = useRef<Record<string, number>>({});
   const previousPlayingRef = useRef(false);
   const narrationTracks = useMemo(
     () =>
       buildArticleNarrationTracks({
         title: title ?? slug,
+        revisionId,
+        narrationVersion,
         summary: summaryText,
         sections,
       }),
-    [sections, slug, summaryText, title],
+    [narrationVersion, revisionId, sections, slug, summaryText, title],
   );
 
   const resolveSectionText = useCallback(
     (sectionKey: string): string => {
-      return narrationTracks.find((track) => track.sectionKey === sectionKey)?.text ?? "";
+      return (
+        narrationTracks.find((track) => track.sectionKey === sectionKey)
+          ?.text ?? ""
+      );
     },
     [narrationTracks],
   );
@@ -160,13 +170,27 @@ export const useBadgeListenTracking = ({
   const resolveTotalDuration = useCallback(
     () =>
       getPlayableArticleDurationSeconds(
-        { title: title ?? slug, summary: summaryText, sections },
+        {
+          title: title ?? slug,
+          revisionId,
+          narrationVersion,
+          summary: summaryText,
+          sections,
+        },
         {
           ...sectionDurations,
           ...knownDurationsRef.current,
         },
       ),
-    [sectionDurations, sections, slug, summaryText, title],
+    [
+      narrationVersion,
+      revisionId,
+      sectionDurations,
+      sections,
+      slug,
+      summaryText,
+      title,
+    ],
   );
 
   const flushPendingRanges = useCallback(
@@ -283,7 +307,10 @@ export const useBadgeListenTracking = ({
 
         if (windowRange) {
           const durationSeconds = resolveSectionDuration(sectionKey);
-          const normalized = normalizeHeardRanges([windowRange], durationSeconds);
+          const normalized = normalizeHeardRanges(
+            [windowRange],
+            durationSeconds,
+          );
           if (normalized.length > 0) {
             pendingRangesRef.current = mergeHeardRanges([
               ...pendingRangesRef.current,

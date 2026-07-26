@@ -148,11 +148,16 @@ type NavigatorConnectionLike = {
 
 const canUseViewportAudioWarm = (): boolean => {
   if (typeof navigator === "undefined") return false;
-  const connection = (navigator as Navigator & {
-    connection?: NavigatorConnectionLike;
-  }).connection;
+  const connection = (
+    navigator as Navigator & {
+      connection?: NavigatorConnectionLike;
+    }
+  ).connection;
   if (connection?.saveData) return false;
-  return connection?.effectiveType !== "slow-2g" && connection?.effectiveType !== "2g";
+  return (
+    connection?.effectiveType !== "slow-2g" &&
+    connection?.effectiveType !== "2g"
+  );
 };
 
 export const useArticleAudioController = ({
@@ -165,8 +170,11 @@ export const useArticleAudioController = ({
   const bypassAudioCacheForStress = shouldBypassAudioCacheForStress();
   const convex = useConvex();
   const { showBadgeProgressToasts } = useBadgeProgressToasts();
-  const { jobs: articleAudioExports, queueExport, isStartingArticle } =
-    useArticleAudioExports();
+  const {
+    jobs: articleAudioExports,
+    queueExport,
+    isStartingArticle,
+  } = useArticleAudioExports();
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
 
   const articleId = article?._id as Id<"articles"> | undefined;
@@ -275,7 +283,8 @@ export const useArticleAudioController = ({
     articleAudioExports.find(
       (job) =>
         job.articleId === articleId &&
-        job.narrationHash === activeNarrationHash,
+        job.narrationHash === activeNarrationHash &&
+        job.ttsCacheKey === activeTtsCacheKey,
     ) ?? null;
   const isExportStarting = articleId ? isStartingArticle(articleId) : false;
   const isExportRunning =
@@ -389,9 +398,7 @@ export const useArticleAudioController = ({
             audio.preload = "metadata";
             audio.onloadedmetadata = () => {
               const duration = audio.duration;
-              finish(
-                duration && isFinite(duration) ? duration : undefined,
-              );
+              finish(duration && isFinite(duration) ? duration : undefined);
             };
             audio.onerror = () => finish(undefined);
             const timeoutId = setTimeout(() => finish(undefined), 5_000);
@@ -455,14 +462,14 @@ export const useArticleAudioController = ({
       ttsCache.current.set(sectionKey, result);
       primeAudioRequest(ttsRequestCache.current, sectionKey, result);
       if (sectionKey === "summary") {
-        primeSummaryAudio(slug, result, summarySourceHash);
+        primeSummaryAudio(slug, result, summarySourceHash, activeTtsCacheKey);
       }
       preloadAudioUrl(result.url);
       if (startupPath) {
         seededStartupPath.current.set(sectionKey, startupPath);
       }
     },
-    [slug, summarySourceHash],
+    [activeTtsCacheKey, slug, summarySourceHash],
   );
 
   const seedSummaryAudio = useCallback(
@@ -526,7 +533,11 @@ export const useArticleAudioController = ({
       return;
     }
 
-    const prefetchedSummary = getCachedSummaryAudio(slug, summarySourceHash);
+    const prefetchedSummary = getCachedSummaryAudio(
+      slug,
+      summarySourceHash,
+      activeTtsCacheKey,
+    );
     if (prefetchedSummary) {
       seedSummaryAudio(prefetchedSummary);
       return;
@@ -536,7 +547,12 @@ export const useArticleAudioController = ({
     if (!summaryText) return;
 
     const warmRequestId = requestId.current;
-    warmSummaryAudioFromText(slug, summaryText, summarySourceHash)
+    warmSummaryAudioFromText(
+      slug,
+      summaryText,
+      summarySourceHash,
+      activeTtsCacheKey,
+    )
       .then((result) => {
         if (result && requestId.current === warmRequestId) {
           seedSummaryAudio(result);
@@ -544,6 +560,7 @@ export const useArticleAudioController = ({
       })
       .catch(() => {});
   }, [
+    activeTtsCacheKey,
     getCachedAudioResult,
     getTextForSection,
     seedSummaryAudio,
@@ -604,16 +621,17 @@ export const useArticleAudioController = ({
   const hasWarmAudioCached = useCallback(
     (sectionKey: string): boolean => {
       if (ttsCache.current.has(sectionKey)) return true;
-      if (getAudioRequestResult(ttsRequestCache.current, sectionKey)) return true;
+      if (getAudioRequestResult(ttsRequestCache.current, sectionKey))
+        return true;
       if (
         sectionKey === "summary" &&
-        getCachedSummaryAudio(slug, summarySourceHash)
+        getCachedSummaryAudio(slug, summarySourceHash, activeTtsCacheKey)
       ) {
         return true;
       }
       return getCachedAudioResult(sectionKey) !== null;
     },
-    [getCachedAudioResult, slug, summarySourceHash],
+    [activeTtsCacheKey, getCachedAudioResult, slug, summarySourceHash],
   );
 
   const warmPlayAllQueue = useCallback(
@@ -695,7 +713,13 @@ export const useArticleAudioController = ({
     if (isPlayingAll && playAllQueue.current.length > 0) {
       warmPlayAllQueue(playAllQueue.current);
     }
-  }, [audioUrl, audioRef, clearSlowLoadingTimer, isPlayingAll, warmPlayAllQueue]);
+  }, [
+    audioUrl,
+    audioRef,
+    clearSlowLoadingTimer,
+    isPlayingAll,
+    warmPlayAllQueue,
+  ]);
 
   useEffect(() => {
     if (
@@ -715,11 +739,7 @@ export const useArticleAudioController = ({
       resetAudioPlayback();
     }
     activeNarrationHashRef.current = activeNarrationHash;
-  }, [
-    activeNarrationHash,
-    audioRef,
-    resetAudioPlayback,
-  ]);
+  }, [activeNarrationHash, audioRef, resetAudioPlayback]);
 
   useEffect(() => {
     if (!article) return;
@@ -785,8 +805,9 @@ export const useArticleAudioController = ({
       sectionKey: string,
       label: string,
       sectionIdx: number | null,
-      source: AudioStartupSource =
-        sectionKey === "summary" ? "summary" : "section",
+      source: AudioStartupSource = sectionKey === "summary"
+        ? "summary"
+        : "section",
     ) => {
       const currentRequest = ++requestId.current;
       const startupStartedAt = getStartupNow();
@@ -914,13 +935,20 @@ export const useArticleAudioController = ({
 
       const prefetchedAudio =
         sectionKey === "summary"
-          ? (getCachedSummaryAudio(slug, summarySourceHash) ??
-            getAudioRequestResult(ttsRequestCache.current, sectionKey))
+          ? (getCachedSummaryAudio(
+              slug,
+              summarySourceHash,
+              activeTtsCacheKey,
+            ) ?? getAudioRequestResult(ttsRequestCache.current, sectionKey))
           : getAudioRequestResult(ttsRequestCache.current, sectionKey);
       const inflightAudio =
         sectionKey === "summary"
           ? (awaitAudioResultWithTimeout(
-              awaitSummaryAudioWithMetadata(slug, summarySourceHash),
+              awaitSummaryAudioWithMetadata(
+                slug,
+                summarySourceHash,
+                activeTtsCacheKey,
+              ),
               PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS,
             ) ??
             awaitAudioRequest(ttsRequestCache.current, sectionKey, {
@@ -988,6 +1016,7 @@ export const useArticleAudioController = ({
         });
     },
     [
+      activeTtsCacheKey,
       cacheAudioInConvex,
       cachedAudio,
       clearSlowLoadingTimer,
@@ -1117,6 +1146,8 @@ export const useArticleAudioController = ({
     enabled: badgeTrackingEnabled,
     articleId,
     wikiPageId: article?.wikiPageId,
+    revisionId: article?.revisionId,
+    narrationVersion: article?.narrationVersion,
     slug,
     title: article?.title,
     summaryText: article?.summary,
@@ -1293,12 +1324,7 @@ export const useArticleAudioController = ({
     if (target.sectionKey === "summary") {
       warmSummaryForIntent();
     }
-    generateAudio(
-      target.sectionKey,
-      target.label,
-      target.sectionIdx,
-      "retry",
-    );
+    generateAudio(target.sectionKey, target.label, target.sectionIdx, "retry");
   }, [article, audioPlayback, generateAudio, warmSummaryForIntent]);
 
   const handleResume = useCallback(
@@ -1342,12 +1368,7 @@ export const useArticleAudioController = ({
   const handleStartFromBeginning = useCallback(() => {
     if (!article) return;
     warmSummaryForIntent();
-    generateAudio(
-      "summary",
-      `${article.title} — Summary`,
-      null,
-      "start_over",
-    );
+    generateAudio("summary", `${article.title} — Summary`, null, "start_over");
   }, [article, generateAudio, warmSummaryForIntent]);
 
   useEffect(() => {
