@@ -67,8 +67,11 @@ LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 Production deployment is handled by `scripts/build.sh` on Vercel. A production
 build runs `convex deploy`; a preview build creates an isolated Convex Preview
 for the branch, validates its deployment target, configures its exact Vercel
-origin, and then builds Next.js. Run `npx convex deploy` manually only when you
-intend to update the configured production deployment.
+origin, and then builds Next.js. Vercel Preview must provide a project-level
+Convex Preview deploy key (`preview:team:project|...`) rather than a key for the
+shared development deployment; the build fails closed when the key type is
+wrong. Run `npx convex deploy` manually only when you intend to update the
+configured production deployment.
 
 See the root [README](../README.md) for the complete architecture, environment
 variable reference, data model, and scheduled-job inventory.
