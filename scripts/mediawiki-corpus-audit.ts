@@ -16,6 +16,7 @@ import {
   type MediaWikiRevisionRequest,
 } from "../lib/mediawiki-document/index";
 import { createSectionNarrationsFromDocument } from "../lib/section-narration-document";
+import type { SectionNarrationMode } from "../lib/section-narration";
 import { extractArticleContextFromDocument } from "../lib/article-context-document";
 import { getRankedChartPresentation } from "../lib/article-context-chart";
 import { createParsedPageDataFromDocument } from "../lib/mediawiki-document-metadata";
@@ -396,6 +397,9 @@ const wordCount = (value: string): number => {
 const normalizeAuditText = (value: string): string =>
   value.replace(/\s+/gu, " ").trim();
 
+const isPlayableNarrationMode = (mode: SectionNarrationMode): boolean =>
+  mode === "verbatim" || mode === "structured";
+
 export const hasCompleteSectionNarrationCoverage = (
   bodySections: readonly MediaWikiDocumentSection[],
   narrations: ReturnType<typeof createSectionNarrationsFromDocument>,
@@ -420,10 +424,7 @@ export const hasCompleteSectionNarrationCoverage = (
     sections.every((section) => narrationKeys.has(section.key)) &&
     substantive.every((section) => {
       const narration = narrationByIndex.get(section.key);
-      return (
-        narration != null &&
-        (narration.mode === "verbatim" || narration.mode === "structured")
-      );
+      return narration != null && isPlayableNarrationMode(narration.mode);
     })
   );
 };
@@ -614,9 +615,7 @@ const detectArticleCapabilities = (
     projections: {
       narrations: narrations.length,
       playableNarrations: narrations.filter(
-        (section) =>
-          section.narration.mode === "verbatim" ||
-          section.narration.mode === "structured",
+        (section) => isPlayableNarrationMode(section.narration.mode),
       ).length,
       adaptedNarrations: narrations.filter(
         (section) => section.narration.adapted,

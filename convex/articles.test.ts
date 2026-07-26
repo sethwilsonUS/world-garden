@@ -5,8 +5,10 @@ import {
   canPersistNormalizedCachedNarration,
   cachedArticleToFetchResult,
   canonicalizeWikipediaRevisionIdentity,
-  getArticleImages,
+  getArticleImagesForCtx,
   getParseCache,
+  getWikipediaSectionLinksCacheKey,
+  getSectionLinksForCtx,
   getSectionLinksFromCache,
   hasCompleteArticleParseSectionIdentity,
   isArticleParseMediaCacheCompatible,
@@ -14,6 +16,7 @@ import {
   isCachedArticleNarrationCompatible,
   isWikipediaRevisionCacheIdentityCompatible,
   normalizeCachedArticleForPersistence,
+  normalizeWikipediaSectionIndex,
   persistCachedNarrationFallback,
 } from "./articles";
 import {
@@ -69,25 +72,172 @@ describe("Wikipedia revision cache identity", () => {
       return cached;
     });
     const runMutation = vi.fn();
-    const handler = (
-      getArticleImages as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
-
     await expect(
-      handler(
-        { runQuery, runMutation },
-        {
-          wikiPageId: "00042",
-          revisionId: "00099",
-          title: " Walter__Savage Landor ",
-          language: "EN",
-        },
-      ),
+      getArticleImagesForCtx({ runQuery, runMutation } as never, {
+        wikiPageId: "00042",
+        revisionId: "00099",
+        title: " Walter__Savage Landor ",
+        language: "EN",
+      }),
     ).resolves.toEqual([]);
     expect(runQuery.mock.calls[0]?.[1]).toEqual(identity);
     expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  it("normalizes caller-supplied section indices before cache and source reads", async () => {
+    const runQuery = vi.fn<
+      (reference: unknown, args: unknown) => Promise<null>
+    >(async () => null);
+    const runMutation = vi.fn<
+      (reference: unknown, args: unknown) => Promise<undefined>
+    >(async () => undefined);
+    const fetchSectionLinks = vi.fn(async () => [
+      { wikiPageId: "7", title: "A linked article" },
+    ]);
+
+    await expect(
+      getSectionLinksForCtx(
+        { runQuery, runMutation } as never,
+        {
+          ...identity,
+          sectionTitle: "Repeated heading",
+          sectionIndex: " 0003 ",
+        },
+        { fetchSectionLinks },
+      ),
+    ).resolves.toEqual([{ wikiPageId: "7", title: "A linked article" }]);
+
+    expect(runQuery.mock.calls[0]?.[1]).toMatchObject({
+      ...identity,
+      sectionTitle: '["index","3"]',
+    });
+    expect(fetchSectionLinks).toHaveBeenCalledWith(identity, "3");
+    expect(runMutation.mock.calls[0]?.[1]).toMatchObject({
+      ...identity,
+      sectionTitle: '["index","3"]',
+    });
+  });
+
+  it("preserves the summary section path when no explicit index is supplied", async () => {
+    const runQuery = vi.fn<
+      (reference: unknown, args: unknown) => Promise<null>
+    >(async () => null);
+    const runMutation = vi.fn<
+      (reference: unknown, args: unknown) => Promise<undefined>
+    >(async () => undefined);
+    const fetchSectionLinks = vi.fn(async () => []);
+
+    await getSectionLinksForCtx(
+      { runQuery, runMutation } as never,
+      { ...identity, sectionTitle: null },
+      { fetchSectionLinks },
+    );
+
+    expect(runQuery.mock.calls[0]?.[1]).toMatchObject({
+      sectionTitle: '["summary"]',
+    });
+    expect(fetchSectionLinks).toHaveBeenCalledWith(identity, "0");
+  });
+
+  it("rejects conflicting summary and explicit-index identities before cache access", async () => {
+    const runQuery = vi.fn();
+    const runMutation = vi.fn();
+    const fetchSectionLinks = vi.fn();
+
+    for (const sectionIndex of ["3", "not-an-index"]) {
+      await expect(
+        getSectionLinksForCtx(
+          { runQuery, runMutation } as never,
+          { ...identity, sectionTitle: null, sectionIndex },
+          { fetchSectionLinks },
+        ),
+      ).rejects.toThrow("sectionIndex must be omitted for the summary");
+    }
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(fetchSectionLinks).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed explicit section indices before cache access", async () => {
+    const runQuery = vi.fn();
+    const runMutation = vi.fn();
+    const fetchSectionLinks = vi.fn();
+
+    await expect(
+      getSectionLinksForCtx(
+        { runQuery, runMutation } as never,
+        { ...identity, sectionTitle: "History", sectionIndex: " 3.5 " },
+        { fetchSectionLinks },
+      ),
+    ).rejects.toThrow("sectionIndex must be a non-negative integer");
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(fetchSectionLinks).not.toHaveBeenCalled();
+    expect(runMutation).not.toHaveBeenCalled();
+  });
+
+  it("does not cache failed section-link fetches but caches successful empty results", async () => {
+    const runQuery = vi.fn<
+      (reference: unknown, args: unknown) => Promise<null>
+    >(async () => null);
+    const runMutation = vi.fn<
+      (reference: unknown, args: unknown) => Promise<undefined>
+    >(async () => undefined);
+    const fetchSectionLinks = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary MediaWiki failure"))
+      .mockResolvedValueOnce([]);
+    const args = { ...identity, sectionTitle: "History", sectionIndex: "3" };
+
+    await expect(
+      getSectionLinksForCtx({ runQuery, runMutation } as never, args, {
+        fetchSectionLinks,
+      }),
+    ).rejects.toThrow("temporary MediaWiki failure");
+    expect(runMutation).not.toHaveBeenCalled();
+
+    await expect(
+      getSectionLinksForCtx({ runQuery, runMutation } as never, args, {
+        fetchSectionLinks,
+      }),
+    ).resolves.toEqual([]);
+    expect(fetchSectionLinks).toHaveBeenCalledTimes(2);
+    expect(runMutation).toHaveBeenCalledOnce();
+    expect(runMutation.mock.calls[0]?.[1]).toMatchObject({ links: [] });
+  });
+
+  it("normalizes bounded numeric and semantic section keys", () => {
+    expect(normalizeWikipediaSectionIndex(undefined)).toBeUndefined();
+    expect(normalizeWikipediaSectionIndex(" 0007 ")).toBe("7");
+    expect(normalizeWikipediaSectionIndex("0")).toBe("0");
+    expect(normalizeWikipediaSectionIndex(" mw-special:-1:0002:0001 ")).toBe(
+      "mw-special:-1:2:1",
+    );
+    expect(normalizeWikipediaSectionIndex("mw-special:-2:3:4")).toBe(
+      "mw-special:-2:3:4",
+    );
+    expect(() => normalizeWikipediaSectionIndex("")).toThrow();
+    expect(() => normalizeWikipediaSectionIndex("-1")).toThrow();
+    expect(() => normalizeWikipediaSectionIndex("1e2")).toThrow();
+    expect(() => normalizeWikipediaSectionIndex("9007199254740992")).toThrow();
+    expect(() => normalizeWikipediaSectionIndex("7".repeat(10_000))).toThrow();
+  });
+
+  it("uses disjoint cache namespaces for the summary, indices, and literal headings", () => {
+    const summary = getWikipediaSectionLinksCacheKey(null, undefined);
+    const indexed = getWikipediaSectionLinksCacheKey("History", "3");
+    const summaryHeading = getWikipediaSectionLinksCacheKey(
+      "__summary__",
+      undefined,
+    );
+    const indexHeading = getWikipediaSectionLinksCacheKey("index:3", undefined);
+
+    expect(new Set([summary, indexed, summaryHeading, indexHeading]).size).toBe(
+      4,
+    );
+    expect(JSON.parse(summary)).toEqual(["summary"]);
+    expect(JSON.parse(indexed)).toEqual(["index", "3"]);
+    expect(JSON.parse(summaryHeading)).toEqual(["title", "__summary__"]);
+    expect(JSON.parse(indexHeading)).toEqual(["title", "index:3"]);
   });
 
   it("requires page, revision, normalized title, and language while rejecting legacy rows", () => {

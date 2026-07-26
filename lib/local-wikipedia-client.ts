@@ -9,6 +9,14 @@ import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 const MAX_PARSED_CACHE_ENTRIES = 32;
 const parsedCache = new Map<string, WikipediaParsedPageData>();
 const parsedInFlight = new Map<string, Promise<WikipediaParsedPageData>>();
+let parsedCacheGeneration = 0;
+
+/** Test-only isolation hook; production callers never invoke this. */
+export const resetLocalWikipediaClientCachesForTests = (): void => {
+  parsedCacheGeneration += 1;
+  parsedCache.clear();
+  parsedInFlight.clear();
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -88,12 +96,15 @@ export const requestLocalWikipediaMetadata = (
 
   let pending = parsedInFlight.get(key);
   if (!pending) {
+    const requestGeneration = parsedCacheGeneration;
     pending = requestLocalWikipedia({
       operation: "metadata",
       identity,
     })
       .then((data) => {
-        cacheParsedPage(key, data);
+        if (requestGeneration === parsedCacheGeneration) {
+          cacheParsedPage(key, data);
+        }
         return data;
       })
       .finally(() => {

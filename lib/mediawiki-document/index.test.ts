@@ -54,9 +54,10 @@ describe("loadMediaWikiDocument", () => {
   });
 
   it("canonicalizes leading-zero page and revision IDs before fetching", async () => {
+    const requestedUrls: URL[] = [];
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
-      expect(url.searchParams.get("oldid")).toBe(request.revisionId);
+      requestedUrls.push(url);
       return jsonResponse(
         parsoidPayload(
           '<section data-mw-section-id="0"><p>Lead prose.</p></section>',
@@ -74,6 +75,26 @@ describe("loadMediaWikiDocument", () => {
     );
 
     expect(document.identity).toEqual(request);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(requestedUrls).toHaveLength(1);
+    expect(requestedUrls[0]?.searchParams.get("oldid")).toBe(
+      request.revisionId,
+    );
+  });
+
+  it("rejects a pre-aborted request before starting a parse fetch", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("Request cancelled", "AbortError");
+    controller.abort(reason);
+    const fetchImpl = vi.fn(async () => jsonResponse(parsoidPayload("")));
+
+    await expect(
+      loadMediaWikiDocument(request, {
+        signal: controller.signal,
+        fetchImpl,
+      }),
+    ).rejects.toBe(reason);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("reports parse recovery once even when parse5 recovers multiple tokens", async () => {
@@ -180,6 +201,254 @@ describe("loadMediaWikiDocument", () => {
     ]);
     expect(JSON.stringify(document)).not.toContain("<p>");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a negative lead and repeated negative toc sections uniquely aligned", async () => {
+    const html = [
+      '<section data-mw-section-id="-1"><p>Uneditable lead.</p></section>',
+      '<section data-mw-section-id="-1"><h2 id="First">First</h2>',
+      "<p>First section.</p></section>",
+      '<section data-mw-section-id="-1"><h2 id="Second">Second</h2>',
+      "<p>Second section.</p></section>",
+    ].join("");
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        parsoidPayload(html, [
+          { index: "-1", line: "First", anchor: "First", level: 2 },
+          { index: "-1", line: "Second", anchor: "Second", level: 2 },
+        ]),
+      ),
+    );
+
+    const document = await loadMediaWikiDocument(
+      {
+        ...request,
+        plaintext: {
+          lead: "Uneditable lead.",
+          sections: [
+            { index: "1", title: "First", level: 2, text: "First section." },
+            {
+              index: "2",
+              title: "Second",
+              level: 2,
+              text: "Second section.",
+            },
+          ],
+        },
+      },
+      { fetchImpl },
+    );
+
+    expect(document.sourceFormat).toBe("parsoid");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(
+      document.sections.map(
+        ({ key, sourceSectionIndex, tocIndex, title, plaintextContent }) => ({
+          key,
+          sourceSectionIndex,
+          tocIndex,
+          title,
+          plaintextContent,
+        }),
+      ),
+    ).toEqual([
+      {
+        key: "__summary__",
+        sourceSectionIndex: "-1",
+        tocIndex: undefined,
+        title: "Summary",
+        plaintextContent: "Uneditable lead.",
+      },
+      {
+        key: "mw-special:-1:2:1",
+        sourceSectionIndex: "-1",
+        tocIndex: "-1",
+        title: "First",
+        plaintextContent: "First section.",
+      },
+      {
+        key: "mw-special:-1:3:1",
+        sourceSectionIndex: "-1",
+        tocIndex: "-1",
+        title: "Second",
+        plaintextContent: "Second section.",
+      },
+    ]);
+  });
+
+  it("merges pseudo-section fragments into their preceding logical sections in source order", async () => {
+    const html = [
+      '<section data-mw-section-id="-1"><p>Lead prefix.</p></section>',
+      '<section data-mw-section-id="-2"><p>Lead suffix.</p>',
+      '<section data-mw-section-id="-1"><h2 id="First">First</h2>',
+      "<p>First prefix.</p></section>",
+      '<p>First suffix.<sup class="reference"><a href="#cite_note-1">[1]</a></sup></p>',
+      '<section data-mw-section-id="-1"><h2 id="Second">Second</h2>',
+      "<p>Second prefix.</p></section>",
+      '<p>Second suffix.<sup class="reference"><a href="#cite_note-1">[1]</a></sup></p></section>',
+      '<section data-mw-section-id="-2"><p>Second tail.</p></section>',
+    ].join("");
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        parsoidPayload(html, [
+          { index: "1", line: "First", anchor: "First", level: 2 },
+          { index: "2", line: "Second", anchor: "Second", level: 2 },
+        ]),
+      ),
+    );
+
+    const document = await loadMediaWikiDocument(
+      {
+        ...request,
+        plaintext: {
+          lead: "Lead prefix. Lead suffix.",
+          sections: [
+            {
+              index: "1",
+              title: "First",
+              level: 2,
+              text: "First prefix. First suffix.",
+            },
+            {
+              index: "2",
+              title: "Second",
+              level: 2,
+              text: "Second prefix. Second suffix. Second tail.",
+            },
+          ],
+        },
+      },
+      { fetchImpl },
+    );
+
+    expect(document.sourceFormat).toBe("parsoid");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(document.sections.map((section) => section.key)).toEqual([
+      "__summary__",
+      "mw-special:-1:2:1",
+      "mw-special:-1:3:1",
+    ]);
+    expect(
+      document.sections.map(
+        ({ fallback, plaintextContent, sourceFragments }) => ({
+          fallback: fallback.text,
+          plaintextContent,
+          sourceFragments,
+        }),
+      ),
+    ).toEqual([
+      {
+        fallback: "Lead prefix. Lead suffix.",
+        plaintextContent: "Lead prefix. Lead suffix.",
+        sourceFragments: [
+          {
+            key: "mw-special:-2:1:1",
+            sourceSectionIndex: "-2",
+          },
+        ],
+      },
+      {
+        fallback: "First prefix. First suffix.",
+        plaintextContent: "First prefix. First suffix.",
+        sourceFragments: [
+          {
+            key: "mw-special:-2:1:2",
+            sourceSectionIndex: "-2",
+          },
+        ],
+      },
+      {
+        fallback: "Second prefix. Second suffix. Second tail.",
+        plaintextContent: "Second prefix. Second suffix. Second tail.",
+        sourceFragments: [
+          {
+            key: "mw-special:-2:1:3",
+            sourceSectionIndex: "-2",
+          },
+          {
+            key: "mw-special:-2:2:1",
+            sourceSectionIndex: "-2",
+          },
+        ],
+      },
+    ]);
+    const narrationText = createSectionNarrationsFromDocument(document)
+      .map((section) => section.narration.text)
+      .join(" ");
+    expect(narrationText.match(/First suffix\./g)).toHaveLength(1);
+    expect(narrationText.match(/Second suffix\./g)).toHaveLength(1);
+    expect(narrationText.match(/Second tail\./g)).toHaveLength(1);
+    expect(document.sections.map((section) => section.citationIds)).toEqual([
+      [],
+      ["cite_note-1"],
+      ["cite_note-1"],
+    ]);
+  });
+
+  it("scopes unsupported pseudo-section content to the fragment that contains it", async () => {
+    const html = [
+      '<section data-mw-section-id="-1"><p>Lead prefix.</p></section>',
+      '<section data-mw-section-id="-2"><p>Lead suffix.</p>',
+      '<section data-mw-section-id="-1"><h2 id="First">First</h2>',
+      "<p>First prefix.</p></section>",
+      "<pre>First unsupported.</pre>",
+      '<section data-mw-section-id="-1"><h2 id="Second">Second</h2>',
+      "<p>Second prefix.</p></section>",
+      "<p>Second suffix.</p></section>",
+    ].join("");
+
+    const document = await loadMediaWikiDocument(request, {
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          parsoidPayload(html, [
+            { index: "1", line: "First", anchor: "First", level: 2 },
+            { index: "2", line: "Second", anchor: "Second", level: 2 },
+          ]),
+        ),
+      ),
+    });
+
+    expect(document.sections.map((section) => section.fidelity)).toEqual([
+      "complete",
+      "partial",
+      "complete",
+    ]);
+    expect(
+      document.issues.filter((issue) => issue.code === "unsupported-block"),
+    ).toMatchObject([{ sectionKey: "mw-special:-1:2:1" }]);
+  });
+
+  it("keeps nested pseudo fallback text in source order", async () => {
+    const html = [
+      '<section data-mw-section-id="0"><p>Lead.</p>',
+      '<section data-mw-section-id="1"><h2 id="Data">Data</h2>',
+      '<p>Before.</p><section data-mw-section-id="-2">',
+      "<pre>Middle.</pre></section><p>After.</p>",
+      "</section></section>",
+    ].join("");
+
+    const document = await loadMediaWikiDocument(request, {
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          parsoidPayload(html, [
+            { index: "1", line: "Data", anchor: "Data", level: 2 },
+          ]),
+        ),
+      ),
+    });
+
+    expect(document.sections[1]).toMatchObject({
+      fidelity: "partial",
+      fallback: { text: "Before. Middle. After.", source: "dom-text" },
+      plaintextContent: "Before. Middle. After.",
+    });
+    expect(
+      createSectionNarrationsFromDocument(document)[0].narration,
+    ).toMatchObject({
+      mode: "verbatim",
+      text: "Data. Before. Middle. After.",
+      usedRawFallback: true,
+    });
   });
 
   it("preserves description-list ordering, nesting, and ordered-list starts", async () => {

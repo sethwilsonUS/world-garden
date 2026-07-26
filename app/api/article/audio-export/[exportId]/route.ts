@@ -22,9 +22,12 @@ export const GET = async (
     const storedIdentity = (await fetchQuery(
       anyApi.articleExports.getArticleAudioExportDownloadIdentity,
       {
-        exportId: exportId as Id<"articleAudioExports">,
+        exportId,
       },
-    )) as { ttsCacheKey: string } | null;
+    )) as {
+      exportId: Id<"articleAudioExports">;
+      ttsCacheKey: string;
+    } | null;
     if (!storedIdentity) {
       return NextResponse.json(
         { error: "Article audio export not found" },
@@ -35,7 +38,7 @@ export const GET = async (
     const articleExport = (await fetchQuery(
       anyApi.articleExports.getArticleAudioExportById,
       {
-        exportId: exportId as Id<"articleAudioExports">,
+        exportId: storedIdentity.exportId,
         ttsCacheKey: storedIdentity.ttsCacheKey,
       },
     )) as ArticleAudioExport | null;
@@ -65,14 +68,9 @@ export const GET = async (
         "Cache-Control": PODCAST_MEDIA_CACHE_CONTROL,
       },
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to resolve article audio export",
-      },
+      { error: "Failed to resolve article audio export" },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }

@@ -1,4 +1,5 @@
 import { parse, parseFragment, type DefaultTreeAdapterTypes } from "parse5";
+import { createMediaWikiSpecialSectionKey } from "../mediawiki-section-key";
 import {
   MEDIAWIKI_DOCUMENT_SCHEMA_VERSION,
   MediaWikiSourceError,
@@ -44,6 +45,9 @@ const MAX_DOM_NODES = 500_000;
 const MAX_DOM_DEPTH = 128;
 const MIN_NESTED_MEDIA_DIMENSION = 100;
 
+const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
+const ARTICLE_SECTION_HEADING_TAGS = new Set(["h2", "h3", "h4", "h5", "h6"]);
+
 const END_MATTER_TITLES = new Set([
   "see also",
   "references",
@@ -74,6 +78,14 @@ type ParsedSource = {
 };
 
 class ParsoidRejectedError extends Error {}
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (!signal?.aborted) return;
+  throw (
+    signal.reason ??
+    new DOMException("The MediaWiki request was aborted", "AbortError")
+  );
+};
 
 const isSourceRecoveryError = (error: { code: string }): boolean => {
   // MediaWiki returns an HTML body fragment rather than a complete document.
@@ -129,6 +141,16 @@ const hasRelToken = (element: Element, token: string): boolean =>
 
 const hasTypeToken = (element: Element, token: string): boolean =>
   (attribute(element, "typeof") ?? "").split(/\s+/).includes(token);
+
+const isHeadingTag = (tagName: string): boolean => HEADING_TAGS.has(tagName);
+
+const isDecimalToken = (value: string): boolean =>
+  value.length > 0 &&
+  value.length <= 16 &&
+  [...value].every((character) => character >= "0" && character <= "9");
+
+const isParsoidSectionSourceIndex = (value: string): boolean =>
+  value === "-1" || value === "-2" || isDecimalToken(value);
 
 const shouldSkipText = (element: Element): boolean => {
   if (["script", "style", "template", "noscript"].includes(element.tagName)) {
@@ -1618,7 +1640,7 @@ const collectBlocks = (
       return;
     }
     if (node !== sectionElement && node.tagName === "section") return;
-    if (/^h[1-6]$/.test(node.tagName) || shouldSkipText(node)) return;
+    if (isHeadingTag(node.tagName) || shouldSkipText(node)) return;
     if (isNamedVisualSourceCandidate(node, extensionCache)) {
       if (!emittedVisualElements.has(node)) {
         const block = blockFromElement(
@@ -1666,7 +1688,7 @@ const collectBlocks = (
       return;
     }
     if (node !== sectionElement && node.tagName === "section") return;
-    if (/^h[1-6]$/.test(node.tagName)) return;
+    if (isHeadingTag(node.tagName)) return;
     if (shouldSkipText(node)) return;
 
     const block = blockFromElement(
@@ -1693,18 +1715,37 @@ const collectBlocks = (
   return blocks.sort((left, right) => left.sourceOrder - right.sourceOrder);
 };
 
-const sectionDomFallbackText = (sectionElement: Element): string =>
-  normalizeText(
-    childNodes(sectionElement)
-      .flatMap((node) => {
-        if (!isElement(node)) return textContent(node);
-        if (node.tagName === "section" || /^h[1-6]$/.test(node.tagName))
-          return [];
-        return textContent(node, { excludeNestedSections: true });
-      })
-      .filter(Boolean)
-      .join(" "),
-  );
+const sectionDomFallbackRuns = (
+  sectionElement: Element,
+  orders: Map<Node, number>,
+): Array<{ sourceOrder: number; text: string }> => {
+  const runs: Array<{ sourceOrder: number; text: string }> = [];
+  const visit = (node: Node) => {
+    if (node.nodeName === "#text" && "value" in node) {
+      const text = normalizeText(node.value);
+      if (text) runs.push({ sourceOrder: orders.get(node) ?? 0, text });
+      return;
+    }
+    if (!isElement(node)) {
+      childNodes(node).forEach(visit);
+      return;
+    }
+    if (
+      node !== sectionElement &&
+      (node.tagName === "section" || isHeadingTag(node.tagName))
+    ) {
+      return;
+    }
+    if (shouldSkipText(node)) return;
+    childNodes(node).forEach(visit);
+  };
+  childNodes(sectionElement).forEach(visit);
+  return runs.sort((left, right) => left.sourceOrder - right.sourceOrder);
+};
+
+const fallbackTextFromRuns = (
+  runs: readonly { sourceOrder: number; text: string }[],
+): string => normalizeText(runs.map((run) => run.text).join(" "));
 
 const canonicalList = (list: MediaWikiList): unknown => ({
   style: list.style,
@@ -1793,6 +1834,13 @@ const semanticSourceHash = (
       sourceFormat,
       sections: sections.map((section) => ({
         key: section.key,
+        ...(section.sourceSectionIndex
+          ? { sourceSectionIndex: section.sourceSectionIndex }
+          : {}),
+        ...(section.tocIndex ? { tocIndex: section.tocIndex } : {}),
+        ...(section.sourceFragments?.length
+          ? { sourceFragments: section.sourceFragments }
+          : {}),
         title: section.title,
         level: section.level,
         ...(section.parentKey ? { parentKey: section.parentKey } : {}),
@@ -1898,20 +1946,34 @@ const citationIdFromHref = (href: string | undefined): string | null => {
   }
 };
 
-const collectCitationIds = (sectionElement: Element): string[] => {
-  const result: string[] = [];
+const collectCitationReferences = (
+  sectionElement: Element,
+  orders: Map<Node, number>,
+): Array<{ id: string; sourceOrder: number }> => {
+  const result: Array<{ id: string; sourceOrder: number }> = [];
   const visit = (node: Node) => {
     if (!isElement(node)) return;
     if (node !== sectionElement && node.tagName === "section") return;
     if (node.tagName === "a") {
       const id = citationIdFromHref(attribute(node, "href"));
-      if (id && !result.includes(id)) result.push(id);
+      if (id) {
+        result.push({ id, sourceOrder: orders.get(node) ?? 0 });
+      }
     }
     childNodes(node).forEach(visit);
   };
   childNodes(sectionElement).forEach(visit);
   return result;
 };
+
+const collectCitationIds = (
+  sectionElement: Element,
+  orders: Map<Node, number>,
+): string[] => [
+  ...new Set(
+    collectCitationReferences(sectionElement, orders).map(({ id }) => id),
+  ),
+];
 
 const collectCitations = (
   root: ParentNode,
@@ -1952,10 +2014,23 @@ const collectCitations = (
 };
 
 const headingAnchor = (section: Element): string | undefined => {
-  const heading = allElements(section).find((element) =>
-    /^h[1-6]$/.test(element.tagName),
-  );
+  const heading = sectionHeading(section);
   return heading ? attribute(heading, "id") : undefined;
+};
+
+const sectionHeading = (section: Element): Element | undefined => {
+  let heading: Element | undefined;
+  const visit = (node: Node) => {
+    if (heading || !isElement(node)) return;
+    if (node !== section && node.tagName === "section") return;
+    if (isHeadingTag(node.tagName)) {
+      heading = node;
+      return;
+    }
+    childNodes(node).forEach(visit);
+  };
+  childNodes(section).forEach(visit);
+  return heading;
 };
 
 const parseSectionsFromParsoid = ({
@@ -1976,77 +2051,313 @@ const parseSectionsFromParsoid = ({
   const sectionElements = allElements(root).filter(
     (element) =>
       element.tagName === "section" &&
-      /^\d+$/.test(attribute(element, "data-mw-section-id") ?? ""),
+      isParsoidSectionSourceIndex(
+        attribute(element, "data-mw-section-id") ?? "",
+      ),
   );
   const sectionKeyByElement = new Map<Element, string>();
-  sectionElements.forEach((section) => {
+  const sourceIndexOccurrenceByElement = new Map<Element, number>();
+  const sourceIndexOccurrences = new Map<string, number>();
+  sectionElements.forEach((section, index) => {
     const raw = attribute(section, "data-mw-section-id")!;
-    sectionKeyByElement.set(section, raw === "0" ? "__summary__" : raw);
+    const occurrence = (sourceIndexOccurrences.get(raw) ?? 0) + 1;
+    sourceIndexOccurrences.set(raw, occurrence);
+    sourceIndexOccurrenceByElement.set(section, occurrence);
+    const isNegativeLead =
+      index === 0 && raw === "-1" && sectionHeading(section) == null;
+    sectionKeyByElement.set(
+      section,
+      raw === "0" || isNegativeLead
+        ? "__summary__"
+        : raw === "-1" || raw === "-2"
+          ? createMediaWikiSpecialSectionKey(raw, occurrence)
+          : raw,
+    );
   });
-  const tocByIndex = new Map(toc.map((entry) => [entry.index, entry]));
-  const roleByKey = new Map<string, MediaWikiSectionRole>();
-
-  return sectionElements.map((sectionElement) => {
-    const key = sectionKeyByElement.get(sectionElement)!;
-    const tocEntry = key === "__summary__" ? undefined : tocByIndex.get(key);
-    let parent: Node | undefined = sectionElement.parentNode as
-      | Node
-      | undefined;
-    let parentKey: string | undefined;
-    while (parent) {
-      if (isElement(parent) && sectionKeyByElement.has(parent)) {
-        parentKey = sectionKeyByElement.get(parent);
+  const usedTocEntries = new Set<number>();
+  let tocCursor = 0;
+  const takeTocEntry = (
+    sourceIndex: string,
+    heading: Element | undefined,
+  ): TocEntry | undefined => {
+    if (!heading || sourceIndex === "0" || sourceIndex === "-2") {
+      return undefined;
+    }
+    const headingTitle = normalizeTitle(textContent(heading));
+    const anchor = attribute(heading, "id");
+    let matchIndex = -1;
+    for (let index = tocCursor; index < toc.length; index += 1) {
+      if (usedTocEntries.has(index)) continue;
+      const entry = toc[index];
+      const exactEditableIndex =
+        sourceIndex !== "-1" && entry.index === sourceIndex;
+      const matchingHeading =
+        normalizeTitle(entry.line) === headingTitle ||
+        Boolean(anchor && entry.anchor === anchor);
+      if (
+        (exactEditableIndex && matchingHeading) ||
+        (sourceIndex === "-1" && matchingHeading)
+      ) {
+        matchIndex = index;
         break;
       }
+    }
+    if (matchIndex < 0) return undefined;
+    usedTocEntries.add(matchIndex);
+    tocCursor = matchIndex + 1;
+    return toc[matchIndex];
+  };
+  const roleByKey = new Map<string, MediaWikiSectionRole>();
+  const fallbackRunsBySectionKey = new Map<
+    string,
+    Array<{ sourceOrder: number; text: string }>
+  >();
+
+  const nearestSectionAncestor = (element: Element): Element | undefined => {
+    let parent: Node | undefined = element.parentNode as Node | undefined;
+    while (parent) {
+      if (isElement(parent) && sectionKeyByElement.has(parent)) return parent;
       parent =
         "parentNode" in parent
           ? (parent.parentNode as Node | undefined)
           : undefined;
     }
-    const title =
-      key === "__summary__" ? "Summary" : tocEntry?.line || `Section ${key}`;
-    const inheritedEndMatter = parentKey
-      ? roleByKey.get(parentKey) === "end-matter"
-      : false;
-    const role: MediaWikiSectionRole =
-      inheritedEndMatter || END_MATTER_TITLES.has(normalizeTitle(title))
-        ? "end-matter"
-        : "body";
-    roleByKey.set(key, role);
-    const blocks = collectBlocks(
-      sectionElement,
-      key,
-      orders,
-      issues,
-      language,
-      extensionCache,
-    );
-    const fallbackText = sectionDomFallbackText(sectionElement);
-    const fidelity = blocks.some(
-      (block) => block.kind === "unsupported" && block.affectsNarration,
-    )
-      ? "partial"
-      : "complete";
-    const anchor =
-      key === "__summary__"
-        ? undefined
-        : tocEntry?.anchor || headingAnchor(sectionElement);
-    return {
-      key,
-      title,
-      level: key === "__summary__" ? 0 : tocEntry?.level || 1,
-      sourceOrder: orders.get(sectionElement) ?? 0,
-      ...(parentKey ? { parentKey } : {}),
-      ...(anchor ? { anchor } : {}),
-      role,
-      fidelity,
-      plaintextContent: fallbackText,
-      fallback: { text: fallbackText, source: "dom-text" },
-      blocks,
-      links: collectLinks(sectionElement, language, orders),
-      citationIds: collectCitationIds(sectionElement),
-    } satisfies MediaWikiDocumentSection;
-  });
+    return undefined;
+  };
+
+  const parsedSections: MediaWikiDocumentSection[] = sectionElements.map(
+    (sectionElement) => {
+      const key = sectionKeyByElement.get(sectionElement)!;
+      const sourceSectionIndex = attribute(
+        sectionElement,
+        "data-mw-section-id",
+      )!;
+      const heading = sectionHeading(sectionElement);
+      const tocEntry =
+        key === "__summary__"
+          ? undefined
+          : takeTocEntry(sourceSectionIndex, heading);
+      let parent = nearestSectionAncestor(sectionElement);
+      let parentKey: string | undefined;
+      while (parent) {
+        if (attribute(parent, "data-mw-section-id") !== "-2") {
+          parentKey = sectionKeyByElement.get(parent);
+          break;
+        }
+        parent = nearestSectionAncestor(parent);
+      }
+      const title =
+        key === "__summary__"
+          ? "Summary"
+          : tocEntry?.line ||
+            (heading ? textContent(heading) : "Source continuation");
+      const inheritedEndMatter = parentKey
+        ? roleByKey.get(parentKey) === "end-matter"
+        : false;
+      const role: MediaWikiSectionRole =
+        inheritedEndMatter || END_MATTER_TITLES.has(normalizeTitle(title))
+          ? "end-matter"
+          : "body";
+      roleByKey.set(key, role);
+      const blocks = collectBlocks(
+        sectionElement,
+        key,
+        orders,
+        issues,
+        language,
+        extensionCache,
+      );
+      const fallbackRuns = sectionDomFallbackRuns(sectionElement, orders);
+      fallbackRunsBySectionKey.set(key, fallbackRuns);
+      const fallbackText = fallbackTextFromRuns(fallbackRuns);
+      const fidelity = blocks.some(
+        (block) => block.kind === "unsupported" && block.affectsNarration,
+      )
+        ? "partial"
+        : "complete";
+      const anchor =
+        key === "__summary__"
+          ? undefined
+          : tocEntry?.anchor || headingAnchor(sectionElement);
+      return {
+        key,
+        sourceSectionIndex,
+        ...(tocEntry ? { tocIndex: tocEntry.index } : {}),
+        title,
+        level: key === "__summary__" ? 0 : tocEntry?.level || 1,
+        sourceOrder: orders.get(sectionElement) ?? 0,
+        ...(parentKey ? { parentKey } : {}),
+        ...(anchor ? { anchor } : {}),
+        role,
+        fidelity,
+        plaintextContent: fallbackText,
+        fallback: { text: fallbackText, source: "dom-text" },
+        blocks,
+        links: collectLinks(sectionElement, language, orders),
+        citationIds: collectCitationIds(sectionElement, orders),
+      } satisfies MediaWikiDocumentSection;
+    },
+  );
+
+  const logicalSections = parsedSections.filter(
+    (section) => section.sourceSectionIndex !== "-2",
+  );
+  const pseudoSections = sectionElements.flatMap((element, index) =>
+    parsedSections[index].sourceSectionIndex === "-2"
+      ? [{ element, section: parsedSections[index] }]
+      : [],
+  );
+
+  const fragmentGroup = (
+    sourceOrder: number,
+    boundaries: readonly number[],
+  ): number => {
+    let group = 0;
+    while (group < boundaries.length && sourceOrder > boundaries[group]) {
+      group += 1;
+    }
+    return group;
+  };
+
+  for (const { element, section } of pseudoSections) {
+    const childBoundaries = sectionElements
+      .filter(
+        (candidate) =>
+          candidate !== element &&
+          nearestSectionAncestor(candidate) === element,
+      )
+      .map((candidate) => orders.get(candidate) ?? 0)
+      .sort((left, right) => left - right);
+    const groups = Array.from({ length: childBoundaries.length + 1 }, () => ({
+      blocks: [] as MediaWikiBlock[],
+      links: [] as MediaWikiArticleLink[],
+      citations: [] as Array<{ id: string; sourceOrder: number }>,
+      textRuns: [] as Array<{ sourceOrder: number; text: string }>,
+    }));
+    for (const block of section.blocks) {
+      groups[fragmentGroup(block.sourceOrder, childBoundaries)].blocks.push(
+        block,
+      );
+    }
+    for (const link of section.links) {
+      groups[fragmentGroup(link.sourceOrder, childBoundaries)].links.push(link);
+    }
+    for (const citation of collectCitationReferences(element, orders)) {
+      groups[
+        fragmentGroup(citation.sourceOrder, childBoundaries)
+      ].citations.push(citation);
+    }
+    for (const run of sectionDomFallbackRuns(element, orders)) {
+      groups[fragmentGroup(run.sourceOrder, childBoundaries)].textRuns.push(
+        run,
+      );
+    }
+
+    const occurrence = sourceIndexOccurrenceByElement.get(element)!;
+    groups.forEach((group, groupIndex) => {
+      if (
+        group.blocks.length === 0 &&
+        group.links.length === 0 &&
+        group.citations.length === 0 &&
+        group.textRuns.length === 0
+      ) {
+        return;
+      }
+      const fragmentKey = createMediaWikiSpecialSectionKey(
+        "-2",
+        occurrence,
+        groupIndex + 1,
+      );
+      const sourceOrders = [
+        ...group.blocks.map((block) => block.sourceOrder),
+        ...group.links.map((link) => link.sourceOrder),
+        ...group.citations.map((citation) => citation.sourceOrder),
+        ...group.textRuns.map((run) => run.sourceOrder),
+      ];
+      const sourceOrder = Math.min(...sourceOrders);
+      let ownerIndex = -1;
+      for (let index = 0; index < logicalSections.length; index += 1) {
+        if (logicalSections[index].sourceOrder < sourceOrder)
+          ownerIndex = index;
+      }
+      const fragmentText = fallbackTextFromRuns(group.textRuns);
+      const rekeyedBlocks = group.blocks.map(
+        (block): MediaWikiBlock => ({
+          ...block,
+          id: `${fragmentKey}:${block.kind}:${block.sourceOrder}:${block.contentHash.slice(-12)}`,
+        }),
+      );
+      const fragmentFidelity = rekeyedBlocks.some(
+        (block) => block.kind === "unsupported" && block.affectsNarration,
+      )
+        ? "partial"
+        : "complete";
+      if (ownerIndex < 0) {
+        fallbackRunsBySectionKey.set(fragmentKey, group.textRuns);
+        logicalSections.push({
+          ...section,
+          key: fragmentKey,
+          sourceOrder,
+          fidelity: fragmentFidelity,
+          plaintextContent: fragmentText,
+          fallback: { text: fragmentText, source: "dom-text" },
+          blocks: rekeyedBlocks,
+          links: group.links,
+          citationIds: [...new Set(group.citations.map(({ id }) => id))],
+        });
+        return;
+      }
+
+      const owner = logicalSections[ownerIndex];
+      const mergedFallbackRuns = [
+        ...(fallbackRunsBySectionKey.get(owner.key) ?? []),
+        ...group.textRuns,
+      ].sort((left, right) => left.sourceOrder - right.sourceOrder);
+      fallbackRunsBySectionKey.set(owner.key, mergedFallbackRuns);
+      const mergedFallbackText = fallbackTextFromRuns(mergedFallbackRuns);
+      logicalSections[ownerIndex] = {
+        ...owner,
+        sourceFragments: [
+          ...(owner.sourceFragments ?? []),
+          { key: fragmentKey, sourceSectionIndex: "-2" },
+        ],
+        fidelity:
+          owner.fidelity === "partial" || fragmentFidelity === "partial"
+            ? "partial"
+            : owner.fidelity,
+        plaintextContent: mergedFallbackText,
+        fallback: {
+          text: mergedFallbackText,
+          source: "dom-text",
+        },
+        blocks: [...owner.blocks, ...rekeyedBlocks].sort(
+          (left, right) => left.sourceOrder - right.sourceOrder,
+        ),
+        links: [...owner.links, ...group.links].sort(
+          (left, right) => left.sourceOrder - right.sourceOrder,
+        ),
+        citationIds: [
+          ...new Set([
+            ...owner.citationIds,
+            ...group.citations.map(({ id }) => id),
+          ]),
+        ],
+      };
+      issues.forEach((issue, issueIndex) => {
+        if (
+          issue.sectionKey === section.key &&
+          fragmentGroup(issue.sourceOrder ?? sourceOrder, childBoundaries) ===
+            groupIndex
+        ) {
+          issues[issueIndex] = { ...issue, sectionKey: owner.key };
+        }
+      });
+    });
+  }
+
+  return logicalSections.sort(
+    (left, right) => left.sourceOrder - right.sourceOrder,
+  );
 };
 
 const visibleTextRuns = ({
@@ -2080,7 +2391,7 @@ const visibleTextRuns = ({
       return;
     }
     const nextSkipped =
-      skipped || /^h[1-6]$/.test(node.tagName) || shouldSkipText(node);
+      skipped || isHeadingTag(node.tagName) || shouldSkipText(node);
     const nextCovered = covered || semanticElements.has(node);
     childNodes(node).forEach((child) => visit(child, nextCovered, nextSkipped));
   };
@@ -2105,7 +2416,7 @@ const parseSectionsFromLegacy = ({
 }): MediaWikiDocumentSection[] => {
   const elements = allElements(root);
   const headings = elements.filter((element) =>
-    /^h[2-6]$/.test(element.tagName),
+    ARTICLE_SECTION_HEADING_TAGS.has(element.tagName),
   );
   const normalizedTocTitles = toc.map((entry) => normalizeTitle(entry.line));
   const matchedHeadings: Array<{ heading: Element; toc: TocEntry }> = [];
@@ -2500,6 +2811,7 @@ const fetchParseAttempt = async (
   options: LoadMediaWikiDocumentOptions,
   format: "parsoid" | "legacy",
 ): Promise<ParsedSource> => {
+  throwIfAborted(options.signal);
   const fetchImpl = options.fetchImpl ?? fetch;
   const endpoint = new URL(
     `https://${request.language}.wikipedia.org${WIKIPEDIA_API_PATH}`,
@@ -2519,7 +2831,7 @@ const fetchParseAttempt = async (
 
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => timeoutController.abort(), FETCH_TIMEOUT_MS);
-  const abort = () => timeoutController.abort();
+  const abort = () => timeoutController.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
   try {
     const response = await fetchImpl(endpoint, {
@@ -2549,6 +2861,9 @@ const fetchParseAttempt = async (
     const parsed = parseResponsePayload(payload, request);
     return { ...parsed, format };
   } catch (error) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? error;
+    }
     if (error instanceof ParsoidRejectedError) throw error;
     if (error instanceof MediaWikiSourceError) throw error;
     const timedOut =
@@ -2748,25 +3063,58 @@ const alignSectionPlaintext = (
       text: section.text,
     });
   }
-  const structuredKeys = new Set(
-    sections
-      .filter((section) => section.key !== "__summary__")
-      .map((section) => section.key),
+  const usesParsoidSectionIdentity = sections.some(
+    (section) => section.sourceSectionIndex != null,
   );
-  if (
-    sourceByIndex.size !== structuredKeys.size ||
-    [...sourceByIndex.keys()].some((key) => !structuredKeys.has(key))
-  ) {
-    return null;
+  if (!usesParsoidSectionIdentity) {
+    const structuredKeys = new Set(
+      sections
+        .filter((section) => section.key !== "__summary__")
+        .map((section) => section.key),
+    );
+    if (
+      sourceByIndex.size !== structuredKeys.size ||
+      [...sourceByIndex.keys()].some((key) => !structuredKeys.has(key))
+    ) {
+      return null;
+    }
+    const legacyAligned: MediaWikiDocumentSection[] = [];
+    for (const section of sections) {
+      const source =
+        section.key === "__summary__"
+          ? { title: "Summary", text: plaintext.lead }
+          : sourceByIndex.get(section.key);
+      if (!source || source.title !== normalizeText(section.title)) return null;
+      legacyAligned.push({ ...section, plaintextContent: source.text });
+    }
+    return legacyAligned;
   }
+  const tocSections = sections.filter(
+    (section) => section.key !== "__summary__" && section.tocIndex != null,
+  );
+  if (sourceByIndex.size !== tocSections.length) return null;
 
   const aligned: MediaWikiDocumentSection[] = [];
+  let sourceCursor = 0;
+  const orderedSources = [...sourceByIndex.entries()];
   for (const section of sections) {
-    const source =
-      section.key === "__summary__"
-        ? { title: "Summary", text: plaintext.lead }
-        : sourceByIndex.get(section.key);
-    if (!source || source.title !== normalizeText(section.title)) return null;
+    if (section.key === "__summary__") {
+      aligned.push({ ...section, plaintextContent: plaintext.lead });
+      continue;
+    }
+    if (section.tocIndex == null) {
+      aligned.push(section);
+      continue;
+    }
+    const [sourceIndex, source] = orderedSources[sourceCursor] ?? [];
+    sourceCursor += 1;
+    if (
+      !source ||
+      source.title !== normalizeText(section.title) ||
+      (section.sourceSectionIndex !== "-1" && section.key !== sourceIndex)
+    ) {
+      return null;
+    }
     aligned.push({
       ...section,
       plaintextContent: source.text,
@@ -2837,19 +3185,24 @@ const hasCompleteParsoidContract = (
   const sectionKeys = sections
     .filter((section) => section.key !== "__summary__")
     .map((section) => section.key);
-  const tocKeys = toc.map((entry) => entry.index);
+  const tocSections = sections.filter((section) => section.tocIndex != null);
   if (
     new Set(sectionKeys).size !== sectionKeys.length ||
-    new Set(tocKeys).size !== tocKeys.length ||
-    sectionKeys.length !== tocKeys.length
+    tocSections.length !== toc.length ||
+    sections.some(
+      (section) =>
+        section.sourceSectionIndex != null &&
+        isDecimalToken(section.sourceSectionIndex) &&
+        section.sourceSectionIndex !== "0" &&
+        section.tocIndex == null,
+    )
   ) {
     return false;
   }
-  return sectionKeys.every((key, index) => {
-    const section = sections[index + 1];
+  return tocSections.every((section, index) => {
     const tocEntry = toc[index];
     return (
-      key === tocEntry?.index &&
+      section.tocIndex === tocEntry?.index &&
       normalizeTitle(section.title) === normalizeTitle(tocEntry.line)
     );
   });
@@ -2860,6 +3213,7 @@ export const loadMediaWikiDocument = async (
   options: LoadMediaWikiDocumentOptions = {},
 ): Promise<MediaWikiDocument> => {
   const request = validateRequest(input);
+  throwIfAborted(options.signal);
   let source: ParsedSource;
   try {
     source = await fetchParsedSource(request, options);

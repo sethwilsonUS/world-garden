@@ -38,6 +38,7 @@ import {
   normalizeWikipediaTitle,
 } from "../lib/wikipedia-utils";
 import { normalizeMediaWikiNumericId } from "../lib/mediawiki-document/types";
+import { normalizeMediaWikiSpecialSectionKey } from "../lib/mediawiki-section-key";
 
 const sectionNarrationMode = v.union(
   v.literal("verbatim"),
@@ -99,6 +100,8 @@ const wikipediaRevisionIdentityArgs = {
   language: v.string(),
 };
 
+type WikipediaActionCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
+
 export const canonicalizeWikipediaRevisionIdentity = (
   identity: WikipediaRevisionIdentity,
 ): WikipediaRevisionIdentity => {
@@ -122,6 +125,44 @@ export const canonicalizeWikipediaRevisionIdentity = (
 
   return { wikiPageId, revisionId, title, language };
 };
+
+export const normalizeWikipediaSectionIndex = (
+  sectionIndex: string | undefined,
+): string | undefined => {
+  if (sectionIndex === undefined) return undefined;
+  const normalized = sectionIndex.trim();
+  const specialSectionKey = normalizeMediaWikiSpecialSectionKey(normalized);
+  if (specialSectionKey) return specialSectionKey;
+  if (!normalized || normalized.length > 16) {
+    throw new Error("sectionIndex must be a non-negative integer.");
+  }
+  const containsOnlyDigits = [...normalized].every(
+    (character) => character >= "0" && character <= "9",
+  );
+  const numericIndex = Number(normalized);
+
+  if (
+    !containsOnlyDigits ||
+    !Number.isSafeInteger(numericIndex) ||
+    numericIndex < 0
+  ) {
+    throw new Error("sectionIndex must be a non-negative integer.");
+  }
+
+  return String(numericIndex);
+};
+
+export const getWikipediaSectionLinksCacheKey = (
+  sectionTitle: string | null,
+  normalizedSectionIndex: string | undefined,
+): string =>
+  JSON.stringify(
+    normalizedSectionIndex !== undefined
+      ? ["index", normalizedSectionIndex]
+      : sectionTitle === null
+        ? ["summary"]
+        : ["title", normalizeWikipediaSectionTitle(sectionTitle)],
+  );
 
 type CachedWikipediaRevisionIdentity = {
   wikiPageId?: string;
@@ -843,10 +884,7 @@ export const upsertParseCache = internalMutation({
 });
 
 const getOrFetchParsedData = async (
-  ctx: Pick<
-    import("./_generated/server").ActionCtx,
-    "runQuery" | "runMutation"
-  >,
+  ctx: WikipediaActionCtx,
   identity: WikipediaRevisionIdentity,
 ): Promise<ParsedPageData> => {
   if (identity.language !== "en") {
@@ -945,13 +983,18 @@ export const getSectionCitations = action({
   },
 });
 
+export const getArticleImagesForCtx = async (
+  ctx: WikipediaActionCtx,
+  args: WikipediaRevisionIdentity,
+): Promise<WikiArticleImage[]> => {
+  const identity = canonicalizeWikipediaRevisionIdentity(args);
+  const data = await getOrFetchParsedData(ctx, identity);
+  return data.images;
+};
+
 export const getArticleImages = action({
   args: wikipediaRevisionIdentityArgs,
-  async handler(ctx, args): Promise<WikiArticleImage[]> {
-    const identity = canonicalizeWikipediaRevisionIdentity(args);
-    const data = await getOrFetchParsedData(ctx, identity);
-    return data.images;
-  },
+  handler: getArticleImagesForCtx,
 });
 
 /* ── Section links cache ── */
@@ -1018,51 +1061,76 @@ export const upsertSectionLinksCache = internalMutation({
   },
 });
 
+type GetSectionLinksArgs = WikipediaRevisionIdentity & {
+  sectionTitle: string | null;
+  sectionIndex?: string;
+};
+
+type GetSectionLinksOptions = {
+  fetchSectionLinks?: typeof fetchSectionLinksByIndex;
+};
+
+export const getSectionLinksForCtx = async (
+  ctx: WikipediaActionCtx,
+  args: GetSectionLinksArgs,
+  options: GetSectionLinksOptions = {},
+): Promise<WikiLinkedArticle[]> => {
+  if (args.sectionTitle === null && args.sectionIndex !== undefined) {
+    throw new Error("sectionIndex must be omitted for the summary.");
+  }
+  const normalizedSectionIndex = normalizeWikipediaSectionIndex(
+    args.sectionIndex,
+  );
+  const identity = canonicalizeWikipediaRevisionIdentity(args);
+  if (identity.language !== "en") return [];
+  const cacheKey = getWikipediaSectionLinksCacheKey(
+    args.sectionTitle,
+    normalizedSectionIndex,
+  );
+
+  const cachedLinks = await ctx.runQuery(
+    internal.articles.getSectionLinksFromCache,
+    {
+      ...identity,
+      sectionTitle: cacheKey,
+    },
+  );
+  if (cachedLinks && Date.now() - cachedLinks.cachedAt < CACHE_TTL_MS) {
+    return cachedLinks.links;
+  }
+
+  let sectionIndex = normalizedSectionIndex ?? "0";
+  if (normalizedSectionIndex === undefined && args.sectionTitle !== null) {
+    const parseData = await getOrFetchParsedData(ctx, identity);
+    const target = normalizeWikipediaSectionTitle(args.sectionTitle);
+    const match = parseData.sectionIndexMap.find(
+      (section) => normalizeWikipediaSectionTitle(section.title) === target,
+    );
+    if (!match) return [];
+    sectionIndex = normalizeWikipediaSectionIndex(match.index) ?? "0";
+  }
+
+  const links = await (options.fetchSectionLinks ?? fetchSectionLinksByIndex)(
+    identity,
+    sectionIndex,
+  );
+
+  await ctx.runMutation(internal.articles.upsertSectionLinksCache, {
+    ...identity,
+    sectionTitle: cacheKey,
+    links,
+  });
+
+  return links;
+};
+
 export const getSectionLinks = action({
   args: {
     ...wikipediaRevisionIdentityArgs,
     sectionTitle: v.union(v.string(), v.null()),
     sectionIndex: v.optional(v.string()),
   },
-  async handler(ctx, args): Promise<WikiLinkedArticle[]> {
-    const identity = canonicalizeWikipediaRevisionIdentity(args);
-    if (identity.language !== "en") return [];
-    const cacheKey = args.sectionIndex
-      ? `index:${args.sectionIndex}`
-      : args.sectionTitle === null
-        ? "__summary__"
-        : normalizeWikipediaSectionTitle(args.sectionTitle);
-
-    const cachedLinks = await ctx.runQuery(
-      internal.articles.getSectionLinksFromCache,
-      {
-        ...identity,
-        sectionTitle: cacheKey,
-      },
-    );
-    if (cachedLinks && Date.now() - cachedLinks.cachedAt < CACHE_TTL_MS) {
-      return cachedLinks.links;
-    }
-
-    let sectionIndex = args.sectionIndex ?? "0";
-    if (!args.sectionIndex && args.sectionTitle !== null) {
-      const parseData = await getOrFetchParsedData(ctx, identity);
-      const target = normalizeWikipediaSectionTitle(args.sectionTitle);
-      const match = parseData.sectionIndexMap.find(
-        (section) => normalizeWikipediaSectionTitle(section.title) === target,
-      );
-      if (!match) return [];
-      sectionIndex = match.index;
-    }
-
-    const links = await fetchSectionLinksByIndex(identity, sectionIndex);
-
-    await ctx.runMutation(internal.articles.upsertSectionLinksCache, {
-      ...identity,
-      sectionTitle: cacheKey,
-      links,
-    });
-
-    return links;
+  async handler(ctx, args) {
+    return await getSectionLinksForCtx(ctx, args);
   },
 });

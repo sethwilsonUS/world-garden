@@ -75,8 +75,19 @@ export type MediaWikiDocument = Readonly<{
 export type MediaWikiSectionRole = "body" | "end-matter";
 export type MediaWikiSectionFidelity = "complete" | "partial" | "plaintext";
 
+export type MediaWikiSectionSourceFragment = Readonly<{
+  key: string;
+  sourceSectionIndex: string;
+}>;
+
 export type MediaWikiDocumentSection = Readonly<{
   key: "__summary__" | string;
+  /** Exact, potentially repeatable `data-mw-section-id` from Parsoid. */
+  sourceSectionIndex?: string;
+  /** The tocdata entry associated with a headed Parsoid section. */
+  tocIndex?: string;
+  /** Repeatable Parsoid wrappers merged into this logical source section. */
+  sourceFragments?: readonly MediaWikiSectionSourceFragment[];
   title: string;
   level: number;
   sourceOrder: number;

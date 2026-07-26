@@ -30,7 +30,9 @@ import { buildArticleNarrationHash } from "../lib/section-narration";
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
 type ArticleExportSource = ArticleAudioSource;
-const MAX_RECENT_EXPORT_CANDIDATES = 50;
+export const MAX_RECENT_EXPORT_CANDIDATES = 50;
+const DEFAULT_RECENT_ARTICLE_AUDIO_EXPORT_LIMIT = 4;
+const MAX_RECENT_ARTICLE_AUDIO_EXPORT_LIMIT = 10;
 const ttsMetadataValidator = v.object({
   provider: v.union(v.literal("openai"), v.literal("edge")),
   model: v.string(),
@@ -42,6 +44,18 @@ const ttsMetadataValidator = v.object({
 
 export const isRequestedTtsMetadataValid = (metadata: TtsMetadata): boolean =>
   isTtsMetadataValid(metadata);
+
+export const normalizeRecentArticleAudioExportLimit = (
+  value?: number,
+): number => {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_RECENT_ARTICLE_AUDIO_EXPORT_LIMIT;
+  }
+  return Math.max(
+    1,
+    Math.min(Math.trunc(value), MAX_RECENT_ARTICLE_AUDIO_EXPORT_LIMIT),
+  );
+};
 
 export const resolveRequestedArticleExportTtsMetadata = (
   metadata: TtsMetadata | undefined,
@@ -125,7 +139,7 @@ export const getRecentArticleAudioExports = query({
     ttsCacheKey: v.string(),
   },
   async handler(ctx, args) {
-    const limit = Math.max(1, Math.min(args.limit ?? 4, 10));
+    const limit = normalizeRecentArticleAudioExportLimit(args.limit);
     const records = await ctx.db
       .query("articleAudioExports")
       .withIndex("by_clientId_updatedAt", (q) =>
@@ -151,12 +165,14 @@ export const getRecentArticleAudioExports = query({
         )
       ) {
         compatibleRecords.push(record);
-        if (compatibleRecords.length === limit) break;
+        if (compatibleRecords.length >= limit) break;
       }
     }
 
     return await Promise.all(
-      compatibleRecords.map((record) => withStorageUrl(ctx, record)),
+      compatibleRecords
+        .slice(0, limit)
+        .map((record) => withStorageUrl(ctx, record)),
     );
   },
 });
@@ -186,10 +202,13 @@ export const getArticleAudioExportById = query({
 
 export const getArticleAudioExportDownloadIdentity = query({
   args: {
-    exportId: v.id("articleAudioExports"),
+    exportId: v.string(),
   },
   async handler(ctx, args) {
-    const record = await ctx.db.get(args.exportId);
+    const exportId = ctx.db.normalizeId("articleAudioExports", args.exportId);
+    if (!exportId) return null;
+
+    const record = await ctx.db.get(exportId);
     if (
       !record ||
       record.status !== "ready" ||
@@ -205,7 +224,7 @@ export const getArticleAudioExportDownloadIdentity = query({
     ) {
       return null;
     }
-    return { ttsCacheKey: record.ttsCacheKey };
+    return { exportId: record._id, ttsCacheKey: record.ttsCacheKey };
   },
 });
 

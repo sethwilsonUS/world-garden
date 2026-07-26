@@ -4,10 +4,13 @@ import { MediaWikiSourceError } from "../../lib/mediawiki-document";
 import {
   cleanContentForTts,
   cleanSectionContent,
+  createCacheableParsedPageData,
   fetchArticleByTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
+  MAX_SECTION_LINK_SOURCE_TITLES,
   parseSections,
+  SECTION_LINKS_TIMEOUT_MS,
   slugToTitle,
   stripHtml,
   titleToSlug,
@@ -379,6 +382,17 @@ describe("fetchParsedPageData semantic metadata", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 
+  it("rejects a pre-aborted signal before starting semantic parsing", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      fetchParsedPageData(identity, controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("keeps revision identity mismatches fatal", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -399,6 +413,81 @@ describe("fetchParsedPageData semantic metadata", () => {
       code: "identity-mismatch",
     });
   });
+
+  it("rejects transient semantic-document failures instead of returning cacheable empty metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("temporary MediaWiki failure"),
+    );
+
+    await expect(fetchParsedPageData(identity)).rejects.toMatchObject({
+      name: MediaWikiSourceError.name,
+      code: "http-error",
+      retryable: true,
+    });
+  });
+
+  it("accepts a successfully parsed document whose metadata is genuinely empty", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          parse: {
+            pageid: 42,
+            revid: 99,
+            title: "Test article",
+            text: '<section data-mw-section-id="0"></section>',
+            tocdata: { sections: [] },
+          },
+        }),
+      ),
+    );
+
+    await expect(fetchParsedPageData(identity)).resolves.toEqual({
+      linkCounts: [{ count: 0, index: "__summary__", title: "__summary__" }],
+      citations: [],
+      sectionCitations: [
+        {
+          citationIds: [],
+          count: 0,
+          index: "__summary__",
+          title: "__summary__",
+        },
+      ],
+      sectionIndexMap: [],
+      images: [],
+    });
+  });
+
+  it("keeps the deliberate non-English empty projection without fetching", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      fetchParsedPageData({ ...identity, language: "fr" }),
+    ).resolves.toEqual({
+      linkCounts: [],
+      citations: [],
+      sectionCitations: [],
+      sectionIndexMap: [],
+      images: [],
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { sourceFormat: "plaintext" },
+    { sourceFormat: "parsoid", fallbackReason: "html-unavailable" },
+  ])(
+    "rejects a silent semantic fallback before it can be cached: %o",
+    (fallbackDocument) => {
+      expect(() =>
+        createCacheableParsedPageData(fallbackDocument as never),
+      ).toThrowError(
+        expect.objectContaining({
+          name: MediaWikiSourceError.name,
+          code: "invalid-response",
+        }),
+      );
+    },
+  );
 });
 
 describe("fetchSectionLinksByIndex", () => {
@@ -408,6 +497,49 @@ describe("fetchSectionLinksByIndex", () => {
     title: "Test article",
     language: "en",
   };
+
+  const parsedLinksResponse = (titles: readonly string[]) =>
+    new Response(
+      JSON.stringify({
+        parse: {
+          pageid: 42,
+          revid: 99,
+          title: "Test article",
+          text:
+            '<section data-mw-section-id="0"><p>Lead.</p>' +
+            '<section data-mw-section-id="3"><h2>Links</h2><p>' +
+            titles
+              .map(
+                (title) =>
+                  `<a rel="mw:WikiLink" href="./${title.replaceAll(" ", "_")}" title="${title}">${title}</a>`,
+              )
+              .join("") +
+            "</p></section></section>",
+          tocdata: {
+            sections: [{ index: "3", line: "Links", level: 2 }],
+          },
+        },
+      }),
+    );
+
+  const linkQueryResponse = (titles: readonly string[]) =>
+    new Response(
+      JSON.stringify({
+        query: {
+          pages: Object.fromEntries(
+            titles.map((title, index) => [
+              String(index + 1),
+              {
+                pageid: index + 1,
+                ns: 0,
+                title,
+                description: `Description for ${title}`,
+              },
+            ]),
+          ),
+        },
+      }),
+    );
 
   it("pins the section lookup to oldid and resolves main-namespace links", async () => {
     const fetchSpy = vi
@@ -488,5 +620,415 @@ describe("fetchSectionLinksByIndex", () => {
         code: "identity-mismatch",
       },
     );
+  });
+
+  it("rejects transient document failures instead of reporting a successful empty section", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("temporary MediaWiki failure"),
+    );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "http-error",
+        retryable: true,
+      },
+    );
+  });
+
+  it("returns an empty result for a successfully parsed section with no links", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          parse: {
+            pageid: 42,
+            revid: 99,
+            title: "Test article",
+            text:
+              '<section data-mw-section-id="0"><p>Lead.</p>' +
+              '<section data-mw-section-id="3"><h2>Empty</h2>' +
+              "<p>This section has no links.</p></section></section>",
+            tocdata: {
+              sections: [{ index: "3", line: "Empty", level: 2 }],
+            },
+          },
+        }),
+      ),
+    );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([]);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it("rejects transient link-enrichment failures instead of returning cacheable partial data", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 42,
+              revid: 99,
+              title: "Test article",
+              text:
+                '<section data-mw-section-id="0"><p>Lead.</p>' +
+                '<section data-mw-section-id="3"><h2>Links</h2>' +
+                '<p><a rel="mw:WikiLink" href="./Alpha" title="Alpha">Alpha</a></p>' +
+                "</section></section>",
+              tocdata: {
+                sections: [{ index: "3", line: "Links", level: 2 }],
+              },
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toThrow(
+      "Resolving Wikipedia section links failed: 503",
+    );
+  });
+
+  it("rejects malformed enriched page titles as a typed upstream error", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "1": { pageid: 1, ns: 0, title: { malformed: true } },
+              },
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "invalid-response",
+        retryable: true,
+      },
+    );
+  });
+
+  it("omits malformed descriptions from otherwise valid enriched pages", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "1": {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Alpha",
+                  description: { malformed: true },
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([
+      { wikiPageId: "1", title: "Alpha" },
+    ]);
+  });
+
+  it("accepts complete normalization and redirect mappings", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["alpha_alias"]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              normalized: [{ from: "alpha_alias", to: "Alpha alias" }],
+              redirects: [
+                { from: "Alpha alias", to: "Intermediate alias" },
+                { from: "Intermediate alias", to: "Alpha" },
+              ],
+              pages: {
+                "1": {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Alpha",
+                  description: "The canonical article",
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([
+      {
+        wikiPageId: "1",
+        title: "Alpha",
+        description: "The canonical article",
+      },
+    ]);
+  });
+
+  it("accepts a complete missing-page record without fabricating a link", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Missing article"]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "-1": {
+                  ns: 0,
+                  title: "Missing article",
+                  missing: "",
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([]);
+  });
+
+  it("accounts for a complete circular redirect as a missing page", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Page1"]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              redirects: [
+                { from: "Page1", to: "Page2" },
+                { from: "Page2", to: "Page3" },
+                { from: "Page3", to: "Page1" },
+              ],
+              pages: {
+                "-1": { ns: 0, title: "Page1", missing: true },
+              },
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([]);
+  });
+
+  it("rejects after true partial progress when a later enrichment batch fails", async () => {
+    const titles = Array.from({ length: 51 }, (_, index) => `Article ${index}`);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(titles))
+      .mockResolvedValueOnce(linkQueryResponse(titles.slice(0, 50)))
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "http-error",
+        retryable: true,
+      },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects after true partial progress when a later 200 batch is empty", async () => {
+    const titles = Array.from({ length: 51 }, (_, index) => `Article ${index}`);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(titles))
+      .mockResolvedValueOnce(linkQueryResponse(titles.slice(0, 50)))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ query: { pages: {} } })),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "invalid-response",
+        retryable: true,
+      },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects an unexpected page even when the response count matches", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockResolvedValueOnce(linkQueryResponse(["Unexpected article"]));
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "invalid-response",
+        retryable: true,
+      },
+    );
+  });
+
+  it("rejects enrichment responses containing more pages than requested", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockResolvedValueOnce(linkQueryResponse(["Alpha", "Unexpected"]));
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "invalid-response",
+        retryable: true,
+      },
+    );
+  });
+
+  it.each([
+    { pageid: "invalid", ns: 0, title: "Alpha" },
+    { pageid: 1, ns: "invalid", title: "Alpha" },
+  ])("rejects invalid non-missing page identity fields: %o", async (page) => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ query: { pages: { "1": page } } })),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "invalid-response",
+        retryable: true,
+      },
+    );
+  });
+
+  it("bounds enrichment response bodies before JSON decoding", async () => {
+    const oneMiB = new Uint8Array(1024 * 1024);
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index < 16; index += 1) {
+          controller.enqueue(oneMiB);
+        }
+        controller.close();
+      },
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockResolvedValueOnce(new Response(oversizedBody));
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        name: MediaWikiSourceError.name,
+        code: "response-too-large",
+      },
+    );
+  });
+
+  it("enriches only the deterministic first source-link cap", async () => {
+    const titles = Array.from(
+      { length: MAX_SECTION_LINK_SOURCE_TITLES + 25 },
+      (_, index) => `Article ${index}`,
+    );
+    const requestedTitles: string[] = [];
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(titles))
+      .mockImplementation(async (input) => {
+        const batch = new URL(String(input)).searchParams
+          .get("titles")!
+          .split("|");
+        requestedTitles.push(...batch);
+        return linkQueryResponse(batch);
+      });
+
+    const result = await fetchSectionLinksByIndex(identity, "3");
+
+    expect(result).toHaveLength(MAX_SECTION_LINK_SOURCE_TITLES);
+    expect(requestedTitles).toEqual(
+      titles.slice(0, MAX_SECTION_LINK_SOURCE_TITLES),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(
+      1 + Math.ceil(MAX_SECTION_LINK_SOURCE_TITLES / 50),
+    );
+  });
+
+  it("applies one overall timeout through link enrichment", async () => {
+    vi.useFakeTimers();
+    try {
+      const parseDelayMs = 10_000;
+      let enrichmentSignal: AbortSignal | undefined;
+      vi.spyOn(globalThis, "fetch")
+        .mockImplementationOnce(
+          async () =>
+            await new Promise<Response>((resolve) => {
+              setTimeout(
+                () => resolve(parsedLinksResponse(["Alpha"])),
+                parseDelayMs,
+              );
+            }),
+        )
+        .mockImplementationOnce(async (_input, init) => {
+          const requestSignal = init?.signal;
+          if (!requestSignal) throw new Error("Expected an enrichment signal");
+          enrichmentSignal = requestSignal;
+          return await new Promise<Response>((_resolve, reject) => {
+            requestSignal.addEventListener(
+              "abort",
+              () => reject(requestSignal.reason),
+              { once: true },
+            );
+          });
+        });
+
+      const pending = fetchSectionLinksByIndex(identity, "3");
+      const observed = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(parseDelayMs);
+      expect(enrichmentSignal).toBeDefined();
+      await vi.advanceTimersByTimeAsync(
+        SECTION_LINKS_TIMEOUT_MS - parseDelayMs,
+      );
+      await expect(observed).resolves.toMatchObject({
+        name: MediaWikiSourceError.name,
+        code: "timeout",
+        retryable: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("propagates a caller abort through link enrichment", async () => {
+    let enrichmentSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha"]))
+      .mockImplementationOnce(async (_input, init) => {
+        const requestSignal = init?.signal;
+        if (!requestSignal) throw new Error("Expected an enrichment signal");
+        enrichmentSignal = requestSignal;
+        return await new Promise<Response>((_resolve, reject) => {
+          requestSignal.addEventListener(
+            "abort",
+            () => reject(requestSignal.reason),
+            { once: true },
+          );
+        });
+      });
+    const controller = new AbortController();
+    const pending = fetchSectionLinksByIndex(identity, "3", controller.signal);
+    await vi.waitFor(() => expect(enrichmentSignal).toBeDefined());
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(enrichmentSignal?.aborted).toBe(true);
+  });
+
+  it("rejects a pre-aborted signal before starting semantic parsing", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      fetchSectionLinksByIndex(identity, "3", controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

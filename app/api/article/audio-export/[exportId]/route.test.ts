@@ -19,6 +19,7 @@ describe("article audio export download route", () => {
   it("resolves a ready export with the profile identity stored on that export", async () => {
     mocks.fetchQuery
       .mockResolvedValueOnce({
+        exportId: "export-1",
         ttsCacheKey:
           "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
       })
@@ -48,5 +49,45 @@ describe("article audio export download route", () => {
     expect(response.headers.get("location")).toBe(
       "https://cdn.example.com/export-1.mp3",
     );
+  });
+
+  it("returns 404 without a second lookup when a malformed ID cannot be normalized", async () => {
+    mocks.fetchQuery.mockResolvedValueOnce(null);
+
+    const response = await GET(
+      new NextRequest(
+        "https://curiogarden.org/api/article/audio-export/not-a-convex-id",
+      ),
+      { params: Promise.resolve({ exportId: "not-a-convex-id" }) },
+    );
+
+    expect(mocks.fetchQuery).toHaveBeenCalledOnce();
+    expect(mocks.fetchQuery).toHaveBeenCalledWith(expect.anything(), {
+      exportId: "not-a-convex-id",
+    });
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      error: "Article audio export not found",
+    });
+  });
+
+  it("returns a safe no-store error without leaking backend details", async () => {
+    mocks.fetchQuery.mockRejectedValueOnce(
+      new Error("Secret Convex deployment details"),
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "https://curiogarden.org/api/article/audio-export/backend-failure",
+      ),
+      { params: Promise.resolve({ exportId: "backend-failure" }) },
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to resolve article audio export",
+    });
   });
 });

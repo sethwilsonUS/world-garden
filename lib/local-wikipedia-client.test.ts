@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   requestLocalWikipedia,
   requestLocalWikipediaMetadata,
+  resetLocalWikipediaClientCachesForTests,
 } from "./local-wikipedia-client";
 
 afterEach(() => {
+  resetLocalWikipediaClientCachesForTests();
   vi.restoreAllMocks();
 });
 
@@ -115,6 +117,79 @@ describe("requestLocalWikipedia", () => {
     ).resolves.toMatchObject({ images: [] });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0]?.[1]).not.toHaveProperty("signal");
+  });
+
+  it("allows tests to clear completed metadata cache entries deterministically", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              linkCounts: [],
+              citations: [],
+              sectionCitations: [],
+              sectionIndexMap: [],
+              images: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    const identity = {
+      wikiPageId: "701",
+      revisionId: "702",
+      title: "Cache reset",
+      language: "en",
+    } as const;
+
+    await requestLocalWikipediaMetadata(identity);
+    await requestLocalWikipediaMetadata(identity);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    resetLocalWikipediaClientCachesForTests();
+    await requestLocalWikipediaMetadata(identity);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a pre-reset request repopulate the cleared metadata cache", async () => {
+    let finishFirstRequest: ((response: Response) => void) | undefined;
+    const metadata = {
+      linkCounts: [],
+      citations: [],
+      sectionCitations: [],
+      sectionIndexMap: [],
+      images: [],
+    };
+    const response = () =>
+      new Response(JSON.stringify({ data: metadata }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finishFirstRequest = resolve;
+          }),
+      )
+      .mockImplementationOnce(async () => response());
+    const identity = {
+      wikiPageId: "7701",
+      revisionId: "7702",
+      title: "In-flight cache reset",
+      language: "en",
+    } as const;
+
+    const preResetRequest = requestLocalWikipediaMetadata(identity);
+    resetLocalWikipediaClientCachesForTests();
+    finishFirstRequest?.(response());
+    await expect(preResetRequest).resolves.toEqual(metadata);
+
+    await expect(requestLocalWikipediaMetadata(identity)).resolves.toEqual(
+      metadata,
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("deduplicates only canonical, complete metadata identities", async () => {
