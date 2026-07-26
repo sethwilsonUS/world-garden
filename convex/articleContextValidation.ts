@@ -130,6 +130,111 @@ export const assertArticleContextWriteAuthorized = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const MAX_CONTEXT_DIAGRAM_IMAGE_URL_BYTES = 8_192;
+const MAX_CONTEXT_DIAGRAM_ALT_BYTES = 4_000;
+const MAX_CONTEXT_DIAGRAM_WALKTHROUGH_STEPS = 12;
+const MAX_CONTEXT_DIAGRAM_ID_BYTES = 256;
+const MAX_CONTEXT_DIAGRAM_LABEL_BYTES = 1_000;
+const MAX_CONTEXT_DIAGRAM_DESCRIPTION_BYTES = 4_000;
+const MAX_CONTEXT_DIAGRAM_CAPTION_BYTES = 10_000;
+
+const isBoundedContextText = (
+  value: unknown,
+  maxBytes: number,
+): value is string =>
+  typeof value === "string" &&
+  Boolean(value) &&
+  value === value.trim() &&
+  !/\p{Cc}/u.test(value) &&
+  utf8Length(value) <= maxBytes;
+
+const isSafeContextImageUrl = (value: unknown): value is string => {
+  if (!isBoundedContextText(value, MAX_CONTEXT_DIAGRAM_IMAGE_URL_BYTES)) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "upload.wikimedia.org" &&
+      url.pathname.startsWith("/wikipedia/commons/") &&
+      !url.pathname.toLocaleLowerCase().includes("/math/") &&
+      !url.pathname.toLocaleLowerCase().endsWith(".svg")
+    );
+  } catch {
+    return false;
+  }
+};
+
+const isValidContextDimension = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+
+const isValidContextDiagram = (value: unknown): boolean => {
+  if (!isRecord(value) || !isRecord(value.image)) return false;
+  const image = value.image;
+  if (
+    !isSafeContextImageUrl(image.src) ||
+    !isBoundedContextText(image.alt, MAX_CONTEXT_DIAGRAM_ALT_BYTES) ||
+    (image.originalSrc !== undefined &&
+      !isSafeContextImageUrl(image.originalSrc)) ||
+    (image.width !== undefined && !isValidContextDimension(image.width)) ||
+    (image.height !== undefined && !isValidContextDimension(image.height))
+  ) {
+    return false;
+  }
+
+  if (!Array.isArray(value.parts)) return false;
+  const partIds = new Set<string>();
+  for (const part of value.parts) {
+    if (
+      !isRecord(part) ||
+      !isBoundedContextText(part.id, MAX_CONTEXT_DIAGRAM_ID_BYTES) ||
+      partIds.has(part.id) ||
+      !isBoundedContextText(part.label, MAX_CONTEXT_DIAGRAM_LABEL_BYTES) ||
+      (part.description !== undefined &&
+        !isBoundedContextText(
+          part.description,
+          MAX_CONTEXT_DIAGRAM_DESCRIPTION_BYTES,
+        ))
+    ) {
+      return false;
+    }
+    partIds.add(part.id);
+  }
+
+  if (
+    !Array.isArray(value.relationships) ||
+    value.relationships.some(
+      (relationship) =>
+        !isRecord(relationship) ||
+        !isBoundedContextText(
+          relationship.fromId,
+          MAX_CONTEXT_DIAGRAM_ID_BYTES,
+        ) ||
+        !isBoundedContextText(
+          relationship.toId,
+          MAX_CONTEXT_DIAGRAM_ID_BYTES,
+        ) ||
+        !isBoundedContextText(
+          relationship.label,
+          MAX_CONTEXT_DIAGRAM_LABEL_BYTES,
+        ),
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    Array.isArray(value.walkthrough) &&
+    value.walkthrough.length > 0 &&
+    value.walkthrough.length <= MAX_CONTEXT_DIAGRAM_WALKTHROUGH_STEPS &&
+    value.walkthrough.every((step) =>
+      isBoundedContextText(step, MAX_CONTEXT_DIAGRAM_DESCRIPTION_BYTES),
+    ) &&
+    isBoundedContextText(value.caption, MAX_CONTEXT_DIAGRAM_CAPTION_BYTES)
+  );
+};
+
 export const validateAndNormalizeManifestJson = (
   manifestJson: string,
   key: ArticleContextCacheKey,
@@ -212,10 +317,11 @@ export const validateAndNormalizeManifestJson = (
       throw new Error(`Context block ${block.id} contains legacy audio copy`);
     }
     if (block.kind === "diagram") {
-      if (!isRecord(block.diagram)) {
-        throw new Error(`Context diagram ${block.id} is missing diagram data`);
+      if (!isValidContextDiagram(block.diagram)) {
+        throw new Error(`Context diagram ${block.id} has invalid diagram data`);
       }
       if (
+        isRecord(block.diagram) &&
         block.diagram.legend !== undefined &&
         !isValidContextDiagramLegend(block.diagram.legend)
       ) {
