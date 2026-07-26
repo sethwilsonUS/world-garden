@@ -152,7 +152,9 @@ export const AccessibleLayout = ({
             className="flex items-center gap-2 font-semibold font-display text-foreground no-underline"
           >
             <LeafIcon size={22} />
-            <span className="text-sm sm:text-base whitespace-nowrap">Curio Garden</span>
+            <span className="text-sm sm:text-base whitespace-nowrap">
+              Curio Garden
+            </span>
           </Link>
 
           {/* Desktop nav */}
@@ -190,7 +192,9 @@ export const AccessibleLayout = ({
             <div className="container mx-auto px-4 py-4 flex flex-col gap-1">
               <SiteNavLinks variant="mobile" authEnabled={authEnabled} />
               {mobileAuthControls ? (
-                <div className="pt-3 mt-2 border-t border-border">{mobileAuthControls}</div>
+                <div className="pt-3 mt-2 border-t border-border">
+                  {mobileAuthControls}
+                </div>
               ) : null}
             </div>
           </div>
@@ -207,14 +211,9 @@ export const AccessibleLayout = ({
         {children}
       </main>
 
-      <footer
-        role="contentinfo"
-        className="border-t border-border py-8"
-      >
+      <footer role="contentinfo" className="border-t border-border py-8">
         <div className="container mx-auto px-4">
-          <div
-            className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6"
-          >
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-2">
               <LeafIcon size={20} />
               <span className="font-display font-semibold text-foreground">
@@ -226,10 +225,16 @@ export const AccessibleLayout = ({
               className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2"
             >
               <SiteNavLinks variant="footer" authEnabled={authEnabled} />
-              <Link href="/privacy" className="text-foreground-2 no-underline text-sm">
+              <Link
+                href="/privacy"
+                className="text-foreground-2 no-underline text-sm"
+              >
                 Privacy
               </Link>
-              <Link href="/terms" className="text-foreground-2 no-underline text-sm">
+              <Link
+                href="/terms"
+                className="text-foreground-2 no-underline text-sm"
+              >
                 Terms
               </Link>
             </nav>
@@ -262,14 +267,12 @@ export const AccessibleLayout = ({
               .
             </p>
             <p className="mt-1">
-              Audio powered by OpenAI with Edge TTS fallback. Curio Garden is
-              an independent project and is not endorsed by or affiliated with
-              the Wikimedia Foundation. Wikipedia is a trademark of the
+              Audio uses synthetic speech from Edge TTS and OpenAI. Curio Garden
+              is an independent project and is not endorsed by or affiliated
+              with the Wikimedia Foundation. Wikipedia is a trademark of the
               Wikimedia Foundation.
             </p>
-            <p className="mt-3 font-display italic">
-              Tended with care.
-            </p>
+            <p className="mt-3 font-display italic">Tended with care.</p>
           </div>
         </div>
       </footer>

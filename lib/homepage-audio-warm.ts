@@ -15,11 +15,15 @@ import {
   generateTtsAudioWithMetadata,
   type TtsAudioResult,
 } from "@/lib/tts-client";
-import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
+import {
+  createAudioCacheSaveAttestation,
+  createAudioCacheUploadAttestation,
+  getEdgeTtsGenerationHeaders,
+} from "@/lib/tts-quota-bypass";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
-  getActiveTtsProfile,
   getTtsMetadata,
+  getTtsProfile,
   type TtsMetadata,
 } from "@/lib/tts-profile";
 
@@ -181,10 +185,13 @@ const createProductionDependencies = (
     }
     await response.body?.cancel();
   },
-  generateAudio(text, expected) {
+  async generateAudio(text, expected) {
     return generateTtsAudioWithMetadata(
       { text, provider: expected.provider },
-      { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
+      {
+        apiBaseUrl: baseUrl,
+        headers: getEdgeTtsGenerationHeaders(baseUrl),
+      },
     );
   },
   async saveSummary({
@@ -194,12 +201,15 @@ const createProductionDependencies = (
     durationSeconds,
     metadata,
   }) {
-    const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {});
+    const uploadAttestation = await createAudioCacheUploadAttestation();
+    const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {
+      attestation: uploadAttestation,
+    });
     const storageId = await uploadBlobToConvexStorage(
       uploadUrl as string,
       blob,
     );
-    await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
+    const record = {
       articleId,
       sectionKey: "summary",
       sourceHash,
@@ -211,6 +221,11 @@ const createProductionDependencies = (
       voiceId: metadata.voiceId,
       promptVersion: metadata.promptVersion,
       durationSeconds,
+    };
+    const saveAttestation = await createAudioCacheSaveAttestation(record);
+    await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
+      ...record,
+      attestation: saveAttestation,
     });
   },
   now: Date.now,
@@ -225,7 +240,7 @@ export const warmHomepageArticleSummaries = async ({
   dependencies = createProductionDependencies(baseUrl),
 }: HomepageAudioWarmOptions): Promise<HomepageAudioWarmResult> => {
   const collection = collectHomepageArticleRefs(snapshot, maxArticles);
-  const expected = getTtsMetadata(getActiveTtsProfile());
+  const expected = getTtsMetadata(getTtsProfile("edge"));
   const result: HomepageAudioWarmResult = {
     status: "completed",
     targets: collection.articles.length,

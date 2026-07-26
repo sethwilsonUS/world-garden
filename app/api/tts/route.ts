@@ -1,4 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { track } from "@vercel/analytics/server";
 import {
   TTS_MIN_TEXT_LENGTH,
@@ -18,7 +19,10 @@ import {
   type TtsProfile,
   type TtsProvider,
 } from "@/lib/tts-profile";
+import { resolveTtsProviderAccess } from "@/lib/tts-access-policy";
+import { isLocalMode } from "@/lib/runtime-mode";
 import {
+  isTtsQuotaBypassRequest,
   resolveOpenAiTtsQuota,
   type TtsQuotaDecision,
   type TtsQuotaMode,
@@ -33,6 +37,19 @@ const countWords = (text: string): number =>
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Audio generation failed";
+
+const getAuthenticatedUserId = async (): Promise<string | null> => {
+  try {
+    const { userId } = await auth();
+    return userId ?? null;
+  } catch (error) {
+    console.warn(
+      "[/api/tts] authentication unavailable; using Edge",
+      getErrorMessage(error),
+    );
+    return null;
+  }
+};
 
 const parsePositiveInt = (value: string | undefined): number | null => {
   if (!value) return null;
@@ -248,9 +265,6 @@ const generateEdgeSpeech = async (
   return audioBuffer;
 };
 
-const resolveRequestedProvider = (body: TtsRequest): TtsProvider =>
-  normalizeTtsProvider(body.provider) ?? getTtsProfile().provider;
-
 const getVoiceValidationError = (
   provider: TtsProvider,
   voiceId: string | undefined,
@@ -329,8 +343,8 @@ const emitTtsRouteTelemetry = ({
 };
 
 export const POST = async (req: NextRequest) => {
-  let provider: TtsProvider = "openai";
-  let effectiveProvider: TtsProvider = "openai";
+  let provider: TtsProvider = "edge";
+  let effectiveProvider: TtsProvider = "edge";
   let usedFallback = false;
   let effectiveFallbackReason: TtsFallbackReason | undefined;
   const startedAt = Date.now();
@@ -371,8 +385,18 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
-    provider = resolveRequestedProvider(body);
-    effectiveProvider = provider;
+    const localMode = isLocalMode();
+    const isTrustedRequest =
+      !localMode && (await isTtsQuotaBypassRequest(req.headers));
+    const userId =
+      localMode || isTrustedRequest ? null : await getAuthenticatedUserId();
+    const providerAccess = resolveTtsProviderAccess({
+      audience: userId ? "authenticated" : "public",
+      requestedProvider: normalizeTtsProvider(body.provider) ?? undefined,
+      localMode,
+      trusted: isTrustedRequest,
+    });
+    provider = providerAccess.requestedProvider;
     const voiceValidationError = getVoiceValidationError(provider, voiceId);
     if (voiceValidationError) {
       return NextResponse.json(
@@ -381,10 +405,10 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
-    const primaryProfile = getTtsProfile(provider, voiceId);
+    const requestedProfile = getTtsProfile(provider, voiceId);
     if (
       expectedTtsCacheKey &&
-      primaryProfile.ttsCacheKey !== expectedTtsCacheKey
+      requestedProfile.ttsCacheKey !== expectedTtsCacheKey
     ) {
       return NextResponse.json(
         {
@@ -394,6 +418,17 @@ export const POST = async (req: NextRequest) => {
         { status: 409 },
       );
     }
+
+    effectiveProvider = providerAccess.provider;
+    if (providerAccess.fallbackReason) {
+      usedFallback = true;
+      effectiveFallbackReason = providerAccess.fallbackReason;
+    }
+
+    const primaryProfile =
+      effectiveProvider === provider
+        ? requestedProfile
+        : getTtsProfile(effectiveProvider);
     quotaDecision = await resolveOpenAiTtsQuota({
       headers: req.headers,
       provider: primaryProfile.provider,
@@ -413,6 +448,8 @@ export const POST = async (req: NextRequest) => {
         audioBuffer,
         getTtsMetadata(primaryProfile),
         {
+          fallback: usedFallback,
+          fallbackReason: effectiveFallbackReason,
           quotaMode: quotaDecision.mode,
           quotaExceeded: quotaDecision.exceeded,
         },
@@ -421,7 +458,8 @@ export const POST = async (req: NextRequest) => {
         startedAt,
         requestedProvider: provider,
         provider: "edge",
-        fallback: false,
+        fallback: usedFallback,
+        fallbackReason: effectiveFallbackReason,
         status: "success",
         statusCode: 200,
         quotaMode: quotaDecision.mode,

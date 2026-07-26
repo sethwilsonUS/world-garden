@@ -7,6 +7,7 @@ import { AccessibleLayout } from "@/components/AccessibleLayout";
 import { AuthNavControls } from "@/components/AuthNavControls";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { TrendingBriefWarmup } from "@/components/TrendingBriefWarmup";
+import { PublicTtsProfileProvider } from "@/lib/tts-audience";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import {
@@ -138,7 +139,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: activeTtsMetadataScript }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style dangerouslySetInnerHTML={{ __html: themeToggleCss }} />
-        <link rel="manifest" href="/manifest.json" />
+        <link
+          rel="manifest"
+          href="/manifest.json"
+          crossOrigin="use-credentials"
+        />
         <meta name="theme-color" content="#171717" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -153,7 +158,7 @@ export default function RootLayout({
         style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         {isLocal ? (
-          shell
+          <PublicTtsProfileProvider>{shell}</PublicTtsProfileProvider>
         ) : (
           <ClerkProvider
             dynamic

@@ -13,11 +13,10 @@ import {
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { getOpenAIClient, isOpenAIConfigured } from "@/lib/openai-client";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
-import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
+import { getEdgeTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
 import {
-  getActiveTtsCacheKey,
-  getActiveTtsProfile,
   getTtsMetadata,
+  getTtsProfile,
   type TtsMetadata,
 } from "@/lib/tts-profile";
 import {
@@ -25,6 +24,14 @@ import {
   renderTrendingPodcastArtworkPng,
   type TrendingArtworkItem,
 } from "@/lib/trending-podcast-artwork";
+import {
+  createPublicAudioWriteAttestation,
+  type PublicAudioWriteOperation,
+} from "@/lib/public-audio-write-attestation";
+import { isExactCurrentEdgeAudioMetadata } from "@/lib/public-edge-audio-metadata";
+import { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
+
+export { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
 const DEFAULT_TRENDING_BRIEF_MODEL = "gpt-5.6-luna";
@@ -32,11 +39,33 @@ const MAX_ARTICLES_IN_PROMPT = 10;
 const MAX_KEY_POINTS = 5;
 const MAX_SOURCES = 6;
 const JOB_LEASE_MS = 8 * 60 * 1000;
-const TRENDING_AUDIO_SCRIPT_VERSION = "ai-disclosure-v1";
-const inFlightTrendingBriefs = new Map<string, Promise<TrendingBriefSyncResult>>();
+const inFlightTrendingBriefs = new Map<
+  string,
+  Promise<TrendingBriefSyncResult>
+>();
 
-export const getTrendingAudioCacheKey = (): string =>
-  `${getActiveTtsCacheKey()}:trending-script:${TRENDING_AUDIO_SCRIPT_VERSION}`;
+type TrendingWriteOperation = Extract<
+  PublicAudioWriteOperation,
+  "claim-job" | "finalize-job" | "generate-upload-url" | "save-record"
+>;
+
+const withTrendingWriteAttestation = async <
+  TArgs extends Record<string, unknown>,
+>(
+  operation: TrendingWriteOperation,
+  args: TArgs,
+): Promise<
+  TArgs & {
+    attestation: Awaited<ReturnType<typeof createPublicAudioWriteAttestation>>;
+  }
+> => ({
+  ...args,
+  attestation: await createPublicAudioWriteAttestation({
+    pipeline: "trending",
+    operation,
+    args,
+  }),
+});
 
 export const getTrendingAudioScript = (spokenSummary: string): string =>
   `${TRENDING_AI_AUDIO_DISCLOSURE} ${spokenSummary.trim()}`;
@@ -87,10 +116,7 @@ const TrendingBriefOutputSchema = z.object({
   summary: TrimmedNonEmptyTextSchema,
   podcastDescription: TrimmedNonEmptyTextSchema,
   spokenSummary: TrimmedNonEmptyTextSchema,
-  keyPoints: z
-    .array(TrimmedNonEmptyTextSchema)
-    .min(3)
-    .max(MAX_KEY_POINTS),
+  keyPoints: z.array(TrimmedNonEmptyTextSchema).min(3).max(MAX_KEY_POINTS),
 });
 
 export type TrendingBriefRecord = {
@@ -122,6 +148,11 @@ export type TrendingBriefRecord = {
   ttsNormVersion?: string;
   lastError?: string;
   updatedAt: number;
+};
+
+type ReusableTrendingBriefRecord = TrendingBriefRecord & {
+  status: "ready";
+  audioUrl: string;
 };
 
 export type TrendingBriefSyncResult = {
@@ -183,13 +214,23 @@ export const hasCurrentTrendingArtworkVersion = (
 export const shouldReuseExistingTrendingBrief = (
   record: TrendingBriefRecord | null,
   options?: { force?: boolean; regenArt?: boolean },
-): record is TrendingBriefRecord =>
+): record is ReusableTrendingBriefRecord =>
   Boolean(
-      record?.status === "ready" &&
-      record.audioUrl &&
-      record.ttsCacheKey === getTrendingAudioCacheKey() &&
-      !(options?.force && options?.regenArt) &&
-      (!options?.regenArt || hasCurrentTrendingArtworkVersion(record)),
+    record?.status === "ready" &&
+    record.audioUrl &&
+    isExactCurrentEdgeAudioMetadata(
+      {
+        provider: record.provider,
+        model: record.ttsModel,
+        voiceId: record.voiceId,
+        promptVersion: record.promptVersion,
+        ttsNormVersion: record.ttsNormVersion,
+        ttsCacheKey: record.ttsCacheKey,
+      },
+      getTrendingAudioCacheKey(),
+    ) &&
+    !(options?.force && options?.regenArt) &&
+    (!options?.regenArt || hasCurrentTrendingArtworkVersion(record)),
   );
 
 const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
@@ -203,13 +244,17 @@ const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
 const estimateDurationSeconds = (text: string): number =>
   Math.round(text.split(/\s+/).filter(Boolean).length / TTS_WORDS_PER_SECOND);
 
-const sanitizeText = (text: string): string => text.replace(/\r\n/g, "\n").trim();
+const sanitizeText = (text: string): string =>
+  text.replace(/\r\n/g, "\n").trim();
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown error";
 
 const stripUrlsFromSpeech = (text: string): string =>
-  text.replace(/https?:\/\/\S+/g, "").replace(/\s{2,}/g, " ").trim();
+  text
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
 const normalizeHttpUrl = (value: string): string | null => {
   const normalized = value.trim();
@@ -222,7 +267,9 @@ const normalizeHttpUrl = (value: string): string | null => {
   }
 };
 
-const dedupeSources = (sources: TrendingBriefSource[]): TrendingBriefSource[] => {
+const dedupeSources = (
+  sources: TrendingBriefSource[],
+): TrendingBriefSource[] => {
   const seen = new Set<string>();
   const result: TrendingBriefSource[] = [];
 
@@ -475,7 +522,9 @@ export const generateTrendingBriefContent = async ({
   logOpenAIUsage({ stage: "writing", response: writingResult });
 
   if (!writingResult.output_parsed) {
-    throw new Error("Trending brief writing pass returned no structured output");
+    throw new Error(
+      "Trending brief writing pass returned no structured output",
+    );
   }
 
   const normalized = normalizeTrendingBrief({
@@ -550,8 +599,7 @@ const uploadBlobToConvexStorage = async (
   return body.storageId;
 };
 
-export const isTrendingBriefEnabled = (): boolean =>
-  isOpenAIConfigured();
+export const isTrendingBriefEnabled = (): boolean => isOpenAIConfigured();
 
 const canReadTrendingBriefsFromConvex = (): boolean =>
   process.env.NEXT_PUBLIC_LOCAL_MODE !== "true" &&
@@ -576,12 +624,29 @@ const generateTrendingBriefRecord = async ({
   const existing = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
     trendingDate: trendingDateIso,
   })) as TrendingBriefRecord | null;
+  const existingAudioMatchesCurrentEdge = isExactCurrentEdgeAudioMetadata(
+    {
+      provider: existing?.provider,
+      model: existing?.ttsModel,
+      voiceId: existing?.voiceId,
+      promptVersion: existing?.promptVersion,
+      ttsNormVersion: existing?.ttsNormVersion,
+      ttsCacheKey: existing?.ttsCacheKey,
+    },
+    getTrendingAudioCacheKey(),
+  );
   const existingReadyBrief = shouldReuseExistingTrendingBrief(existing, {
     force,
     regenArt,
   })
     ? existing
     : null;
+  const previousReadyBrief =
+    existing?.status === "ready" &&
+    existing.audioUrl &&
+    existingAudioMatchesCurrentEdge
+      ? existing
+      : null;
   const owner = randomUUID();
   const runId = owner.slice(0, 8);
   const imageUrls = artworkItems.map((item) => item.imageUrl);
@@ -608,11 +673,14 @@ const generateTrendingBriefRecord = async ({
     throw new Error("AI trend briefing is not configured.");
   }
 
-  const claim = await fetchMutation(anyApi.trending.claimTrendingBriefJob, {
-    trendingDate: trendingDateIso,
-    owner,
-    leaseMs: JOB_LEASE_MS,
-  });
+  const claim = await fetchMutation(
+    anyApi.trending.claimTrendingBriefJob,
+    await withTrendingWriteAttestation("claim-job", {
+      trendingDate: trendingDateIso,
+      owner,
+      leaseMs: JOB_LEASE_MS,
+    }),
+  );
 
   if (!claim.claimed) {
     const latest = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
@@ -635,19 +703,25 @@ const generateTrendingBriefRecord = async ({
       };
     }
 
-    throw new Error(`Trending brief sync already running for ${trendingDateIso}`);
+    throw new Error(
+      `Trending brief sync already running for ${trendingDateIso}`,
+    );
   }
 
   const model = getTrendingBriefModel();
 
-  if (!existingReadyBrief) {
-    await fetchMutation(anyApi.trending.saveTrendingBrief, {
-      trendingDate: trendingDateIso,
-      status: "pending",
-      articleTitles,
-      imageUrls,
-      artworkItems,
-    });
+  if (!previousReadyBrief) {
+    await fetchMutation(
+      anyApi.trending.saveTrendingBrief,
+      await withTrendingWriteAttestation("save-record", {
+        trendingDate: trendingDateIso,
+        owner,
+        status: "pending",
+        articleTitles,
+        imageUrls,
+        artworkItems,
+      }),
+    );
   }
 
   const cachedBriefContent = getCachedTrendingBriefContent(existing);
@@ -658,7 +732,9 @@ const generateTrendingBriefRecord = async ({
       `[podcast:trending ${trendingDateIso} run=${runId}] start force=${force} regenArt=${regenArt} existingStatus=${existing?.status ?? "missing"} cachedBrief=${Boolean(cachedBriefContent)}`,
     );
 
-    stage = cachedBriefContent ? "reusing_cached_brief" : "generating_brief_content";
+    stage = cachedBriefContent
+      ? "reusing_cached_brief"
+      : "generating_brief_content";
     const brief = cachedBriefContent
       ? normalizeTrendingBrief(cachedBriefContent)
       : await generateTrendingBriefContent({
@@ -671,15 +747,15 @@ const generateTrendingBriefRecord = async ({
     const canReuseStoredAssets = Boolean(
       !regenArt &&
       existing?.storageId &&
-        existing?.artworkStorageId &&
-        existing?.durationSeconds != null &&
-        existing?.byteLength != null &&
-        existing?.ttsCacheKey === getTrendingAudioCacheKey(),
+      existing?.artworkStorageId &&
+      existing?.durationSeconds != null &&
+      existing?.byteLength != null &&
+      existingAudioMatchesCurrentEdge,
     );
     const canReuseExistingAudioForArtwork = Boolean(
       regenArt &&
-        existing?.audioUrl &&
-        existing.ttsCacheKey === getTrendingAudioCacheKey(),
+      existing?.audioUrl &&
+      existingAudioMatchesCurrentEdge,
     );
 
     const assetState = canReuseStoredAssets
@@ -688,7 +764,10 @@ const generateTrendingBriefRecord = async ({
           artworkStorageId: existing?.artworkStorageId as Id<"_storage">,
           durationSeconds: existing?.durationSeconds as number,
           byteLength: existing?.byteLength as number,
-          metadata: getTtsMetadata(getActiveTtsProfile()),
+          metadata: {
+            ...getTtsMetadata(getTtsProfile("edge")),
+            ttsCacheKey: getTrendingAudioCacheKey(),
+          },
         }
       : await (async () => {
           stage = "rendering_artwork";
@@ -712,14 +791,24 @@ const generateTrendingBriefRecord = async ({
             ? await fetchBlobFromUrl(existingAudioUrl)
             : await (async () => {
                 const generatedAudio = await generateTtsAudioWithMetadata(
-                  { text: audioScript },
-                  { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
+                  { text: audioScript, provider: "edge" },
+                  {
+                    apiBaseUrl: baseUrl,
+                    headers: getEdgeTtsGenerationHeaders(baseUrl),
+                  },
                 );
+                if (
+                  !isExactCurrentEdgeAudioMetadata(generatedAudio.metadata)
+                ) {
+                  throw new Error(
+                    "Trending narration returned a non-Edge TTS profile.",
+                  );
+                }
                 ttsMetadata = generatedAudio.metadata;
                 return generatedAudio.blob;
               })();
           const metadata = {
-            ...(ttsMetadata ?? getTtsMetadata(getActiveTtsProfile())),
+            ...(ttsMetadata ?? getTtsMetadata(getTtsProfile("edge"))),
             ttsCacheKey: getTrendingAudioCacheKey(),
           };
           const artworkBlob = new Blob([Buffer.from(artwork.data)], {
@@ -727,15 +816,22 @@ const generateTrendingBriefRecord = async ({
           });
           stage = "tagging_audio";
           const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
-            title: brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
+            title:
+              brief.headline || `Wikipedia Trending Brief: ${trendingDateIso}`,
             artist: "Curio Garden",
             album: TRENDING_PODCAST_TITLE,
             artwork,
           });
           stage = "requesting_upload_urls";
           const [audioUploadUrl, artworkUploadUrl] = await Promise.all([
-            fetchMutation(anyApi.trending.generateUploadUrl, {}),
-            fetchMutation(anyApi.trending.generateUploadUrl, {}),
+            fetchMutation(
+              anyApi.trending.generateUploadUrl,
+              await withTrendingWriteAttestation("generate-upload-url", {}),
+            ),
+            fetchMutation(
+              anyApi.trending.generateUploadUrl,
+              await withTrendingWriteAttestation("generate-upload-url", {}),
+            ),
           ]);
           stage = "uploading_assets";
           const [newStorageId, newArtworkStorageId] = await Promise.all([
@@ -753,31 +849,35 @@ const generateTrendingBriefRecord = async ({
         })();
 
     stage = "saving_brief";
-    await fetchMutation(anyApi.trending.saveTrendingBrief, {
-      trendingDate: trendingDateIso,
-      status: "ready",
-      headline: brief.headline,
-      summary: brief.summary,
-      podcastDescription: brief.podcastDescription,
-      spokenSummary: brief.spokenSummary,
-      keyPoints: brief.keyPoints,
-      articleTitles,
-      imageUrls,
-      artworkItems,
-      sources: brief.sources,
-      storageId: assetState.storageId,
-      artworkStorageId: assetState.artworkStorageId,
-      artworkVersion: TRENDING_EPISODE_ARTWORK_VERSION,
-      durationSeconds: assetState.durationSeconds,
-      byteLength: assetState.byteLength,
-      model,
-      ttsModel: assetState.metadata.model,
-      ttsCacheKey: assetState.metadata.ttsCacheKey,
-      provider: assetState.metadata.provider,
-      voiceId: assetState.metadata.voiceId,
-      promptVersion: assetState.metadata.promptVersion,
-      ttsNormVersion: assetState.metadata.ttsNormVersion,
-    });
+    await fetchMutation(
+      anyApi.trending.saveTrendingBrief,
+      await withTrendingWriteAttestation("save-record", {
+        trendingDate: trendingDateIso,
+        owner,
+        status: "ready",
+        headline: brief.headline,
+        summary: brief.summary,
+        podcastDescription: brief.podcastDescription,
+        spokenSummary: brief.spokenSummary,
+        keyPoints: brief.keyPoints,
+        articleTitles,
+        imageUrls,
+        artworkItems,
+        sources: brief.sources,
+        storageId: assetState.storageId,
+        artworkStorageId: assetState.artworkStorageId,
+        artworkVersion: TRENDING_EPISODE_ARTWORK_VERSION,
+        durationSeconds: assetState.durationSeconds,
+        byteLength: assetState.byteLength,
+        model,
+        ttsModel: assetState.metadata.model,
+        ttsCacheKey: assetState.metadata.ttsCacheKey,
+        provider: assetState.metadata.provider,
+        voiceId: assetState.metadata.voiceId,
+        promptVersion: assetState.metadata.promptVersion,
+        ttsNormVersion: assetState.metadata.ttsNormVersion,
+      }),
+    );
     committedReady = true;
 
     stage = "reloading_saved_brief";
@@ -790,11 +890,17 @@ const generateTrendingBriefRecord = async ({
     }
 
     stage = "finalizing_job";
-    await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
-      trendingDate: trendingDateIso,
-      owner,
-      status: "ready",
-    });
+    const finalization = await fetchMutation(
+      anyApi.trending.finalizeTrendingBriefJob,
+      await withTrendingWriteAttestation("finalize-job", {
+        trendingDate: trendingDateIso,
+        owner,
+        status: "ready",
+      }),
+    );
+    if (!finalization.updated) {
+      throw new Error("Trending audio publication lease was lost.");
+    }
 
     console.info(
       `[podcast:trending ${trendingDateIso} run=${runId}] success reusedAssets=${canReuseStoredAssets} sources=${brief.sources.length}`,
@@ -822,28 +928,54 @@ const generateTrendingBriefRecord = async ({
       error,
     );
 
-    await fetchMutation(anyApi.trending.finalizeTrendingBriefJob, {
-      trendingDate: trendingDateIso,
-      owner,
-      status: "failed",
-      lastError: detailedMessage,
-    });
+    if (!previousReadyBrief && !committedReady) {
+      try {
+        await fetchMutation(
+          anyApi.trending.saveTrendingBrief,
+          await withTrendingWriteAttestation("save-record", {
+            trendingDate: trendingDateIso,
+            owner,
+            status: "failed",
+            headline: cachedBriefContent?.headline,
+            summary: cachedBriefContent?.summary,
+            podcastDescription: cachedBriefContent?.podcastDescription,
+            spokenSummary: cachedBriefContent?.spokenSummary,
+            keyPoints: cachedBriefContent?.keyPoints,
+            articleTitles,
+            imageUrls,
+            artworkItems,
+            sources: cachedBriefContent?.sources,
+            lastError: detailedMessage,
+          }),
+        );
+      } catch (saveError) {
+        console.warn(
+          `[podcast:trending ${trendingDateIso} run=${runId}] failed to persist failure state`,
+          saveError,
+        );
+      }
+    }
 
-    if (!existingReadyBrief && !committedReady) {
-      await fetchMutation(anyApi.trending.saveTrendingBrief, {
-        trendingDate: trendingDateIso,
-        status: "failed",
-        headline: cachedBriefContent?.headline,
-        summary: cachedBriefContent?.summary,
-        podcastDescription: cachedBriefContent?.podcastDescription,
-        spokenSummary: cachedBriefContent?.spokenSummary,
-        keyPoints: cachedBriefContent?.keyPoints,
-        articleTitles,
-        imageUrls,
-        artworkItems,
-        sources: cachedBriefContent?.sources,
-        lastError: detailedMessage,
-      });
+    try {
+      const finalization = await fetchMutation(
+        anyApi.trending.finalizeTrendingBriefJob,
+        await withTrendingWriteAttestation("finalize-job", {
+          trendingDate: trendingDateIso,
+          owner,
+          status: "failed",
+          lastError: detailedMessage,
+        }),
+      );
+      if (!finalization.updated) {
+        console.warn(
+          `[podcast:trending ${trendingDateIso} run=${runId}] failure finalization skipped after lease loss`,
+        );
+      }
+    } catch (finalizeError) {
+      console.warn(
+        `[podcast:trending ${trendingDateIso} run=${runId}] failed to finalize failed job`,
+        finalizeError,
+      );
     }
     throw new Error(detailedMessage);
   }
@@ -906,43 +1038,45 @@ export const syncDailyTrendingBrief = async ({
   return generationPromise;
 };
 
-export const getDailyTrendingBriefState = async (): Promise<DailyTrendingBriefState> => {
-  const { trendingDateIso, sourceIsStale, articles } =
-    await getCurrentTrendingBriefSource();
+export const getDailyTrendingBriefState =
+  async (): Promise<DailyTrendingBriefState> => {
+    const { trendingDateIso, sourceIsStale, articles } =
+      await getCurrentTrendingBriefSource();
 
-  if (!isTrendingBriefEnabled() || !canReadTrendingBriefsFromConvex()) {
+    if (!isTrendingBriefEnabled() || !canReadTrendingBriefsFromConvex()) {
+      return {
+        enabled: false,
+        status: "disabled",
+        trendingDate: trendingDateIso,
+        sourceIsStale,
+        articleTitles: articles.map((article) => article.title),
+        brief: null,
+      };
+    }
+
+    const brief = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
+      trendingDate: trendingDateIso,
+    })) as TrendingBriefRecord | null;
+
+    if (shouldReuseExistingTrendingBrief(brief)) {
+      return {
+        enabled: true,
+        status: "ready",
+        trendingDate: trendingDateIso,
+        sourceIsStale,
+        articleTitles: articles.map((article) => article.title),
+        brief,
+      };
+    }
+
     return {
-      enabled: false,
-      status: "disabled",
+      enabled: true,
+      status:
+        brief?.status === "ready" ? "failed" : (brief?.status ?? "missing"),
       trendingDate: trendingDateIso,
       sourceIsStale,
       articleTitles: articles.map((article) => article.title),
       brief: null,
+      lastError: brief?.lastError,
     };
-  }
-
-  const brief = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
-    trendingDate: trendingDateIso,
-  })) as TrendingBriefRecord | null;
-
-  if (brief?.status === "ready" && brief.audioUrl) {
-    return {
-      enabled: true,
-      status: "ready",
-      trendingDate: trendingDateIso,
-      sourceIsStale,
-      articleTitles: articles.map((article) => article.title),
-      brief,
-    };
-  }
-
-  return {
-    enabled: true,
-    status: brief?.status ?? "missing",
-    trendingDate: trendingDateIso,
-    sourceIsStale,
-    articleTitles: articles.map((article) => article.title),
-    brief: null,
-    lastError: brief?.lastError,
   };
-};

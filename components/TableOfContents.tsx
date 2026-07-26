@@ -578,7 +578,7 @@ export const TableOfContents = ({
           role="status"
           aria-live="polite"
         >
-          Still generating audio. OpenAI is taking a little longer.
+          Still generating audio. This is taking a little longer than usual.
         </p>
       ) : null}
 

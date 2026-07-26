@@ -8,6 +8,7 @@ import {
   type WikipediaFeaturedThumbnail,
 } from "@/lib/featured-article";
 import { filterSafeTitles } from "@/lib/nsfw-filter";
+import { createPublicAudioWriteAttestation } from "@/lib/public-audio-write-attestation";
 import {
   fetchWikimediaMediaAttributions,
   getWikimediaFileTitleFromUrl,
@@ -225,10 +226,19 @@ export const buildTodayWikipediaSnapshot = async ({
 const saveTodaySnapshot = async (data: TodayWikipediaData) => {
   if (!shouldUseSnapshotCache()) return;
 
-  await fetchMutation(anyApi.today.saveTodaySnapshot, {
+  const writeArgs = {
     feedDate: data.feedDate,
     data,
     generatedAt: data.snapshotGeneratedAt,
+  };
+  const attestation = await createPublicAudioWriteAttestation({
+    pipeline: "today",
+    operation: "save-record",
+    args: writeArgs,
+  });
+  await fetchMutation(anyApi.today.saveTodaySnapshot, {
+    ...writeArgs,
+    attestation,
   });
 };
 

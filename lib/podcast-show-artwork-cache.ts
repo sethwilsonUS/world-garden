@@ -6,6 +6,10 @@ import {
   PERSONAL_SHOW_ARTWORK_VERSION,
   TRENDING_SHOW_ARTWORK_VERSION,
 } from "@/lib/podcast-feed";
+import {
+  createPublicAudioWriteAttestation,
+  type PublicAudioWriteOperation,
+} from "@/lib/public-audio-write-attestation";
 
 type ShowSlug = "featured" | "trending" | "personal";
 
@@ -21,6 +25,20 @@ const SHOW_ARTWORK_VERSIONS: Record<ShowSlug, number> = {
   trending: TRENDING_SHOW_ARTWORK_VERSION,
   personal: PERSONAL_SHOW_ARTWORK_VERSION,
 };
+
+const withFeaturedWriteAttestation = async <
+  TArgs extends Record<string, unknown>,
+>(
+  operation: PublicAudioWriteOperation,
+  args: TArgs,
+) => ({
+  ...args,
+  attestation: await createPublicAudioWriteAttestation({
+    pipeline: "featured",
+    operation,
+    args,
+  }),
+});
 
 const uploadBlobToConvexStorage = async (
   uploadUrl: string,
@@ -60,20 +78,28 @@ export const getOrCreatePodcastShowArtworkUrl = async ({
     return existing.artworkUrl;
   }
 
+  const uploadArgs = await withFeaturedWriteAttestation(
+    "generate-upload-url",
+    {},
+  );
   const [uploadUrl, artwork] = await Promise.all([
-    fetchMutation(anyApi.podcast.generateUploadUrl, {}),
+    fetchMutation(anyApi.podcast.generateUploadUrl, uploadArgs),
     render(),
   ]);
 
   const blob = new Blob([Buffer.from(artwork.data)], { type: artwork.mimeType });
   const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
 
-  await fetchMutation(anyApi.podcast.savePodcastShowAsset, {
+  const saveArgs = {
     slug,
     storageId: storageId as Id<"_storage">,
     mimeType: artwork.mimeType,
     version,
-  });
+  };
+  await fetchMutation(
+    anyApi.podcast.savePodcastShowAsset,
+    await withFeaturedWriteAttestation("save-show-asset", saveArgs),
+  );
 
   const saved = (await fetchQuery(anyApi.podcast.getPodcastShowAsset, {
     slug,

@@ -9,11 +9,7 @@ import {
   ARTICLE_SECTION_NARRATION_VERSION,
   buildArticleNarrationTracks,
 } from "./section-narration";
-import {
-  getActiveTtsProfile,
-  getTtsMetadata,
-  getTtsProfile,
-} from "./tts-profile";
+import { getTtsMetadata, getTtsProfile } from "./tts-profile";
 
 const snapshot = (titles: string[]): TodayWikipediaData => ({
   tfa: titles[0]
@@ -48,7 +44,7 @@ const warmArticleFixture = (
 const makeDependencies = (
   overrides: Partial<HomepageAudioWarmDependencies> = {},
 ): HomepageAudioWarmDependencies => {
-  const expected = getTtsMetadata(getActiveTtsProfile());
+  const expected = getTtsMetadata(getTtsProfile("edge"));
   return {
     fetchArticle: vi.fn(async (article) => warmArticleFixture(article)),
     getCachedSummary: vi.fn(async () => ({})),
@@ -77,7 +73,7 @@ describe("homepage summary audio warmer", () => {
 
   it("reuses an exact readable cache entry and regenerates an inaccessible one", async () => {
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const expected = getTtsMetadata(getActiveTtsProfile());
+    const expected = getTtsMetadata(getTtsProfile("edge"));
     const getCachedSummary = vi
       .fn<HomepageAudioWarmDependencies["getCachedSummary"]>()
       .mockResolvedValueOnce({
@@ -129,6 +125,7 @@ describe("homepage summary audio warmer", () => {
       { slug: "Canonical", title: "Canonical" },
       "  A summary\nwith   uneven spacing.  ",
     );
+    const edge = getTtsMetadata(getTtsProfile("edge"));
     const dependencies = makeDependencies({
       fetchArticle: vi.fn(async () => article),
     });
@@ -146,12 +143,9 @@ describe("homepage summary audio warmer", () => {
     expect(dependencies.getCachedSummary).toHaveBeenCalledWith(
       "Canonical",
       sourceHash,
-      expect.any(Object),
+      edge,
     );
-    expect(dependencies.generateAudio).toHaveBeenCalledWith(
-      text,
-      expect.any(Object),
-    );
+    expect(dependencies.generateAudio).toHaveBeenCalledWith(text, edge);
   });
 
   it("uses the revision-bound summary track identity shared by article playback", async () => {
@@ -199,13 +193,12 @@ describe("homepage summary audio warmer", () => {
     expect(requestedHashes[0]).not.toBe(requestedHashes[1]);
   });
 
-  it("stores fallback audio as degraded so a later run retries the primary key", async () => {
-    const fallback = getTtsMetadata(getTtsProfile("edge"));
+  it("stores unexpected provider audio as degraded so a later run retries Edge", async () => {
+    const unexpected = getTtsMetadata(getTtsProfile("openai"));
     const dependencies = makeDependencies({
       generateAudio: vi.fn(async () => ({
-        blob: new Blob(["fallback"], { type: "audio/mpeg" }),
-        metadata: fallback,
-        fallbackReason: "openai_error" as const,
+        blob: new Blob(["unexpected"], { type: "audio/mpeg" }),
+        metadata: unexpected,
       })),
     });
 
@@ -219,7 +212,7 @@ describe("homepage summary audio warmer", () => {
     expect(result.generated).toBe(1);
     expect(result.degraded).toBe(1);
     expect(dependencies.saveSummary).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: fallback }),
+      expect.objectContaining({ metadata: unexpected }),
     );
   });
 

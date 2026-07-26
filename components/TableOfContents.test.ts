@@ -663,8 +663,9 @@ describe("TableOfContents narration", () => {
 
     expect(markup).toContain('aria-live="polite"');
     expect(markup).toContain(
-      "Still generating audio. OpenAI is taking a little longer.",
+      "Still generating audio. This is taking a little longer than usual.",
     );
+    expect(markup).not.toContain("OpenAI is taking");
   });
 
   it("renders the high-demand fallback voice notice as polite status text", () => {

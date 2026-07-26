@@ -1,25 +1,64 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import {
+  assertValidRouteQuotaParameters,
+  getRouteQuotaAttestationPayload,
+  ROUTE_QUOTA_ATTESTATION_SCOPE,
+  type RouteQuotaParameters,
+} from "../lib/route-quota-attestation";
+import {
+  type ServerAttestation,
+  verifyServerAttestation,
+} from "../lib/server-attestation";
+
+export const assertRouteQuotaAttestation = async (
+  parameters: RouteQuotaParameters,
+  attestation: ServerAttestation,
+  secret: string | undefined,
+  now = Date.now(),
+): Promise<void> => {
+  assertValidRouteQuotaParameters(parameters);
+  const valid = await verifyServerAttestation({
+    attestation,
+    scope: ROUTE_QUOTA_ATTESTATION_SCOPE,
+    payload: getRouteQuotaAttestationPayload(parameters),
+    secret,
+    now,
+  });
+  if (!valid) {
+    throw new Error("Invalid or expired route quota attestation.");
+  }
+};
 
 export const consumeRouteQuota = mutation({
   args: {
     key: v.string(),
     limit: v.number(),
     windowMs: v.number(),
-    now: v.optional(v.number()),
+    attestation: v.object({
+      issuedAt: v.number(),
+      expiresAt: v.number(),
+      nonce: v.string(),
+      signature: v.string(),
+    }),
   },
   async handler(ctx, args) {
-    const now = args.now ?? Date.now();
-    const limit = Math.max(1, Math.floor(args.limit));
-    const windowMs = Math.max(1, Math.floor(args.windowMs));
+    const { key, limit, windowMs, attestation } = args;
+    const now = Date.now();
+    await assertRouteQuotaAttestation(
+      { key, limit, windowMs },
+      attestation,
+      process.env.TTS_QUOTA_BYPASS_SECRET?.trim() || undefined,
+      now,
+    );
     const existing = await ctx.db
       .query("routeQuotas")
-      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .withIndex("by_key", (q) => q.eq("key", key))
       .first();
 
     if (!existing || existing.expiresAt <= now) {
       const payload = {
-        key: args.key,
+        key,
         count: 1,
         windowStart: now,
         expiresAt: now + windowMs,

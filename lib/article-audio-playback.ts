@@ -4,11 +4,7 @@ import {
   type ArticleNarrationTrack,
 } from "@/lib/section-narration";
 import type { TtsAudioUrlResult } from "@/lib/tts-client";
-import {
-  getActiveTtsProfile,
-  getTtsMetadata,
-  normalizeTtsProvider,
-} from "@/lib/tts-profile";
+import { normalizeTtsProvider, type TtsMetadata } from "@/lib/tts-profile";
 
 export type AudioPlaybackStatus =
   | "idle"
@@ -48,13 +44,11 @@ export const createIdleAudioPlayback = (): AudioPlaybackState => ({
   slowLoading: false,
 });
 
-export const buildPlayAllQueue = (
-  article: {
-    title: string;
-    summary?: string;
-    sections?: Section[];
-  },
-): QueueItem[] =>
+export const buildPlayAllQueue = (article: {
+  title: string;
+  summary?: string;
+  sections?: Section[];
+}): QueueItem[] =>
   buildArticleNarrationTracks(article).map((track) => ({
     ...track,
     label: track.title,
@@ -98,10 +92,10 @@ const textOrFallback = (
 export const buildCachedTtsResult = (
   url: string | undefined,
   metadata: CachedTtsMetadata,
+  fallback: TtsMetadata,
 ): TtsAudioUrlResult | null => {
   if (!url) return null;
 
-  const fallback = getTtsMetadata(getActiveTtsProfile());
   return {
     url,
     metadata: {

@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
+import { useConvexAuth } from "convex/react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import type { BookmarkEntry } from "@/lib/bookmarks";
 
@@ -45,7 +46,7 @@ const BannerShell = ({
   actions,
   onDismiss,
 }: BannerContent & {
-  onDismiss: () => void;
+  onDismiss: (trigger: HTMLButtonElement) => void;
 }) => {
   return (
     <aside
@@ -70,7 +71,7 @@ const BannerShell = ({
           <div className="flex min-w-0 items-center gap-2">{actions}</div>
           <button
             type="button"
-            onClick={onDismiss}
+            onClick={(event) => onDismiss(event.currentTarget)}
             aria-label="Dismiss account notice"
             className="ml-auto flex size-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted transition-colors duration-200 hover:border-border hover:bg-surface-2 hover:text-foreground sm:ml-0"
           >
@@ -124,9 +125,9 @@ const getAuthenticatedBannerContent = ({
 const SignedOutBannerContent = (): BannerContent => ({
   eyebrow: "Guest mode",
   title: "Browse now, sync later",
-  body:
-    "Curio Garden stays public without an account. Sign in when you want synced bookmarks, a dashboard, and your own curated playlist.",
-  mobileBody: "Sign in for bookmarks, Dashboard, and your playlist.",
+  body: "Curio Garden stays public without an account. Sign in for more natural article narration, synced bookmarks, your dashboard, and a personal playlist.",
+  mobileBody:
+    "Sign in for more natural article narration, bookmarks, and your playlist.",
   actions: (
     <>
       <SignInButton>
@@ -137,7 +138,10 @@ const SignedOutBannerContent = (): BannerContent => ({
           Sign in
         </button>
       </SignInButton>
-      <Link href="/library" className={`${bannerLinkClass} ${secondaryActionClass}`}>
+      <Link
+        href="/library"
+        className={`${bannerLinkClass} ${secondaryActionClass}`}
+      >
         Library
       </Link>
     </>
@@ -151,9 +155,24 @@ const LoadingBannerContent = (): BannerContent => ({
   mobileBody: "Loading account shortcuts.",
 });
 
+const ConnectingBannerContent = (): BannerContent => ({
+  eyebrow: "Account",
+  title: "Connecting your account",
+  body: "Your synced features are connecting. Article audio will use the standard article voice until your account is ready.",
+  mobileBody: "Connecting synced features; standard article voice for now.",
+});
+
+const DegradedBannerContent = (): BannerContent => ({
+  eyebrow: "Account",
+  title: "Account connection paused",
+  body: "Browsing still works. Synced bookmarks, playlists, and more natural article narration will be available when the account connection recovers.",
+  mobileBody: "Browsing works; synced account features are reconnecting.",
+});
+
 export const HomeAuthStatusBanner = () => {
   const [dismissed, setDismissed] = useState(false);
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+  const { isLoading: isConvexAuthLoading, isAuthenticated } = useConvexAuth();
   const { user } = useUser();
   const { entries, isLoaded: bookmarksLoaded } = useBookmarks();
   const displayName =
@@ -168,13 +187,27 @@ export const HomeAuthStatusBanner = () => {
 
   const content = !isAuthLoaded
     ? LoadingBannerContent()
-    : isSignedIn
-      ? getAuthenticatedBannerContent({
-          displayName,
-          entries,
-          isLoaded: bookmarksLoaded,
-        })
-      : SignedOutBannerContent();
+    : !isSignedIn
+      ? SignedOutBannerContent()
+      : isConvexAuthLoading
+        ? ConnectingBannerContent()
+        : isAuthenticated
+          ? getAuthenticatedBannerContent({
+              displayName,
+              entries,
+              isLoaded: bookmarksLoaded,
+            })
+          : DegradedBannerContent();
 
-  return <BannerShell {...content} onDismiss={() => setDismissed(true)} />;
+  const dismissBanner = (trigger: HTMLButtonElement) => {
+    if (document.activeElement === trigger) {
+      const focusTarget =
+        document.getElementById("search-input") ??
+        document.getElementById("main-content");
+      focusTarget?.focus();
+    }
+    setDismissed(true);
+  };
+
+  return <BannerShell {...content} onDismiss={dismissBanner} />;
 };

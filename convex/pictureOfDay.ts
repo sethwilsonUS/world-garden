@@ -2,6 +2,20 @@ import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
+import { assertPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+import {
+  assertExactCurrentEdgeAudioMetadata,
+  hasPublicAudioMetadata,
+} from "../lib/public-edge-audio-metadata";
+
+export const MAX_PICTURE_OF_DAY_AUDIO_JOB_LEASE_MS = 15 * 60 * 1000;
+
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
 
 const pictureOfDayAudioStatus = v.union(
   v.literal("pending"),
@@ -49,7 +63,14 @@ export const getPictureOfDayAudio = query({
 });
 
 export const generateUploadUrl = mutation({
-  async handler(ctx) {
+  args: { attestation: serverAttestationValidator },
+  async handler(ctx, { attestation }) {
+    await assertPublicAudioWriteAttestation({
+      pipeline: "picture-of-day",
+      operation: "generate-upload-url",
+      args: {},
+      attestation,
+    });
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -61,8 +82,16 @@ export const claimPictureOfDayAudioJob = mutation({
     scriptVersion: v.number(),
     owner: v.string(),
     leaseMs: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "picture-of-day",
+      operation: "claim-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("pictureOfDayAudioJobs")
       .withIndex("by_feedDate_picture_script", (q) =>
@@ -74,7 +103,12 @@ export const claimPictureOfDayAudioJob = mutation({
       .first();
 
     const now = Date.now();
-    const leaseExpiresAt = now + Math.max(args.leaseMs, 1);
+    const leaseExpiresAt =
+      now +
+      Math.min(
+        Math.max(args.leaseMs, 1),
+        MAX_PICTURE_OF_DAY_AUDIO_JOB_LEASE_MS,
+      );
 
     if (
       existing &&
@@ -122,6 +156,7 @@ export const savePictureOfDayAudio = mutation({
     feedDate: v.string(),
     pictureKey: v.string(),
     scriptVersion: v.number(),
+    owner: v.string(),
     status: pictureOfDayAudioStatus,
     title: v.optional(v.string()),
     spokenText: v.optional(v.string()),
@@ -135,8 +170,52 @@ export const savePictureOfDayAudio = mutation({
     promptVersion: v.optional(v.string()),
     ttsNormVersion: v.optional(v.string()),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "picture-of-day",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
+    const now = Date.now();
+    const job = await ctx.db
+      .query("pictureOfDayAudioJobs")
+      .withIndex("by_feedDate_picture_script", (q) =>
+        q
+          .eq("feedDate", args.feedDate)
+          .eq("pictureKey", args.pictureKey)
+          .eq("scriptVersion", args.scriptVersion),
+      )
+      .first();
+    if (
+      !job ||
+      job.status !== "running" ||
+      job.leaseOwner !== args.owner ||
+      (job.leaseExpiresAt ?? 0) <= now
+    ) {
+      throw new Error(
+        "The Picture of the Day audio publication lease was lost.",
+      );
+    }
+    const audioMetadata = {
+      provider: args.provider,
+      model: args.model,
+      voiceId: args.voiceId,
+      promptVersion: args.promptVersion,
+      ttsNormVersion: args.ttsNormVersion,
+      ttsCacheKey: args.ttsCacheKey,
+    };
+    if (args.status === "ready" || hasPublicAudioMetadata(audioMetadata)) {
+      assertExactCurrentEdgeAudioMetadata(audioMetadata);
+    }
+    if (args.status === "ready" && !args.storageId) {
+      throw new Error(
+        "Ready Picture of the Day audio requires a stored audio asset.",
+      );
+    }
     const existing = await ctx.db
       .query("pictureOfDayAudio")
       .withIndex("by_feedDate_picture_script", (q) =>
@@ -147,7 +226,6 @@ export const savePictureOfDayAudio = mutation({
       )
       .first();
 
-    const now = Date.now();
     const audioVariants = upsertTtsAudioVariant(
       existing?.audioVariants,
       {
@@ -204,8 +282,16 @@ export const finalizePictureOfDayAudioJob = mutation({
     owner: v.string(),
     status: v.union(v.literal("ready"), v.literal("failed")),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "picture-of-day",
+      operation: "finalize-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("pictureOfDayAudioJobs")
       .withIndex("by_feedDate_picture_script", (q) =>

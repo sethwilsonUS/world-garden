@@ -9,6 +9,7 @@ import { ArticleAudioExportProvider } from "@/components/ArticleAudioExportProvi
 import { BadgeProgressToastProvider } from "@/components/BadgeProgressToastProvider";
 import { HybridBookmarkProvider } from "@/hooks/useBookmarks";
 import { PersonalPlaylistProvider } from "@/hooks/usePersonalPlaylist";
+import { AuthAwareTtsProfileProvider } from "@/lib/tts-audience";
 import {
   DataContext,
   type DataContextValue,
@@ -112,7 +113,9 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
 export const ConvexDataProvider = ({ children }: { children: ReactNode }) => {
   return (
     <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      <ConvexDataProviderInner>{children}</ConvexDataProviderInner>
+      <AuthAwareTtsProfileProvider>
+        <ConvexDataProviderInner>{children}</ConvexDataProviderInner>
+      </AuthAwareTtsProfileProvider>
     </ConvexProviderWithClerk>
   );
 };

@@ -1,5 +1,8 @@
-/** Bump this whenever normalizeTtsText rules change to invalidate cached audio. */
-export const TTS_NORM_VERSION = "ttsNorm:2";
+/**
+ * Cache contract boundary for normalized TTS audio. Bump for normalization
+ * changes or whenever older cache rows must be quarantined.
+ */
+export const TTS_NORM_VERSION = "ttsNorm:3";
 
 /**
  * Expand abbreviations that TTS engines commonly mispronounce.

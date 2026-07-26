@@ -2,6 +2,20 @@ import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
+import { assertPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+import {
+  assertExactCurrentEdgeAudioMetadata,
+  hasPublicAudioMetadata,
+} from "../lib/public-edge-audio-metadata";
+
+export const MAX_DID_YOU_KNOW_AUDIO_JOB_LEASE_MS = 15 * 60 * 1000;
+
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
 
 const didYouKnowAudioStatus = v.union(
   v.literal("pending"),
@@ -54,7 +68,14 @@ export const getDidYouKnowAudioJobByDate = query({
 });
 
 export const generateUploadUrl = mutation({
-  async handler(ctx) {
+  args: { attestation: serverAttestationValidator },
+  async handler(ctx, { attestation }) {
+    await assertPublicAudioWriteAttestation({
+      pipeline: "did-you-know",
+      operation: "generate-upload-url",
+      args: {},
+      attestation,
+    });
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -64,15 +85,28 @@ export const claimDidYouKnowAudioJob = mutation({
     feedDate: v.string(),
     owner: v.string(),
     leaseMs: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "did-you-know",
+      operation: "claim-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("didYouKnowAudioJobs")
       .withIndex("by_feedDate", (q) => q.eq("feedDate", args.feedDate))
       .first();
 
     const now = Date.now();
-    const leaseExpiresAt = now + Math.max(args.leaseMs, 1);
+    const leaseExpiresAt =
+      now +
+      Math.min(
+        Math.max(args.leaseMs, 1),
+        MAX_DID_YOU_KNOW_AUDIO_JOB_LEASE_MS,
+      );
 
     if (
       existing &&
@@ -116,6 +150,7 @@ export const claimDidYouKnowAudioJob = mutation({
 export const saveDidYouKnowAudio = mutation({
   args: {
     feedDate: v.string(),
+    owner: v.string(),
     status: didYouKnowAudioStatus,
     title: v.optional(v.string()),
     spokenText: v.optional(v.string()),
@@ -130,14 +165,48 @@ export const saveDidYouKnowAudio = mutation({
     promptVersion: v.optional(v.string()),
     ttsNormVersion: v.optional(v.string()),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "did-you-know",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
+    const now = Date.now();
+    const job = await ctx.db
+      .query("didYouKnowAudioJobs")
+      .withIndex("by_feedDate", (q) => q.eq("feedDate", args.feedDate))
+      .first();
+    if (
+      !job ||
+      job.status !== "running" ||
+      job.leaseOwner !== args.owner ||
+      (job.leaseExpiresAt ?? 0) <= now
+    ) {
+      throw new Error("The Did You Know audio publication lease was lost.");
+    }
+    const audioMetadata = {
+      provider: args.provider,
+      model: args.model,
+      voiceId: args.voiceId,
+      promptVersion: args.promptVersion,
+      ttsNormVersion: args.ttsNormVersion,
+      ttsCacheKey: args.ttsCacheKey,
+    };
+    if (args.status === "ready" || hasPublicAudioMetadata(audioMetadata)) {
+      assertExactCurrentEdgeAudioMetadata(audioMetadata);
+    }
+    if (args.status === "ready" && !args.storageId) {
+      throw new Error("Ready Did You Know audio requires a stored audio asset.");
+    }
     const existing = await ctx.db
       .query("didYouKnowAudio")
       .withIndex("by_feedDate", (q) => q.eq("feedDate", args.feedDate))
       .first();
 
-    const now = Date.now();
     const audioVariants = upsertTtsAudioVariant(
       existing?.audioVariants,
       {
@@ -205,8 +274,16 @@ export const finalizeDidYouKnowAudioJob = mutation({
     owner: v.string(),
     status: v.union(v.literal("ready"), v.literal("failed")),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "did-you-know",
+      operation: "finalize-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("didYouKnowAudioJobs")
       .withIndex("by_feedDate", (q) => q.eq("feedDate", args.feedDate))

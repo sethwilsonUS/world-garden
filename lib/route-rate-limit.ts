@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { anyApi } from "convex/server";
 import { fetchMutation } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
+import { createAttestedRouteQuotaArgs } from "./route-quota-attestation";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 
@@ -53,14 +54,27 @@ export const enforceRouteQuota = async ({
   windowMs,
   label,
 }: RouteQuotaOptions): Promise<NextResponse | null> => {
-  const quota = await fetchMutation(anyApi.rateLimits.consumeRouteQuota, {
-    key: buildRouteQuotaKey({
-      scope,
-      ipAddress: getRequestIpAddress(req.headers),
-    }),
-    limit,
-    windowMs,
-  });
+  let quota;
+  try {
+    const quotaArgs = await createAttestedRouteQuotaArgs({
+      key: buildRouteQuotaKey({
+        scope,
+        ipAddress: getRequestIpAddress(req.headers),
+      }),
+      limit,
+      windowMs,
+    });
+    quota = await fetchMutation(anyApi.rateLimits.consumeRouteQuota, quotaArgs);
+  } catch (error) {
+    console.error(`[route-quota] ${scope} quota check failed`, error);
+    return NextResponse.json(
+      { error: `${label} is temporarily unavailable. Try again later.` },
+      {
+        status: 503,
+        headers: { ...NO_CACHE_HEADERS, "Retry-After": "60" },
+      },
+    );
+  }
 
   if (quota.allowed) {
     return null;

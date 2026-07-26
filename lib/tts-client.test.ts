@@ -50,18 +50,27 @@ describe("tts-client", () => {
     const text =
       "This article summary is comfortably under the configured request limit.";
 
-    const blob = await generateTtsAudio({ text });
+    const blob = await generateTtsAudio({ text, provider: "edge" });
 
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(
       TTS_API_ROUTE,
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          text,
+          provider: "edge",
+          expectedTtsCacheKey:
+            "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
+        }),
+      }),
     );
     const [, init] = vi.mocked(fetch).mock.calls[0];
     expect(JSON.parse(String(init?.body))).toEqual({
       text,
+      provider: "edge",
       expectedTtsCacheKey:
-        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+        "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
     });
     expect(await blob.text()).toBe(text);
   });
@@ -69,7 +78,7 @@ describe("tts-client", () => {
   it("forwards the requested voice and optimistic profile key", async () => {
     const text = "A profile-pinned narration request.";
     const expectedTtsCacheKey =
-      "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v1:ttsNorm:2";
+      "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v1:ttsNorm:3";
 
     await generateTtsAudio({
       text,
@@ -96,6 +105,7 @@ describe("tts-client", () => {
 
     const blob = await generateTtsAudio({
       text: "This article summary is comfortably under the configured request limit.",
+      provider: "edge",
     });
 
     expect(await blob.text()).toBe(
@@ -112,7 +122,7 @@ describe("tts-client", () => {
       makeWords("gamma", 300),
     ].join("\n\n");
 
-    const blob = await generateTtsAudio({ text });
+    const blob = await generateTtsAudio({ text, provider: "edge" });
     const calls = vi.mocked(fetch).mock.calls;
 
     expect(calls).toHaveLength(3);
@@ -163,6 +173,7 @@ describe("tts-client", () => {
 
     const pending = generateTtsAudio({
       text: "one two three four five six seven eight",
+      provider: "edge",
     });
 
     const waitForReleases = async (count: number) => {
@@ -208,7 +219,7 @@ describe("tts-client", () => {
     );
 
     const text = [makeWords("alpha", 700), makeWords("beta", 650)].join("\n\n");
-    const blob = await generateTtsAudio({ text });
+    const blob = await generateTtsAudio({ text, provider: "edge" });
     const combinedText = await blob.text();
 
     expect(combinedText).toContain("alpha0");
@@ -239,6 +250,7 @@ describe("tts-client", () => {
   it("creates an object URL from the generated audio blob", async () => {
     const url = await generateTtsAudioUrl({
       text: "This article summary is comfortably under the configured request limit.",
+      provider: "edge",
     });
 
     expect(url).toBe("blob:tts-audio");
@@ -258,9 +270,9 @@ describe("tts-client", () => {
             "X-Curio-TTS-Model": "gpt-4o-mini-tts",
             "X-Curio-TTS-Voice": "marin",
             "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:3",
             "X-Curio-TTS-Cache-Key":
-              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
           },
         });
       }),
@@ -268,6 +280,7 @@ describe("tts-client", () => {
 
     const result = await generateTtsAudioWithMetadata({
       text: "This article summary is comfortably under the configured request limit.",
+      provider: "openai",
     });
 
     expect(await result.blob.text()).toBe(
@@ -278,13 +291,13 @@ describe("tts-client", () => {
       model: "gpt-4o-mini-tts",
       voiceId: "marin",
       promptVersion: "curio-warm-narrator-v1",
-      ttsNormVersion: "ttsNorm:2",
+      ttsNormVersion: "ttsNorm:3",
       ttsCacheKey:
-        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
     });
   });
 
-  it("parses fallback reason response headers", async () => {
+  it("preserves an authentication fallback reason from the TTS route", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -297,11 +310,11 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "edge-tts",
               "X-Curio-TTS-Voice": "en-US-AriaNeural",
               "X-Curio-TTS-Prompt-Version": "edge-default",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
               "X-Curio-TTS-Fallback": "true",
-              "X-Curio-TTS-Fallback-Reason": "openai_quota",
+              "X-Curio-TTS-Fallback-Reason": "openai_auth",
             },
           }),
       ),
@@ -309,10 +322,11 @@ describe("tts-client", () => {
 
     const result = await generateTtsAudioWithMetadata({
       text: "This article summary is comfortably under the configured request limit.",
+      provider: "openai",
     });
 
     expect(result.metadata.provider).toBe("edge");
-    expect(result.fallbackReason).toBe("openai_quota");
+    expect(result.fallbackReason).toBe("openai_auth");
   });
 
   it("forwards extra request headers when provided", async () => {
@@ -331,6 +345,7 @@ describe("tts-client", () => {
     await generateTtsAudioWithMetadata(
       {
         text: "This article summary is comfortably under the configured request limit.",
+        provider: "edge",
       },
       {
         headers: {
@@ -373,6 +388,7 @@ describe("tts-client", () => {
 
     const pending = generateTtsAudioWithMetadata({
       text: "This article summary is comfortably under the configured request limit.",
+      provider: "edge",
     });
     const rejection = expect(pending).rejects.toThrow(
       "TTS chunk 1/1 failed (10 words): TTS request timed out after 25ms",
@@ -399,6 +415,7 @@ describe("tts-client", () => {
     await generateTtsAudioWithMetadata(
       {
         text: "This article summary is comfortably under the configured request limit.",
+        provider: "edge",
       },
       {
         headers: {
@@ -414,7 +431,7 @@ describe("tts-client", () => {
     );
   });
 
-  it("retries all chunks with Edge when any OpenAI chunk falls back", async () => {
+  it("retries all chunks with Edge when OpenAI access expires mid-request", async () => {
     process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "3";
     const calls: Array<{ text: string; provider?: string }> = [];
 
@@ -436,9 +453,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "edge-tts",
               "X-Curio-TTS-Voice": "en-US-AriaNeural",
               "X-Curio-TTS-Prompt-Version": "edge-default",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
             },
           });
         }
@@ -454,13 +471,13 @@ describe("tts-client", () => {
             "X-Curio-TTS-Prompt-Version": fallback
               ? "edge-default"
               : "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:3",
             "X-Curio-TTS-Cache-Key": fallback
-              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
-              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3"
+              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
             "X-Curio-TTS-Fallback": fallback ? "true" : "false",
             ...(fallback
-              ? { "X-Curio-TTS-Fallback-Reason": "openai_quota" }
+              ? { "X-Curio-TTS-Fallback-Reason": "openai_auth" }
               : {}),
           },
         });
@@ -469,36 +486,39 @@ describe("tts-client", () => {
 
     const result = await generateTtsAudioWithMetadata({
       text: "one two three four five six",
+      provider: "openai",
     });
 
     expect(calls).toEqual([
       {
         text: "one two three",
+        provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "four five six",
+        provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "one two three",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
     ]);
     expect(result.metadata.provider).toBe("edge");
-    expect(result.fallbackReason).toBe("openai_quota");
+    expect(result.fallbackReason).toBe("openai_auth");
     expect(await result.blob.text()).toBe(
       "edge:one two threeedge:four five six",
     );
@@ -526,9 +546,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "edge-tts",
               "X-Curio-TTS-Voice": "en-US-AriaNeural",
               "X-Curio-TTS-Prompt-Version": "edge-default",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
             },
           });
         }
@@ -544,10 +564,10 @@ describe("tts-client", () => {
             "X-Curio-TTS-Prompt-Version": fallback
               ? "edge-default"
               : "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:3",
             "X-Curio-TTS-Cache-Key": fallback
-              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
-              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3"
+              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
             "X-Curio-TTS-Fallback": fallback ? "true" : "false",
           },
         });
@@ -564,27 +584,27 @@ describe("tts-client", () => {
         text: "one two three",
         provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "one two three",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
     ]);
     expect(result.metadata.provider).toBe("edge");
@@ -603,9 +623,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "gpt-4o-mini-tts",
               "X-Curio-TTS-Voice": "marin",
               "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+                "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
             },
           }),
       ),
@@ -613,6 +633,7 @@ describe("tts-client", () => {
 
     const result = await generateTtsAudioUrlWithMetadata({
       text: "This article summary is comfortably under the configured request limit.",
+      provider: "openai",
     });
 
     expect(result.url).toBe("blob:tts-audio");
@@ -633,7 +654,10 @@ describe("tts-client", () => {
     );
 
     await expect(
-      generateTtsAudio({ text: "This text is definitely long enough." }),
+      generateTtsAudio({
+        text: "This text is definitely long enough.",
+        provider: "edge",
+      }),
     ).rejects.toThrow(
       "TTS chunk 1/1 failed (6 words): TTS request failed with 502 (text/plain): upstream timeout while rendering audio",
     );

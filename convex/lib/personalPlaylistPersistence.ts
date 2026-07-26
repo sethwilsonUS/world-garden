@@ -7,6 +7,9 @@ export type PersonalPlaylistReadCtx = Pick<QueryCtx, "db" | "storage">;
 export type PersonalPlaylistMutationCtx = Pick<MutationCtx, "db" | "storage">;
 
 export const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
+const DEFAULT_PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT = 10;
+const DEFAULT_PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT = 5;
 export type PersonalPlaylistEpisodeDoc = Omit<
   Doc<"personalPlaylistEpisodes">,
   "_creationTime"
@@ -22,6 +25,39 @@ export type UpsertViewerPlaylistEpisodeResult = {
   added: boolean;
   shouldSchedule: boolean;
 };
+
+const readPositiveInteger = (
+  environment: Record<string, string | undefined>,
+  name: string,
+  fallback: number,
+): number => {
+  const parsed = Number.parseInt(environment[name] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+export const getPersonalPlaylistOpenAiQuotaConfig = (
+  environment: Record<string, string | undefined> = process.env,
+): {
+  activeLimit: number;
+  dailyLimit: number;
+  dailyWindowMs: number;
+} => ({
+  activeLimit: readPositiveInteger(
+    environment,
+    "PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT",
+    DEFAULT_PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT,
+  ),
+  dailyLimit: readPositiveInteger(
+    environment,
+    "PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT",
+    DEFAULT_PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT,
+  ),
+  dailyWindowMs: readPositiveInteger(
+    environment,
+    "PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS",
+    DEFAULT_PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS,
+  ),
+});
 
 const createFeedToken = (): string =>
   `${crypto.randomUUID().replace(/-/g, "")}${crypto.randomUUID().replace(/-/g, "")}`;
@@ -100,6 +136,73 @@ const getActiveViewerEpisodes = async (
   (await getViewerEpisodes(ctx, viewerTokenIdentifier)).filter(
     (episode) => episode.removedAt == null,
   );
+
+const getPersonalPlaylistOpenAiQuotaKey = (
+  viewerTokenIdentifier: string,
+): string => `personal-playlist:openai:daily:${viewerTokenIdentifier}`;
+
+const reservePersonalPlaylistOpenAiGeneration = async (
+  ctx: PersonalPlaylistMutationCtx,
+  args: {
+    viewerTokenIdentifier: string;
+    activeEpisodes: PersonalPlaylistEpisodeDoc[];
+    increasesActiveCount: boolean;
+    countsTowardDailyLimit: boolean;
+  },
+): Promise<void> => {
+  const config = getPersonalPlaylistOpenAiQuotaConfig();
+  const activeGenerationCount = args.activeEpisodes.filter(
+    (episode) => episode.status === "queued" || episode.status === "running",
+  ).length;
+  if (
+    args.increasesActiveCount &&
+    activeGenerationCount >= config.activeLimit
+  ) {
+    throw new Error(
+      "Personal Playlist queue is full. Wait for an episode to finish before adding another.",
+    );
+  }
+
+  if (!args.countsTowardDailyLimit) {
+    return;
+  }
+
+  const now = Date.now();
+  const quotaKey = getPersonalPlaylistOpenAiQuotaKey(
+    args.viewerTokenIdentifier,
+  );
+  const existingQuota = await ctx.db
+    .query("routeQuotas")
+    .withIndex("by_key", (q) => q.eq("key", quotaKey))
+    .first();
+  const isNewWindow = !existingQuota || existingQuota.expiresAt <= now;
+
+  if (!isNewWindow && existingQuota.count >= config.dailyLimit) {
+    throw new Error(
+      `Personal Playlist generation limit reached. Try again after ${new Date(
+        existingQuota.expiresAt,
+      ).toISOString()}.`,
+    );
+  }
+
+  const quotaPayload = {
+    key: quotaKey,
+    count: isNewWindow ? 1 : existingQuota.count + 1,
+    windowStart: isNewWindow ? now : existingQuota.windowStart,
+    expiresAt: isNewWindow
+      ? now + config.dailyWindowMs
+      : existingQuota.expiresAt,
+    updatedAt: now,
+  };
+  if (existingQuota) {
+    await ctx.db.patch(existingQuota._id, quotaPayload);
+  } else {
+    await ctx.db.insert("routeQuotas", {
+      ...quotaPayload,
+      createdAt: now,
+    });
+  }
+};
 
 const rewriteActiveViewerQueue = async (
   ctx: PersonalPlaylistMutationCtx,
@@ -210,6 +313,18 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
 
   if (existing && existing.removedAt == null) {
     const narrationChanged = existing.narrationHash !== args.narrationHash;
+    const reactivatesGeneration =
+      narrationChanged &&
+      existing.status !== "queued" &&
+      existing.status !== "running";
+    if (narrationChanged) {
+      await reservePersonalPlaylistOpenAiGeneration(ctx, {
+        viewerTokenIdentifier: args.viewerTokenIdentifier,
+        activeEpisodes,
+        increasesActiveCount: reactivatesGeneration,
+        countsTowardDailyLimit: reactivatesGeneration && args.sectionCount > 0,
+      });
+    }
     await ctx.db.patch(existing._id, {
       articleId: args.articleId,
       wikiPageId: args.wikiPageId,
@@ -226,6 +341,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
               : {}),
             status: "queued" as const,
             stage: "queued" as const,
+            ...(reactivatesGeneration ? { generationRetryCount: 0 } : {}),
             completedSectionCount: 0,
             storageId: undefined,
             durationSeconds: undefined,
@@ -249,6 +365,12 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
   }
 
   if (existing) {
+    await reservePersonalPlaylistOpenAiGeneration(ctx, {
+      viewerTokenIdentifier: args.viewerTokenIdentifier,
+      activeEpisodes,
+      increasesActiveCount: true,
+      countsTowardDailyLimit: args.sectionCount > 0,
+    });
     await ctx.db.patch(existing._id, {
       articleId: args.articleId,
       wikiPageId: args.wikiPageId,
@@ -260,6 +382,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       position: activeEpisodes.length,
       status: "queued",
       stage: "queued",
+      generationRetryCount: 0,
       sectionCount: args.sectionCount,
       narrationHash: args.narrationHash,
       ...(args.requestedTtsMetadata
@@ -285,6 +408,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
         position: activeEpisodes.length,
         status: "queued" as const,
         stage: "queued" as const,
+        generationRetryCount: 0,
         sectionCount: args.sectionCount,
         completedSectionCount: 0,
         storageId: undefined,
@@ -307,6 +431,12 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     };
   }
 
+  await reservePersonalPlaylistOpenAiGeneration(ctx, {
+    viewerTokenIdentifier: args.viewerTokenIdentifier,
+    activeEpisodes,
+    increasesActiveCount: true,
+    countsTowardDailyLimit: args.sectionCount > 0,
+  });
   const episodeId = await ctx.db.insert("personalPlaylistEpisodes", {
     viewerTokenIdentifier: args.viewerTokenIdentifier,
     articleId: args.articleId,
@@ -319,6 +449,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     publishedAt: buildPublishedAt(now, activeEpisodes.length),
     status: "queued",
     stage: "queued",
+    generationRetryCount: 0,
     sectionCount: args.sectionCount,
     narrationHash: args.narrationHash,
     requestedTtsMetadata: args.requestedTtsMetadata,
@@ -474,9 +605,25 @@ export const retryViewerPlaylistEpisodeForCtx = async (
     return { queued: false };
   }
 
+  const generationRetryCount = episode.generationRetryCount ?? 0;
+
+  await reservePersonalPlaylistOpenAiGeneration(ctx, {
+    viewerTokenIdentifier: args.viewerTokenIdentifier,
+    activeEpisodes: await getActiveViewerEpisodes(
+      ctx,
+      args.viewerTokenIdentifier,
+    ),
+    increasesActiveCount: true,
+    // Preserve one unmetered retry per generation. Later retries consume
+    // allowance unless the episode is known to have no narratable tracks.
+    countsTowardDailyLimit:
+      generationRetryCount > 0 && episode.sectionCount !== 0,
+  });
+
   await ctx.db.patch(args.episodeId, {
     status: "queued",
     stage: "queued",
+    generationRetryCount: generationRetryCount + 1,
     completedSectionCount: 0,
     ...(args.requestedTtsMetadata
       ? { requestedTtsMetadata: args.requestedTtsMetadata }

@@ -5,8 +5,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Article } from "@/lib/data-context";
 import type { TtsAudioUrlResult } from "@/lib/tts-client";
-import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
-import { buildArticleNarrationHash } from "@/lib/section-narration";
+import {
+  getTtsMetadata,
+  getTtsProfile,
+  type TtsProvider,
+} from "@/lib/tts-profile";
+import { AuthAwareTtsProfileProvider } from "@/lib/tts-audience";
+import {
+  buildArticleNarrationHash,
+  buildArticleNarrationTracks,
+} from "@/lib/section-narration";
 import { createTestSection } from "@/lib/test-section-narration";
 import { useArticleAudioController } from "./useArticleAudioController";
 
@@ -21,16 +29,30 @@ const mocks = vi.hoisted(() => ({
   playAll: vi.fn(),
   queueExport: vi.fn(),
   query: vi.fn(),
+  sectionAudioQuery: vi.fn(),
   setPlaybackRate: vi.fn(),
   showBadgeProgressToasts: vi.fn(),
   updateProgress: vi.fn(),
   warmSummary: vi.fn(),
+  auth: {
+    isLoaded: true,
+    isSignedIn: false as boolean | undefined,
+  },
+  convexAuth: {
+    isLoading: false,
+    isAuthenticated: false,
+  },
+}));
+
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => mocks.auth,
 }));
 
 vi.mock("convex/react", () => ({
   useConvex: () => ({ query: mocks.query }),
+  useConvexAuth: () => mocks.convexAuth,
   useMutation: () => mocks.mutation,
-  useQuery: () => undefined,
+  useQuery: (...args: unknown[]) => mocks.sectionAudioQuery(...args),
 }));
 
 vi.mock("@/components/ArticleAudioExportProvider", () => ({
@@ -78,11 +100,9 @@ vi.mock("@/lib/audio-prefetch", () => ({
   warmSummaryAudioFromText: mocks.warmSummary,
 }));
 
-vi.mock("@/lib/tts-client", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/tts-client")>();
+vi.mock("@/lib/article-section-audio-client", () => {
   return {
-    ...original,
-    generateTtsAudioUrlWithMetadata: mocks.generateTts,
+    generateArticleSectionAudioUrlWithMetadata: mocks.generateTts,
   };
 });
 
@@ -111,9 +131,12 @@ const deferred = <T,>(): Deferred<T> => {
   return { promise, resolve, reject };
 };
 
-const audioResult = (url: string): TtsAudioUrlResult => ({
+const audioResult = (
+  url: string,
+  provider: TtsProvider = "edge",
+): TtsAudioUrlResult => ({
   url,
-  metadata: getTtsMetadata(getActiveTtsProfile()),
+  metadata: getTtsMetadata(getTtsProfile(provider)),
 });
 
 const article: TestArticle = {
@@ -147,6 +170,7 @@ const article: TestArticle = {
     }),
   ],
 };
+const articleTracks = buildArticleNarrationTracks(article);
 
 let latest: ObservedController | null = null;
 
@@ -154,7 +178,7 @@ const captureController = (value: ObservedController) => {
   latest = value;
 };
 
-const Harness = ({
+const ControllerHarness = ({
   onChange,
   articleValue = article,
 }: {
@@ -179,6 +203,15 @@ const Harness = ({
 
   return <audio ref={audioRef} src={audioSrc ?? undefined} />;
 };
+
+const Harness = (props: {
+  onChange: (value: ObservedController) => void;
+  articleValue?: TestArticle;
+}) => (
+  <AuthAwareTtsProfileProvider>
+    <ControllerHarness {...props} />
+  </AuthAwareTtsProfileProvider>
+);
 
 const controller = (): ObservedController => {
   if (!latest) throw new Error("Controller has not rendered.");
@@ -209,11 +242,17 @@ describe("useArticleAudioController", () => {
     mocks.exportJobs.length = 0;
     mocks.mutation.mockResolvedValue(undefined);
     mocks.query.mockResolvedValue({ badges: [] });
+    mocks.sectionAudioQuery.mockReturnValue(undefined);
     mocks.queueExport.mockResolvedValue({
       exportId: "export-1",
       status: "queued",
     });
     mocks.warmSummary.mockResolvedValue(null);
+    mocks.exportJobs = [];
+    mocks.auth.isLoaded = true;
+    mocks.auth.isSignedIn = false;
+    mocks.convexAuth.isLoading = false;
+    mocks.convexAuth.isAuthenticated = false;
 
     playSpy = vi
       .spyOn(HTMLMediaElement.prototype, "play")
@@ -279,7 +318,8 @@ describe("useArticleAudioController", () => {
   it("offers a ready combined export with the current narration and TTS identity", async () => {
     const articleWithId = { ...article, _id: "article-1" };
     const narrationHash = buildArticleNarrationHash(articleWithId);
-    const ttsCacheKey = getTtsMetadata(getActiveTtsProfile()).ttsCacheKey;
+    const activeTtsProfile = getTtsProfile("edge");
+    const ttsCacheKey = getTtsMetadata(activeTtsProfile).ttsCacheKey;
     mocks.exportJobs.push({
       _id: "current-export",
       articleId: "article-1",
@@ -289,6 +329,7 @@ describe("useArticleAudioController", () => {
       completedSectionCount: 4,
       narrationHash,
       ttsCacheKey,
+      ttsProvider: activeTtsProfile.provider,
       createdAt: 1,
       updatedAt: 1,
     });
@@ -305,6 +346,29 @@ describe("useArticleAudioController", () => {
       );
       expect(controller().state.download.status).toBe("ready");
     });
+  });
+
+  it("stops subscribing to raw section cache URLs when OpenAI becomes active", async () => {
+    const articleWithId = { ...article, _id: "article-1" };
+    await act(async () => {
+      root.render(
+        <Harness onChange={captureController} articleValue={articleWithId} />,
+      );
+    });
+    expect(mocks.sectionAudioQuery.mock.calls.at(-1)?.[1]).toMatchObject({
+      articleId: "article-1",
+      ttsCacheKey: getTtsProfile("edge").ttsCacheKey,
+    });
+
+    mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
+    await act(async () => {
+      root.render(
+        <Harness onChange={captureController} articleValue={articleWithId} />,
+      );
+    });
+
+    expect(mocks.sectionAudioQuery.mock.calls.at(-1)?.[1]).toBe("skip");
   });
 
   it("ignores a stale section completion after a newer request wins", async () => {
@@ -341,6 +405,147 @@ describe("useArticleAudioController", () => {
     });
     expect(controller().state.playback.sectionKey).toBe("section-1");
     expect(controller().audioSrc).toBe("blob:newer");
+  });
+
+  it("stops guest audio and rejects its late result when sign-in changes the profile", async () => {
+    const edgeRequest = deferred<TtsAudioUrlResult>();
+    mocks.generateTts.mockReturnValueOnce(edgeRequest.promise);
+
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledWith({
+        slug: "An_Unexpected_Journey",
+        sectionKey: "summary",
+        sourceHash: articleTracks[0].sourceHash,
+        provider: "edge",
+        localText: article.summary,
+      }),
+    );
+
+    mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
+    await act(async () => {
+      root.render(<Harness onChange={captureController} />);
+    });
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("idle");
+      expect(controller().audioSrc).toBeNull();
+    });
+
+    await act(async () => {
+      edgeRequest.resolve(audioResult("blob:late-edge", "edge"));
+      await edgeRequest.promise;
+    });
+    expect(controller().audioSrc).toBeNull();
+    expect(playSpy).not.toHaveBeenCalled();
+
+    mocks.generateTts.mockResolvedValueOnce(
+      audioResult("blob:signed-in-openai", "openai"),
+    );
+    act(() => controller().actions.listenSummary());
+
+    await waitForExpectation(() => {
+      expect(mocks.generateTts).toHaveBeenLastCalledWith({
+        slug: "An_Unexpected_Journey",
+        sectionKey: "summary",
+        sourceHash: articleTracks[0].sourceHash,
+        provider: "openai",
+        localText: article.summary,
+      });
+      expect(controller().audioSrc).toBe("blob:signed-in-openai");
+    });
+  });
+
+  it("stops OpenAI audio and rejects its late result after sign-out", async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
+    await act(async () => {
+      root.render(<Harness onChange={captureController} />);
+    });
+
+    const openAiRequest = deferred<TtsAudioUrlResult>();
+    mocks.generateTts.mockReturnValueOnce(openAiRequest.promise);
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledWith({
+        slug: "An_Unexpected_Journey",
+        sectionKey: "summary",
+        sourceHash: articleTracks[0].sourceHash,
+        provider: "openai",
+        localText: article.summary,
+      }),
+    );
+
+    mocks.auth.isSignedIn = false;
+    mocks.convexAuth.isAuthenticated = false;
+    await act(async () => {
+      root.render(<Harness onChange={captureController} />);
+    });
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("idle");
+      expect(controller().audioSrc).toBeNull();
+    });
+
+    await act(async () => {
+      openAiRequest.resolve(audioResult("blob:late-openai", "openai"));
+      await openAiRequest.promise;
+    });
+    expect(controller().audioSrc).toBeNull();
+
+    mocks.generateTts.mockResolvedValueOnce(
+      audioResult("blob:signed-out-edge", "edge"),
+    );
+    act(() => controller().actions.listenSummary());
+
+    await waitForExpectation(() => {
+      expect(mocks.generateTts).toHaveBeenLastCalledWith({
+        slug: "An_Unexpected_Journey",
+        sectionKey: "summary",
+        sourceHash: articleTracks[0].sourceHash,
+        provider: "edge",
+        localText: article.summary,
+      });
+      expect(controller().audioSrc).toBe("blob:signed-out-edge");
+    });
+  });
+
+  it("only presents an article export made for the active voice provider", async () => {
+    const articleWithId = { ...article, _id: "article-42" };
+    mocks.exportJobs = [
+      {
+        _id: "openai-export",
+        articleId: articleWithId._id,
+        title: article.title,
+        status: "ready",
+        sectionCount: 4,
+        completedSectionCount: 4,
+        narrationHash: buildArticleNarrationHash(articleWithId),
+        ttsCacheKey: getTtsProfile("openai").ttsCacheKey,
+        ttsProvider: "openai",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <Harness articleValue={articleWithId} onChange={captureController} />,
+      );
+    });
+    expect(controller().state.download.href).toBeUndefined();
+
+    mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
+    await act(async () => {
+      root.render(
+        <Harness articleValue={articleWithId} onChange={captureController} />,
+      );
+    });
+    await waitForExpectation(() =>
+      expect(controller().state.download.href).toBe(
+        "/api/article/audio-export/openai-export?download=1",
+      ),
+    );
   });
 
   it("shows the slow-loading nudge at eight seconds and clears it on success", async () => {
@@ -392,14 +597,15 @@ describe("useArticleAudioController", () => {
   });
 
   it("advances Play All through every narrated section and finishes cleanly", async () => {
-    mocks.generateTts.mockImplementation(async ({ text }: { text: string }) =>
-      audioResult(
-        text.includes("hobbit leaves")
-          ? "blob:summary"
-          : text.includes("Three trolls")
-            ? "blob:section-0"
-            : "blob:section-1",
-      ),
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(
+          sectionKey === "summary"
+            ? "blob:summary"
+            : sectionKey === "section-0"
+              ? "blob:section-0"
+              : "blob:section-1",
+        ),
     );
 
     act(() => {
@@ -479,8 +685,9 @@ describe("useArticleAudioController", () => {
         />,
       );
     });
-    mocks.generateTts.mockImplementation(async ({ text }: { text: string }) =>
-      audioResult(`blob:${text}`),
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
     );
 
     act(() => controller().actions.playAll());
@@ -495,7 +702,13 @@ describe("useArticleAudioController", () => {
       expect(controller().state.playback.sectionKey).toBe("section-0"),
     );
     expect(mocks.generateTts).toHaveBeenCalledWith({
-      text: "Next section: Misty Mountains.",
+      slug: "An_Unexpected_Journey",
+      sectionKey: "section-0",
+      sourceHash: buildArticleNarrationTracks(transitionArticle).find(
+        (track) => track.sectionKey === "section-0",
+      )?.sourceHash,
+      provider: "edge",
+      localText: "Next section: Misty Mountains.",
     });
     expect(mocks.updateProgress).not.toHaveBeenCalled();
 
@@ -513,8 +726,9 @@ describe("useArticleAudioController", () => {
   it("skips a loading Play All item without letting its late result return", async () => {
     const summary = deferred<TtsAudioUrlResult>();
     const firstSection = deferred<TtsAudioUrlResult>();
-    mocks.generateTts.mockImplementation(({ text }: { text: string }) =>
-      text.includes("hobbit leaves") ? summary.promise : firstSection.promise,
+    mocks.generateTts.mockImplementation(
+      ({ sectionKey }: { sectionKey: string }) =>
+        sectionKey === "summary" ? summary.promise : firstSection.promise,
     );
 
     act(() => {
@@ -553,16 +767,18 @@ describe("useArticleAudioController", () => {
   });
 
   it("continues Play All after a section fails", async () => {
-    mocks.generateTts.mockImplementation(({ text }: { text: string }) => {
-      if (text.includes("Three trolls")) {
-        return Promise.reject(new Error("Troll trouble"));
-      }
-      return Promise.resolve(
-        audioResult(
-          text.includes("hobbit leaves") ? "blob:summary" : "blob:section-1",
-        ),
-      );
-    });
+    mocks.generateTts.mockImplementation(
+      ({ sectionKey }: { sectionKey: string }) => {
+        if (sectionKey === "section-0") {
+          return Promise.reject(new Error("Troll trouble"));
+        }
+        return Promise.resolve(
+          audioResult(
+            sectionKey === "summary" ? "blob:summary" : "blob:section-1",
+          ),
+        );
+      },
+    );
 
     act(() => {
       controller().actions.playAll();
@@ -694,82 +910,5 @@ describe("useArticleAudioController", () => {
     expect(mocks.audioStartup).not.toHaveBeenCalled();
     expect(mocks.playbackSpeed).not.toHaveBeenCalled();
     expect(playSpy).not.toHaveBeenCalled();
-  });
-
-  it("aborts a stalled cache-audio download", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    let downloadSignal: AbortSignal | undefined;
-    const fetchMock = vi.fn(
-      (_input: RequestInfo | URL, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          downloadSignal = init?.signal ?? undefined;
-          downloadSignal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("Aborted", "AbortError")),
-            { once: true },
-          );
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    mocks.generateTts.mockResolvedValueOnce(audioResult("blob:cache-download"));
-
-    await act(async () => {
-      root.render(
-        <Harness
-          onChange={captureController}
-          articleValue={{ ...article, _id: "article-42" }}
-        />,
-      );
-    });
-    act(() => controller().actions.listenSummary());
-    await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-
-    expect(downloadSignal?.aborted).toBe(false);
-    act(() => vi.advanceTimersByTime(5_000));
-    await waitForExpectation(() => expect(downloadSignal?.aborted).toBe(true));
-    await waitForExpectation(() => expect(warnSpy).toHaveBeenCalledTimes(1));
-  });
-
-  it("aborts a stalled cache-audio upload", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    let uploadSignal: AbortSignal | undefined;
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        blob: async () => new Blob(["audio"], { type: "audio/mpeg" }),
-      } as Response)
-      .mockImplementationOnce(
-        (_input: RequestInfo | URL, init?: RequestInit) =>
-          new Promise<Response>((_resolve, reject) => {
-            uploadSignal = init?.signal ?? undefined;
-            uploadSignal?.addEventListener(
-              "abort",
-              () => reject(new DOMException("Aborted", "AbortError")),
-              { once: true },
-            );
-          }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    mocks.mutation.mockResolvedValueOnce("https://upload.example/audio");
-    mocks.generateTts.mockResolvedValueOnce(audioResult("blob:cache-upload"));
-
-    await act(async () => {
-      root.render(
-        <Harness
-          onChange={captureController}
-          articleValue={{ ...article, _id: "article-42" }}
-        />,
-      );
-    });
-    act(() => controller().actions.listenSummary());
-    await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-
-    act(() => vi.advanceTimersByTime(5_000));
-    await waitForExpectation(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(uploadSignal?.aborted).toBe(false);
-
-    act(() => vi.advanceTimersByTime(10_000));
-    await waitForExpectation(() => expect(uploadSignal?.aborted).toBe(true));
-    await waitForExpectation(() => expect(warnSpy).toHaveBeenCalledTimes(1));
   });
 });

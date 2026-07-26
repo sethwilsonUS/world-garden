@@ -14,7 +14,10 @@ if [ "${VERCEL_ENV:-}" = "production" ]; then
 elif [ "${VERCEL_ENV:-}" = "preview" ]; then
   BRANCH="${VERCEL_GIT_COMMIT_REF:-preview}"
   echo "▸ Preview build — deploying Convex preview ($BRANCH) + Next.js"
-  npx convex deploy --cmd 'next build' --preview-name "$BRANCH"
+  export CURIO_CONVEX_PREVIEW_NAME="$BRANCH"
+  node scripts/build-preview.mjs --check-only
+  npx convex deploy --dry-run --preview-create "$BRANCH"
+  npx convex deploy --cmd 'node scripts/build-preview.mjs' --preview-name "$BRANCH"
 
 else
   echo "▸ Local build — Next.js only (webpack)"

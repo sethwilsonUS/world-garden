@@ -1,5 +1,13 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { assertPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
 
 export const getTodaySnapshotByDate = query({
   args: {
@@ -29,8 +37,16 @@ export const saveTodaySnapshot = mutation({
     feedDate: v.string(),
     data: v.any(),
     generatedAt: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "today",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("todaySnapshots")
       .withIndex("by_feedDate", (q) => q.eq("feedDate", args.feedDate))

@@ -41,7 +41,20 @@ URL, pushes functions, and keeps generated types current. Run
 Secrets used by both Next.js and Convex—such as
 `ARTICLE_CONTEXT_WRITE_SECRET`, `TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and
 `ANALYTICS_REPORT_SECRET`—must match across the two environments where their
-corresponding features are enabled.
+corresponding features are enabled. Deployed audio requires
+`TTS_QUOTA_BYPASS_SECRET`: only short-lived, domain-separated attestations—not
+the root secret—are sent through public quota/cache mutations and trusted TTS
+requests. Convex audio workers use `AUDIO_GENERATION_BASE_URL` as their trusted
+HTTPS app origin (production by default). Vercel Preview builds set the exact
+generated origin and sync the required shared secrets into only the matching
+isolated Convex Preview.
+Personal Playlist OpenAI scheduling is bounded per account with
+`PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT` (default `10`),
+`PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS` (default `86400000`), and
+`PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT` (default `5`); configure these in each
+Convex deployment. New episodes consume daily allowance, each episode receives
+one free retry, and later retries normally consume allowance again; exact reuse
+does not.
 
 ## Validation and deployment
 
@@ -54,9 +67,30 @@ LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 ```
 
 Production deployment is handled by `scripts/build.sh` on Vercel. A production
-build runs `convex deploy`; a preview build creates an isolated Convex preview
-deployment for the branch. Run `npx convex deploy` manually only when you
-intend to update the configured production deployment.
+build runs `convex deploy`; a preview build creates an isolated Convex Preview
+for the branch. Vercel Preview must provide a key beginning with the exact
+`preview:seth-wilson:world-garden|` prefix rather than a development,
+production, or cross-project key.
+
+The Preview flow validates that local key shape before any Convex CLI call. It
+then performs `convex deploy --dry-run --preview-create` so Convex authenticates
+the key's project without claiming or updating a deployment. The real deploy
+may then claim or reuse the named Preview before running the build helper. The
+helper builds Next.js before writing any Convex environment values, copies the
+required secrets, and writes the exact Vercel `AUDIO_GENERATION_BASE_URL` last;
+Convex pushes functions only after the helper succeeds. A failed Next.js build
+can therefore leave a named Preview claimed or reused, but it does not apply
+those environment writes or push functions.
+
+Before the first claim, configure `CLERK_JWT_ISSUER_DOMAIN` as a Convex Preview
+environment-variable default using the issuer for the same Clerk Preview
+instance configured in Vercel. Defaults are copied only when a Preview is
+created; update existing deployments directly or recreate them after a default
+changes. For protected Vercel Previews, enable Protection Bypass for Automation;
+Vercel injects `VERCEL_AUTOMATION_BYPASS_SECRET` automatically, and the helper
+copies that system value instead of relying on a manually created Vercel
+variable. Run `npx convex deploy` manually only when you intend to update the
+configured production deployment.
 
 See the root [README](../README.md) for the complete architecture, environment
 variable reference, data model, and scheduled-job inventory.

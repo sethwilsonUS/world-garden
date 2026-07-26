@@ -23,34 +23,85 @@ export const buildPodcastDownloadFilename = (
   return baseName.toLowerCase().endsWith(".mp3") ? baseName : `${baseName}.mp3`;
 };
 
-export const createPodcastAttachmentResponse = async ({
+const createPodcastMediaProxyResponse = async ({
   audioUrl,
-  title,
-  fallbackFilename,
+  cacheControl,
+  request,
+  contentDisposition,
 }: {
   audioUrl: string;
-  title: string;
-  fallbackFilename: string;
+  cacheControl: string;
+  request: NextRequest;
+  contentDisposition?: string;
 }): Promise<NextResponse> => {
-  const upstream = await fetch(audioUrl, { cache: "no-store" });
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const upstreamRequestHeaders = new Headers();
+  const requestedRange = request.headers.get("Range");
+  if (requestedRange) upstreamRequestHeaders.set("Range", requestedRange);
 
-  if (!upstream.ok || !upstream.body) {
+  const upstream = await fetch(audioUrl, {
+    cache: "no-store",
+    method,
+    headers: upstreamRequestHeaders,
+  });
+
+  const isRangeNotSatisfiable = upstream.status === 416;
+  if (
+    (!upstream.ok && !isRangeNotSatisfiable) ||
+    (method !== "HEAD" && !upstream.body && !isRangeNotSatisfiable)
+  ) {
     throw new Error(`Podcast audio fetch failed: ${upstream.status}`);
   }
 
   const headers = new Headers({
-    "Cache-Control": PODCAST_MEDIA_CACHE_CONTROL,
-    "Content-Disposition": `attachment; filename="${buildPodcastDownloadFilename(title, fallbackFilename)}"`,
+    "Cache-Control": isRangeNotSatisfiable
+      ? "private, no-store"
+      : cacheControl,
     "Content-Type": upstream.headers.get("Content-Type") ?? "audio/mpeg",
+    Vary: "Range",
   });
-
-  const contentLength = upstream.headers.get("Content-Length");
-  if (contentLength) {
-    headers.set("Content-Length", contentLength);
+  if (contentDisposition) {
+    headers.set("Content-Disposition", contentDisposition);
+  }
+  for (const name of ["Accept-Ranges", "Content-Length", "Content-Range"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
   }
 
-  return new NextResponse(upstream.body, {
-    status: 200,
+  return new NextResponse(method === "HEAD" ? null : upstream.body, {
+    status: upstream.status,
     headers,
+  });
+};
+
+export const createPodcastInlineResponse = async ({
+  audioUrl,
+  cacheControl,
+  request,
+}: {
+  audioUrl: string;
+  cacheControl: string;
+  request: NextRequest;
+}): Promise<NextResponse> =>
+  await createPodcastMediaProxyResponse({ audioUrl, cacheControl, request });
+
+export const createPodcastAttachmentResponse = async ({
+  audioUrl,
+  title,
+  fallbackFilename,
+  cacheControl = PODCAST_MEDIA_CACHE_CONTROL,
+  request,
+}: {
+  audioUrl: string;
+  title: string;
+  fallbackFilename: string;
+  cacheControl?: string;
+  request: NextRequest;
+}): Promise<NextResponse> => {
+  return await createPodcastMediaProxyResponse({
+    audioUrl,
+    cacheControl,
+    request,
+    contentDisposition: `attachment; filename="${buildPodcastDownloadFilename(title, fallbackFilename)}"`,
   });
 };

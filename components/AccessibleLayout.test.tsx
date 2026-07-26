@@ -12,13 +12,19 @@ vi.mock("./ThemeToggle", () => ({
 }));
 
 describe("AccessibleLayout", () => {
-  it("describes OpenAI primary audio with Edge TTS fallback in the footer", () => {
+  it("describes both speech services without claiming one is always primary", () => {
     const markup = renderToStaticMarkup(
-      createElement(AccessibleLayout, null, createElement("div", null, "Content")),
+      createElement(
+        AccessibleLayout,
+        null,
+        createElement("div", null, "Content"),
+      ),
     );
 
-    expect(markup).toContain("Audio powered by OpenAI with Edge TTS fallback.");
-    expect(markup).not.toContain("Audio powered by Edge TTS.");
+    expect(markup).toContain(
+      "Audio uses synthetic speech from Edge TTS and OpenAI.",
+    );
+    expect(markup).not.toContain("OpenAI with Edge TTS fallback");
     expect(markup).toContain("Wikipedia");
     expect(markup).toContain(
       "not endorsed by or affiliated with the Wikimedia Foundation",

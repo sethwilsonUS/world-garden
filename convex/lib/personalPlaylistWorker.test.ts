@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as ttsClient from "../../lib/tts-client";
-import type { TtsMetadata } from "../../lib/tts-profile";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { getTtsMetadata, getTtsProfile } from "../../lib/tts-profile";
 import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
 import { processViewerPlaylistEpisodeForCtx } from "./personalPlaylistWorker";
 
@@ -17,17 +17,12 @@ describe("personal playlist worker orchestration", () => {
   it("uses the latest claimed initiating profile when the worker environment differs", async () => {
     vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
     vi.stubEnv("OPENAI_TTS_VOICE", "marin");
+    vi.stubEnv("AUDIO_GENERATION_BASE_URL", "https://example.com");
     const episodeId = "episode-1" as Id<"personalPlaylistEpisodes">;
     const articleId = "article-1" as Id<"articles">;
-    const requestedTtsMetadata = {
-      provider: "openai" as const,
-      model: "gpt-4o-mini-tts",
-      voiceId: "cedar",
-      promptVersion: "curio-warm-narrator-v2",
-      ttsNormVersion: "ttsNorm:2",
-      ttsCacheKey:
-        "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v2:ttsNorm:2",
-    } satisfies TtsMetadata;
+    const requestedTtsMetadata = getTtsMetadata(
+      getTtsProfile("openai", "cedar"),
+    );
     const queuedEpisode = {
       _id: episodeId,
       articleId,
@@ -114,7 +109,7 @@ describe("personal playlist worker orchestration", () => {
 
     await processViewerPlaylistEpisodeForCtx(ctx, {
       episodeId,
-      baseUrl: "https://example.com",
+      baseUrl: "https://attacker.example",
     });
 
     expect(runQuery.mock.calls[1]?.[1]).toEqual({ episodeId });
@@ -125,7 +120,7 @@ describe("personal playlist worker orchestration", () => {
         voiceId: "cedar",
         expectedTtsCacheKey: requestedTtsMetadata.ttsCacheKey,
       }),
-      expect.any(Object),
+      expect.objectContaining({ apiBaseUrl: "https://example.com" }),
     );
     const completionArgs = runMutation.mock.calls
       .map(([, callArgs]) => callArgs)
@@ -135,6 +130,115 @@ describe("personal playlist worker orchestration", () => {
       ttsCacheKey: requestedTtsMetadata.ttsCacheKey,
       voiceId: "cedar",
     });
+  });
+
+  it("defaults legacy episodes without pinned metadata to OpenAI speech", async () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "edge");
+    vi.stubEnv("AUDIO_GENERATION_BASE_URL", "https://example.com");
+    const episodeId = "episode-1" as Id<"personalPlaylistEpisodes">;
+    const articleId = "article-1" as Id<"articles">;
+    const owner = "00000000-0000-4000-8000-000000000001";
+    const openAi = getTtsMetadata(getTtsProfile("openai"));
+    const queuedEpisode = {
+      _id: episodeId,
+      articleId,
+      slug: "mars",
+      title: "Mars",
+      status: "queued" as const,
+    };
+    const claimedEpisode = {
+      ...queuedEpisode,
+      status: "running" as const,
+      leaseOwner: owner,
+    };
+    const article = {
+      _id: articleId,
+      title: "Mars",
+      slug: "mars",
+      revisionId: "100",
+      narrationVersion: 2,
+      summary:
+        "Mars is the fourth planet from the Sun and has a long history of scientific observation.",
+      sections: [],
+    };
+    const runQuery = vi
+      .fn()
+      .mockResolvedValueOnce(queuedEpisode)
+      .mockResolvedValueOnce(claimedEpisode)
+      .mockResolvedValueOnce(article)
+      .mockResolvedValueOnce({ urls: {} })
+      .mockResolvedValueOnce(null);
+    const runMutation = vi
+      .fn()
+      .mockResolvedValueOnce({
+        claimed: true,
+        viewerTokenIdentifier: "user-1",
+      })
+      .mockResolvedValueOnce({ updated: true })
+      .mockResolvedValueOnce("https://upload.test/section")
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ updated: true })
+      .mockResolvedValueOnce({ updated: true })
+      .mockResolvedValueOnce("https://upload.test/combined")
+      .mockResolvedValueOnce({ completed: true });
+    const ctx = {
+      runQuery,
+      runMutation,
+      scheduler: { runAfter: vi.fn() },
+      storage: {
+        getUrl: vi.fn().mockResolvedValue("https://cdn.test/section.mp3"),
+      },
+    } as unknown as ActionCtx;
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(owner);
+    const generate = vi
+      .spyOn(ttsClient, "generateTtsAudioWithMetadata")
+      .mockResolvedValue({
+        blob: new Blob([Uint8Array.of(0xff, 0xfb)], { type: "audio/mpeg" }),
+        metadata: openAi,
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://upload.test/section") {
+          return Response.json({ storageId: "section-storage" });
+        }
+        if (url === "https://upload.test/combined") {
+          await new Response(init?.body as BodyInit).arrayBuffer();
+          return Response.json({ storageId: "combined-storage" });
+        }
+        if (url === "https://cdn.test/section.mp3") {
+          return new Response(Uint8Array.of(0xff, 0xfb), {
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+        }
+        if (url.endsWith("/api/article/mars/artwork")) {
+          return new Response("not found", { status: 404 });
+        }
+        throw new Error(`Unexpected fetch request: ${url}`);
+      }),
+    );
+
+    await processViewerPlaylistEpisodeForCtx(ctx, {
+      episodeId,
+      baseUrl: "https://attacker.example",
+    });
+
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        expectedTtsCacheKey: openAi.ttsCacheKey,
+      }),
+      expect.objectContaining({ apiBaseUrl: "https://example.com" }),
+    );
+    expect(runMutation).toHaveBeenCalledWith(
+      internal.personalPlaylist.completeViewerPlaylistEpisodeInternal,
+      expect.objectContaining({
+        episodeId,
+        provider: "openai",
+        ttsCacheKey: openAi.ttsCacheKey,
+      }),
+    );
   });
 
   it("fails a missing article and schedules the next queued episode", async () => {
@@ -193,7 +297,6 @@ describe("personal playlist worker orchestration", () => {
       internal.personalPlaylist.processViewerPlaylistEpisode,
       {
         episodeId: nextEpisodeId,
-        baseUrl: "https://example.com",
       },
     );
   });
@@ -229,7 +332,6 @@ describe("personal playlist worker orchestration", () => {
       internal.personalPlaylist.processViewerPlaylistEpisode,
       {
         episodeId,
-        baseUrl: "https://example.com",
       },
     );
   });
@@ -272,7 +374,6 @@ describe("personal playlist worker orchestration", () => {
       internal.personalPlaylist.processViewerPlaylistEpisode,
       {
         episodeId,
-        baseUrl: "https://example.com",
       },
     );
     expect(runAfter).toHaveBeenNthCalledWith(
@@ -281,7 +382,6 @@ describe("personal playlist worker orchestration", () => {
       internal.personalPlaylist.processViewerPlaylistEpisode,
       {
         episodeId: nextEpisodeId,
-        baseUrl: "https://example.com",
       },
     );
   });

@@ -37,6 +37,7 @@ export const GET = async (
           brief.headline?.trim() ||
           `Wikipedia Trending Brief ${brief.trendingDate}`,
         fallbackFilename: "trending-podcast-episode.mp3",
+        request: req,
       });
     }
 

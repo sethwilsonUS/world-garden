@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestAudioGenerationBaseUrl } from "@/lib/audio-generation-url";
 import { getPodcastAdminAuthError } from "@/lib/podcast-admin-auth";
-import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { enforceRouteQuota } from "@/lib/route-rate-limit";
 import { syncDailyTrendingBrief } from "@/lib/trending-brief";
 
@@ -33,7 +33,7 @@ export const GET = async (req: NextRequest) => {
   }
 
   try {
-    const baseUrl = getPodcastSiteUrl(req.nextUrl.origin);
+    const baseUrl = getRequestAudioGenerationBaseUrl(req.url);
     const result = await syncDailyTrendingBrief({
       baseUrl,
     });

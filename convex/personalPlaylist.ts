@@ -59,6 +59,11 @@ const assertRequestedTtsMetadataValid = (
   if (metadata && !isTtsMetadataValid(metadata)) {
     throw new Error("Invalid TTS profile identity.");
   }
+  if (metadata && metadata.provider !== "openai") {
+    throw new Error(
+      "Personal Playlist requires an OpenAI TTS profile identity.",
+    );
+  }
 };
 
 export const getViewerFeedToken = query({
@@ -83,10 +88,13 @@ export const listViewerPlaylistEpisodes = query({
 export const addViewerPlaylistEpisodeBySlug = action({
   args: {
     slug: v.string(),
-    baseUrl: v.string(),
     ttsMetadata: v.optional(ttsMetadataValidator),
+    // Accepted only so stale pre-deploy clients continue to validate. The
+    // server deliberately ignores it and owns the worker origin.
+    baseUrl: v.optional(v.string()),
   },
   async handler(ctx, args): Promise<UpsertViewerPlaylistEpisodeResult> {
+    void args.baseUrl;
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
@@ -124,7 +132,6 @@ export const addViewerPlaylistEpisodeBySlug = action({
         internal.personalPlaylist.processViewerPlaylistEpisode,
         {
           episodeId: result.episodeId,
-          baseUrl: args.baseUrl,
         },
       );
     }
@@ -166,10 +173,13 @@ export const removeViewerPlaylistEpisode = mutation({
 export const retryViewerPlaylistEpisode = mutation({
   args: {
     episodeId: v.id("personalPlaylistEpisodes"),
-    baseUrl: v.string(),
     ttsMetadata: v.optional(ttsMetadataValidator),
+    // Accepted only so stale pre-deploy clients continue to validate. The
+    // server deliberately ignores it and owns the worker origin.
+    baseUrl: v.optional(v.string()),
   },
   async handler(ctx, args) {
+    void args.baseUrl;
     const viewerTokenIdentifier =
       await getAuthenticatedViewerTokenIdentifier(ctx);
     assertRequestedTtsMetadataValid(args.ttsMetadata);
@@ -188,7 +198,6 @@ export const retryViewerPlaylistEpisode = mutation({
       internal.personalPlaylist.processViewerPlaylistEpisode,
       {
         episodeId: args.episodeId,
-        baseUrl: args.baseUrl,
       },
     );
 
@@ -359,9 +368,13 @@ export const updateViewerPlaylistEpisodeProgressInternal = internalMutation({
 export const processViewerPlaylistEpisode = internalAction({
   args: {
     episodeId: v.id("personalPlaylistEpisodes"),
-    baseUrl: v.string(),
+    // Accepted only so already-scheduled pre-deploy jobs still validate. The
+    // worker deliberately ignores it and resolves a server-owned origin.
+    baseUrl: v.optional(v.string()),
   },
   async handler(ctx, args) {
-    await processViewerPlaylistEpisodeForCtx(ctx, args);
+    await processViewerPlaylistEpisodeForCtx(ctx, {
+      episodeId: args.episodeId,
+    });
   },
 });

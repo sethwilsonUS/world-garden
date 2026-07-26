@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getPodcastAdminAuthError = vi.fn();
 const enforceRouteQuota = vi.fn();
-const getPodcastSiteUrl = vi.fn();
+const getRequestAudioGenerationBaseUrl = vi.fn();
 const warmLatestHomepageArticleSummaries = vi.fn();
 
 vi.mock("@/lib/podcast-admin-auth", () => ({ getPodcastAdminAuthError }));
 vi.mock("@/lib/route-rate-limit", () => ({ enforceRouteQuota }));
-vi.mock("@/lib/podcast-feed", () => ({ getPodcastSiteUrl }));
+vi.mock("@/lib/audio-generation-url", () => ({
+  getRequestAudioGenerationBaseUrl,
+}));
 vi.mock("@/lib/homepage-audio-warm", () => ({
   warmLatestHomepageArticleSummaries,
 }));
@@ -23,7 +25,9 @@ describe("GET /api/featured/audio-warm/cron", () => {
     vi.clearAllMocks();
     getPodcastAdminAuthError.mockReturnValue(null);
     enforceRouteQuota.mockResolvedValue(null);
-    getPodcastSiteUrl.mockImplementation((origin: string) => origin);
+    getRequestAudioGenerationBaseUrl.mockReturnValue(
+      "https://trusted-preview.vercel.app",
+    );
     warmLatestHomepageArticleSummaries.mockResolvedValue({
       status: "completed",
       targets: 8,
@@ -82,8 +86,11 @@ describe("GET /api/featured/audio-warm/cron", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(warmLatestHomepageArticleSummaries).toHaveBeenCalledWith({
-      baseUrl: "https://curiogarden.org",
+      baseUrl: "https://trusted-preview.vercel.app",
     });
+    expect(getRequestAudioGenerationBaseUrl).toHaveBeenCalledWith(
+      "https://curiogarden.org/api/featured/audio-warm/cron",
+    );
     expect(body).toMatchObject({ status: "partial", degraded: 1, failed: 1 });
   });
 

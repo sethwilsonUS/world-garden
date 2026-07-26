@@ -1,6 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { api, internal } from "../_generated/api";
+import { internal } from "../_generated/api";
 import {
   assembleArticleAudio,
   getArticleAudioSections,
@@ -11,6 +11,7 @@ import {
 } from "./storageUpload";
 import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
 import { TTS_NORM_VERSION } from "../../lib/tts-normalize";
+import { getAudioGenerationBaseUrl } from "../../lib/audio-generation-url";
 
 const PERSONAL_PODCAST_ALBUM_TITLE = "Curio Garden Personal Playlist";
 
@@ -18,9 +19,11 @@ export const processViewerPlaylistEpisodeForCtx = async (
   ctx: ActionCtx,
   args: {
     episodeId: Id<"personalPlaylistEpisodes">;
-    baseUrl: string;
+    /** Ignored legacy field retained for direct orchestration compatibility. */
+    baseUrl?: string;
   },
 ) => {
+  const baseUrl = getAudioGenerationBaseUrl();
   const episode = await ctx.runQuery(
     internal.personalPlaylist.getPersonalPlaylistEpisodeInternal,
     {
@@ -36,7 +39,7 @@ export const processViewerPlaylistEpisodeForCtx = async (
     await ctx.scheduler.runAfter(
       PERSONAL_PLAYLIST_LEASE_MS,
       internal.personalPlaylist.processViewerPlaylistEpisode,
-      args,
+      { episodeId: args.episodeId },
     );
   };
 
@@ -74,7 +77,6 @@ export const processViewerPlaylistEpisodeForCtx = async (
       internal.personalPlaylist.processViewerPlaylistEpisode,
       {
         episodeId: nextQueuedEpisode._id,
-        baseUrl: args.baseUrl,
       },
     );
   };
@@ -130,15 +132,22 @@ export const processViewerPlaylistEpisodeForCtx = async (
         slug: article.slug ?? generationEpisode.slug,
       },
       albumTitle: PERSONAL_PODCAST_ALBUM_TITLE,
-      baseUrl: args.baseUrl,
-      requestedTtsMetadata: generationEpisode.requestedTtsMetadata,
+      baseUrl,
+      preferredProvider: "openai",
+      requestedTtsMetadata:
+        generationEpisode.requestedTtsMetadata?.provider === "openai"
+          ? generationEpisode.requestedTtsMetadata
+          : undefined,
       getCachedSectionAudioUrls: async ({ ttsCacheKey, sourceHashes }) => {
-        const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
-          articleId: article._id,
-          ttsNormVersion: TTS_NORM_VERSION,
-          ttsCacheKey,
-          sourceHashes,
-        });
+        const cachedAudio = await ctx.runQuery(
+          internal.audio.getAllSectionAudioInternal,
+          {
+            articleId: article._id,
+            ttsNormVersion: TTS_NORM_VERSION,
+            ttsCacheKey,
+            sourceHashes,
+          },
+        );
         return cachedAudio.urls;
       },
       saveSectionAudio: async ({
@@ -149,11 +158,11 @@ export const processViewerPlaylistEpisodeForCtx = async (
         metadata,
       }) => {
         const uploadUrl = await ctx.runMutation(
-          api.audio.generateUploadUrl,
+          internal.audio.generateUploadUrlInternal,
           {},
         );
         const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
-        await ctx.runMutation(api.audio.saveSectionAudioRecord, {
+        await ctx.runMutation(internal.audio.saveSectionAudioRecordInternal, {
           articleId: article._id,
           sectionKey,
           sourceHash,
@@ -174,7 +183,7 @@ export const processViewerPlaylistEpisodeForCtx = async (
       },
       saveCombinedAudio: async ({ stream, contentType }) => {
         const uploadUrl = await ctx.runMutation(
-          api.audio.generateUploadUrl,
+          internal.audio.generateUploadUrlInternal,
           {},
         );
         return await uploadStreamToConvexStorage(

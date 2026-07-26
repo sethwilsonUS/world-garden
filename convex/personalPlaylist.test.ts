@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Id } from "./_generated/dataModel";
 import { type TtsMetadata } from "../lib/tts-profile";
 import {
+  addViewerPlaylistEpisodeBySlug,
   listViewerPlaylistEpisodesForCtx,
   moveViewerPlaylistEpisodeForCtx,
   removeViewerPlaylistEpisodeForCtx,
+  retryViewerPlaylistEpisode,
   upsertViewerPlaylistEpisodeForCtx,
 } from "./personalPlaylist";
 import {
@@ -12,6 +14,7 @@ import {
   completeViewerPlaylistEpisodeForCtx,
   failViewerPlaylistEpisodeForCtx,
   getNextQueuedEpisodeForViewerForCtx,
+  getPersonalPlaylistOpenAiQuotaConfig,
   markViewerPlaylistEpisodeRunningForCtx,
   retryViewerPlaylistEpisodeForCtx,
   updateViewerPlaylistEpisodeProgressForCtx,
@@ -53,10 +56,21 @@ type EpisodeDoc = {
   promptVersion?: string;
   ttsNormVersion?: string;
   requestedTtsMetadata?: TtsMetadata;
+  generationRetryCount?: number;
   audioVariants?: unknown;
   lastError?: string;
   leaseOwner?: string;
   leaseExpiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type QuotaDoc = {
+  _id: Id<"routeQuotas">;
+  key: string;
+  count: number;
+  windowStart: number;
+  expiresAt: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -75,10 +89,15 @@ const buildEpisode = (
   ...overrides,
 });
 
-const createCtx = (seed?: { feeds?: FeedDoc[]; episodes?: EpisodeDoc[] }) => {
+const createCtx = (seed?: {
+  feeds?: FeedDoc[];
+  episodes?: EpisodeDoc[];
+  quotas?: QuotaDoc[];
+}) => {
   let feeds = [...(seed?.feeds ?? [])];
   let episodes = [...(seed?.episodes ?? [])];
-  let idCounter = feeds.length + episodes.length;
+  let quotas = [...(seed?.quotas ?? [])];
+  let idCounter = feeds.length + episodes.length + quotas.length;
 
   const matchesFilters = (
     doc: Record<string, unknown>,
@@ -88,7 +107,10 @@ const createCtx = (seed?: { feeds?: FeedDoc[]; episodes?: EpisodeDoc[] }) => {
   const ctx = {
     db: {
       query: (
-        tableName: "personalPodcastFeeds" | "personalPlaylistEpisodes",
+        tableName:
+          | "personalPodcastFeeds"
+          | "personalPlaylistEpisodes"
+          | "routeQuotas",
       ) => ({
         withIndex: (
           _indexName: string,
@@ -104,7 +126,12 @@ const createCtx = (seed?: { feeds?: FeedDoc[]; episodes?: EpisodeDoc[] }) => {
             },
           };
           apply(builder);
-          const docs = tableName === "personalPodcastFeeds" ? feeds : episodes;
+          const docs =
+            tableName === "personalPodcastFeeds"
+              ? feeds
+              : tableName === "personalPlaylistEpisodes"
+                ? episodes
+                : quotas;
           const filtered = docs.filter((doc) =>
             matchesFilters(doc as Record<string, unknown>, filters),
           );
@@ -115,30 +142,42 @@ const createCtx = (seed?: { feeds?: FeedDoc[]; episodes?: EpisodeDoc[] }) => {
         },
       }),
       insert: async (
-        tableName: "personalPodcastFeeds" | "personalPlaylistEpisodes",
-        value: Omit<FeedDoc, "_id"> | Omit<EpisodeDoc, "_id">,
+        tableName:
+          | "personalPodcastFeeds"
+          | "personalPlaylistEpisodes"
+          | "routeQuotas",
+        value:
+          | Omit<FeedDoc, "_id">
+          | Omit<EpisodeDoc, "_id">
+          | Omit<QuotaDoc, "_id">,
       ) => {
         idCounter += 1;
         const id = `${tableName}-${idCounter}` as never;
         if (tableName === "personalPodcastFeeds") {
           feeds.push({ _id: id, ...(value as Omit<FeedDoc, "_id">) });
-        } else {
+        } else if (tableName === "personalPlaylistEpisodes") {
           episodes.push({ _id: id, ...(value as Omit<EpisodeDoc, "_id">) });
+        } else {
+          quotas.push({ _id: id, ...(value as Omit<QuotaDoc, "_id">) });
         }
         return id;
       },
-      patch: async (id: string, value: Partial<FeedDoc & EpisodeDoc>) => {
+      patch: async (id: string, value: Record<string, unknown>) => {
         feeds = feeds.map((doc) =>
-          doc._id === id ? { ...doc, ...value } : doc,
+          doc._id === id ? ({ ...doc, ...value } as FeedDoc) : doc,
         );
         episodes = episodes.map((doc) =>
-          doc._id === id ? { ...doc, ...value } : doc,
+          doc._id === id ? ({ ...doc, ...value } as EpisodeDoc) : doc,
+        );
+        quotas = quotas.map((doc) =>
+          doc._id === id ? ({ ...doc, ...value } as QuotaDoc) : doc,
         );
       },
       get: async (id: string) => {
         return (
           episodes.find((doc) => doc._id === id) ??
           feeds.find((doc) => doc._id === id) ??
+          quotas.find((doc) => doc._id === id) ??
           null
         );
       },
@@ -153,6 +192,7 @@ const createCtx = (seed?: { feeds?: FeedDoc[]; episodes?: EpisodeDoc[] }) => {
     ctx,
     getFeeds: () => feeds,
     getEpisodes: () => episodes,
+    getQuotas: () => quotas,
   };
 };
 
@@ -181,7 +221,26 @@ describe("personal playlist data helpers", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.useRealTimers();
+  });
+
+  it("accepts the ignored legacy baseUrl on public add and retry calls", () => {
+    const legacyBaseUrlValidator = {
+      fieldType: { type: "string" },
+      optional: true,
+    };
+    const exportArgs = (registeredFunction: unknown) =>
+      (registeredFunction as { exportArgs(): string }).exportArgs();
+    const addArgs = JSON.parse(exportArgs(addViewerPlaylistEpisodeBySlug)) as {
+      value: Record<string, unknown>;
+    };
+    const retryArgs = JSON.parse(exportArgs(retryViewerPlaylistEpisode)) as {
+      value: Record<string, unknown>;
+    };
+
+    expect(addArgs.value.baseUrl).toEqual(legacyBaseUrlValidator);
+    expect(retryArgs.value.baseUrl).toEqual(legacyBaseUrlValidator);
   });
 
   it("creates a feed token and queued episode on first add", async () => {
@@ -238,6 +297,278 @@ describe("personal playlist data helpers", () => {
     expect(first.added).toBe(true);
     expect(second.added).toBe(false);
     expect(getEpisodes()).toHaveLength(1);
+  });
+
+  it("caps active OpenAI generation without blocking exact episode reuse", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT", "1");
+    const { ctx, getEpisodes } = createCtx();
+    const mars = {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-1",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash,
+    };
+
+    await upsertViewerPlaylistEpisodeForCtx(ctx, mars);
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, mars),
+    ).resolves.toMatchObject({ added: false, shouldSchedule: false });
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, {
+        ...mars,
+        articleId: "article-2" as Id<"articles">,
+        wikiPageId: "wiki-2",
+        slug: "venus",
+        title: "Venus",
+      }),
+    ).rejects.toThrow(
+      "Personal Playlist queue is full. Wait for an episode to finish before adding another.",
+    );
+    expect(getEpisodes().map((episode) => episode.slug)).toEqual(["mars"]);
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, {
+        ...mars,
+        viewerTokenIdentifier: "user-2",
+        articleId: "article-2" as Id<"articles">,
+        wikiPageId: "wiki-2",
+        slug: "venus",
+        title: "Venus",
+      }),
+    ).resolves.toMatchObject({ added: true, shouldSchedule: true });
+  });
+
+  it("counts only this account's visible queued and running episodes as active", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT", "1");
+    const { ctx } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: "personalPlaylistEpisodes-ready" as Id<"personalPlaylistEpisodes">,
+          articleId: "article-ready" as Id<"articles">,
+          slug: "earth",
+          title: "Earth",
+          status: "ready",
+        }),
+        buildEpisode({
+          _id: "personalPlaylistEpisodes-removed" as Id<"personalPlaylistEpisodes">,
+          articleId: "article-removed" as Id<"articles">,
+          slug: "mercury",
+          title: "Mercury",
+          status: "queued",
+          removedAt: Date.now(),
+        }),
+        buildEpisode({
+          _id: "personalPlaylistEpisodes-other-user" as Id<"personalPlaylistEpisodes">,
+          viewerTokenIdentifier: "user-2",
+          articleId: "article-other-user" as Id<"articles">,
+          slug: "venus",
+          title: "Venus",
+          status: "running",
+        }),
+      ],
+    });
+    const buildArgs = (slug: string) => ({
+      viewerTokenIdentifier: "user-1",
+      articleId: `article-${slug}` as Id<"articles">,
+      wikiPageId: `wiki-${slug}`,
+      slug,
+      title: slug[0].toUpperCase() + slug.slice(1),
+      sectionCount: 4,
+      narrationHash: `${slug}-narration`,
+    });
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("jupiter")),
+    ).resolves.toMatchObject({ added: true, shouldSchedule: true });
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("saturn")),
+    ).rejects.toThrow("Personal Playlist queue is full.");
+  });
+
+  it("limits newly scheduled episodes per account while exempting exact reuse", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "2");
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS", "1000");
+    const { ctx, getEpisodes, getQuotas } = createCtx();
+    const buildArgs = (slug: string, account = "user-1") => ({
+      viewerTokenIdentifier: account,
+      articleId: `article-${slug}` as Id<"articles">,
+      wikiPageId: `wiki-${slug}`,
+      slug,
+      title: slug[0].toUpperCase() + slug.slice(1),
+      sectionCount: 4,
+      narrationHash: `${slug}-narration`,
+    });
+
+    await upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("mars"));
+    await upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("venus"));
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("mars")),
+    ).resolves.toMatchObject({ added: false, shouldSchedule: false });
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("jupiter")),
+    ).rejects.toThrow(
+      "Personal Playlist generation limit reached. Try again after 2026-03-16T18:00:01.000Z.",
+    );
+    expect(getQuotas()).toEqual([
+      expect.objectContaining({
+        key: "personal-playlist:openai:daily:user-1",
+        count: 2,
+        windowStart: Date.now(),
+        expiresAt: Date.now() + 1_000,
+      }),
+    ]);
+    expect(getEpisodes().map((episode) => episode.slug)).toEqual([
+      "mars",
+      "venus",
+    ]);
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("jupiter", "user-2")),
+    ).resolves.toMatchObject({ added: true, shouldSchedule: true });
+    expect(getQuotas()).toHaveLength(2);
+
+    vi.advanceTimersByTime(1_001);
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, buildArgs("jupiter")),
+    ).resolves.toMatchObject({ added: true, shouldSchedule: true });
+    expect(
+      getQuotas().find(
+        (quota) => quota.key === "personal-playlist:openai:daily:user-1",
+      ),
+    ).toMatchObject({
+      count: 1,
+      windowStart: Date.now(),
+      expiresAt: Date.now() + 1_000,
+    });
+  });
+
+  it("uses safe defaults for invalid Personal Playlist quota settings", () => {
+    expect(getPersonalPlaylistOpenAiQuotaConfig({})).toEqual({
+      activeLimit: 5,
+      dailyLimit: 10,
+      dailyWindowMs: 86_400_000,
+    });
+    expect(
+      getPersonalPlaylistOpenAiQuotaConfig({
+        PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT: "0",
+        PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT: "not-a-number",
+        PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS: "-1",
+      }),
+    ).toEqual({
+      activeLimit: 5,
+      dailyLimit: 10,
+      dailyWindowMs: 86_400_000,
+    });
+  });
+
+  it("does not spend daily allowance when an episode has no narratable tracks", async () => {
+    const { ctx, getQuotas } = createCtx();
+
+    await upsertViewerPlaylistEpisodeForCtx(ctx, {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-1",
+      slug: "empty-article",
+      title: "Empty article",
+      sectionCount: 0,
+      narrationHash,
+    });
+
+    expect(getQuotas()).toEqual([]);
+  });
+
+  it("does not double-charge an already queued episode when narration changes", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT", "1");
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "1");
+    const { ctx, getEpisodes, getQuotas } = createCtx();
+    const args = {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-1",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash: "narration-v1",
+    };
+    await upsertViewerPlaylistEpisodeForCtx(ctx, args);
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, {
+        ...args,
+        narrationHash: "narration-v2",
+      }),
+    ).resolves.toMatchObject({ added: false, shouldSchedule: true });
+    expect(getEpisodes()[0]).toMatchObject({
+      status: "queued",
+      narrationHash: "narration-v2",
+    });
+    expect(getQuotas()[0]).toMatchObject({ count: 1 });
+  });
+
+  it("charges regeneration after completion or removal as new scheduled work", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "1");
+    const quota = {
+      _id: "routeQuotas-user-1" as Id<"routeQuotas">,
+      key: "personal-playlist:openai:daily:user-1",
+      count: 1,
+      windowStart: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const episodeId =
+      "personalPlaylistEpisodes-existing" as Id<"personalPlaylistEpisodes">;
+    const args = {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-mars",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash: "narration-v2",
+    };
+    const readyEpisode = buildEpisode({
+      _id: episodeId,
+      articleId: args.articleId,
+      slug: args.slug,
+      title: args.title,
+      status: "ready",
+      narrationHash: "narration-v1",
+    });
+    const { ctx: readyCtx, getEpisodes: getReadyEpisodes } = createCtx({
+      episodes: [readyEpisode],
+      quotas: [quota],
+    });
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(readyCtx, {
+        ...args,
+        narrationHash: "narration-v1",
+      }),
+    ).resolves.toMatchObject({ status: "ready", shouldSchedule: false });
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(readyCtx, args),
+    ).rejects.toThrow("Personal Playlist generation limit reached.");
+    expect(getReadyEpisodes()[0]).toMatchObject({
+      status: "ready",
+      narrationHash: "narration-v1",
+    });
+
+    const { ctx: removedCtx, getEpisodes: getRemovedEpisodes } = createCtx({
+      episodes: [{ ...readyEpisode, status: "failed", removedAt: Date.now() }],
+      quotas: [quota],
+    });
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(removedCtx, args),
+    ).rejects.toThrow("Personal Playlist generation limit reached.");
+    expect(getRemovedEpisodes()[0]).toMatchObject({
+      status: "failed",
+      removedAt: Date.now(),
+    });
   });
 
   it("does not backfill an unchanged ready episode after the active profile changes", async () => {
@@ -680,6 +1011,253 @@ describe("personal playlist data helpers", () => {
       lastError: undefined,
       requestedTtsMetadata: refreshedTtsMetadata,
     });
+  });
+
+  it("applies the active cap while preserving one unmetered retry", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT", "1");
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "1");
+    const failedId =
+      "personalPlaylistEpisodes-failed" as Id<"personalPlaylistEpisodes">;
+    const quota = {
+      _id: "routeQuotas-user-1" as Id<"routeQuotas">,
+      key: "personal-playlist:openai:daily:user-1",
+      count: 1,
+      windowStart: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const failedEpisode = buildEpisode({
+      _id: failedId,
+      articleId: "article-1" as Id<"articles">,
+      slug: "mars",
+      title: "Mars",
+      status: "failed",
+      lastError: "transient failure",
+    });
+    const { ctx: blockedCtx, getEpisodes: getBlockedEpisodes } = createCtx({
+      episodes: [
+        failedEpisode,
+        buildEpisode({
+          _id: "personalPlaylistEpisodes-active" as Id<"personalPlaylistEpisodes">,
+          articleId: "article-2" as Id<"articles">,
+          slug: "venus",
+          title: "Venus",
+          status: "queued",
+          position: 1,
+        }),
+      ],
+      quotas: [quota],
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(blockedCtx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId: failedId,
+      }),
+    ).rejects.toThrow(
+      "Personal Playlist queue is full. Wait for an episode to finish before adding another.",
+    );
+    expect(
+      getBlockedEpisodes().find((episode) => episode._id === failedId),
+    ).toMatchObject({ status: "failed" });
+
+    const { ctx, getEpisodes, getQuotas } = createCtx({
+      episodes: [failedEpisode],
+      quotas: [quota],
+    });
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId: failedId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()[0]).toMatchObject({ count: 1 });
+    expect(getEpisodes()[0]).toMatchObject({ generationRetryCount: 1 });
+  });
+
+  it("charges retries after the first rerun against the daily allowance", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "2");
+    const episodeId =
+      "personalPlaylistEpisodes-failed" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getEpisodes, getQuotas } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "failed",
+          sectionCount: 4,
+          lastError: "transient failure",
+        }),
+      ],
+      quotas: [
+        {
+          _id: "routeQuotas-user-1" as Id<"routeQuotas">,
+          key: "personal-playlist:openai:daily:user-1",
+          count: 1,
+          windowStart: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ],
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()[0]).toMatchObject({ count: 1 });
+
+    await expect(
+      markViewerPlaylistEpisodeRunningForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+      }),
+    ).resolves.toMatchObject({ claimed: true });
+    await expect(
+      failViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        lastError: "failed again",
+      }),
+    ).resolves.toEqual({ failed: true });
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()[0]).toMatchObject({ count: 2 });
+    expect(getEpisodes()[0]).toMatchObject({ generationRetryCount: 2 });
+
+    await markViewerPlaylistEpisodeRunningForCtx(ctx, {
+      episodeId,
+      owner: "worker-b",
+    });
+    await failViewerPlaylistEpisodeForCtx(ctx, {
+      episodeId,
+      owner: "worker-b",
+      lastError: "failed a third time",
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).rejects.toThrow("Personal Playlist generation limit reached.");
+    expect(getQuotas()[0]).toMatchObject({ count: 2 });
+    expect(getEpisodes()[0]).toMatchObject({
+      status: "failed",
+      generationRetryCount: 2,
+      lastError: "failed a third time",
+    });
+  });
+
+  it("does not meter repeated retries for an episode with no narratable tracks", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "1");
+
+    const exerciseRetries = async (seedQuotaCount?: number) => {
+      const episodeId =
+        `personalPlaylistEpisodes-empty-${seedQuotaCount ?? "none"}` as Id<"personalPlaylistEpisodes">;
+      const { ctx, getEpisodes, getQuotas } = createCtx({
+        episodes: [
+          buildEpisode({
+            _id: episodeId,
+            articleId: "article-empty" as Id<"articles">,
+            slug: "empty",
+            title: "Empty article",
+            status: "failed",
+            sectionCount: 0,
+            lastError: "Article does not contain any narratable source tracks.",
+          }),
+        ],
+        quotas:
+          seedQuotaCount == null
+            ? []
+            : [
+                {
+                  _id: `routeQuotas-${seedQuotaCount}` as Id<"routeQuotas">,
+                  key: "personal-playlist:openai:daily:user-1",
+                  count: seedQuotaCount,
+                  windowStart: Date.now(),
+                  expiresAt: Date.now() + 60_000,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                },
+              ],
+      });
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await expect(
+          retryViewerPlaylistEpisodeForCtx(ctx, {
+            viewerTokenIdentifier: "user-1",
+            episodeId,
+          }),
+        ).resolves.toEqual({ queued: true });
+        await expect(
+          markViewerPlaylistEpisodeRunningForCtx(ctx, {
+            episodeId,
+            owner: `worker-${attempt}`,
+          }),
+        ).resolves.toMatchObject({ claimed: true });
+        await expect(
+          failViewerPlaylistEpisodeForCtx(ctx, {
+            episodeId,
+            owner: `worker-${attempt}`,
+            lastError: "Still no narratable tracks.",
+          }),
+        ).resolves.toEqual({ failed: true });
+      }
+
+      expect(getEpisodes()[0]).toMatchObject({
+        status: "failed",
+        sectionCount: 0,
+        generationRetryCount: 3,
+      });
+      return getQuotas();
+    };
+
+    await expect(exerciseRetries()).resolves.toEqual([]);
+    await expect(exerciseRetries(1)).resolves.toEqual([
+      expect.objectContaining({ count: 1 }),
+    ]);
+  });
+
+  it("meters later retries when a legacy episode has no section count", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-legacy" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getQuotas } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-legacy" as Id<"articles">,
+          slug: "legacy",
+          title: "Legacy article",
+          status: "failed",
+          generationRetryCount: 1,
+          lastError: "Legacy generation failed.",
+        }),
+      ],
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()).toEqual([
+      expect.objectContaining({
+        key: "personal-playlist:openai:daily:user-1",
+        count: 1,
+      }),
+    ]);
   });
 
   it("completes only for the lease owner and records the generated audio variant", async () => {

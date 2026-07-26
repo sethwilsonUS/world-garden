@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchAndCacheResult } from "@/convex/articles";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
@@ -12,12 +12,7 @@ import {
   hasCurrentFeaturedArtworkVersion,
   shouldReuseExistingFeaturedEpisode,
 } from "./podcast-episode";
-import {
-  getActiveTtsCacheKey,
-  getActiveTtsNormVersion,
-  getTtsMetadata,
-  getTtsProfile,
-} from "./tts-profile";
+import { getTtsMetadata, getTtsProfile } from "./tts-profile";
 
 describe("getPodcastSectionSources", () => {
   it("uses every narrated section for the featured podcast", () => {
@@ -70,6 +65,8 @@ describe("getPodcastSectionSources", () => {
 });
 
 describe("shouldReuseExistingFeaturedEpisode", () => {
+  const edge = getTtsMetadata(getTtsProfile("edge"));
+  afterEach(() => vi.unstubAllEnvs());
   const article = {
     _id: "article-1" as never,
     wikiPageId: "123",
@@ -94,9 +91,32 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ...edge,
+        } as Parameters<
+          typeof shouldReuseExistingFeaturedEpisode
+        >[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses the public Edge cache identity even when a legacy primary is configured", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
+          narrationHash,
+          ...edge,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -115,9 +135,9 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "999",
           title: "Older featured article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ...edge,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -136,9 +156,9 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ...edge,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -157,9 +177,9 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 1,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ...edge,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -178,9 +198,9 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ...edge,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -199,10 +219,10 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey:
-            "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          ...edge,
+          ttsCacheKey: getTtsProfile("openai").ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -210,6 +230,34 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
       }),
     ).toBe(false);
   });
+
+  it.each([
+    ["provider", "openai"],
+    ["model", "gpt-4o-mini-tts"],
+    ["voiceId", "alloy"],
+    ["promptVersion", "curio-warm-narrator-v1"],
+  ] as const)(
+    "does not reuse an Edge-keyed episode with spoofed %s metadata",
+    (field, spoofedValue) => {
+      expect(
+        shouldReuseExistingFeaturedEpisode({
+          force: false,
+          regenArt: false,
+          existingEpisode: {
+            status: "ready",
+            wikiPageId: "123",
+            title: "Example article",
+            artworkVersion: 2,
+            audioUrl: "https://cdn.example.test/episode.mp3",
+            narrationHash,
+            ...edge,
+            [field]: spoofedValue,
+          },
+          article,
+        }),
+      ).toBe(false);
+    },
+  );
 
   it("does not reuse ready audio from an older normalization version", () => {
     expect(
@@ -221,9 +269,10 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash,
+          ...edge,
           ttsNormVersion: "ttsNorm:1",
-          ttsCacheKey: getActiveTtsCacheKey(),
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -242,9 +291,30 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           wikiPageId: "123",
           title: "Example article",
           artworkVersion: 2,
+          audioUrl: "https://cdn.example.test/episode.mp3",
           narrationHash: "older-narration",
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ...edge,
+        } as Parameters<
+          typeof shouldReuseExistingFeaturedEpisode
+        >[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reuse a ready row whose audio asset is unavailable", () => {
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+          audioUrl: null,
+          narrationHash,
+          ...edge,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],

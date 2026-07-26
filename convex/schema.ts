@@ -216,6 +216,7 @@ export default defineSchema({
     sectionCount: v.optional(v.number()),
     narrationHash: v.optional(v.string()),
     requestedTtsMetadata: v.optional(ttsMetadata),
+    generationRetryCount: v.optional(v.number()),
     completedSectionCount: v.optional(v.number()),
     storageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),
@@ -252,6 +253,7 @@ export default defineSchema({
     ttsNormVersion: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),
+    cacheContractVersion: v.optional(v.number()),
     model: v.optional(v.string()),
     promptVersion: v.optional(v.string()),
     createdAt: v.number(),
@@ -697,6 +699,13 @@ export default defineSchema({
     requestedTtsMetadata: v.optional(ttsMetadata),
     producedTtsCacheKey: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
+    // Optional only for legacy rows. Read authorization never treats a
+    // missing or unknown value as public Edge audio.
+    ttsProvider: v.optional(v.string()),
+    ownerTokenIdentifier: v.optional(v.string()),
+    queueKey: v.optional(v.string()),
+    leaseOwner: v.optional(v.string()),
+    leaseExpiresAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     dismissedAt: v.optional(v.number()),
     createdAt: v.number(),
@@ -705,7 +714,8 @@ export default defineSchema({
     .index("by_clientId", ["clientId"])
     .index("by_clientId_updatedAt", ["clientId", "updatedAt"])
     .index("by_articleId", ["articleId"])
-    .index("by_clientId_articleId", ["clientId", "articleId"]),
+    .index("by_clientId_articleId", ["clientId", "articleId"])
+    .index("by_queueKey_status", ["queueKey", "status", "createdAt"]),
 
   viewerArticleListenProgress: defineTable({
     viewerTokenIdentifier: v.string(),

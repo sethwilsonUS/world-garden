@@ -35,6 +35,7 @@ export const GET = async (
         audioUrl: episode.audioUrl,
         title: episode.title,
         fallbackFilename: "featured-podcast-episode.mp3",
+        request: req,
       });
     }
 

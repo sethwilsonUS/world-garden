@@ -59,13 +59,13 @@ Scenarios:
 
 const metadataHeaders = {
   "Content-Type": "audio/mpeg",
-  "X-Curio-TTS-Provider": "openai",
-  "X-Curio-TTS-Model": "gpt-4o-mini-tts",
-  "X-Curio-TTS-Voice": "marin",
-  "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
-  "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+  "X-Curio-TTS-Provider": "edge",
+  "X-Curio-TTS-Model": "edge-tts",
+  "X-Curio-TTS-Voice": "en-US-AriaNeural",
+  "X-Curio-TTS-Prompt-Version": "edge-default",
+  "X-Curio-TTS-Norm-Version": "ttsNorm:3",
   "X-Curio-TTS-Cache-Key":
-    "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+    "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
 };
 
 const timeoutJson = {
