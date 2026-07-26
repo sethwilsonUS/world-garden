@@ -13,6 +13,7 @@ import {
   ContextSectionLink,
   chartToCsv,
   getContextBlocksForSection,
+  summarizeContextVisuals,
 } from "./ArticleContext";
 import { ContextChartView, MapSchematic } from "./ArticleContextVisuals";
 import { ThemeProvider } from "./ThemeProvider";
@@ -204,6 +205,12 @@ describe("ArticleContext", () => {
     expect(readyMarkup).toContain('aria-busy="false"');
     expect(readyMarkup).toContain('data-visual-state="ready"');
     expect(readyMarkup).not.toContain("context-visual-spinner");
+    expect(readyMarkup).toContain("context-visual-disclosure");
+    expect(readyMarkup).toContain("Explore 4 visual aids");
+    expect(readyMarkup).toContain("1 map · 1 timeline · 1 chart · 1 diagram");
+    expect(readyMarkup).not.toMatch(
+      /<details[^>]*context-visual-disclosure[^>]*\sopen(?:=|\s|>)/,
+    );
 
     expect(errorMarkup).toContain('data-context-lane-state="error"');
     expect(errorMarkup).toContain('aria-busy="false"');
@@ -224,7 +231,7 @@ describe("ArticleContext", () => {
     expect(markup).toContain("1 visual");
   });
 
-  it("renders every visual directly with captions, fuller descriptions, and semantic equivalents", () => {
+  it("keeps every visual in source order inside one collapsed disclosure", () => {
     const markup = renderToStaticMarkup(
       createElement(
         ThemeProvider,
@@ -291,6 +298,18 @@ describe("ArticleContext", () => {
     expect(mapPosition).toBeLessThan(timelinePosition);
     expect(timelinePosition).toBeLessThan(chartPosition);
     expect(chartPosition).toBeLessThan(diagramPosition);
+    expect(markup.indexOf("context-visual-disclosure")).toBeLessThan(
+      mapPosition,
+    );
+  });
+
+  it("summarizes each infographic kind without counting gallery images", () => {
+    expect(summarizeContextVisuals(blocks)).toBe(
+      "1 map · 1 timeline · 1 chart · 1 diagram",
+    );
+    expect(
+      summarizeContextVisuals([blocks[2], { ...blocks[2], id: "two" }]),
+    ).toBe("2 charts");
   });
 
   it("renders no lane or placeholder spacing for a ready manifest with no visuals", () => {

@@ -93,6 +93,26 @@ const clientWith = (outputParsed: unknown) =>
     },
   }) as unknown as Pick<OpenAI, "responses">;
 
+const schemaValidatingClientWith = (output: unknown) => {
+  const parse = vi.fn(
+    async (request: {
+      text?: {
+        format?: {
+          $parseRaw?: (value: string) => unknown;
+        };
+      };
+    }) => {
+      const parseRaw = request.text?.format?.$parseRaw;
+      if (!parseRaw) throw new Error("Missing structured-output parser");
+      return { output_parsed: parseRaw(JSON.stringify(output)) };
+    },
+  );
+  return {
+    client: { responses: { parse } } as unknown as Pick<OpenAI, "responses">,
+    parse,
+  };
+};
+
 describe("article context AI descriptions", () => {
   it("keeps deterministic copy when OpenAI is not configured", async () => {
     delete process.env.OPENAI_API_KEY;
@@ -150,6 +170,37 @@ describe("article context AI descriptions", () => {
       model: "gpt-5.6-luna",
       promptVersion: "context-accessibility-v3",
     });
+  });
+
+  it("accepts a bounded enhancement response with more than six blocks", async () => {
+    const source: ContextManifest = {
+      ...manifest,
+      blocks: Array.from({ length: 7 }, (_, index) => ({
+        ...structuredClone(manifest.blocks[0]!),
+        id: `timeline-${index + 1}`,
+        order: index,
+      })),
+    };
+    const response = {
+      blocks: source.blocks.map((block) => ({
+        id: block.id,
+        caption: "Two source-derived milestones are shown.",
+        longDescription:
+          "The chronology records launch in 1969 followed by return in 1972.",
+      })),
+    };
+    const { client, parse } = schemaValidatingClientWith(response);
+
+    const enhanced = await enhanceArticleContextManifest(source, { client });
+
+    expect(parse).toHaveBeenCalledOnce();
+    expect(enhanced).not.toBe(source);
+    expect(enhanced.blocks).toHaveLength(7);
+    expect(
+      enhanced.blocks.every(
+        (block) => block.provenance.descriptionMethod === "ai-assisted",
+      ),
+    ).toBe(true);
   });
 
   it("keeps a source-derived diagram legend unchanged during copy enhancement", async () => {

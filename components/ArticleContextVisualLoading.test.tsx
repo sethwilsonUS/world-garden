@@ -6,14 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ContextChartBlock,
   ContextDiagramBlock,
+  ContextManifest,
   ContextMapBlock,
 } from "@/lib/article-context-types";
+import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "@/lib/article-context-types";
 import {
   ContextChartView,
   ContextDiagramView,
   ContextMapView,
 } from "./ArticleContextVisuals";
-import { ArticleContextLane } from "./ArticleContext";
+import {
+  ArticleContextLane,
+  ContextSectionLink,
+  getContextBlockDomId,
+} from "./ArticleContext";
 import { ThemeProvider } from "./ThemeProvider";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -210,6 +216,18 @@ const diagramBlock: ContextDiagramBlock = {
   },
 };
 
+const chartManifest: ContextManifest = {
+  schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
+  wikiPageId: "123",
+  title: "Example",
+  revisionId: "123",
+  language: "en",
+  sourceHash: "manifest-source",
+  extractorVersion: "test",
+  generatedAt: "2026-07-26T00:00:00.000Z",
+  blocks: [chartBlock],
+};
+
 describe("article context rich visual loading", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -276,6 +294,7 @@ describe("article context rich visual loading", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    window.history.replaceState({}, "", window.location.pathname);
     document
       .querySelectorAll("[data-visual-loading-test-outside]")
       .forEach((node) => node.remove());
@@ -305,6 +324,92 @@ describe("article context rich visual loading", () => {
     expect(status).not.toBeNull();
     expect(status?.closest('[aria-busy="true"]')).toBeNull();
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+
+  it("opens the visual-aids disclosure before focusing a linked card", async () => {
+    const targetId = getContextBlockDomId(chartBlock);
+    await act(async () => {
+      root.render(
+        <>
+          <ContextSectionLink blocks={[chartBlock]} />
+          <details data-visual-aids-disclosure>
+            <article id={targetId} tabIndex={-1}>
+              Chart target
+            </article>
+          </details>
+        </>,
+      );
+    });
+
+    const disclosure = container.querySelector("details");
+    const link = container.querySelector<HTMLAnchorElement>(
+      "a.context-section-link",
+    );
+    const target = document.getElementById(targetId);
+    expect(disclosure?.open).toBe(false);
+
+    await act(async () => link?.click());
+
+    expect(disclosure?.open).toBe(true);
+    expect(document.activeElement).toBe(target);
+  });
+
+  it("reopens a collapsed disclosure for passive fragment navigation without moving focus", async () => {
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    window.history.replaceState({}, "", "#unrelated");
+
+    try {
+      await act(async () => {
+        root.render(
+          <ThemeProvider>
+            <ArticleContextLane
+              state={{ status: "ready", manifest: chartManifest, error: null }}
+              retry={() => {}}
+            />
+          </ThemeProvider>,
+        );
+      });
+      const disclosure = container.querySelector<HTMLDetailsElement>(
+        "details[data-visual-aids-disclosure]",
+      )!;
+      const summary = disclosure.querySelector("summary")!;
+      summary.focus();
+      expect(disclosure.open).toBe(false);
+
+      await act(async () => {
+        window.history.pushState(
+          {},
+          "",
+          `#${getContextBlockDomId(chartBlock)}`,
+        );
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+        await Promise.resolve();
+      });
+
+      expect(disclosure.open).toBe(true);
+      expect(document.activeElement).toBe(summary);
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      window.history.replaceState({}, "", window.location.pathname);
+      if (originalScrollIntoView) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          originalScrollIntoView,
+        );
+      } else {
+        delete (HTMLElement.prototype as { scrollIntoView?: unknown })
+          .scrollIntoView;
+      }
+    }
   });
 
   it("marks a chart ready only after ECharts finishes its first render", async () => {

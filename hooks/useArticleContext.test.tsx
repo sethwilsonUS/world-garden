@@ -8,6 +8,7 @@ import type {
   ContextBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
+import { MAX_BLOCKS_PER_ARTICLE } from "@/lib/article-context-limits";
 import { ARTICLE_CONTEXT_EXTRACTOR_VERSION } from "@/lib/article-context-types";
 import { useArticleContext } from "./useArticleContext";
 
@@ -400,5 +401,51 @@ describe("useArticleContext", () => {
         );
       });
     }
+  });
+
+  it("accepts the shared visual limit and rejects one block beyond it", async () => {
+    const blocksAtLimit = Array.from(
+      { length: MAX_BLOCKS_PER_ARTICLE },
+      (_, index) => block(`visual-${index + 1}`, `Visual ${index + 1}`, index),
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("at-limit", { blocks: blocksAtLimit }),
+          cacheStatus: "miss",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("over-limit", {
+            blocks: [
+              ...blocksAtLimit,
+              block(
+                "visual-over-limit",
+                "Visual over limit",
+                MAX_BLOCKS_PER_ARTICLE,
+              ),
+            ],
+          }),
+          cacheStatus: "miss",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => root.render(<Probe value={request("at-limit")} />));
+    const output = container.querySelector("output")!;
+    await waitForExpectation(() => {
+      expect(output.dataset.status).toBe("ready");
+      expect(output.textContent).toContain(`visual-${MAX_BLOCKS_PER_ARTICLE}`);
+    });
+
+    await act(async () => root.render(<Probe value={request("over-limit")} />));
+    await waitForExpectation(() => {
+      expect(output.dataset.status).toBe("error");
+      expect(output.textContent).toBe(
+        "Visual context returned an unexpected response.",
+      );
+    });
   });
 });

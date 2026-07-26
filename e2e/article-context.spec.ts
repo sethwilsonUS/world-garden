@@ -523,6 +523,19 @@ const openDetailsWithKeyboard = async (page: Page, details: Locator) => {
   await expect(details).toHaveJSProperty("open", true);
 };
 
+const openVisualAidsWithKeyboard = async (page: Page) => {
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  await expect(disclosure.locator(":scope > summary")).toBeVisible();
+  if (
+    !(await disclosure.evaluate(
+      (details) => (details as HTMLDetailsElement).open,
+    ))
+  ) {
+    await openDetailsWithKeyboard(page, disclosure);
+  }
+  return disclosure;
+};
+
 const mockArticleAndContext = async (
   page: Page,
   {
@@ -939,12 +952,11 @@ test("visual context reports a truthful reduced-motion loading state", async ({
     releaseContextResponse();
   }
 
-  await expect(
-    page.getByRole("heading", {
-      level: 2,
-      name: "Context that rewards a closer look",
-    }),
-  ).toBeVisible();
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  await expect(disclosure.locator(":scope > summary")).toContainText(
+    "Explore 4 visual aids",
+  );
+  await expect(disclosure).toHaveJSProperty("open", false);
   await expect(lane).toHaveCount(0);
 });
 
@@ -954,6 +966,7 @@ test("diagram legends retain textual keys and visible boundaries in forced color
   await page.emulateMedia({ colorScheme: "dark", forcedColors: "active" });
   await mockArticleAndContext(page, { manifest: legendManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const legend = page.locator(".context-diagram-legend");
   await expect(legend).toBeVisible();
@@ -994,15 +1007,42 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   );
   await page.goto("/article/Ada_Lovelace");
 
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  const disclosureSummary = disclosure.locator(":scope > summary");
+  await expect(disclosureSummary).toBeVisible();
   await expect(
-    page.getByRole("heading", {
-      level: 2,
-      name: "Context that rewards a closer look",
-    }),
+    page.getByRole("heading", { level: 2, name: "Explore 4 visual aids" }),
   ).toBeVisible();
+  await expect(disclosureSummary).toContainText("Explore 4 visual aids");
+  await expect(disclosureSummary).toContainText(
+    "1 map · 1 timeline · 1 chart · 1 diagram",
+  );
+  await expect(disclosureSummary).toHaveAccessibleName(
+    /Explore 4 visual aids.*1 map.*1 timeline.*1 chart.*1 diagram/,
+  );
+  expect(
+    (await disclosureSummary.boundingBox())?.height ?? 0,
+  ).toBeGreaterThanOrEqual(44);
+  await expect(disclosure).toHaveJSProperty("open", false);
   await expect(page.locator("article.context-card")).toHaveCount(4);
+  await expect(page.locator("article.context-card").first()).toBeHidden();
   await expect(page.locator("#article-context-index")).toHaveCount(0);
   await expect(page.locator("details.context-explorer")).toHaveCount(0);
+  expect(reports.getMapStyleRequests()).toBe(0);
+  await expect(
+    page.locator("#article-context-chart-note-length .context-echarts svg"),
+  ).toHaveCount(0);
+
+  await disclosureSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(disclosure).toHaveJSProperty("open", true);
+  await expect(disclosureSummary).toBeFocused();
+  await expect(
+    page.getByText("Context that rewards a closer look", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(disclosure).toHaveJSProperty("open", false);
+  await expect(disclosureSummary).toBeFocused();
 
   const sectionLinks = page.locator("a.context-section-link");
   await expect(sectionLinks).toHaveCount(2);
@@ -1024,7 +1064,18 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await sectionLinks.nth(0).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#article-context-map-journey$/);
+  await expect(disclosure).toHaveJSProperty("open", true);
   await expect(mapCard).toBeFocused();
+  await darkStyleRequest;
+
+  await disclosureSummary.focus();
+  await page.keyboard.press("Space");
+  await expect(disclosure).toHaveJSProperty("open", false);
+  await sectionLinks.nth(1).focus();
+  await page.evaluate(() => {
+    window.location.hash = "#article-context-chart-note-length";
+  });
+  await expect(disclosure).toHaveJSProperty("open", true);
 
   await expect(mapCard).toHaveAttribute(
     "aria-describedby",
@@ -1264,6 +1315,11 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   ).toHaveCount(0);
   const gallery = page.getByRole("heading", { name: "Gallery" }).locator("..");
   await expect(gallery).toBeVisible();
+  expect(
+    await gallery.evaluate((element) =>
+      Boolean(element.closest("details[data-visual-aids-disclosure]")),
+    ),
+  ).toBe(false);
   const [contextBox, galleryBox] = await Promise.all([
     contextLane.boundingBox(),
     gallery.boundingBox(),
@@ -1347,6 +1403,7 @@ test("article map falls back accessibly and can retry after a style failure", as
     mapStyleFailureDelayMs: 1_000,
   });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const mapCard = page.locator("#article-context-map-journey");
   const failureStatus = mapCard.locator('[data-visual-state="fallback"]');
@@ -1390,6 +1447,7 @@ test("article map falls back when its source metadata cannot load", async ({
   await page.emulateMedia({ colorScheme: "dark" });
   await mockArticleAndContext(page, { mapSourceFailures: 1 });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const mapCard = page.locator("#article-context-map-journey");
   await mapCard.scrollIntoViewIfNeeded();
@@ -1418,6 +1476,7 @@ test("article map remains usable when decorative sprite resources fail", async (
   await page.emulateMedia({ colorScheme: "dark" });
   await mockArticleAndContext(page, { mapSpriteFailure: true });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const mapCard = page.locator("#article-context-map-journey");
   await mapCard.scrollIntoViewIfNeeded();
@@ -1435,7 +1494,7 @@ test("article map remains usable when decorative sprite resources fail", async (
   );
 });
 
-test("rich visuals initialize without IntersectionObserver or a disclosure click", async ({
+test("rich visuals wait for the disclosure without IntersectionObserver", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -1444,12 +1503,21 @@ test("rich visuals initialize without IntersectionObserver or a disclosure click
       value: undefined,
     });
   });
-  await mockArticleAndContext(page);
+  const requests = await mockArticleAndContext(page);
+
+  await page.goto("/article/Ada_Lovelace");
+  const disclosure = page.locator("details[data-visual-aids-disclosure]");
+  await expect(disclosure.locator(":scope > summary")).toBeVisible();
+  await expect(disclosure).toHaveJSProperty("open", false);
+  expect(requests.getMapStyleRequests()).toBe(0);
+  await expect(
+    page.locator("#article-context-chart-note-length .context-echarts svg"),
+  ).toHaveCount(0);
+
   const mapStyleRequest = page.waitForRequest(
     "https://tiles.openfreemap.org/styles/liberty",
   );
-
-  await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
   await mapStyleRequest;
 
   await expect(
@@ -1477,6 +1545,7 @@ test("ranked chart data renders as a compact, keyboard-accessible bar overview",
   await page.setViewportSize({ width: 320, height: 720 });
   await mockArticleAndContext(page, { manifest: rankingManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const card = page.locator("#article-context-ranking-one");
   await card.scrollIntoViewIfNeeded();
@@ -1597,6 +1666,7 @@ test("mixed-unit demographic charts use separate scales and a bounded overview",
   await page.setViewportSize({ width: 320, height: 760 });
   await mockArticleAndContext(page, { manifest: demographicChartManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const card = page.locator("#article-context-demographic-chart");
   await card.scrollIntoViewIfNeeded();
@@ -1751,6 +1821,7 @@ test("ordinal chart peaks use exact positions rather than proportional bars", as
   await page.setViewportSize({ width: 320, height: 760 });
   await mockArticleAndContext(page, { manifest: ordinalPositionManifest });
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   const card = page.locator("#article-context-song-chart-peaks");
   await card.scrollIntoViewIfNeeded();
@@ -1911,6 +1982,7 @@ test("visual context remains usable at 200 percent zoom with forced colors", asy
   await page.emulateMedia({ forcedColors: "active" });
   await mockArticleAndContext(page);
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
   await page.evaluate(() => {
     document.documentElement.style.setProperty("zoom", "2");
   });
@@ -1961,8 +2033,13 @@ test("article context reflows at a narrow viewport and honors reduced motion", a
   await page.emulateMedia({ reducedMotion: "reduce" });
   await mockArticleAndContext(page);
   await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
 
   await expect(page.locator("article.context-card")).toHaveCount(4);
+  await expect(page.locator(".context-visual-disclosure-chevron")).toHaveCSS(
+    "transition-duration",
+    "0s",
+  );
   const tocRows = page.locator(".toc-row");
   expect(await tocRows.count()).toBeGreaterThan(0);
   const tocRowLayoutViolations = await tocRows.evaluateAll((rows) =>

@@ -1,10 +1,11 @@
 import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
 import { isValidContextDiagramLegend } from "../lib/article-context-legend";
+import { MAX_BLOCKS_PER_ARTICLE } from "../lib/article-context-limits";
 
 export { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
 
 export const MAX_ARTICLE_CONTEXT_MANIFEST_BYTES = 400_000;
-export const MAX_ARTICLE_CONTEXT_BLOCKS = 6;
+export const MAX_ARTICLE_CONTEXT_BLOCKS = MAX_BLOCKS_PER_ARTICLE;
 
 export type ArticleContextCacheKey = {
   wikiPageId: string;

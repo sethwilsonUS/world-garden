@@ -171,10 +171,10 @@ describe("published article context persistence", () => {
   it("treats rows from an older extractor as inert and rebuilds them", async () => {
     const staleManifest = {
       ...manifest,
-      extractorVersion: "3.0.0",
+      extractorVersion: "3.1.0",
       blocks: manifest.blocks.map((block) => ({
         ...block,
-        provenance: { ...block.provenance, extractorVersion: "3.0.0" },
+        provenance: { ...block.provenance, extractorVersion: "3.1.0" },
       })),
     };
     fetchQuery

@@ -88,26 +88,49 @@ export const useNearViewport = (
   useEffect(() => {
     const node = ref.current;
     if (!node || nearViewport) return;
-    if (typeof IntersectionObserver === "undefined") {
-      let cancelled = false;
-      queueMicrotask(() => {
-        if (!cancelled) setNearViewport(true);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        setNearViewport(true);
-        observer.disconnect();
-      },
-      { rootMargin: RICH_MEDIA_ROOT_MARGIN },
+    const disclosure = node.closest<HTMLDetailsElement>(
+      "details[data-visual-aids-disclosure]",
     );
-    observer.observe(node);
-    return () => observer.disconnect();
+    let observer: IntersectionObserver | null = null;
+    let cancelled = false;
+
+    const stopObserving = () => {
+      observer?.disconnect();
+      observer = null;
+    };
+    const startObserving = () => {
+      stopObserving();
+      if (disclosure && !disclosure.open) return;
+      if (typeof IntersectionObserver === "undefined") {
+        queueMicrotask(() => {
+          if (!cancelled && (!disclosure || disclosure.open)) {
+            setNearViewport(true);
+          }
+        });
+        return;
+      }
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          setNearViewport(true);
+          stopObserving();
+        },
+        { rootMargin: RICH_MEDIA_ROOT_MARGIN },
+      );
+      observer.observe(node);
+    };
+    const handleDisclosureToggle = () => {
+      if (disclosure?.open) startObserving();
+      else stopObserving();
+    };
+
+    disclosure?.addEventListener("toggle", handleDisclosureToggle);
+    startObserving();
+    return () => {
+      cancelled = true;
+      disclosure?.removeEventListener("toggle", handleDisclosureToggle);
+      stopObserving();
+    };
   }, [nearViewport, ref]);
 
   return nearViewport;

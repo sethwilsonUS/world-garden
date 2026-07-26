@@ -12,6 +12,7 @@ import {
   ARTICLE_CONTEXT_SCHEMA_VERSION,
 } from "@/lib/article-context-types";
 import { isValidContextDiagramLegend } from "@/lib/article-context-legend";
+import { MAX_BLOCKS_PER_ARTICLE } from "@/lib/article-context-limits";
 
 export type ArticleContextLoadState =
   | { status: "idle" | "loading"; manifest: null; error: null }
@@ -306,6 +307,7 @@ const isContextManifest = (value: unknown): value is ContextManifest =>
   value.extractorVersion === ARTICLE_CONTEXT_EXTRACTOR_VERSION &&
   isString(value.generatedAt) &&
   Array.isArray(value.blocks) &&
+  value.blocks.length <= MAX_BLOCKS_PER_ARTICLE &&
   value.blocks.every(isContextBlock);
 
 const isArticleContextApiResponse = (

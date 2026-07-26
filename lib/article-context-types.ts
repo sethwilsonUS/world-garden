@@ -7,7 +7,7 @@
  */
 
 export const ARTICLE_CONTEXT_SCHEMA_VERSION = 3 as const;
-export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "3.1.0";
+export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "3.2.0";
 
 export type ContextBlockKind = "map" | "timeline" | "chart" | "diagram";
 

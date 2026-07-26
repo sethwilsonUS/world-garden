@@ -268,6 +268,12 @@ describe("article context cache validation", () => {
         id: `timeline-${index}`,
       }),
     );
+    expect(
+      validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, tooMany.slice(0, MAX_ARTICLE_CONTEXT_BLOCKS)),
+        cacheKey,
+      ).blockCount,
+    ).toBe(MAX_ARTICLE_CONTEXT_BLOCKS);
     expect(() =>
       validateAndNormalizeManifestJson(
         manifestJson(cacheKey, tooMany),

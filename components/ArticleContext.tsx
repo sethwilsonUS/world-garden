@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  useEffect,
+  useRef,
   useState,
   type FormEvent,
   type MouseEvent as ReactMouseEvent,
@@ -25,6 +27,29 @@ const KIND_LABELS: Record<ContextBlockKind, string> = {
   timeline: "Timeline",
   chart: "Data",
   diagram: "Diagram",
+};
+
+const KIND_COUNT_LABELS: Record<ContextBlockKind, [string, string]> = {
+  map: ["map", "maps"],
+  timeline: ["timeline", "timelines"],
+  chart: ["chart", "charts"],
+  diagram: ["diagram", "diagrams"],
+};
+
+const quantity = (count: number, singular: string, plural: string): string =>
+  `${count} ${count === 1 ? singular : plural}`;
+
+export const summarizeContextVisuals = (blocks: ContextBlock[]): string => {
+  const counts = new Map<ContextBlockKind, number>();
+  for (const block of blocks) {
+    counts.set(block.kind, (counts.get(block.kind) ?? 0) + 1);
+  }
+  return (Object.keys(KIND_COUNT_LABELS) as ContextBlockKind[])
+    .flatMap((kind) => {
+      const count = counts.get(kind) ?? 0;
+      return count > 0 ? [quantity(count, ...KIND_COUNT_LABELS[kind])] : [];
+    })
+    .join(" · ");
 };
 
 const slugify = (value: string): string =>
@@ -123,8 +148,13 @@ export const ContextSectionLink = ({ blocks }: { blocks: ContextBlock[] }) => {
     ) {
       return;
     }
+    const target = document.getElementById(targetId);
+    const disclosure = target?.closest<HTMLDetailsElement>(
+      "details[data-visual-aids-disclosure]",
+    );
+    if (disclosure) disclosure.open = true;
     requestAnimationFrame(() => {
-      document.getElementById(targetId)?.focus({ preventScroll: true });
+      target?.focus({ preventScroll: true });
     });
   };
   return (
@@ -427,6 +457,38 @@ export const ArticleContextLane = ({
   state: ArticleContextLoadState;
   retry: () => void;
 }) => {
+  const disclosureRef = useRef<HTMLDetailsElement>(null);
+  const readyRevision =
+    state.status === "ready" ? state.manifest?.revisionId : undefined;
+
+  useEffect(() => {
+    if (!readyRevision) return;
+    let frame = 0;
+    const revealFragment = () => {
+      if (!window.location.hash) return;
+      let targetId: string;
+      try {
+        targetId = decodeURIComponent(window.location.hash.slice(1));
+      } catch {
+        return;
+      }
+      const target = document.getElementById(targetId);
+      const disclosure = disclosureRef.current;
+      if (!target || !disclosure?.contains(target)) return;
+      disclosure.open = true;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() =>
+        target.scrollIntoView({ block: "start" }),
+      );
+    };
+    revealFragment();
+    window.addEventListener("hashchange", revealFragment);
+    return () => {
+      window.removeEventListener("hashchange", revealFragment);
+      cancelAnimationFrame(frame);
+    };
+  }, [readyRevision]);
+
   if (state.status === "idle") return null;
   if (state.status === "loading") {
     return (
@@ -464,31 +526,79 @@ export const ArticleContextLane = ({
   if (state.status !== "ready" || !state.manifest) return null;
   if (state.manifest.blocks.length === 0) return null;
   const manifest = state.manifest;
+  const visualCountLabel = quantity(
+    manifest.blocks.length,
+    "visual aid",
+    "visual aids",
+  );
+  const visualBreakdown = summarizeContextVisuals(manifest.blocks);
 
   return (
     <section
       className="context-lane"
       data-context-lane-state="ready"
-      aria-labelledby="article-context-heading"
+      aria-labelledby="article-context-disclosure-label"
       aria-busy="false"
     >
       <VisualLoadStatus phase="ready">
-        Visual context ready with {manifest.blocks.length}{" "}
+        Visual context available with {manifest.blocks.length}{" "}
         {manifest.blocks.length === 1 ? "visual" : "visuals"}.
       </VisualLoadStatus>
-      <div className="context-lane-heading">
-        <span className="context-lane-kicker">Field notes</span>
-        <h2 id="article-context-heading">Context that rewards a closer look</h2>
-        <p>
-          Visual views are paired with descriptions and structured data, so
-          every path through the material carries the same meaning.
-        </p>
-      </div>
-      <div className="context-card-list">
-        {manifest.blocks.map((block) => (
-          <ContextCard key={block.id} block={block} manifest={manifest} />
-        ))}
-      </div>
+      <details
+        ref={disclosureRef}
+        className="context-visual-disclosure"
+        data-visual-aids-disclosure
+      >
+        <summary>
+          <span className="context-visual-disclosure-icon" aria-hidden="true">
+            ✦
+          </span>
+          <span className="context-visual-disclosure-copy">
+            <h2
+              id="article-context-disclosure-label"
+              className="context-visual-disclosure-label"
+            >
+              Explore {visualCountLabel}
+            </h2>
+            <span className="context-visual-disclosure-meta">
+              {visualBreakdown}
+            </span>
+          </span>
+          <span
+            className="context-visual-disclosure-chevron"
+            aria-hidden="true"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              focusable="false"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+        </summary>
+        <div className="context-visual-disclosure-content">
+          <div className="context-lane-heading">
+            <span className="context-lane-kicker">Field notes</span>
+            <p className="context-lane-title">
+              Context that rewards a closer look
+            </p>
+            <p>
+              Visual views are paired with descriptions and structured data, so
+              every path through the material carries the same meaning.
+            </p>
+          </div>
+          <div className="context-card-list">
+            {manifest.blocks.map((block) => (
+              <ContextCard key={block.id} block={block} manifest={manifest} />
+            ))}
+          </div>
+        </div>
+      </details>
     </section>
   );
 };
