@@ -1000,7 +1000,7 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   const reports = await mockArticleAndContext(page, {
-    mapStyleSuccessDelayMs: 500,
+    mapStyleSuccessDelayMs: 1_500,
   });
   const darkStyleRequest = page.waitForRequest(
     "https://tiles.openfreemap.org/styles/fiord",
@@ -1066,6 +1066,14 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(page).toHaveURL(/#article-context-map-journey$/);
   await expect(disclosure).toHaveJSProperty("open", true);
   await expect(mapCard).toBeFocused();
+  const interactiveStatus = mapCard
+    .locator(".context-interactive-map")
+    .locator(".context-visual-load-status");
+  await expect(interactiveStatus).toHaveText("Loading interactive street map.");
+  const loadingMapBox = await mapCard
+    .locator(".context-map-canvas")
+    .boundingBox();
+  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
   await darkStyleRequest;
 
   await disclosureSummary.focus();
@@ -1140,14 +1148,6 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(mapCard.locator(".context-interactive-map")).toBeVisible();
   await darkStyleRequest;
   await expect.poll(reports.getMapStyleRequests).toBeGreaterThan(0);
-  const interactiveStatus = mapCard
-    .locator(".context-interactive-map")
-    .locator(".context-visual-load-status");
-  await expect(interactiveStatus).toHaveText("Loading interactive street map.");
-  const loadingMapBox = await mapCard
-    .locator(".context-map-canvas")
-    .boundingBox();
-  await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeDisabled();
   await expect(interactiveStatus).toHaveText("Interactive map ready.");
   const readyMapBox = await mapCard
     .locator(".context-map-canvas")
