@@ -139,7 +139,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: activeTtsMetadataScript }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style dangerouslySetInnerHTML={{ __html: themeToggleCss }} />
-        <link rel="manifest" href="/manifest.json" />
+        <link
+          rel="manifest"
+          href="/manifest.json"
+          crossOrigin="use-credentials"
+        />
         <meta name="theme-color" content="#171717" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
