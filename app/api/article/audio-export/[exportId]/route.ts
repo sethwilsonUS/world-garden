@@ -1,17 +1,37 @@
 import { anyApi } from "convex/server";
-import { fetchQuery } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
+import { createArticleAudioExportReadAttestation } from "@/lib/article-audio-export-attestation";
 import {
   createPodcastAttachmentResponse,
+  createPodcastInlineResponse,
   isPodcastDownloadRequest,
   PODCAST_MEDIA_CACHE_CONTROL,
 } from "@/lib/podcast-media-response";
 
-type ArticleAudioExport = Doc<"articleAudioExports"> & {
+type ArticleAudioExport = {
+  _id: Id<"articleAudioExports">;
+  title: string;
+  status: string;
+  ttsProvider: "edge" | "openai";
   audioUrl: string | null;
 };
+
+type ArticleAudioExportIdentity = {
+  exportId: Id<"articleAudioExports">;
+  ttsCacheKey: string;
+  ttsProvider: "edge" | "openai";
+};
+
+const PRIVATE_MEDIA_CACHE_CONTROL = "private, no-store";
+
+const notFoundResponse = () =>
+  NextResponse.json(
+    { error: "Article audio export not found" },
+    { status: 404, headers: { "Cache-Control": "no-store" } },
+  );
 
 const getConvexAuthOptions = async (): Promise<
   { token: string } | Record<string, never>
@@ -21,7 +41,11 @@ const getConvexAuthOptions = async (): Promise<
     if (!session.userId) return {};
     const token = await session.getToken({ template: "convex" });
     return token ? { token } : {};
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[article-audio-export] Convex auth token unavailable",
+      error instanceof Error ? error.message : "Unknown authentication error",
+    );
     return {};
   }
 };
@@ -33,47 +57,62 @@ export const GET = async (
   const { exportId } = await params;
 
   try {
+    const convexAuthOptions = await getConvexAuthOptions();
     const storedIdentity = (await fetchQuery(
       anyApi.articleExports.getArticleAudioExportDownloadIdentity,
       {
         exportId,
       },
-    )) as {
-      exportId: Id<"articleAudioExports">;
-      ttsCacheKey: string;
-    } | null;
+      convexAuthOptions,
+    )) as ArticleAudioExportIdentity | null;
     if (!storedIdentity) {
-      return NextResponse.json(
-        { error: "Article audio export not found" },
-        { status: 404, headers: { "Cache-Control": "no-store" } },
-      );
+      return notFoundResponse();
     }
 
-    const convexAuthOptions = await getConvexAuthOptions();
-    const articleExport = (await fetchQuery(
-      anyApi.articleExports.getArticleAudioExportById,
-      {
+    let articleExport: ArticleAudioExport | null;
+    if (storedIdentity.ttsProvider === "edge") {
+      articleExport = (await fetchQuery(
+        anyApi.articleExports.getArticleAudioExportById,
+        {
+          exportId: storedIdentity.exportId,
+          ttsCacheKey: storedIdentity.ttsCacheKey,
+        },
+        convexAuthOptions,
+      )) as ArticleAudioExport | null;
+    } else if (
+      storedIdentity.ttsProvider === "openai" &&
+      "token" in convexAuthOptions
+    ) {
+      const attestation = await createArticleAudioExportReadAttestation({
         exportId: storedIdentity.exportId,
         ttsCacheKey: storedIdentity.ttsCacheKey,
-      },
-      convexAuthOptions,
-    )) as ArticleAudioExport | null;
+      });
+      articleExport = (await fetchMutation(
+        anyApi.articleExports.getArticleAudioExportForServer,
+        {
+          exportId: storedIdentity.exportId,
+          ttsCacheKey: storedIdentity.ttsCacheKey,
+          attestation,
+        },
+        convexAuthOptions,
+      )) as ArticleAudioExport | null;
+    } else {
+      return notFoundResponse();
+    }
 
     if (
       !articleExport ||
       articleExport.status !== "ready" ||
-      !articleExport.audioUrl
+      !articleExport.audioUrl ||
+      articleExport.ttsProvider !== storedIdentity.ttsProvider
     ) {
-      return NextResponse.json(
-        { error: "Article audio export not found" },
-        { status: 404, headers: { "Cache-Control": "no-store" } },
-      );
+      return notFoundResponse();
     }
 
     const cacheControl =
       articleExport.ttsProvider === "edge"
         ? PODCAST_MEDIA_CACHE_CONTROL
-        : "private, no-store";
+        : PRIVATE_MEDIA_CACHE_CONTROL;
 
     if (isPodcastDownloadRequest(req)) {
       return await createPodcastAttachmentResponse({
@@ -81,6 +120,15 @@ export const GET = async (
         title: articleExport.title,
         fallbackFilename: "article-audio-export.mp3",
         cacheControl,
+        request: req,
+      });
+    }
+
+    if (articleExport.ttsProvider === "openai") {
+      return await createPodcastInlineResponse({
+        audioUrl: articleExport.audioUrl,
+        cacheControl,
+        request: req,
       });
     }
 

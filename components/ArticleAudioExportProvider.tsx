@@ -11,7 +11,8 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAuth } from "@clerk/nextjs";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { type Id } from "@/convex/_generated/dataModel";
 import { useTtsProfile } from "@/lib/tts-audience";
@@ -117,6 +118,10 @@ export const ArticleAudioExportProvider = ({
   children: ReactNode;
 }) => {
   const ttsProfile = useTtsProfile();
+  const { isLoaded: isClerkLoaded, isSignedIn } = useAuth();
+  const { isLoading: isConvexAuthLoading } = useConvexAuth();
+  const isAuthBridgePending =
+    !isClerkLoaded || (isSignedIn === true && isConvexAuthLoading);
   const hasMounted = useSyncExternalStore(
     emptySubscribe,
     () => true,
@@ -289,6 +294,12 @@ export const ArticleAudioExportProvider = ({
 
   const queueExport = useCallback(
     async ({ articleId, title }: { articleId: string; title: string }) => {
+      if (isAuthBridgePending) {
+        throw new Error(
+          "Article audio exports are still connecting to your account. Try again in a moment.",
+        );
+      }
+
       const requestedTtsProvider = ttsProfile.provider;
       const resolvedClientId =
         clientId ?? (typeof window === "undefined" ? "" : ensureClientId());
@@ -323,7 +334,13 @@ export const ArticleAudioExportProvider = ({
         const result = await startExport({
           clientId: resolvedClientId,
           articleId: articleId as Id<"articles">,
+          expectedTtsProvider: requestedTtsProvider,
         });
+        if (result.ttsProvider !== requestedTtsProvider) {
+          throw new Error(
+            "Article audio voice changed. Please try the export again.",
+          );
+        }
         return {
           exportId: result.exportId as string,
           status: result.status as ArticleAudioExportJob["status"],
@@ -338,7 +355,7 @@ export const ArticleAudioExportProvider = ({
         );
       }
     },
-    [clientId, startExport, ttsProfile.provider],
+    [clientId, isAuthBridgePending, startExport, ttsProfile.provider],
   );
 
   const dismissExport = useCallback(

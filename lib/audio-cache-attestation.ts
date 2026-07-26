@@ -1,7 +1,15 @@
 import type { ServerAttestationPayloadValue } from "./server-attestation";
 
+export const AUDIO_CACHE_READ_ATTESTATION_SCOPE = "audio-cache:read";
 export const AUDIO_CACHE_UPLOAD_ATTESTATION_SCOPE = "audio-cache:upload";
 export const AUDIO_CACHE_SAVE_ATTESTATION_SCOPE = "audio-cache:save";
+
+export type AudioCacheReadAttestationPayload = {
+  articleId: string;
+  ttsNormVersion: string;
+  ttsCacheKey: string;
+  sourceHashes: Array<{ sectionKey: string; sourceHash: string }>;
+};
 
 export type AudioCacheSaveAttestationPayload = {
   articleId: string;
@@ -19,6 +27,19 @@ export type AudioCacheSaveAttestationPayload = {
 
 export const buildAudioCacheUploadAttestationPayload =
   (): readonly ServerAttestationPayloadValue[] => ["sectionAudio"];
+
+export const buildAudioCacheReadAttestationPayload = (
+  args: AudioCacheReadAttestationPayload,
+): readonly ServerAttestationPayloadValue[] => [
+  args.articleId,
+  args.ttsNormVersion,
+  args.ttsCacheKey,
+  args.sourceHashes.length,
+  ...args.sourceHashes.flatMap(({ sectionKey, sourceHash }) => [
+    sectionKey,
+    sourceHash,
+  ]),
+];
 
 export const buildAudioCacheSaveAttestationPayload = (
   args: AudioCacheSaveAttestationPayload,

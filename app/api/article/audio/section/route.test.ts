@@ -75,7 +75,8 @@ describe("POST /api/article/audio/section", () => {
     vi.stubEnv("AUDIO_GENERATION_BASE_URL", "https://trusted.example");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
     auth.mockResolvedValue({ userId: null, getToken: vi.fn() });
-    fetchQuery.mockResolvedValueOnce(article).mockResolvedValueOnce({
+    fetchQuery.mockResolvedValueOnce(article);
+    fetchMutation.mockResolvedValueOnce({
       urls: {},
       durations: {},
       metadata: {},
@@ -126,9 +127,16 @@ describe("POST /api/article/audio/section", () => {
     const generatedHeaders = generateTtsAudioWithMetadata.mock.calls[0][1]
       .headers as Record<string, string>;
     expect(generatedHeaders).not.toHaveProperty("x-curio-tts-quota-bypass");
-    expect(fetchMutation).toHaveBeenCalledTimes(2);
-    expect(fetchMutation.mock.calls[0][1]).toHaveProperty("attestation");
-    expect(fetchMutation.mock.calls[1][1]).toEqual(
+    expect(fetchMutation).toHaveBeenCalledTimes(3);
+    expect(fetchMutation.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        articleId: article._id,
+        ttsCacheKey: edgeMetadata.ttsCacheKey,
+        attestation: expect.any(Object),
+      }),
+    );
+    expect(fetchMutation.mock.calls[1][1]).toHaveProperty("attestation");
+    expect(fetchMutation.mock.calls[2][1]).toEqual(
       expect.objectContaining({
         articleId: article._id,
         sectionKey: summary.sectionKey,
@@ -150,10 +158,11 @@ describe("POST /api/article/audio/section", () => {
 
     const { POST } = await import("./route");
     const response = await POST(request("openai"));
+    await Promise.all(pendingAfterTasks);
 
     expect(response.headers.get("X-Curio-TTS-Provider")).toBe("openai");
     expect(getToken).toHaveBeenCalledWith({ template: "convex" });
-    expect(fetchQuery.mock.calls[1][2]).toEqual({ token: "convex-jwt" });
+    expect(fetchMutation.mock.calls[0][2]).toEqual({ token: "convex-jwt" });
     expect(generateTtsAudioWithMetadata).toHaveBeenCalledWith(
       { text: summary.text, provider: "openai" },
       expect.any(Object),
@@ -161,8 +170,8 @@ describe("POST /api/article/audio/section", () => {
   });
 
   it("serves an exact cached variant without regenerating or rewriting it", async () => {
-    fetchQuery.mockReset();
-    fetchQuery.mockResolvedValueOnce(article).mockResolvedValueOnce({
+    fetchMutation.mockReset();
+    fetchMutation.mockResolvedValueOnce({
       urls: { summary: "https://storage.example/summary.mp3" },
       durations: { summary: 12 },
       metadata: { summary: edgeMetadata },
@@ -190,7 +199,8 @@ describe("POST /api/article/audio/section", () => {
       expect(response.headers.get(name)).toBe(value);
     }
     expect(generateTtsAudioWithMetadata).not.toHaveBeenCalled();
-    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMutation).toHaveBeenCalledTimes(1);
+    expect(fetchMutation.mock.calls[0][1]).toHaveProperty("attestation");
     expect(after).not.toHaveBeenCalled();
   });
 

@@ -7,12 +7,15 @@ import {
   getWikipediaFeaturedFeedDate,
   type WikipediaPictureOfDay,
 } from "@/lib/featured-article";
-import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
-import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
+import { getEdgeTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
-import { getTtsProfile } from "@/lib/tts-profile";
+import {
+  createPublicAudioWriteAttestation,
+  type PublicAudioWriteOperation,
+} from "@/lib/public-audio-write-attestation";
+import { isExactCurrentEdgeAudioMetadata } from "@/lib/public-edge-audio-metadata";
 
 const PICTURE_OF_DAY_ALBUM = "Curio Garden Picture of the Day";
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -25,6 +28,20 @@ const inFlightPictureAudio = new Map<
   string,
   Promise<PictureOfDayAudioSyncResult>
 >();
+
+const withPictureOfDayWriteAttestation = async <
+  TArgs extends Record<string, unknown>,
+>(
+  operation: PublicAudioWriteOperation,
+  args: TArgs,
+) => ({
+  ...args,
+  attestation: await createPublicAudioWriteAttestation({
+    pipeline: "picture-of-day",
+    operation,
+    args,
+  }),
+});
 
 export type PictureOfDayAudioRecord = {
   _id: string;
@@ -149,7 +166,7 @@ const shouldReuseExistingPictureAudio = (
   Boolean(
     record?.status === "ready" &&
     record.audioUrl &&
-    record.ttsCacheKey === getTtsProfile("edge").ttsCacheKey,
+    isExactCurrentEdgeAudioMetadata(record),
   );
 
 const getPictureOfDayAudio = async ({
@@ -186,7 +203,7 @@ const generatePictureOfDayAudioRecord = async ({
     pictureKey: picture.pictureKey,
   });
   const previousReadyAudio =
-    existing?.status === "ready" && existing.audioUrl ? existing : null;
+    shouldReuseExistingPictureAudio(existing) ? existing : null;
 
   if (shouldReuseExistingPictureAudio(existing)) {
     return {
@@ -199,13 +216,13 @@ const generatePictureOfDayAudioRecord = async ({
 
   const claim = await fetchMutation(
     anyApi.pictureOfDay.claimPictureOfDayAudioJob,
-    {
+    await withPictureOfDayWriteAttestation("claim-job", {
       feedDate: feedDateIso,
       pictureKey: picture.pictureKey,
       scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
       owner,
       leaseMs: JOB_LEASE_MS,
-    },
+    }),
   );
 
   if (!claim.claimed) {
@@ -240,14 +257,18 @@ const generatePictureOfDayAudioRecord = async ({
 
     if (!previousReadyAudio) {
       stage = "saving_pending";
-      await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
-        feedDate: feedDateIso,
-        pictureKey: picture.pictureKey,
-        scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-        status: "pending",
-        title,
-        spokenText,
-      });
+      await fetchMutation(
+        anyApi.pictureOfDay.savePictureOfDayAudio,
+        await withPictureOfDayWriteAttestation("save-record", {
+          feedDate: feedDateIso,
+          pictureKey: picture.pictureKey,
+          scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+          owner,
+          status: "pending",
+          title,
+          spokenText,
+        }),
+      );
     }
 
     console.info(
@@ -258,12 +279,17 @@ const generatePictureOfDayAudioRecord = async ({
     const generatedAudio = await generateTtsAudioWithMetadata(
       { text: spokenText, provider: "edge" },
       {
-        apiBaseUrl: getPodcastSiteUrl(baseUrl),
-        headers: getTtsQuotaBypassHeaders(),
+        apiBaseUrl: baseUrl,
+        headers: getEdgeTtsGenerationHeaders(baseUrl),
       },
     );
     const sourceAudioBlob = generatedAudio.blob;
     const ttsMetadata = generatedAudio.metadata;
+    if (!isExactCurrentEdgeAudioMetadata(ttsMetadata)) {
+      throw new Error(
+        "Picture of the Day narration returned a non-Edge TTS profile.",
+      );
+    }
 
     stage = "tagging_audio";
     const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
@@ -275,7 +301,7 @@ const generatePictureOfDayAudioRecord = async ({
     stage = "requesting_upload_url";
     const uploadUrl = await fetchMutation(
       anyApi.pictureOfDay.generateUploadUrl,
-      {},
+      await withPictureOfDayWriteAttestation("generate-upload-url", {}),
     );
 
     stage = "uploading_audio";
@@ -285,23 +311,27 @@ const generatePictureOfDayAudioRecord = async ({
     );
 
     stage = "saving_ready";
-    await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
-      feedDate: feedDateIso,
-      pictureKey: picture.pictureKey,
-      scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-      status: "ready",
-      title,
-      spokenText,
-      storageId,
-      durationSeconds: estimateDurationSeconds(spokenText),
-      byteLength: taggedAudioBlob.size,
-      voiceId: ttsMetadata.voiceId,
-      ttsCacheKey: ttsMetadata.ttsCacheKey,
-      provider: ttsMetadata.provider,
-      model: ttsMetadata.model,
-      promptVersion: ttsMetadata.promptVersion,
-      ttsNormVersion: ttsMetadata.ttsNormVersion,
-    });
+    await fetchMutation(
+      anyApi.pictureOfDay.savePictureOfDayAudio,
+      await withPictureOfDayWriteAttestation("save-record", {
+        feedDate: feedDateIso,
+        pictureKey: picture.pictureKey,
+        scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+        owner,
+        status: "ready",
+        title,
+        spokenText,
+        storageId,
+        durationSeconds: estimateDurationSeconds(spokenText),
+        byteLength: taggedAudioBlob.size,
+        voiceId: ttsMetadata.voiceId,
+        ttsCacheKey: ttsMetadata.ttsCacheKey,
+        provider: ttsMetadata.provider,
+        model: ttsMetadata.model,
+        promptVersion: ttsMetadata.promptVersion,
+        ttsNormVersion: ttsMetadata.ttsNormVersion,
+      }),
+    );
     committedReady = true;
 
     stage = "reloading_saved_audio";
@@ -317,13 +347,19 @@ const generatePictureOfDayAudioRecord = async ({
     }
 
     stage = "finalizing_job";
-    await fetchMutation(anyApi.pictureOfDay.finalizePictureOfDayAudioJob, {
-      feedDate: feedDateIso,
-      pictureKey: picture.pictureKey,
-      scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-      owner,
-      status: "ready",
-    });
+    const finalization = await fetchMutation(
+      anyApi.pictureOfDay.finalizePictureOfDayAudioJob,
+      await withPictureOfDayWriteAttestation("finalize-job", {
+        feedDate: feedDateIso,
+        pictureKey: picture.pictureKey,
+        scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+        owner,
+        status: "ready",
+      }),
+    );
+    if (!finalization.updated) {
+      throw new Error("Picture of the Day audio publication lease was lost.");
+    }
 
     console.info(
       `[picture-of-day ${feedDateIso} run=${runId}] success bytes=${taggedAudioBlob.size}`,
@@ -344,25 +380,51 @@ const generatePictureOfDayAudioRecord = async ({
       error,
     );
 
-    await fetchMutation(anyApi.pictureOfDay.finalizePictureOfDayAudioJob, {
-      feedDate: feedDateIso,
-      pictureKey: picture.pictureKey,
-      scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-      owner,
-      status: "failed",
-      lastError: detailedMessage,
-    });
-
     if (!previousReadyAudio && !committedReady) {
-      await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
-        feedDate: feedDateIso,
-        pictureKey: picture.pictureKey,
-        scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-        status: "failed",
-        title,
-        spokenText,
-        lastError: detailedMessage,
-      });
+      try {
+        await fetchMutation(
+          anyApi.pictureOfDay.savePictureOfDayAudio,
+          await withPictureOfDayWriteAttestation("save-record", {
+            feedDate: feedDateIso,
+            pictureKey: picture.pictureKey,
+            scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+            owner,
+            status: "failed",
+            title,
+            spokenText,
+            lastError: detailedMessage,
+          }),
+        );
+      } catch (saveError) {
+        console.warn(
+          `[picture-of-day ${feedDateIso} run=${runId}] failed to persist failure state`,
+          saveError,
+        );
+      }
+    }
+
+    try {
+      const finalization = await fetchMutation(
+        anyApi.pictureOfDay.finalizePictureOfDayAudioJob,
+        await withPictureOfDayWriteAttestation("finalize-job", {
+          feedDate: feedDateIso,
+          pictureKey: picture.pictureKey,
+          scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+          owner,
+          status: "failed",
+          lastError: detailedMessage,
+        }),
+      );
+      if (!finalization.updated) {
+        console.warn(
+          `[picture-of-day ${feedDateIso} run=${runId}] failure finalization skipped after lease loss`,
+        );
+      }
+    } catch (finalizeError) {
+      console.warn(
+        `[picture-of-day ${feedDateIso} run=${runId}] failed to finalize failed job`,
+        finalizeError,
+      );
     }
 
     throw new Error(detailedMessage);
@@ -430,15 +492,19 @@ export const getPictureOfDayAudioState = async ({
     return { status: "missing", audioUrl: null };
   }
 
+  const hasCurrentReadyAudio = shouldReuseExistingPictureAudio(record);
+
   return {
     status:
       record.status === "ready"
-        ? record.audioUrl
+        ? hasCurrentReadyAudio
           ? "ready"
           : "failed"
         : record.status,
-    audioUrl: record.audioUrl,
-    durationSeconds: record.durationSeconds,
+    audioUrl: hasCurrentReadyAudio ? record.audioUrl : null,
+    durationSeconds: hasCurrentReadyAudio
+      ? record.durationSeconds
+      : undefined,
     lastError: record.lastError,
   };
 };

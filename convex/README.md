@@ -42,10 +42,17 @@ Secrets used by both Next.js and Convex—such as
 `ARTICLE_CONTEXT_WRITE_SECRET`, `TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and
 `ANALYTICS_REPORT_SECRET`—must match across the two environments where their
 corresponding features are enabled. Deployed audio requires
-`TTS_QUOTA_BYPASS_SECRET`: only short-lived, domain-separated attestations are
-sent through public quota/cache mutations. Convex audio workers use
-`AUDIO_GENERATION_BASE_URL` as their trusted HTTPS app origin (production by
-default); set it explicitly for Preview workers that must call Preview code.
+`TTS_QUOTA_BYPASS_SECRET`: only short-lived, domain-separated attestations—not
+the root secret—are sent through public quota/cache mutations and trusted TTS
+requests. Convex audio workers use `AUDIO_GENERATION_BASE_URL` as their trusted
+HTTPS app origin (production by default). Vercel Preview builds set the exact
+generated origin and sync the required shared secrets into only the matching
+isolated Convex Preview.
+Personal Playlist OpenAI scheduling is bounded per account with
+`PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT` (default `10`),
+`PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS` (default `86400000`), and
+`PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT` (default `5`); configure these in each
+Convex deployment.
 
 ## Validation and deployment
 
@@ -58,8 +65,9 @@ LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 ```
 
 Production deployment is handled by `scripts/build.sh` on Vercel. A production
-build runs `convex deploy`; a preview build creates an isolated Convex preview
-deployment for the branch. Run `npx convex deploy` manually only when you
+build runs `convex deploy`; a preview build creates an isolated Convex Preview
+for the branch, validates its deployment target, configures its exact Vercel
+origin, and then builds Next.js. Run `npx convex deploy` manually only when you
 intend to update the configured production deployment.
 
 See the root [README](../README.md) for the complete architecture, environment

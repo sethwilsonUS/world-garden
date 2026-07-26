@@ -18,7 +18,7 @@ import {
 import {
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
-  getTtsQuotaBypassHeaders,
+  getEdgeTtsGenerationHeaders,
 } from "@/lib/tts-quota-bypass";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
@@ -185,10 +185,13 @@ const createProductionDependencies = (
     }
     await response.body?.cancel();
   },
-  generateAudio(text, expected) {
+  async generateAudio(text, expected) {
     return generateTtsAudioWithMetadata(
       { text, provider: expected.provider },
-      { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
+      {
+        apiBaseUrl: baseUrl,
+        headers: getEdgeTtsGenerationHeaders(baseUrl),
+      },
     );
   },
   async saveSummary({

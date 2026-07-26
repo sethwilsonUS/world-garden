@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as ttsClient from "../../lib/tts-client";
-import type { TtsMetadata } from "../../lib/tts-profile";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -21,15 +20,9 @@ describe("personal playlist worker orchestration", () => {
     vi.stubEnv("AUDIO_GENERATION_BASE_URL", "https://example.com");
     const episodeId = "episode-1" as Id<"personalPlaylistEpisodes">;
     const articleId = "article-1" as Id<"articles">;
-    const requestedTtsMetadata = {
-      provider: "openai" as const,
-      model: "gpt-4o-mini-tts",
-      voiceId: "cedar",
-      promptVersion: "curio-warm-narrator-v2",
-      ttsNormVersion: "ttsNorm:2",
-      ttsCacheKey:
-        "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v2:ttsNorm:2",
-    } satisfies TtsMetadata;
+    const requestedTtsMetadata = getTtsMetadata(
+      getTtsProfile("openai", "cedar"),
+    );
     const queuedEpisode = {
       _id: episodeId,
       articleId,

@@ -8,10 +8,12 @@ import { estimateAudioDurationSeconds } from "@/lib/article-audio-duration";
 import { resolveCanonicalArticleNarrationTrack } from "@/lib/article-section-audio";
 import { fetchArticleByTitle, slugToTitle } from "@/convex/lib/wikipedia";
 import {
+  createAudioCacheReadAttestation,
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
 } from "@/lib/tts-quota-bypass";
 import { getRequestAudioGenerationBaseUrl } from "@/lib/audio-generation-url";
+import { isLocalMode } from "@/lib/runtime-mode";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { resolveTtsProviderAccess } from "@/lib/tts-access-policy";
 import {
@@ -47,10 +49,6 @@ type CachedSectionAudio = {
   urls: Record<string, string>;
   metadata: Record<string, Record<string, string>>;
 };
-
-const isLocalMode = (): boolean =>
-  process.env.LOCAL_MODE === "true" ||
-  process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 const getCanonicalArticle = async (
   slug: string,
@@ -281,20 +279,24 @@ export const POST = async (req: NextRequest) => {
     const expectedMetadata = getTtsMetadata(
       getTtsProfile(providerAccess.provider),
     );
-    const cacheArgs = {
-      articleId: article._id,
-      ttsNormVersion: expectedMetadata.ttsNormVersion,
-      ttsCacheKey: expectedMetadata.ttsCacheKey,
-      sourceHashes: [
-        { sectionKey: track.sectionKey, sourceHash: track.sourceHash },
-      ],
-    };
+    const cacheArgs = article._id
+      ? {
+          articleId: article._id,
+          ttsNormVersion: expectedMetadata.ttsNormVersion,
+          ttsCacheKey: expectedMetadata.ttsCacheKey,
+          sourceHashes: [
+            { sectionKey: track.sectionKey, sourceHash: track.sourceHash },
+          ],
+        }
+      : null;
 
-    if (article._id) {
+    if (cacheArgs) {
       try {
-        const cached = (await fetchQuery(
-          anyApi.audio.getAllSectionAudio,
-          cacheArgs,
+        const readAttestation =
+          await createAudioCacheReadAttestation(cacheArgs);
+        const cached = (await fetchMutation(
+          anyApi.audio.getAllSectionAudioForServer,
+          { ...cacheArgs, attestation: readAttestation },
           session.convexToken ? { token: session.convexToken } : {},
         )) as CachedSectionAudio;
         const cachedResult = buildCachedTtsResult(

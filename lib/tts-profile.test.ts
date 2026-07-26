@@ -6,6 +6,7 @@ import {
   getTtsProfile,
   getTtsProviderForAudience,
   isTtsMetadataValid,
+  parseTtsFallbackReason,
   serializeTtsMetadataForInlineScript,
   type TtsMetadata,
 } from "./tts-profile";
@@ -22,6 +23,14 @@ describe("TTS provider policy", () => {
   it("maps public listeners to Edge and authenticated listeners to OpenAI", () => {
     expect(getTtsProviderForAudience("public")).toBe("edge");
     expect(getTtsProviderForAudience("authenticated")).toBe("openai");
+  });
+
+  it("parses only supported fallback reasons", () => {
+    expect(parseTtsFallbackReason("openai_auth")).toBe("openai_auth");
+    expect(parseTtsFallbackReason("openai_quota")).toBe("openai_quota");
+    expect(parseTtsFallbackReason("openai_error")).toBe("openai_error");
+    expect(parseTtsFallbackReason("unexpected")).toBeUndefined();
+    expect(parseTtsFallbackReason(null)).toBeUndefined();
   });
 
   it("uses statically exposed profile mirrors for provider-qualified browser caches", () => {
@@ -52,7 +61,7 @@ const edgeMetadata = (): TtsMetadata => {
     model: "edge-tts",
     voiceId: "en-US-AriaNeural",
     promptVersion: "edge-default",
-    ttsNormVersion: "ttsNorm:2",
+    ttsNormVersion: "ttsNorm:3",
   };
   return { ...metadata, ttsCacheKey: buildTtsCacheKey(metadata) };
 };

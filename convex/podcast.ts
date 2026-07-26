@@ -2,6 +2,17 @@ import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
+import { assertPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+import { assertExactCurrentEdgeAudioMetadata } from "../lib/public-edge-audio-metadata";
+
+export const MAX_FEATURED_EPISODE_JOB_LEASE_MS = 15 * 60 * 1000;
+
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
 
 const featuredPodcastEpisodeStatus = v.union(
   v.literal("pending"),
@@ -131,15 +142,28 @@ export const claimFeaturedEpisodeJob = mutation({
     articleId: v.optional(v.id("articles")),
     owner: v.string(),
     leaseMs: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "featured",
+      operation: "claim-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("featuredPodcastJobs")
       .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
       .first();
 
     const now = Date.now();
-    const leaseExpiresAt = now + Math.max(args.leaseMs, 1);
+    const leaseExpiresAt =
+      now +
+      Math.min(
+        Math.max(args.leaseMs, 1),
+        MAX_FEATURED_EPISODE_JOB_LEASE_MS,
+      );
 
     if (
       existing &&
@@ -183,7 +207,14 @@ export const claimFeaturedEpisodeJob = mutation({
 });
 
 export const generateUploadUrl = mutation({
-  async handler(ctx) {
+  args: { attestation: serverAttestationValidator },
+  async handler(ctx, { attestation }) {
+    await assertPublicAudioWriteAttestation({
+      pipeline: "featured",
+      operation: "generate-upload-url",
+      args: {},
+      attestation,
+    });
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -208,8 +239,16 @@ export const savePodcastShowAsset = mutation({
     storageId: v.id("_storage"),
     mimeType: v.string(),
     version: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "featured",
+      operation: "save-show-asset",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("podcastShowAssets")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
@@ -241,6 +280,7 @@ export const saveFeaturedEpisode = mutation({
   args: {
     featuredDate: v.string(),
     articleId: v.id("articles"),
+    owner: v.string(),
     wikiPageId: v.string(),
     slug: v.string(),
     title: v.string(),
@@ -260,14 +300,38 @@ export const saveFeaturedEpisode = mutation({
     promptVersion: v.optional(v.string()),
     status: featuredPodcastEpisodeStatus,
     publishedAt: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "featured",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
+    assertExactCurrentEdgeAudioMetadata(writeArgs);
+    if (args.status === "ready" && !args.storageId) {
+      throw new Error("Ready Featured podcast audio requires stored audio.");
+    }
+    const job = await ctx.db
+      .query("featuredPodcastJobs")
+      .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
+      .first();
+    const now = Date.now();
+    if (
+      !job ||
+      job.status !== "running" ||
+      job.leaseOwner !== args.owner ||
+      (job.leaseExpiresAt ?? 0) <= now
+    ) {
+      throw new Error("Featured podcast publication lease is no longer active.");
+    }
     const existing = await ctx.db
       .query("featuredPodcastEpisodes")
       .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
       .first();
 
-    const now = Date.now();
     const audioVariants = upsertTtsAudioVariant(
       existing && existing.narrationHash === args.narrationHash
         ? existing.audioVariants
@@ -349,8 +413,16 @@ export const upsertFeaturedEpisodeJob = mutation({
     status: featuredPodcastJobStatus,
     attempts: v.number(),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "featured",
+      operation: "upsert-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("featuredPodcastJobs")
       .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
@@ -387,14 +459,28 @@ export const finalizeFeaturedEpisodeJob = mutation({
     owner: v.string(),
     status: v.union(v.literal("ready"), v.literal("failed")),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "featured",
+      operation: "finalize-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("featuredPodcastJobs")
       .withIndex("by_featuredDate", (q) => q.eq("featuredDate", args.featuredDate))
       .first();
 
-    if (!existing || existing.leaseOwner !== args.owner) {
+    const now = Date.now();
+    if (
+      !existing ||
+      existing.status !== "running" ||
+      existing.leaseOwner !== args.owner ||
+      (existing.leaseExpiresAt ?? 0) <= now
+    ) {
       return { updated: false };
     }
 
@@ -404,7 +490,7 @@ export const finalizeFeaturedEpisodeJob = mutation({
       lastError: args.lastError,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
 
     return { updated: true };

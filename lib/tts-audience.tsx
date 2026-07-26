@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useConvexAuth } from "convex/react";
 import {
   getTtsProfile,
   getTtsProviderForAudience,
@@ -43,8 +44,11 @@ export const AuthAwareTtsProfileProvider = ({
   children: ReactNode;
 }) => {
   const { isLoaded, isSignedIn } = useAuth();
+  const { isLoading: isConvexAuthLoading, isAuthenticated } = useConvexAuth();
   const audience: TtsAudience =
-    isLoaded && isSignedIn === true ? "authenticated" : "public";
+    isLoaded && isSignedIn === true && !isConvexAuthLoading && isAuthenticated
+      ? "authenticated"
+      : "public";
 
   return (
     <TtsProfileProvider audience={audience}>{children}</TtsProfileProvider>

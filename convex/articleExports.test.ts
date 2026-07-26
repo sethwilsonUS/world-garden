@@ -1,16 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  completeArticleAudioExport,
   evaluateArticleAudioExportAllowance,
   canAccessArticleAudioExport,
+  failArticleAudioExport,
   findReusableArticleAudioExport,
+  getArticleAudioExportById,
   getArticleAudioExportDownloadIdentity,
+  getArticleAudioExportForServer,
+  getNextQueuedArticleAudioExportForQueue,
   getRecentArticleAudioExports,
   isArticleAudioExportCompatible,
   isArticleAudioExportReusable,
   isRequestedTtsMetadataValid,
+  markArticleAudioExportRunning,
   MAX_RECENT_EXPORT_CANDIDATES,
   normalizeRecentArticleAudioExportLimit,
+  processArticleAudioExport,
   resolveRequestedArticleExportTtsMetadata,
+  startArticleAudioExport,
+  updateArticleAudioExportProgress,
   getArticleAudioExportQueueKey,
   getArticleAudioExportQuotaConfig,
   getArticleAudioExportProvider,
@@ -18,7 +27,12 @@ import {
   resolveArticleAudioExportBaseUrl,
   selectAccessibleArticleAudioExportCandidates,
 } from "./articleExports";
-import { buildTtsCacheKey, type TtsMetadata } from "../lib/tts-profile";
+import {
+  buildTtsCacheKey,
+  getTtsMetadata,
+  getTtsProfile,
+  type TtsMetadata,
+} from "../lib/tts-profile";
 import { TTS_NORM_VERSION } from "../lib/tts-normalize";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
@@ -26,8 +40,16 @@ import {
   buildArticleNarrationTracks,
 } from "../lib/section-narration";
 import { createTestSection } from "../lib/test-section-narration";
+import { createArticleAudioExportReadAttestation } from "../lib/article-audio-export-attestation";
 
 const STALE_TTS_NORM_VERSION = `${TTS_NORM_VERSION}:stale`;
+const ARTICLE_EXPORT_LEASE_MS = 10 * 60 * 1000;
+const ARTICLE_EXPORT_WATCHDOG_GRACE_MS = 1_000;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe("getArticleExportSections", () => {
   it("includes every narrated section", () => {
@@ -285,6 +307,651 @@ describe("isRequestedTtsMetadataValid", () => {
     expect(resolved.ttsNormVersion).toBe(TTS_NORM_VERSION);
     expect(resolved.ttsCacheKey).not.toContain(STALE_TTS_NORM_VERSION);
   });
+
+  it("retains valid stored metadata only when it matches the resolved provider", () => {
+    const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
+
+    expect(resolveRequestedArticleExportTtsMetadata(edgeMetadata, "edge")).toBe(
+      edgeMetadata,
+    );
+    expect(
+      resolveRequestedArticleExportTtsMetadata(edgeMetadata, "openai"),
+    ).toEqual(getTtsMetadata(getTtsProfile("openai")));
+  });
+});
+
+describe("startArticleAudioExport provider expectation", () => {
+  it.each([
+    {
+      expectedTtsProvider: "openai" as const,
+      identity: null,
+    },
+    {
+      expectedTtsProvider: "edge" as const,
+      identity: { tokenIdentifier: "https://clerk.example|user-a" },
+    },
+  ])(
+    "rejects an $expectedTtsProvider request when current auth resolves differently",
+    async ({ expectedTtsProvider, identity }) => {
+      const collect = vi.fn(async () => []);
+      const query = vi.fn(() => {
+        const chain = {
+          withIndex: vi.fn(() => chain),
+          collect,
+        };
+        return chain;
+      });
+      const insert = vi.fn(async () => "export-1");
+      const handler = (
+        startArticleAudioExport as unknown as {
+          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+        }
+      )._handler;
+
+      await expect(
+        handler(
+          {
+            db: {
+              get: vi.fn(async () => ({
+                _id: "article-1",
+                title: "A quiet article",
+                slug: "a-quiet-article",
+                sections: [],
+              })),
+              query,
+              insert,
+            },
+            auth: { getUserIdentity: vi.fn(async () => identity) },
+            scheduler: { runAfter: vi.fn() },
+          },
+          {
+            clientId: "client-1",
+            articleId: "article-1",
+            expectedTtsProvider,
+          },
+        ),
+      ).rejects.toThrow(/voice access changed/i);
+
+      expect(query).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { status: "queued", leaseExpiresAt: undefined },
+    { status: "running", leaseExpiresAt: undefined },
+    { status: "running", leaseExpiresAt: 9_999 },
+  ])(
+    "reschedules a reusable $status export when its lease is absent or stale",
+    async ({ status, leaseExpiresAt }) => {
+      vi.spyOn(Date, "now").mockReturnValue(10_000);
+      const article = {
+        _id: "article-1",
+        title: "A quiet article",
+        slug: "a-quiet-article",
+        summary: "Enough narration to make this export reusable.",
+        sections: [],
+      };
+      const metadata = getTtsMetadata(getTtsProfile("edge"));
+      const existing = {
+        _id: "export-1",
+        clientId: "client-1",
+        articleId: article._id,
+        title: article.title,
+        slug: article.slug,
+        status,
+        sectionCount: 1,
+        completedSectionCount: 0,
+        narrationHash: buildArticleNarrationHash(article as never),
+        requestedTtsMetadata: metadata,
+        ttsCacheKey: metadata.ttsCacheKey,
+        ttsProvider: "edge",
+        queueKey: "client:client-1",
+        leaseExpiresAt,
+        createdAt: 1,
+        updatedAt: 2,
+      };
+      const collect = vi.fn(async () => [existing]);
+      const query = vi.fn(() => {
+        const chain = {
+          withIndex: vi.fn(() => chain),
+          collect,
+        };
+        return chain;
+      });
+      const insert = vi.fn();
+      const runAfter = vi.fn();
+      const handler = (
+        startArticleAudioExport as unknown as {
+          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+        }
+      )._handler;
+
+      await expect(
+        handler(
+          {
+            db: {
+              get: vi.fn(async () => article),
+              query,
+              insert,
+            },
+            auth: { getUserIdentity: vi.fn(async () => null) },
+            scheduler: { runAfter },
+          },
+          {
+            clientId: "client-1",
+            articleId: article._id,
+            expectedTtsProvider: "edge",
+          },
+        ),
+      ).resolves.toEqual({
+        exportId: "export-1",
+        status,
+        ttsProvider: "edge",
+        reused: true,
+      });
+
+      expect(runAfter).toHaveBeenCalledOnce();
+      expect(runAfter.mock.calls[0]?.[0]).toBe(0);
+      expect(runAfter.mock.calls[0]?.[2]).toEqual({ exportId: "export-1" });
+      expect(insert).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("article audio export worker leases", () => {
+  const now = 1_000_000;
+  const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
+
+  const getHandler = (registeredFunction: unknown) =>
+    (
+      registeredFunction as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+  const createClaimContext = ({
+    record,
+    queueRecords = [],
+    legacyRecords = [],
+  }: {
+    record: Record<string, unknown>;
+    queueRecords?: Array<Record<string, unknown>>;
+    legacyRecords?: Array<Record<string, unknown>>;
+  }) => {
+    const collections = [queueRecords, legacyRecords];
+    const query = vi.fn(() => {
+      const records = collections.shift() ?? [];
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        filter: vi.fn(() => chain),
+        order: vi.fn(() => chain),
+        take: vi.fn(async () => records),
+      };
+      return chain;
+    });
+    const patch = vi.fn();
+    const runAfter = vi.fn();
+    return {
+      ctx: {
+        db: {
+          get: vi.fn(async () => record),
+          query,
+          patch,
+        },
+        scheduler: { runAfter },
+      },
+      patch,
+      query,
+      runAfter,
+    };
+  };
+
+  const queuedRecord = {
+    _id: "export-1",
+    clientId: "client-1",
+    queueKey: "client:client-1",
+    ttsProvider: "edge",
+    status: "queued",
+    sectionCount: 1,
+    completedSectionCount: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+
+  it("reclaims the same running export after its worker lease expires", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const { ctx, patch, runAfter } = createClaimContext({
+      record: {
+        ...queuedRecord,
+        status: "running",
+        leaseOwner: "dead-worker",
+        leaseExpiresAt: now - 1,
+      },
+    });
+
+    await expect(
+      getHandler(markArticleAudioExportRunning)(ctx, {
+        exportId: "export-1",
+        owner: "replacement-worker",
+        sectionCount: 2,
+        ttsMetadata: edgeMetadata,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      "export-1",
+      expect.objectContaining({
+        status: "running",
+        leaseOwner: "replacement-worker",
+        leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+      }),
+    );
+    expect(runAfter).toHaveBeenCalledWith(
+      ARTICLE_EXPORT_LEASE_MS + ARTICLE_EXPORT_WATCHDOG_GRACE_MS,
+      expect.anything(),
+      { exportId: "export-1" },
+    );
+  });
+
+  it("leaves an active worker alone and schedules a retry at lease expiry", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const leaseExpiresAt = now + 5_000;
+    const { ctx, patch, query, runAfter } = createClaimContext({
+      record: {
+        ...queuedRecord,
+        status: "running",
+        leaseOwner: "active-worker",
+        leaseExpiresAt,
+      },
+    });
+
+    await expect(
+      getHandler(markArticleAudioExportRunning)(ctx, {
+        exportId: "export-1",
+        owner: "second-worker",
+        sectionCount: 2,
+        ttsMetadata: edgeMetadata,
+      }),
+    ).resolves.toEqual({ claimed: false });
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+    expect(runAfter).toHaveBeenCalledWith(
+      5_000 + ARTICLE_EXPORT_WATCHDOG_GRACE_MS,
+      expect.anything(),
+      { exportId: "export-1" },
+    );
+  });
+
+  it("ignores an expired sibling lease when claiming queued work", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const { ctx, patch } = createClaimContext({
+      record: queuedRecord,
+      queueRecords: [
+        {
+          ...queuedRecord,
+          _id: "stale-sibling",
+          status: "running",
+          leaseOwner: "dead-worker",
+          leaseExpiresAt: now - 1,
+        },
+      ],
+    });
+
+    await expect(
+      getHandler(markArticleAudioExportRunning)(ctx, {
+        exportId: "export-1",
+        owner: "new-worker",
+        sectionCount: 2,
+        ttsMetadata: edgeMetadata,
+      }),
+    ).resolves.toEqual({ claimed: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      "export-1",
+      expect.objectContaining({ leaseOwner: "new-worker" }),
+    );
+  });
+
+  it("honors an active sibling lease and retries when that lease expires", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const leaseExpiresAt = now + 5_000;
+    const { ctx, patch, runAfter } = createClaimContext({
+      record: queuedRecord,
+      queueRecords: [
+        {
+          ...queuedRecord,
+          _id: "active-sibling",
+          status: "running",
+          leaseOwner: "active-worker",
+          leaseExpiresAt,
+        },
+      ],
+    });
+
+    await expect(
+      getHandler(markArticleAudioExportRunning)(ctx, {
+        exportId: "export-1",
+        owner: "new-worker",
+        sectionCount: 2,
+        ttsMetadata: edgeMetadata,
+      }),
+    ).resolves.toEqual({ claimed: false });
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(runAfter).toHaveBeenCalledWith(
+      5_000 + ARTICLE_EXPORT_WATCHDOG_GRACE_MS,
+      expect.anything(),
+      { exportId: "export-1" },
+    );
+  });
+
+  it("takes one indexed running sibling and bounds the legacy lock fallback", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const activeSibling = {
+      ...queuedRecord,
+      _id: "active-sibling",
+      status: "running",
+      leaseOwner: "active-worker",
+      leaseExpiresAt: now + 5_000,
+    };
+    const indexedTake = vi.fn(async () => [activeSibling]);
+    const legacyTake = vi.fn(async () => []);
+    const indexedWithIndex = vi.fn();
+    const legacyWithIndex = vi.fn();
+    const query = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        const chain = {
+          withIndex: indexedWithIndex,
+          filter: vi.fn(() => chain),
+          order: vi.fn(() => chain),
+          take: indexedTake,
+        };
+        indexedWithIndex.mockReturnValue(chain);
+        return chain;
+      })
+      .mockImplementationOnce(() => {
+        const chain = {
+          withIndex: legacyWithIndex,
+          filter: vi.fn(() => chain),
+          order: vi.fn(() => chain),
+          take: legacyTake,
+        };
+        legacyWithIndex.mockReturnValue(chain);
+        return chain;
+      });
+    const runAfter = vi.fn();
+
+    await expect(
+      getHandler(markArticleAudioExportRunning)(
+        {
+          db: {
+            get: vi.fn(async () => queuedRecord),
+            query,
+            patch: vi.fn(),
+          },
+          scheduler: { runAfter },
+        },
+        {
+          exportId: "export-1",
+          owner: "new-worker",
+          sectionCount: 2,
+          ttsMetadata: edgeMetadata,
+        },
+      ),
+    ).resolves.toEqual({ claimed: false });
+
+    expect(indexedWithIndex).toHaveBeenCalledWith(
+      "by_queueKey_status",
+      expect.any(Function),
+    );
+    expect(indexedTake).toHaveBeenCalledWith(1);
+    expect(legacyWithIndex).toHaveBeenCalledWith(
+      "by_clientId",
+      expect.any(Function),
+    );
+    expect(legacyTake).toHaveBeenCalledWith(MAX_RECENT_EXPORT_CANDIDATES);
+  });
+
+  it("renews progress only for the current lease owner", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const patch = vi.fn();
+    const handler = getHandler(updateArticleAudioExportProgress);
+
+    await expect(
+      handler(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              leaseOwner: "current-worker",
+              leaseExpiresAt: now + 1,
+            })),
+            patch,
+          },
+        },
+        {
+          exportId: "export-1",
+          owner: "current-worker",
+          completedSectionCount: 1,
+          stage: "packaging",
+        },
+      ),
+    ).resolves.toEqual({ updated: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      "export-1",
+      expect.objectContaining({
+        completedSectionCount: 1,
+        leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+      }),
+    );
+  });
+
+  it("rejects progress, completion, and failure from a superseded worker", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const record = {
+      ...queuedRecord,
+      status: "running",
+      leaseOwner: "replacement-worker",
+      leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+    };
+    const patch = vi.fn();
+    const ctx = {
+      db: {
+        get: vi.fn(async () => record),
+        patch,
+      },
+    };
+
+    await expect(
+      getHandler(updateArticleAudioExportProgress)(ctx, {
+        exportId: "export-1",
+        owner: "superseded-worker",
+        completedSectionCount: 1,
+        stage: "rendering_audio",
+      }),
+    ).resolves.toEqual({ updated: false });
+    await expect(
+      getHandler(completeArticleAudioExport)(ctx, {
+        exportId: "export-1",
+        owner: "superseded-worker",
+        storageId: "storage-1",
+        byteLength: 10,
+        producedTtsCacheKey: edgeMetadata.ttsCacheKey,
+        narrationHash: "narration-1",
+      }),
+    ).resolves.toEqual({ completed: false });
+    await expect(
+      getHandler(failArticleAudioExport)(ctx, {
+        exportId: "export-1",
+        owner: "superseded-worker",
+        lastError: "Old worker failed late.",
+      }),
+    ).resolves.toEqual({ failed: false });
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("allows a recovery worker to fail a running export after its old lease expires", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const patch = vi.fn();
+
+    await expect(
+      getHandler(failArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              leaseOwner: "dead-worker",
+              leaseExpiresAt: now - 1,
+            })),
+            patch,
+          },
+        },
+        {
+          exportId: "export-1",
+          owner: "recovery-worker",
+          lastError: "Article not found.",
+        },
+      ),
+    ).resolves.toEqual({ failed: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      "export-1",
+      expect.objectContaining({
+        status: "failed",
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
+      }),
+    );
+  });
+
+  it.each([undefined, "future-provider"])(
+    "fails a %s provider row without treating it as Edge",
+    async (ttsProvider) => {
+      const record = {
+        _id: "export-1",
+        articleId: "article-1",
+        clientId: "client-1",
+        queueKey: "client:client-1",
+        slug: "legacy-article",
+        status: "queued",
+        ttsProvider,
+      };
+      const runQuery = vi.fn(async (_reference: unknown, args: object) => {
+        if ("exportId" in args) return record;
+        if ("articleId" in args) {
+          throw new Error("Unsupported providers must not read the article.");
+        }
+        if ("queueKey" in args) return null;
+        throw new Error("Unexpected worker query.");
+      });
+      const runMutation = vi.fn(async () => ({ failed: true }));
+      const handler = (
+        processArticleAudioExport as unknown as {
+          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+        }
+      )._handler;
+
+      await expect(
+        handler(
+          {
+            runQuery,
+            runMutation,
+            scheduler: { runAfter: vi.fn() },
+          },
+          { exportId: "export-1" },
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(runQuery).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ articleId: "article-1" }),
+      );
+      expect(runMutation).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          exportId: "export-1",
+          lastError: "Audio voice provider is missing or unsupported.",
+        }),
+      );
+    },
+  );
+});
+
+describe("getNextQueuedArticleAudioExportForQueue", () => {
+  it("takes one indexed queue row and bounds the legacy client fallback", async () => {
+    const queueRecord = {
+      _id: "indexed-export",
+      clientId: "client-1",
+      queueKey: "client:client-1",
+      status: "queued",
+      createdAt: 20,
+    };
+    const legacyRecord = {
+      _id: "legacy-export",
+      clientId: "client-1",
+      status: "queued",
+      createdAt: 10,
+    };
+    const indexedTake = vi.fn(async () => [queueRecord]);
+    const legacyTake = vi.fn(async () => [legacyRecord]);
+    const indexedWithIndex = vi.fn();
+    const legacyWithIndex = vi.fn();
+    const query = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        const chain = {
+          withIndex: indexedWithIndex,
+          filter: vi.fn(() => chain),
+          order: vi.fn(() => chain),
+          take: indexedTake,
+        };
+        indexedWithIndex.mockReturnValue(chain);
+        return chain;
+      })
+      .mockImplementationOnce(() => {
+        const chain = {
+          withIndex: legacyWithIndex,
+          filter: vi.fn(() => chain),
+          order: vi.fn(() => chain),
+          take: legacyTake,
+        };
+        legacyWithIndex.mockReturnValue(chain);
+        return chain;
+      });
+    const handler = (
+      getNextQueuedArticleAudioExportForQueue as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        { db: { query } },
+        {
+          queueKey: "client:client-1",
+          legacyClientId: "client-1",
+        },
+      ),
+    ).resolves.toEqual(legacyRecord);
+
+    expect(indexedWithIndex).toHaveBeenCalledWith(
+      "by_queueKey_status",
+      expect.any(Function),
+    );
+    expect(indexedTake).toHaveBeenCalledWith(1);
+    expect(legacyWithIndex).toHaveBeenCalledWith(
+      "by_clientId",
+      expect.any(Function),
+    );
+    expect(legacyTake).toHaveBeenCalledWith(MAX_RECENT_EXPORT_CANDIDATES);
+  });
 });
 
 describe("getRecentArticleAudioExports", () => {
@@ -370,7 +1037,7 @@ describe("getRecentArticleAudioExports", () => {
         createdAt: 1,
         updatedAt: 1,
       },
-    ];
+    ].map((record) => ({ ...record, ttsProvider: "edge" }));
     const take = vi.fn(async () => records);
     const query = vi.fn(() => {
       const chain = {
@@ -414,6 +1081,331 @@ describe("getRecentArticleAudioExports", () => {
     expect(get).not.toHaveBeenCalledWith("article-dismissed");
     expect(get).not.toHaveBeenCalledWith("article-after-limit");
   });
+
+  it("returns raw storage only for exact Edge exports", async () => {
+    const article = {
+      _id: "article-1",
+      title: "Mixed voice article",
+      summary: "The same narration rendered with several voice providers.",
+      sections: [],
+    };
+    const narrationHash = buildArticleNarrationHash(article as never);
+    const baseRecord = {
+      articleId: article._id,
+      clientId: "client-1",
+      title: article.title,
+      status: "ready",
+      sectionCount: 1,
+      completedSectionCount: 1,
+      narrationHash,
+      createdAt: 1,
+    };
+    const records = [
+      {
+        ...baseRecord,
+        _id: "openai-export",
+        storageId: "storage-openai",
+        ttsProvider: "openai",
+        ownerTokenIdentifier: "https://clerk.example|user-a",
+        updatedAt: 4,
+      },
+      {
+        ...baseRecord,
+        _id: "unknown-export",
+        storageId: "storage-unknown",
+        ttsProvider: "future-provider",
+        ownerTokenIdentifier: "https://clerk.example|user-a",
+        updatedAt: 3,
+      },
+      {
+        ...baseRecord,
+        _id: "legacy-export",
+        storageId: "storage-legacy",
+        updatedAt: 2,
+      },
+      {
+        ...baseRecord,
+        _id: "edge-export",
+        storageId: "storage-edge",
+        ttsProvider: "edge",
+        updatedAt: 1,
+      },
+    ];
+    const take = vi.fn(async () => records);
+    const query = vi.fn(() => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        filter: vi.fn(() => chain),
+        order: vi.fn(() => chain),
+        take,
+      };
+      return chain;
+    });
+    const getUrl = vi.fn(async (storageId: string) =>
+      storageId === "storage-edge"
+        ? "https://storage.example/edge.mp3"
+        : `https://storage.example/${storageId}.mp3`,
+    );
+    const handler = (
+      getRecentArticleAudioExports as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown[]>;
+      }
+    )._handler;
+
+    const result = await handler(
+      {
+        db: { query, get: vi.fn(async () => article) },
+        auth: {
+          getUserIdentity: vi.fn(async () => ({
+            tokenIdentifier: "https://clerk.example|user-a",
+          })),
+        },
+        storage: { getUrl },
+      },
+      { clientId: "client-1", limit: 4 },
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({ _id: "openai-export", audioUrl: null }),
+      expect.objectContaining({
+        _id: "edge-export",
+        storageId: "storage-edge",
+        audioUrl: "https://storage.example/edge.mp3",
+      }),
+    ]);
+    expect(result[0]).not.toHaveProperty("storageId");
+    expect(getUrl).toHaveBeenCalledOnce();
+    expect(getUrl).toHaveBeenCalledWith("storage-edge");
+  });
+});
+
+describe("getArticleAudioExportById", () => {
+  it("redacts protected audio storage from an authenticated owner", async () => {
+    const article = {
+      _id: "article-1",
+      title: "Protected article",
+      summary: "A protected narration source.",
+      sections: [],
+    };
+    const ttsCacheKey = "tts:openai:profile:ttsNorm:3";
+    const record = {
+      _id: "export-1",
+      articleId: article._id,
+      clientId: "client-1",
+      title: article.title,
+      status: "ready",
+      storageId: "storage-openai",
+      narrationHash: buildArticleNarrationHash(article as never),
+      ttsCacheKey,
+      ttsProvider: "openai",
+      ownerTokenIdentifier: "https://clerk.example|user-a",
+    };
+    const getUrl = vi.fn(async () => "https://storage.example/openai.mp3");
+    const handler = (
+      getArticleAudioExportById as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    const result = await handler(
+      {
+        db: {
+          get: vi.fn(async (id: string) =>
+            id === record._id ? record : article,
+          ),
+        },
+        auth: {
+          getUserIdentity: vi.fn(async () => ({
+            tokenIdentifier: "https://clerk.example|user-a",
+          })),
+        },
+        storage: { getUrl },
+      },
+      { exportId: record._id, ttsCacheKey },
+    );
+
+    expect(result).toMatchObject({ _id: "export-1", audioUrl: null });
+    expect(result).not.toHaveProperty("storageId");
+    expect(getUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe("getArticleAudioExportForServer", () => {
+  it("returns a narrow protected URL response to the attested owner", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const article = {
+      _id: "article-1",
+      title: "Owner-only article",
+      summary: "A narration source reserved for its owner.",
+      sections: [],
+    };
+    const ttsCacheKey = "tts:openai:profile:ttsNorm:3";
+    const record = {
+      _id: "export-1",
+      articleId: article._id,
+      clientId: "client-1",
+      title: article.title,
+      status: "ready",
+      storageId: "storage-openai",
+      narrationHash: buildArticleNarrationHash(article as never),
+      ttsCacheKey,
+      ttsProvider: "openai",
+      ownerTokenIdentifier: "https://clerk.example|user-a",
+    };
+    const attestation = await createArticleAudioExportReadAttestation({
+      exportId: record._id,
+      ttsCacheKey,
+    });
+    const handler = (
+      getArticleAudioExportForServer as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            get: vi.fn(async (id: string) =>
+              id === record._id ? record : article,
+            ),
+          },
+          auth: {
+            getUserIdentity: vi.fn(async () => ({
+              tokenIdentifier: "https://clerk.example|user-a",
+            })),
+          },
+          storage: {
+            getUrl: vi.fn(async () => "https://storage.example/protected.mp3"),
+          },
+        },
+        { exportId: record._id, ttsCacheKey, attestation },
+      ),
+    ).resolves.toEqual({
+      _id: "export-1",
+      title: "Owner-only article",
+      status: "ready",
+      ttsProvider: "openai",
+      audioUrl: "https://storage.example/protected.mp3",
+    });
+  });
+
+  it("rejects an attestation whose cache-key payload was tampered with", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const attestation = await createArticleAudioExportReadAttestation({
+      exportId: "export-1",
+      ttsCacheKey: "tts:openai:profile:ttsNorm:3",
+    });
+    const get = vi.fn();
+    const handler = (
+      getArticleAudioExportForServer as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: { get },
+          auth: { getUserIdentity: vi.fn() },
+          storage: { getUrl: vi.fn() },
+        },
+        {
+          exportId: "export-1",
+          ttsCacheKey: "tts:openai:tampered:ttsNorm:3",
+          attestation,
+        },
+      ),
+    ).rejects.toThrow("A valid server attestation is required");
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("withholds protected audio from an attested request without Convex auth", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const ttsCacheKey = "tts:openai:profile:ttsNorm:3";
+    const attestation = await createArticleAudioExportReadAttestation({
+      exportId: "export-1",
+      ttsCacheKey,
+    });
+    const getUrl = vi.fn();
+    const handler = (
+      getArticleAudioExportForServer as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              _id: "export-1",
+              articleId: "article-1",
+              title: "Protected article",
+              status: "ready",
+              storageId: "storage-openai",
+              ttsCacheKey,
+              ttsProvider: "openai",
+              ownerTokenIdentifier: "https://clerk.example|user-a",
+            })),
+          },
+          auth: { getUserIdentity: vi.fn(async () => null) },
+          storage: { getUrl },
+        },
+        { exportId: "export-1", ttsCacheKey, attestation },
+      ),
+    ).resolves.toBeNull();
+    expect(getUrl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { ttsProvider: undefined, ownerTokenIdentifier: undefined },
+    { ttsProvider: "future-provider", ownerTokenIdentifier: "user-a" },
+    { ttsProvider: "openai", ownerTokenIdentifier: undefined },
+  ])(
+    "fails closed for a $ttsProvider ownerless or unsupported provider",
+    async ({ ttsProvider, ownerTokenIdentifier }) => {
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+      const ttsCacheKey = "tts:openai:profile:ttsNorm:3";
+      const attestation = await createArticleAudioExportReadAttestation({
+        exportId: "export-1",
+        ttsCacheKey,
+      });
+      const getUrl = vi.fn();
+      const handler = (
+        getArticleAudioExportForServer as unknown as {
+          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+        }
+      )._handler;
+
+      await expect(
+        handler(
+          {
+            db: {
+              get: vi.fn(async () => ({
+                _id: "export-1",
+                articleId: "article-1",
+                title: "Untrusted legacy article",
+                status: "ready",
+                storageId: "storage-protected",
+                ttsCacheKey,
+                ttsProvider,
+                ownerTokenIdentifier,
+              })),
+            },
+            auth: {
+              getUserIdentity: vi.fn(async () => ({
+                tokenIdentifier: "user-a",
+              })),
+            },
+            storage: { getUrl },
+          },
+          { exportId: "export-1", ttsCacheKey, attestation },
+        ),
+      ).resolves.toBeNull();
+      expect(getUrl).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("getArticleAudioExportDownloadIdentity", () => {
@@ -439,6 +1431,141 @@ describe("getArticleAudioExportDownloadIdentity", () => {
     );
     expect(get).not.toHaveBeenCalled();
   });
+
+  it("keeps a ready Edge export discoverable without authentication", async () => {
+    const article = {
+      _id: "article-1",
+      title: "Public Edge article",
+      summary: "A public narration source.",
+      sections: [],
+    };
+    const record = {
+      _id: "export-1",
+      articleId: article._id,
+      status: "ready",
+      storageId: "storage-edge",
+      ttsCacheKey: "tts:edge:profile:ttsNorm:3",
+      ttsProvider: "edge",
+      narrationHash: buildArticleNarrationHash(article as never),
+    };
+    const handler = (
+      getArticleAudioExportDownloadIdentity as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            normalizeId: vi.fn(() => record._id),
+            get: vi.fn(async (id: string) =>
+              id === record._id ? record : article,
+            ),
+          },
+          auth: { getUserIdentity: vi.fn(async () => null) },
+        },
+        { exportId: record._id },
+      ),
+    ).resolves.toEqual({
+      exportId: "export-1",
+      ttsCacheKey: "tts:edge:profile:ttsNorm:3",
+      ttsProvider: "edge",
+    });
+  });
+
+  it("reveals a ready OpenAI export only to its exact owner", async () => {
+    const article = {
+      _id: "article-1",
+      title: "Protected OpenAI article",
+      summary: "An owner-only narration source.",
+      sections: [],
+    };
+    const record = {
+      _id: "export-1",
+      articleId: article._id,
+      status: "ready",
+      storageId: "storage-openai",
+      ttsCacheKey: "tts:openai:profile:ttsNorm:3",
+      ttsProvider: "openai",
+      ownerTokenIdentifier: "https://clerk.example|user-a",
+      narrationHash: buildArticleNarrationHash(article as never),
+    };
+    const handler = (
+      getArticleAudioExportDownloadIdentity as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+    const readAs = async (tokenIdentifier: string | null) =>
+      await handler(
+        {
+          db: {
+            normalizeId: vi.fn(() => record._id),
+            get: vi.fn(async (id: string) =>
+              id === record._id ? record : article,
+            ),
+          },
+          auth: {
+            getUserIdentity: vi.fn(async () =>
+              tokenIdentifier ? { tokenIdentifier } : null,
+            ),
+          },
+        },
+        { exportId: record._id },
+      );
+
+    await expect(readAs(null)).resolves.toBeNull();
+    await expect(readAs("https://clerk.example|user-b")).resolves.toBeNull();
+    await expect(readAs("https://clerk.example|user-a")).resolves.toEqual({
+      exportId: "export-1",
+      ttsCacheKey: "tts:openai:profile:ttsNorm:3",
+      ttsProvider: "openai",
+    });
+  });
+
+  it.each([
+    { ttsProvider: undefined, ownerTokenIdentifier: undefined },
+    { ttsProvider: "future-provider", ownerTokenIdentifier: "user-a" },
+    { ttsProvider: "openai", ownerTokenIdentifier: undefined },
+  ])(
+    "does not reveal identity for a $ttsProvider ownerless or unsupported row",
+    async ({ ttsProvider, ownerTokenIdentifier }) => {
+      const record = {
+        _id: "export-1",
+        articleId: "article-1",
+        status: "ready",
+        storageId: "storage-protected",
+        ttsCacheKey: "tts:openai:legacy-profile:ttsNorm:3",
+        ttsProvider,
+        ownerTokenIdentifier,
+        narrationHash: "current-narration",
+      };
+      const get = vi.fn(async () => record);
+      const handler = (
+        getArticleAudioExportDownloadIdentity as unknown as {
+          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+        }
+      )._handler;
+
+      await expect(
+        handler(
+          {
+            db: {
+              normalizeId: vi.fn(() => record._id),
+              get,
+            },
+            auth: {
+              getUserIdentity: vi.fn(async () => ({
+                tokenIdentifier: "user-a",
+              })),
+            },
+          },
+          { exportId: record._id },
+        ),
+      ).resolves.toBeNull();
+      expect(get).toHaveBeenCalledOnce();
+    },
+  );
 });
 
 describe("article audio export voice entitlement", () => {
@@ -472,19 +1599,29 @@ describe("article audio export voice entitlement", () => {
     ).toBe(true);
   });
 
-  it("keeps legacy exports available only to signed-in viewers", () => {
+  it("fails closed for ownerless, missing, and unknown protected exports", () => {
+    const signedInViewer = "https://clerk.example|signed-in-user";
     const legacyRecord = {
       ttsCacheKey:
         "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
     };
 
     expect(canAccessArticleAudioExport(legacyRecord, null)).toBe(false);
+    expect(canAccessArticleAudioExport(legacyRecord, signedInViewer)).toBe(
+      false,
+    );
+    expect(
+      canAccessArticleAudioExport({ ttsProvider: "openai" }, signedInViewer),
+    ).toBe(false);
     expect(
       canAccessArticleAudioExport(
-        legacyRecord,
-        "https://clerk.example|signed-in-user",
+        {
+          ttsProvider: "future-provider",
+          ownerTokenIdentifier: signedInViewer,
+        },
+        signedInViewer,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("filters ownership before capping recent jobs after an account switch", () => {

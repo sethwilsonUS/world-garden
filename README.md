@@ -20,7 +20,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, a small On This Day entry, and a compact Trending teaser. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
-**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through the OpenAI Responses API with web search, converted to synthetic speech, and cached in Convex.
+**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through the OpenAI Responses API with web search, narrated publicly with Edge TTS, and cached in Convex.
 
 **Accessible article context** — Articles can add revision-matched maps, timelines, charts, and diagrams when Wikipedia's structured source supports them. Every visual has a useful text equivalent, descriptive caption, keyboard-operable controls, and downloadable source data where appropriate. Visual context stays out of article narration and the Play All queue.
 
@@ -70,11 +70,11 @@ This design deliberately keeps the app useful without an account, distinguishes 
 
 Text is normalized before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-**Edge TTS** is the default public provider for `/api/tts`, using Microsoft neural voices through the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. The default voice is `en-US-AriaNeural`. Featured, Trending, Picture of the Day, homepage-warmed audio, signed-out playback, and local mode all request Edge explicitly.
+**Edge TTS** is the default public provider for `/api/tts`, using Microsoft neural voices through the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. The default voice is `en-US-AriaNeural`. Newly generated Featured, Trending, Picture of the Day, homepage-warmed audio, signed-out playback, and local mode all request Edge explicitly.
 
-**OpenAI TTS** is available only to authenticated readers and trusted background work such as Personal Playlist generation. It uses direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. If OpenAI fails or reaches its quota, the entire listening pass or assembled episode restarts with Edge so voices are never mixed. The daily Trending brief still uses OpenAI text generation before its public script is narrated with Edge.
+**OpenAI TTS** is available only to authenticated readers and trusted background work such as Personal Playlist generation. It uses direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. Interactive playback falls back per request and announces the voice change; assembled article exports and Personal Playlist episodes restart the whole pass with Edge so a single MP3 never mixes voices. The daily Trending brief still uses OpenAI text generation before its public script is narrated with Edge.
 
-Generated audio is cached per-section in Convex file storage by `tts:${provider}:${model}:${voice}:${promptVersion}:${TTS_NORM_VERSION}`. Changing normalization or narration prompt versions should change the cache key and regenerate audio on demand.
+Generated audio is cached per-section in Convex file storage by `tts:${provider}:${model}:${voice}:${promptVersion}:${TTS_NORM_VERSION}`. Changing normalization or narration prompt versions changes the cache key and regenerates audio on demand. Cache rows from before the signed cache contract are quarantined and rebuilt rather than trusted.
 
 Featured podcast episodes use Edge, while authenticated Personal Playlist episodes use OpenAI first and fall back as a whole to Edge. Both reuse the same provider-qualified section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are written once per trending date with OpenAI, narrated with Edge, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Picture of the Day descriptions are generated once per featured-feed date with Edge and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
 
@@ -200,15 +200,18 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_UPSTREAM_TIMEOUT_MS`                      | No                      | Per-provider TTS request timeout; defaults to `45000` ms                                                                                                                                                        |
 | `TTS_OPENAI_INTERACTIVE_FALLBACK_MS`           | No                      | Time before an interactive OpenAI request races the Edge fallback; defaults to `25000` ms                                                                                                                       |
 | `EDGE_TTS_TIMEOUT_MS`                          | No                      | Local Edge TTS subprocess timeout; defaults to `60000` ms                                                                                                                                                       |
-| `VERCEL_AUTOMATION_BYPASS_SECRET`              | Protected previews      | Vercel automation bypass secret forwarded when a password-protected preview calls its own Edge fallback route                                                                                                   |
+| `VERCEL_AUTOMATION_BYPASS_SECRET`              | Protected previews      | Vercel automation bypass secret forwarded on trusted self-calls and securely copied into the exact isolated Convex Preview during its Vercel build                                                              |
 | `TTS_PUBLIC_OPENAI_BURST_LIMIT`                | No                      | Authenticated OpenAI TTS burst quota per IP (legacy variable name); defaults to `120` requests                                                                                                                  |
 | `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS`            | No                      | Authenticated OpenAI TTS burst window (legacy variable name); defaults to `600000` ms                                                                                                                           |
 | `TTS_PUBLIC_OPENAI_DAILY_LIMIT`                | No                      | Authenticated OpenAI TTS daily quota per IP (legacy variable name); defaults to `800` requests                                                                                                                  |
 | `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS`            | No                      | Authenticated OpenAI TTS daily window (legacy variable name); defaults to `86400000` ms                                                                                                                         |
-| `TTS_QUOTA_BYPASS_SECRET`                      | Deployed audio          | Shared Vercel/Convex secret used for domain-separated quota/cache attestations and trusted OpenAI jobs; required and identical in both environments                                                             |
-| `AUDIO_GENERATION_BASE_URL`                    | Convex Preview workers  | Trusted HTTPS app origin used by Convex audio workers; defaults to production, so set it to the deployment URL when Preview workers must exercise Preview API code                                              |
+| `TTS_QUOTA_BYPASS_SECRET`                      | Deployed audio          | Shared Vercel/Convex root secret used to sign short-lived, domain-scoped quota/cache attestations and trusted OpenAI requests; the raw value is never sent as the TTS bypass header                             |
+| `AUDIO_GENERATION_BASE_URL`                    | Convex audio workers    | Trusted HTTPS app origin used by Convex audio workers; Vercel Preview builds set the exact isolated Preview origin automatically, while other worker deployments default to production                          |
 | `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_LIMIT`      | No                      | New signed-in OpenAI article exports allowed per account window; defaults to `5` (reused exports do not count)                                                                                                  |
 | `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_WINDOW_MS`  | No                      | Rolling account allowance window for new OpenAI article exports; defaults to `86400000` ms                                                                                                                      |
+| `PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT`         | No                      | Newly scheduled Personal Playlist OpenAI episodes allowed per account window; defaults to `10` (exact reuse and retries do not count again)                                                                     |
+| `PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS`     | No                      | Rolling account allowance window for new Personal Playlist OpenAI episodes; defaults to `86400000` ms                                                                                                           |
+| `PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT`        | No                      | Queued or running Personal Playlist episodes allowed per account; defaults to `5`                                                                                                                               |
 | `HOMEPAGE_AUDIO_WARM_ENABLED`                  | No                      | Pre-generate homepage article summary audio; defaults to enabled in production and disabled elsewhere                                                                                                           |
 | `HOMEPAGE_AUDIO_WARM_MAX_ARTICLES`             | No                      | Maximum homepage summaries warmed per run; defaults to and is capped at `30`                                                                                                                                    |
 | `HOMEPAGE_AUDIO_WARM_CONCURRENCY`              | No                      | Concurrent homepage summary jobs; defaults to `3` and is capped at `6`                                                                                                                                          |
@@ -240,14 +243,14 @@ See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 
 ## Traffic Spike Runbook
 
-Curio Garden keeps public browsing cheap and cacheable by using Edge TTS for guests and all public feeds. OpenAI speech is limited to authenticated article listening, authenticated exports, and trusted Personal Playlist generation; interactive requests retain per-IP quotas and fall back to Edge when exhausted.
+Curio Garden keeps public browsing cheap and cacheable by using Edge TTS for guests and newly generated public-feed narration. Historical episode files remain untouched. OpenAI speech is limited to authenticated article listening, authenticated exports, and trusted Personal Playlist generation; interactive requests retain per-IP quotas and fall back to Edge when exhausted.
 
 Before a boost or public post:
 
 1. Top up OpenAI credits and confirm project budget alerts.
 2. Confirm `OPENAI_API_KEY`, `TTS_EDGE_FALLBACK=true`, and `EDGE_TTS_VOICE_ID` are set in Vercel.
 3. Confirm `TTS_QUOTA_BYPASS_SECRET` is set to the same value in Vercel and Convex so trusted Personal Playlist and export jobs can request OpenAI speech.
-4. Confirm the quota defaults are acceptable: `120` interactive requests per `10` minutes and `800` per `24` hours per IP, plus `5` new OpenAI article exports per signed-in account per `24` hours.
+4. Confirm the quota defaults are acceptable: `120` interactive requests per `10` minutes and `800` per `24` hours per IP, plus `5` new OpenAI article exports and `10` newly scheduled Personal Playlist episodes per signed-in account per `24` hours. Personal Playlist also caps queued/running episodes at `5` per account.
 
 During the spike:
 
@@ -344,8 +347,8 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and Convex so signed quota checks, shared Edge cache writes, and trusted Personal Playlist/export generation work.
-4. For an isolated Convex Preview, set `AUDIO_GENERATION_BASE_URL` to that Preview's HTTPS deployment URL; otherwise workers intentionally use the production origin.
+3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and production Convex so signed quota checks, shared Edge cache writes, and trusted Personal Playlist/export generation work. The Preview build securely copies the Vercel value into only its named Convex Preview.
+4. For a protected Preview, configure `VERCEL_AUTOMATION_BYPASS_SECRET` in Vercel. The Preview build copies it into the named Convex Preview and sets that worker deployment's `AUDIO_GENERATION_BASE_URL` to the exact generated Vercel hostname.
 5. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:

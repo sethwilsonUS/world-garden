@@ -176,7 +176,7 @@ export const useArticleAudioController = ({
   )?.sourceHash;
   const cachedAudio = useQuery(
     api.audio.getAllSectionAudio,
-    articleId
+    articleId && activeTtsProfile.provider === "edge"
       ? {
           articleId,
           ttsNormVersion: TTS_NORM_VERSION,
@@ -312,7 +312,7 @@ export const useArticleAudioController = ({
 
   const generateTtsFromApi = useCallback(
     async (
-      _text: string,
+      text: string,
       sectionKey: string,
       options: { force?: boolean; owner?: AudioRequestOwner } = {},
     ): Promise<TtsAudioUrlResult> => {
@@ -338,7 +338,7 @@ export const useArticleAudioController = ({
             sectionKey,
             sourceHash: narrationTrack.sourceHash,
             provider: activeTtsProfile.provider,
-            localText: _text,
+            localText: text,
           }),
         {
           force: options.force,

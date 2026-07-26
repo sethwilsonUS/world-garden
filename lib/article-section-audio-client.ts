@@ -1,8 +1,8 @@
 import {
   getTtsMetadata,
   getTtsProfile,
+  parseTtsFallbackReason,
   parseTtsMetadataFromHeaders,
-  type TtsFallbackReason,
   type TtsProvider,
 } from "./tts-profile";
 import {
@@ -21,15 +21,6 @@ type ArticleSectionAudioRequest = {
   /** Local mode has no shared cache, so it can use already-fetched text. */
   localText?: string;
 };
-
-const parseFallbackReason = (
-  value: string | null,
-): TtsFallbackReason | undefined =>
-  value === "openai_auth" ||
-  value === "openai_quota" ||
-  value === "openai_error"
-    ? value
-    : undefined;
 
 const getRequestTimeoutMs = (): number => {
   const parsed = Number.parseInt(
@@ -95,7 +86,7 @@ export const generateArticleSectionAudioUrlWithMetadata = async (
   const metadata =
     parseTtsMetadataFromHeaders(response.headers) ??
     getTtsMetadata(getTtsProfile(request.provider));
-  const fallbackReason = parseFallbackReason(
+  const fallbackReason = parseTtsFallbackReason(
     response.headers.get("X-Curio-TTS-Fallback-Reason"),
   );
 

@@ -54,18 +54,27 @@ export const enforceRouteQuota = async ({
   windowMs,
   label,
 }: RouteQuotaOptions): Promise<NextResponse | null> => {
-  const quotaArgs = await createAttestedRouteQuotaArgs({
-    key: buildRouteQuotaKey({
-      scope,
-      ipAddress: getRequestIpAddress(req.headers),
-    }),
-    limit,
-    windowMs,
-  });
-  const quota = await fetchMutation(
-    anyApi.rateLimits.consumeRouteQuota,
-    quotaArgs,
-  );
+  let quota;
+  try {
+    const quotaArgs = await createAttestedRouteQuotaArgs({
+      key: buildRouteQuotaKey({
+        scope,
+        ipAddress: getRequestIpAddress(req.headers),
+      }),
+      limit,
+      windowMs,
+    });
+    quota = await fetchMutation(anyApi.rateLimits.consumeRouteQuota, quotaArgs);
+  } catch (error) {
+    console.error(`[route-quota] ${scope} quota check failed`, error);
+    return NextResponse.json(
+      { error: `${label} is temporarily unavailable. Try again later.` },
+      {
+        status: 503,
+        headers: { ...NO_CACHE_HEADERS, "Retry-After": "60" },
+      },
+    );
+  }
 
   if (quota.allowed) {
     return null;

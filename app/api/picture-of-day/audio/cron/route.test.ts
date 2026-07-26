@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const syncCurrentPictureOfDayAudio = vi.fn();
 const resolvePictureOfDayFeedDateIso = vi.fn();
 const getPodcastAdminAuthError = vi.fn();
-const getPodcastSiteUrl = vi.fn();
+const getRequestAudioGenerationBaseUrl = vi.fn();
 const enforceRouteQuota = vi.fn();
 const revalidatePath = vi.fn();
 
@@ -21,8 +21,8 @@ vi.mock("@/lib/podcast-admin-auth", () => ({
   getPodcastAdminAuthError,
 }));
 
-vi.mock("@/lib/podcast-feed", () => ({
-  getPodcastSiteUrl,
+vi.mock("@/lib/audio-generation-url", () => ({
+  getRequestAudioGenerationBaseUrl,
 }));
 
 vi.mock("@/lib/route-rate-limit", () => ({
@@ -34,7 +34,9 @@ describe("GET /api/picture-of-day/audio/cron", () => {
     vi.resetModules();
     vi.clearAllMocks();
     getPodcastAdminAuthError.mockReturnValue(null);
-    getPodcastSiteUrl.mockImplementation((origin?: string) => origin ?? "");
+    getRequestAudioGenerationBaseUrl.mockReturnValue(
+      "https://trusted-preview.vercel.app",
+    );
     enforceRouteQuota.mockResolvedValue(null);
     resolvePictureOfDayFeedDateIso.mockReturnValue("2026-05-08");
   });
@@ -69,8 +71,11 @@ describe("GET /api/picture-of-day/audio/cron", () => {
 
     expect(response.status).toBe(201);
     expect(syncCurrentPictureOfDayAudio).toHaveBeenCalledWith({
-      baseUrl: "https://curiogarden.org",
+      baseUrl: "https://trusted-preview.vercel.app",
     });
+    expect(getRequestAudioGenerationBaseUrl).toHaveBeenCalledWith(
+      "https://curiogarden.org/api/picture-of-day/audio/cron",
+    );
     expect(revalidatePath).toHaveBeenCalledWith("/");
   });
 

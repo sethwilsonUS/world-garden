@@ -14,8 +14,17 @@ const auth = vi.hoisted(() => ({
   isSignedIn: false as boolean | undefined,
 }));
 
+const convexAuth = vi.hoisted(() => ({
+  isLoading: true,
+  isAuthenticated: false,
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => auth,
+}));
+
+vi.mock("convex/react", () => ({
+  useConvexAuth: () => convexAuth,
 }));
 
 const ProfileProbe = () => {
@@ -38,6 +47,8 @@ describe("TTS audience profiles", () => {
   beforeEach(() => {
     auth.isLoaded = false;
     auth.isSignedIn = undefined;
+    convexAuth.isLoading = true;
+    convexAuth.isAuthenticated = false;
   });
 
   it("uses Edge when authentication is unavailable in local mode", () => {
@@ -66,9 +77,33 @@ describe("TTS audience profiles", () => {
     );
   });
 
-  it("uses OpenAI only for a resolved signed-in session", () => {
+  it("stays on Edge while a signed-in Clerk session waits for Convex", () => {
     auth.isLoaded = true;
     auth.isSignedIn = true;
+
+    const markup = renderProvider(AuthAwareTtsProfileProvider);
+
+    expect(markup).toContain("edge|tts:edge:");
+    expect(markup).not.toContain("openai");
+  });
+
+  it("stays on Edge when Convex cannot authenticate a signed-in Clerk session", () => {
+    auth.isLoaded = true;
+    auth.isSignedIn = true;
+    convexAuth.isLoading = false;
+    convexAuth.isAuthenticated = false;
+
+    const markup = renderProvider(AuthAwareTtsProfileProvider);
+
+    expect(markup).toContain("edge|tts:edge:");
+    expect(markup).not.toContain("openai");
+  });
+
+  it("uses OpenAI only after both Clerk and Convex authenticate", () => {
+    auth.isLoaded = true;
+    auth.isSignedIn = true;
+    convexAuth.isLoading = false;
+    convexAuth.isAuthenticated = true;
 
     const markup = renderProvider(AuthAwareTtsProfileProvider);
 

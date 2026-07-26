@@ -13,6 +13,8 @@ Object.assign(globalThis, {
 });
 
 let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
+let convexAuthState: "loading" | "authenticated" | "unauthenticated" =
+  "unauthenticated";
 
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
@@ -27,6 +29,13 @@ vi.mock("@clerk/nextjs", () => ({
       fullName: "Seth Wilson",
       primaryEmailAddress: { emailAddress: "seth@example.com" },
     },
+  }),
+}));
+
+vi.mock("convex/react", () => ({
+  useConvexAuth: () => ({
+    isLoading: convexAuthState === "loading",
+    isAuthenticated: convexAuthState === "authenticated",
   }),
 }));
 
@@ -47,6 +56,7 @@ describe("HomeAuthStatusBanner", () => {
 
   beforeEach(() => {
     authState = "signed-out";
+    convexAuthState = "unauthenticated";
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -65,10 +75,10 @@ describe("HomeAuthStatusBanner", () => {
     const markup = renderToStaticMarkup(createElement(HomeAuthStatusBanner));
 
     expect(markup).toContain(
-      "Curio Garden stays public without an account. Sign in for a more natural AI voice, synced bookmarks, your dashboard, and a personal playlist.",
+      "Curio Garden stays public without an account. Sign in for more natural article narration, synced bookmarks, your dashboard, and a personal playlist.",
     );
     expect(markup).toContain(
-      "Sign in for a more natural voice, bookmarks, and your playlist.",
+      "Sign in for more natural article narration, bookmarks, and your playlist.",
     );
     expect(markup).toContain("Sign in");
     expect(markup).not.toContain("Sign in when you want");
@@ -77,13 +87,36 @@ describe("HomeAuthStatusBanner", () => {
 
   it("shows compact dashboard and library CTAs when signed in", () => {
     authState = "signed-in";
+    convexAuthState = "authenticated";
 
     const markup = renderToStaticMarkup(createElement(HomeAuthStatusBanner));
 
     expect(markup).toContain("Welcome back, Seth");
     expect(markup).toContain("Dashboard");
     expect(markup).toContain("Library");
-    expect(markup).not.toContain("more natural AI voice");
+    expect(markup).not.toContain("more natural article narration");
+  });
+
+  it("keeps account claims quiet while the Convex bridge is connecting", () => {
+    authState = "signed-in";
+    convexAuthState = "loading";
+
+    const markup = renderToStaticMarkup(createElement(HomeAuthStatusBanner));
+
+    expect(markup).toContain("Connecting your account");
+    expect(markup).toContain("standard article voice");
+    expect(markup).not.toContain("Dashboard has synced");
+  });
+
+  it("describes a degraded account bridge without claiming features are synced", () => {
+    authState = "signed-in";
+    convexAuthState = "unauthenticated";
+
+    const markup = renderToStaticMarkup(createElement(HomeAuthStatusBanner));
+
+    expect(markup).toContain("Account connection paused");
+    expect(markup).toContain("Browsing still works");
+    expect(markup).not.toContain("Dashboard has synced");
   });
 
   it("shows a quiet loading state while auth is resolving", () => {
@@ -93,7 +126,7 @@ describe("HomeAuthStatusBanner", () => {
 
     expect(markup).toContain("Checking session");
     expect(markup).toContain("Account shortcuts will appear here");
-    expect(markup).not.toContain("more natural AI voice");
+    expect(markup).not.toContain("more natural article narration");
   });
 
   it("does not use live-region or alert semantics", () => {
@@ -128,6 +161,7 @@ describe("HomeAuthStatusBanner", () => {
 
   it("keeps focus on the search input when auth state resolves and the banner dismisses", async () => {
     authState = "loading";
+    convexAuthState = "loading";
 
     await act(async () => {
       root.render(
@@ -145,6 +179,7 @@ describe("HomeAuthStatusBanner", () => {
     expect(document.activeElement).toBe(searchInput);
 
     authState = "signed-in";
+    convexAuthState = "authenticated";
 
     await act(async () => {
       root.render(
@@ -168,5 +203,35 @@ describe("HomeAuthStatusBanner", () => {
     });
 
     expect(document.activeElement).toBe(searchInput);
+  });
+
+  it("moves focus to search when the focused dismiss button removes itself", async () => {
+    await act(async () => {
+      root.render(
+        <>
+          <HomeAuthStatusBanner />
+          <SearchForm />
+        </>,
+      );
+      await Promise.resolve();
+    });
+
+    const searchInput = document.getElementById("search-input");
+    const dismissButton = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dismiss account notice"]',
+    );
+    expect(searchInput).toBeInstanceOf(HTMLInputElement);
+    expect(dismissButton).toBeInstanceOf(HTMLButtonElement);
+
+    dismissButton?.focus();
+    expect(document.activeElement).toBe(dismissButton);
+
+    await act(async () => {
+      dismissButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(document.activeElement).toBe(searchInput);
+    expect(document.body.textContent).not.toContain("Browse now, sync later");
   });
 });

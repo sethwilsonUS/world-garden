@@ -195,17 +195,25 @@ export const PersonalPlaylistProvider = ({
 
   const retry = useCallback(
     async (episodeId: string, title: string) => {
-      const result = await retryEpisode({
-        episodeId: episodeId as Id<"personalPlaylistEpisodes">,
-        ttsMetadata: personalPlaylistTtsMetadata,
-      });
+      try {
+        const result = await retryEpisode({
+          episodeId: episodeId as Id<"personalPlaylistEpisodes">,
+          ttsMetadata: personalPlaylistTtsMetadata,
+        });
 
-      if (result.queued) {
-        setPoliteMessage(`${title} is queued for regeneration.`);
-        return;
+        if (result.queued) {
+          setPoliteMessage(`${title} is queued for regeneration.`);
+          return;
+        }
+
+        setAlertMessage(`Could not retry ${title} right now.`);
+      } catch (error) {
+        setAlertMessage(
+          error instanceof Error
+            ? error.message
+            : `Could not retry ${title} right now.`,
+        );
       }
-
-      setAlertMessage(`Could not retry ${title} right now.`);
     },
     [personalPlaylistTtsMetadata, retryEpisode],
   );

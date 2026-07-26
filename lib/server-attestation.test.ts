@@ -57,6 +57,26 @@ describe("server attestations", () => {
     ).resolves.toBe(false);
   });
 
+  it("rejects an attestation signed with a different secret", async () => {
+    const attestation = await createServerAttestation({
+      scope: "audio-cache:save",
+      payload,
+      secret,
+      now: 1_000,
+      nonce: "nonce-wrong-secret",
+    });
+
+    await expect(
+      verifyServerAttestation({
+        attestation,
+        scope: "audio-cache:save",
+        payload,
+        secret: "different-server-secret",
+        now: 1_001,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("rejects expired and implausibly long-lived attestations", async () => {
     const expired = await createServerAttestation({
       scope: "audio-cache:upload",
@@ -91,6 +111,26 @@ describe("server attestations", () => {
         payload: [],
         secret,
         now: 1_001,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects an attestation issued too far in the future", async () => {
+    const attestation = await createServerAttestation({
+      scope: "audio-cache:upload",
+      payload: [],
+      secret,
+      now: 31_001,
+      nonce: "nonce-future",
+    });
+
+    await expect(
+      verifyServerAttestation({
+        attestation,
+        scope: "audio-cache:upload",
+        payload: [],
+        secret,
+        now: 1_000,
       }),
     ).resolves.toBe(false);
   });

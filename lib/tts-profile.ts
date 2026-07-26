@@ -74,6 +74,15 @@ export const normalizeTtsProvider = (
 ): TtsProvider | null =>
   provider === "openai" || provider === "edge" ? provider : null;
 
+export const parseTtsFallbackReason = (
+  value: string | null,
+): TtsFallbackReason | undefined =>
+  value === "openai_auth" ||
+  value === "openai_quota" ||
+  value === "openai_error"
+    ? value
+    : undefined;
+
 export const buildTtsCacheKey = ({
   provider,
   model,

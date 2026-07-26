@@ -9,6 +9,7 @@ import {
 import {
   getTtsMetadata,
   getTtsProfile,
+  parseTtsFallbackReason,
   parseTtsMetadataFromHeaders,
   type TtsMetadata,
   type TtsFallbackReason,
@@ -68,15 +69,6 @@ const countWords = (text: string): number =>
 
 const resolveTtsApiRoute = (apiBaseUrl?: string): string =>
   apiBaseUrl ? new URL(TTS_API_ROUTE, apiBaseUrl).toString() : TTS_API_ROUTE;
-
-const parseFallbackReason = (
-  value: string | null,
-): TtsFallbackReason | undefined =>
-  value === "openai_auth" ||
-  value === "openai_quota" ||
-  value === "openai_error"
-    ? value
-    : undefined;
 
 const splitIntoParagraphs = (text: string): string[] =>
   text
@@ -263,7 +255,7 @@ const fetchSingleTtsAudioWithMetadata = async (
     parseTtsMetadataFromHeaders(headers) ??
     getTtsMetadata(getTtsProfile(provider, voiceId));
   const usedFallback = headers.get("X-Curio-TTS-Fallback") === "true";
-  const fallbackReason = parseFallbackReason(
+  const fallbackReason = parseTtsFallbackReason(
     headers.get("X-Curio-TTS-Fallback-Reason"),
   );
 

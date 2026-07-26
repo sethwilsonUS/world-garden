@@ -1,11 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAudioCacheReadAttestationPayload,
   buildAudioCacheSaveAttestationPayload,
   buildAudioCacheUploadAttestationPayload,
   type AudioCacheSaveAttestationPayload,
 } from "./audio-cache-attestation";
 
 describe("audio cache attestation payloads", () => {
+  it("binds a server cache read to the exact article, profile, and ordered sources", () => {
+    expect(
+      buildAudioCacheReadAttestationPayload({
+        articleId: "article-1",
+        ttsNormVersion: "ttsNorm:3",
+        ttsCacheKey: "tts:openai:profile:ttsNorm:3",
+        sourceHashes: [
+          { sectionKey: "summary", sourceHash: "source-1" },
+          { sectionKey: "section-0", sourceHash: "source-2" },
+        ],
+      }),
+    ).toEqual([
+      "article-1",
+      "ttsNorm:3",
+      "tts:openai:profile:ttsNorm:3",
+      2,
+      "summary",
+      "source-1",
+      "section-0",
+      "source-2",
+    ]);
+  });
+
   it("uses a stable upload operation payload", () => {
     expect(buildAudioCacheUploadAttestationPayload()).toEqual(["sectionAudio"]);
   });
@@ -17,7 +41,7 @@ describe("audio cache attestation payloads", () => {
         sectionKey: "summary",
         sourceHash: "source-1",
         storageId: "storage-1",
-        ttsNormVersion: "ttsNorm:2",
+        ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: "tts:edge:profile",
         provider: "edge",
         model: "edge-tts",
@@ -30,7 +54,7 @@ describe("audio cache attestation payloads", () => {
       "summary",
       "source-1",
       "storage-1",
-      "ttsNorm:2",
+      "ttsNorm:3",
       "tts:edge:profile",
       "edge",
       "edge-tts",
@@ -47,7 +71,7 @@ describe("audio cache attestation payloads", () => {
         sectionKey: "summary",
         sourceHash: "source-1",
         storageId: "storage-1",
-        ttsNormVersion: "ttsNorm:2",
+        ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: "tts:edge:profile",
       }).slice(-5),
     ).toEqual([null, null, null, null, null]);
@@ -59,7 +83,7 @@ describe("audio cache attestation payloads", () => {
       sectionKey: "summary",
       sourceHash: "source-1",
       storageId: "storage-1",
-      ttsNormVersion: "ttsNorm:2",
+      ttsNormVersion: "ttsNorm:3",
       ttsCacheKey: "tts:edge:profile",
       provider: "edge",
       model: "edge-tts",
@@ -73,7 +97,7 @@ describe("audio cache attestation payloads", () => {
       { sectionKey: "section-0" },
       { sourceHash: "source-2" },
       { storageId: "storage-2" },
-      { ttsNormVersion: "ttsNorm:3" },
+      { ttsNormVersion: "ttsNorm:4" },
       { ttsCacheKey: "tts:openai:profile" },
       { provider: "openai" },
       { model: "different-model" },

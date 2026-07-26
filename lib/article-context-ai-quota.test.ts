@@ -19,6 +19,7 @@ const restore = (key: string, value: string | undefined) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetchMutation.mockReset();
   process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
   process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
   delete process.env.ARTICLE_CONTEXT_AI_DAILY_LIMIT;

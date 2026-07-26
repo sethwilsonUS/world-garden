@@ -2,12 +2,27 @@ import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
+import { assertPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+import {
+  assertExactCurrentEdgeAudioMetadata,
+  hasPublicAudioMetadata,
+} from "../lib/public-edge-audio-metadata";
+import { getTrendingAudioCacheKey } from "../lib/trending-audio-profile";
+
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
 
 const trendingBriefStatus = v.union(
   v.literal("pending"),
   v.literal("ready"),
   v.literal("failed"),
 );
+
+export const MAX_TRENDING_BRIEF_JOB_LEASE_MS = 15 * 60 * 1000;
 
 const withStorageUrl = async <
   T extends {
@@ -38,7 +53,9 @@ export const getTrendingBriefByDate = query({
   async handler(ctx, args) {
     const record = await ctx.db
       .query("trendingBriefs")
-      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
       .first();
 
     return record ? await withStorageUrl(ctx, record) : null;
@@ -69,12 +86,23 @@ export const getRecentTrendingBriefs = query({
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
 
-    return await Promise.all(filtered.map((record) => withStorageUrl(ctx, record)));
+    return await Promise.all(
+      filtered.map((record) => withStorageUrl(ctx, record)),
+    );
   },
 });
 
 export const generateUploadUrl = mutation({
-  async handler(ctx) {
+  args: {
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    await assertPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "generate-upload-url",
+      args: {},
+      attestation: args.attestation,
+    });
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -86,7 +114,9 @@ export const getTrendingBriefJobByDate = query({
   async handler(ctx, args) {
     return await ctx.db
       .query("trendingBriefJobs")
-      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
       .first();
   },
 });
@@ -96,15 +126,31 @@ export const claimTrendingBriefJob = mutation({
     trendingDate: v.string(),
     owner: v.string(),
     leaseMs: v.number(),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const writeArgs = {
+      trendingDate: args.trendingDate,
+      owner: args.owner,
+      leaseMs: args.leaseMs,
+    };
+    await assertPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "claim-job",
+      args: writeArgs,
+      attestation: args.attestation,
+    });
     const existing = await ctx.db
       .query("trendingBriefJobs")
-      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
       .first();
 
     const now = Date.now();
-    const leaseExpiresAt = now + Math.max(args.leaseMs, 1);
+    const leaseExpiresAt =
+      now +
+      Math.min(Math.max(args.leaseMs, 1), MAX_TRENDING_BRIEF_JOB_LEASE_MS);
 
     if (
       existing &&
@@ -148,6 +194,7 @@ export const claimTrendingBriefJob = mutation({
 export const saveTrendingBrief = mutation({
   args: {
     trendingDate: v.string(),
+    owner: v.string(),
     status: trendingBriefStatus,
     headline: v.optional(v.string()),
     summary: v.optional(v.string()),
@@ -185,14 +232,55 @@ export const saveTrendingBrief = mutation({
     promptVersion: v.optional(v.string()),
     ttsNormVersion: v.optional(v.string()),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
+    const now = Date.now();
+    const job = await ctx.db
+      .query("trendingBriefJobs")
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
+      .first();
+    if (
+      !job ||
+      job.status !== "running" ||
+      job.leaseOwner !== args.owner ||
+      (job.leaseExpiresAt ?? 0) <= now
+    ) {
+      throw new Error("The Trending audio publication lease was lost.");
+    }
+    const audioMetadata = {
+      provider: args.provider,
+      model: args.ttsModel,
+      voiceId: args.voiceId,
+      promptVersion: args.promptVersion,
+      ttsNormVersion: args.ttsNormVersion,
+      ttsCacheKey: args.ttsCacheKey,
+    };
+    if (args.status === "ready" || hasPublicAudioMetadata(audioMetadata)) {
+      assertExactCurrentEdgeAudioMetadata(
+        audioMetadata,
+        getTrendingAudioCacheKey(),
+      );
+    }
+    if (args.status === "ready" && !args.storageId) {
+      throw new Error("Ready Trending audio requires a stored audio asset.");
+    }
     const existing = await ctx.db
       .query("trendingBriefs")
-      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
       .first();
 
-    const now = Date.now();
     const audioVariants = upsertTtsAudioVariant(
       existing?.audioVariants,
       {
@@ -278,11 +366,21 @@ export const finalizeTrendingBriefJob = mutation({
     owner: v.string(),
     status: v.union(v.literal("ready"), v.literal("failed")),
     lastError: v.optional(v.string()),
+    attestation: serverAttestationValidator,
   },
   async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "finalize-job",
+      args: writeArgs,
+      attestation,
+    });
     const existing = await ctx.db
       .query("trendingBriefJobs")
-      .withIndex("by_trendingDate", (q) => q.eq("trendingDate", args.trendingDate))
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
       .first();
 
     if (!existing || existing.leaseOwner !== args.owner) {

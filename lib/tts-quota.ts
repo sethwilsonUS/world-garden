@@ -3,6 +3,7 @@ import { fetchMutation } from "convex/nextjs";
 import { buildRouteQuotaKey, getRequestIpAddress } from "./route-rate-limit";
 import { createAttestedRouteQuotaArgs } from "./route-quota-attestation";
 import { TTS_QUOTA_BYPASS_HEADER } from "./tts-quota-headers";
+import { verifyTtsQuotaBypassHeaderValue } from "./tts-quota-bypass-attestation";
 import type { TtsFallbackReason, TtsProvider } from "./tts-profile";
 
 export { TTS_QUOTA_BYPASS_HEADER };
@@ -63,11 +64,10 @@ export const getOpenAiTtsQuotaConfig = () => ({
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "TTS quota check failed";
 
-export const isTtsQuotaBypassRequest = (headers: Headers): boolean => {
-  const secret = process.env.TTS_QUOTA_BYPASS_SECRET?.trim();
-  if (!secret) return false;
-  return headers.get(TTS_QUOTA_BYPASS_HEADER) === secret;
-};
+export const isTtsQuotaBypassRequest = async (
+  headers: Headers,
+): Promise<boolean> =>
+  await verifyTtsQuotaBypassHeaderValue(headers.get(TTS_QUOTA_BYPASS_HEADER));
 
 const consumeQuotaViaConvex: ConsumeTtsQuota = async ({
   scope,
@@ -96,7 +96,7 @@ export const resolveOpenAiTtsQuota = async ({
     return { mode: "edge_requested", exceeded: false };
   }
 
-  if (isTtsQuotaBypassRequest(headers)) {
+  if (await isTtsQuotaBypassRequest(headers)) {
     return { mode: "bypass", exceeded: false };
   }
 

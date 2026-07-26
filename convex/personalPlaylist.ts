@@ -89,8 +89,12 @@ export const addViewerPlaylistEpisodeBySlug = action({
   args: {
     slug: v.string(),
     ttsMetadata: v.optional(ttsMetadataValidator),
+    // Accepted only so stale pre-deploy clients continue to validate. The
+    // server deliberately ignores it and owns the worker origin.
+    baseUrl: v.optional(v.string()),
   },
   async handler(ctx, args): Promise<UpsertViewerPlaylistEpisodeResult> {
+    void args.baseUrl;
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
@@ -170,8 +174,12 @@ export const retryViewerPlaylistEpisode = mutation({
   args: {
     episodeId: v.id("personalPlaylistEpisodes"),
     ttsMetadata: v.optional(ttsMetadataValidator),
+    // Accepted only so stale pre-deploy clients continue to validate. The
+    // server deliberately ignores it and owns the worker origin.
+    baseUrl: v.optional(v.string()),
   },
   async handler(ctx, args) {
+    void args.baseUrl;
     const viewerTokenIdentifier =
       await getAuthenticatedViewerTokenIdentifier(ctx);
     assertRequestedTtsMetadataValid(args.ttsMetadata);

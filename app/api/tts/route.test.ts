@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 
 const fetchMutation = vi.hoisted(() => vi.fn());
 const track = vi.hoisted(() => vi.fn(async () => {}));
@@ -143,9 +144,7 @@ describe("POST /api/tts", () => {
     const response = await POST(
       new NextRequest("https://curiogarden.org/api/tts", {
         method: "POST",
-        headers: {
-          "x-curio-tts-quota-bypass": "internal-secret",
-        },
+        headers: await getTtsQuotaBypassHeaders("https://curiogarden.org"),
         body: JSON.stringify({
           text: "This article section text is comfortably long enough.",
           provider: "openai",
@@ -271,7 +270,7 @@ describe("POST /api/tts", () => {
       "curio-warm-narrator-v1",
     );
     expect(response.headers.get("X-Curio-TTS-Cache-Key")).toBe(
-      "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+      "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
     );
     expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("false");
     expect(response.headers.get("X-Curio-TTS-Quota-Mode")).toBe("public");
@@ -311,7 +310,7 @@ describe("POST /api/tts", () => {
           provider: "openai",
           voiceId: "cedar",
           expectedTtsCacheKey:
-            "tts:openai:retired-model:cedar:retired-prompt:ttsNorm:2",
+            "tts:openai:retired-model:cedar:retired-prompt:ttsNorm:3",
         }),
       }),
     );
@@ -346,7 +345,7 @@ describe("POST /api/tts", () => {
         headers: {
           cookie: "session=secret",
           authorization: "Bearer user-token",
-          "x-curio-tts-quota-bypass": "internal-secret",
+          ...(await getTtsQuotaBypassHeaders("https://curiogarden.org")),
         },
         body: JSON.stringify({
           text: "This article section text is comfortably long enough.",
@@ -405,7 +404,7 @@ describe("POST /api/tts", () => {
     expect(response.headers.get("X-Curio-TTS-Model")).toBe("edge-tts");
     expect(response.headers.get("X-Curio-TTS-Voice")).toBe("en-US-AriaNeural");
     expect(response.headers.get("X-Curio-TTS-Cache-Key")).toBe(
-      "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+      "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
     );
     expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
     expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
@@ -957,7 +956,7 @@ describe("POST /api/tts", () => {
       new NextRequest("https://curiogarden.org/api/tts", {
         method: "POST",
         headers: {
-          "x-curio-tts-quota-bypass": "internal-secret",
+          ...(await getTtsQuotaBypassHeaders("https://curiogarden.org")),
           "x-forwarded-for": "203.0.113.10",
         },
         body: JSON.stringify({

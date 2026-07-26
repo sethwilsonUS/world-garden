@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   playAll: vi.fn(),
   queueExport: vi.fn(),
   query: vi.fn(),
+  sectionAudioQuery: vi.fn(),
   setPlaybackRate: vi.fn(),
   showBadgeProgressToasts: vi.fn(),
   updateProgress: vi.fn(),
@@ -36,6 +37,10 @@ const mocks = vi.hoisted(() => ({
   auth: {
     isLoaded: true,
     isSignedIn: false as boolean | undefined,
+  },
+  convexAuth: {
+    isLoading: false,
+    isAuthenticated: false,
   },
 }));
 
@@ -45,8 +50,9 @@ vi.mock("@clerk/nextjs", () => ({
 
 vi.mock("convex/react", () => ({
   useConvex: () => ({ query: mocks.query }),
+  useConvexAuth: () => mocks.convexAuth,
   useMutation: () => mocks.mutation,
-  useQuery: () => undefined,
+  useQuery: (...args: unknown[]) => mocks.sectionAudioQuery(...args),
 }));
 
 vi.mock("@/components/ArticleAudioExportProvider", () => ({
@@ -236,6 +242,7 @@ describe("useArticleAudioController", () => {
     mocks.exportJobs.length = 0;
     mocks.mutation.mockResolvedValue(undefined);
     mocks.query.mockResolvedValue({ badges: [] });
+    mocks.sectionAudioQuery.mockReturnValue(undefined);
     mocks.queueExport.mockResolvedValue({
       exportId: "export-1",
       status: "queued",
@@ -244,6 +251,8 @@ describe("useArticleAudioController", () => {
     mocks.exportJobs = [];
     mocks.auth.isLoaded = true;
     mocks.auth.isSignedIn = false;
+    mocks.convexAuth.isLoading = false;
+    mocks.convexAuth.isAuthenticated = false;
 
     playSpy = vi
       .spyOn(HTMLMediaElement.prototype, "play")
@@ -339,6 +348,29 @@ describe("useArticleAudioController", () => {
     });
   });
 
+  it("stops subscribing to raw section cache URLs when OpenAI becomes active", async () => {
+    const articleWithId = { ...article, _id: "article-1" };
+    await act(async () => {
+      root.render(
+        <Harness onChange={captureController} articleValue={articleWithId} />,
+      );
+    });
+    expect(mocks.sectionAudioQuery.mock.calls.at(-1)?.[1]).toMatchObject({
+      articleId: "article-1",
+      ttsCacheKey: getTtsProfile("edge").ttsCacheKey,
+    });
+
+    mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
+    await act(async () => {
+      root.render(
+        <Harness onChange={captureController} articleValue={articleWithId} />,
+      );
+    });
+
+    expect(mocks.sectionAudioQuery.mock.calls.at(-1)?.[1]).toBe("skip");
+  });
+
   it("ignores a stale section completion after a newer request wins", async () => {
     const first = deferred<TtsAudioUrlResult>();
     const second = deferred<TtsAudioUrlResult>();
@@ -391,6 +423,7 @@ describe("useArticleAudioController", () => {
     );
 
     mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
     await act(async () => {
       root.render(<Harness onChange={captureController} />);
     });
@@ -423,6 +456,59 @@ describe("useArticleAudioController", () => {
     });
   });
 
+  it("stops OpenAI audio and rejects its late result after sign-out", async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
+    await act(async () => {
+      root.render(<Harness onChange={captureController} />);
+    });
+
+    const openAiRequest = deferred<TtsAudioUrlResult>();
+    mocks.generateTts.mockReturnValueOnce(openAiRequest.promise);
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledWith({
+        slug: "An_Unexpected_Journey",
+        sectionKey: "summary",
+        sourceHash: articleTracks[0].sourceHash,
+        provider: "openai",
+        localText: article.summary,
+      }),
+    );
+
+    mocks.auth.isSignedIn = false;
+    mocks.convexAuth.isAuthenticated = false;
+    await act(async () => {
+      root.render(<Harness onChange={captureController} />);
+    });
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("idle");
+      expect(controller().audioSrc).toBeNull();
+    });
+
+    await act(async () => {
+      openAiRequest.resolve(audioResult("blob:late-openai", "openai"));
+      await openAiRequest.promise;
+    });
+    expect(controller().audioSrc).toBeNull();
+
+    mocks.generateTts.mockResolvedValueOnce(
+      audioResult("blob:signed-out-edge", "edge"),
+    );
+    act(() => controller().actions.listenSummary());
+
+    await waitForExpectation(() => {
+      expect(mocks.generateTts).toHaveBeenLastCalledWith({
+        slug: "An_Unexpected_Journey",
+        sectionKey: "summary",
+        sourceHash: articleTracks[0].sourceHash,
+        provider: "edge",
+        localText: article.summary,
+      });
+      expect(controller().audioSrc).toBe("blob:signed-out-edge");
+    });
+  });
+
   it("only presents an article export made for the active voice provider", async () => {
     const articleWithId = { ...article, _id: "article-42" };
     mocks.exportJobs = [
@@ -449,6 +535,7 @@ describe("useArticleAudioController", () => {
     expect(controller().state.download.href).toBeUndefined();
 
     mocks.auth.isSignedIn = true;
+    mocks.convexAuth.isAuthenticated = true;
     await act(async () => {
       root.render(
         <Harness articleValue={articleWithId} onChange={captureController} />,

@@ -93,19 +93,31 @@ describe("enforceRouteQuota", () => {
     ).resolves.toBe(true);
   });
 
-  it("fails closed before contacting Convex when the secret is missing", async () => {
+  it("returns a handled fail-closed response when the secret is missing", async () => {
     delete process.env.TTS_QUOTA_BYPASS_SECRET;
     const req = new NextRequest("https://example.test/api/test");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
-    await expect(
-      enforceRouteQuota({
-        req,
-        scope: "test-route",
-        limit: 2,
-        windowMs: 60_000,
-        label: "Test route",
-      }),
-    ).rejects.toThrow("TTS_QUOTA_BYPASS_SECRET must be configured");
+    const response = await enforceRouteQuota({
+      req,
+      scope: "test-route",
+      limit: 2,
+      windowMs: 60_000,
+      label: "Test route",
+    });
+
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get("Cache-Control")).toBe("no-store");
+    expect(response?.headers.get("Retry-After")).toBe("60");
+    await expect(response?.json()).resolves.toEqual({
+      error: "Test route is temporarily unavailable. Try again later.",
+    });
     expect(fetchMutation).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "[route-quota] test-route quota check failed",
+      expect.any(Error),
+    );
   });
 });

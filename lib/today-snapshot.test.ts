@@ -5,6 +5,7 @@ import type { WikipediaDidYouKnowItem } from "./featured-article";
 const originalFetch = global.fetch;
 const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
 const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+const originalAttestationSecret = process.env.TTS_QUOTA_BYPASS_SECRET;
 
 const restoreEnvValue = (key: string, value: string | undefined) => {
   if (value === undefined) {
@@ -24,6 +25,7 @@ afterEach(() => {
   vi.doUnmock("@/lib/nsfw-filter");
   restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
   restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
+  restoreEnvValue("TTS_QUOTA_BYPASS_SECRET", originalAttestationSecret);
 });
 
 describe("enrichDidYouKnowThumbnails", () => {
@@ -235,6 +237,7 @@ describe("getTodayWikipediaData", () => {
     vi.resetModules();
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+    process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
 
     const fetchQuery = vi.fn().mockResolvedValue(null);
     const fetchMutation = vi.fn();
@@ -274,7 +277,9 @@ describe("getTodayWikipediaData", () => {
       filterSafeTitles: async (titles: string[]) => new Set(titles),
     }));
 
-    const { getTodayWikipediaData } = await import("./today-snapshot");
+    const { getTodayWikipediaData, syncTodayWikipediaSnapshot } = await import(
+      "./today-snapshot"
+    );
 
     await expect(
       getTodayWikipediaData({
@@ -287,12 +292,22 @@ describe("getTodayWikipediaData", () => {
     });
     expect(fetchQuery).toHaveBeenCalled();
     expect(fetchWikipediaFeaturedSnapshot).toHaveBeenCalled();
+
+    await syncTodayWikipediaSnapshot({ feedDateIso: "2026-05-07" });
+    expect(fetchMutation).toHaveBeenCalledWith(
+      "saveTodaySnapshot",
+      expect.objectContaining({
+        feedDate: "2026-05-07",
+        attestation: expect.objectContaining({ signature: expect.any(String) }),
+      }),
+    );
   });
 
   it("prefers live current data over the latest stale snapshot when fallback is allowed", async () => {
     vi.resetModules();
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+    process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
 
     const fetchQuery = vi.fn().mockImplementation((query: string) => {
       if (query === "getLatestTodaySnapshot") {

@@ -28,6 +28,11 @@ import {
 } from "../lib/tts-profile";
 import { buildArticleNarrationHash } from "../lib/section-narration";
 import { getAudioGenerationBaseUrl } from "../lib/audio-generation-url";
+import {
+  ARTICLE_AUDIO_EXPORT_READ_ATTESTATION_SCOPE,
+  buildArticleAudioExportReadAttestationPayload,
+} from "../lib/article-audio-export-attestation";
+import { verifyServerAttestation } from "../lib/server-attestation";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
@@ -37,6 +42,8 @@ const DEFAULT_RECENT_ARTICLE_AUDIO_EXPORT_LIMIT = 4;
 const MAX_RECENT_ARTICLE_AUDIO_EXPORT_LIMIT = 10;
 const DEFAULT_OPENAI_EXPORT_DAILY_LIMIT = 5;
 const DEFAULT_OPENAI_EXPORT_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const ARTICLE_AUDIO_EXPORT_LEASE_MS = 10 * 60 * 1000;
+const ARTICLE_AUDIO_EXPORT_WATCHDOG_GRACE_MS = 1_000;
 
 const ttsMetadataValidator = v.object({
   provider: v.union(v.literal("openai"), v.literal("edge")),
@@ -45,6 +52,13 @@ const ttsMetadataValidator = v.object({
   promptVersion: v.string(),
   ttsNormVersion: v.string(),
   ttsCacheKey: v.string(),
+});
+
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
 });
 
 export const isRequestedTtsMetadataValid = (metadata: TtsMetadata): boolean =>
@@ -66,7 +80,9 @@ export const resolveRequestedArticleExportTtsMetadata = (
   metadata: TtsMetadata | undefined,
   preferredProvider?: TtsProvider,
 ): TtsMetadata =>
-  metadata && isTtsMetadataValid(metadata)
+  metadata &&
+  isTtsMetadataValid(metadata) &&
+  (preferredProvider == null || metadata.provider === preferredProvider)
     ? metadata
     : getTtsMetadata(getTtsProfile(preferredProvider));
 
@@ -186,16 +202,24 @@ export const getArticleAudioExportProvider = (
   isAuthenticated: boolean,
 ): TtsProvider => (isAuthenticated ? "openai" : "edge");
 
+export const normalizeArticleAudioExportProvider = (
+  provider: string | undefined,
+): TtsProvider | null =>
+  provider === "edge" ? "edge" : provider === "openai" ? "openai" : null;
+
 export const canAccessArticleAudioExport = (
   record: ArticleAudioExportAccessRecord,
   viewerTokenIdentifier: string | null,
 ): boolean => {
   if (record.ttsProvider === "edge") return true;
-  if (!viewerTokenIdentifier) return false;
-  return (
-    record.ownerTokenIdentifier == null ||
-    record.ownerTokenIdentifier === viewerTokenIdentifier
-  );
+  if (
+    record.ttsProvider !== "openai" ||
+    !viewerTokenIdentifier ||
+    !record.ownerTokenIdentifier
+  ) {
+    return false;
+  }
+  return record.ownerTokenIdentifier === viewerTokenIdentifier;
 };
 
 export const selectAccessibleArticleAudioExportCandidates = <
@@ -285,6 +309,28 @@ const withStorageUrl = async <
   return { ...record, audioUrl };
 };
 
+const withPublicStorageUrl = async <
+  T extends {
+    storageId?: Id<"_storage">;
+    ttsProvider?: string;
+  },
+>(
+  ctx: {
+    storage: {
+      getUrl(storageId: Id<"_storage">): Promise<string | null>;
+    };
+  },
+  record: T,
+) => {
+  if (record.ttsProvider === "edge") {
+    return await withStorageUrl(ctx, record);
+  }
+
+  const { storageId, ...safeRecord } = record;
+  void storageId;
+  return { ...safeRecord, audioUrl: null };
+};
+
 export const getRecentArticleAudioExports = query({
   args: {
     clientId: v.string(),
@@ -305,8 +351,10 @@ export const getRecentArticleAudioExports = query({
         viewerTokenIdentifier
           ? q.or(
               q.eq(q.field("ttsProvider"), "edge"),
-              q.eq(q.field("ownerTokenIdentifier"), viewerTokenIdentifier),
-              q.eq(q.field("ownerTokenIdentifier"), undefined),
+              q.and(
+                q.eq(q.field("ttsProvider"), "openai"),
+                q.eq(q.field("ownerTokenIdentifier"), viewerTokenIdentifier),
+              ),
             )
           : q.eq(q.field("ttsProvider"), "edge"),
       )
@@ -343,7 +391,7 @@ export const getRecentArticleAudioExports = query({
     return await Promise.all(
       compatibleRecords
         .slice(0, limit)
-        .map((record) => withStorageUrl(ctx, record)),
+        .map((record) => withPublicStorageUrl(ctx, record)),
     );
   },
 });
@@ -373,7 +421,74 @@ export const getArticleAudioExportById = query({
     ) {
       return null;
     }
-    return await withStorageUrl(ctx, record);
+    return await withPublicStorageUrl(ctx, record);
+  },
+});
+
+export const getArticleAudioExportForServer = mutation({
+  args: {
+    exportId: v.id("articleAudioExports"),
+    ttsCacheKey: v.string(),
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const validAttestation = await verifyServerAttestation({
+      attestation: args.attestation,
+      scope: ARTICLE_AUDIO_EXPORT_READ_ATTESTATION_SCOPE,
+      payload: buildArticleAudioExportReadAttestationPayload({
+        exportId: args.exportId,
+        ttsCacheKey: args.ttsCacheKey,
+      }),
+      secret: process.env.TTS_QUOTA_BYPASS_SECRET?.trim() || undefined,
+    });
+    if (!validAttestation) {
+      throw new Error(
+        "A valid server attestation is required to read this audio export.",
+      );
+    }
+
+    const record = await ctx.db.get(args.exportId);
+    const ttsProvider = normalizeArticleAudioExportProvider(
+      record?.ttsProvider,
+    );
+    if (
+      !record ||
+      !ttsProvider ||
+      record.status !== "ready" ||
+      !record.storageId
+    ) {
+      return null;
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (
+      !canAccessArticleAudioExport(record, identity?.tokenIdentifier ?? null)
+    ) {
+      return null;
+    }
+
+    const article = await ctx.db.get(record.articleId);
+    if (
+      !article ||
+      !isArticleAudioExportCompatible(
+        record,
+        args.ttsCacheKey,
+        buildArticleNarrationHash(article),
+      )
+    ) {
+      return null;
+    }
+
+    const audioUrl = await ctx.storage.getUrl(record.storageId);
+    if (!audioUrl) return null;
+
+    return {
+      _id: record._id,
+      title: record.title,
+      status: record.status,
+      ttsProvider,
+      audioUrl,
+    };
   },
 });
 
@@ -386,11 +501,21 @@ export const getArticleAudioExportDownloadIdentity = query({
     if (!exportId) return null;
 
     const record = await ctx.db.get(exportId);
+    const ttsProvider = normalizeArticleAudioExportProvider(
+      record?.ttsProvider,
+    );
     if (
       !record ||
+      !ttsProvider ||
       record.status !== "ready" ||
       !record.storageId ||
       !record.ttsCacheKey
+    ) {
+      return null;
+    }
+    const identity = await ctx.auth.getUserIdentity();
+    if (
+      !canAccessArticleAudioExport(record, identity?.tokenIdentifier ?? null)
     ) {
       return null;
     }
@@ -401,7 +526,11 @@ export const getArticleAudioExportDownloadIdentity = query({
     ) {
       return null;
     }
-    return { exportId: record._id, ttsCacheKey: record.ttsCacheKey };
+    return {
+      exportId: record._id,
+      ttsCacheKey: record.ttsCacheKey,
+      ttsProvider,
+    };
   },
 });
 
@@ -409,6 +538,9 @@ export const startArticleAudioExport = mutation({
   args: {
     clientId: v.string(),
     articleId: v.id("articles"),
+    expectedTtsProvider: v.optional(
+      v.union(v.literal("openai"), v.literal("edge")),
+    ),
   },
   async handler(ctx, args) {
     const article = await ctx.db.get(args.articleId);
@@ -421,6 +553,12 @@ export const startArticleAudioExport = mutation({
     const ttsProvider = getArticleAudioExportProvider(
       ownerTokenIdentifier != null,
     );
+    if (
+      args.expectedTtsProvider != null &&
+      args.expectedTtsProvider !== ttsProvider
+    ) {
+      throw new Error("Audio voice access changed. Refresh and try again.");
+    }
     const queueKey = getArticleAudioExportQueueKey({
       clientId: args.clientId,
       ttsProvider,
@@ -429,6 +567,7 @@ export const startArticleAudioExport = mutation({
     const requestedTtsMetadata = getTtsMetadata(getTtsProfile(ttsProvider));
     const activeTtsCacheKey = requestedTtsMetadata.ttsCacheKey;
     const narrationHash = buildArticleNarrationHash(article);
+    const now = Date.now();
     const existing = findReusableArticleAudioExport(
       await ctx.db
         .query("articleAudioExports")
@@ -448,6 +587,16 @@ export const startArticleAudioExport = mutation({
     );
 
     if (existing) {
+      if (
+        existing.status === "queued" ||
+        (existing.status === "running" && (existing.leaseExpiresAt ?? 0) <= now)
+      ) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.articleExports.processArticleAudioExport,
+          { exportId: existing._id },
+        );
+      }
       return {
         exportId: existing._id,
         status: existing.status,
@@ -465,7 +614,6 @@ export const startArticleAudioExport = mutation({
       sections: article.sections,
     }).length;
 
-    const now = Date.now();
     if (sectionCount > 0 && ttsProvider === "openai" && ownerTokenIdentifier) {
       const quotaConfig = getArticleAudioExportQuotaConfig();
       const quotaKey = getArticleAudioExportQuotaKey(ownerTokenIdentifier);
@@ -597,14 +745,41 @@ export const getNextQueuedArticleAudioExportForQueue = internalQuery({
     excludeExportId: v.optional(v.id("articleAudioExports")),
   },
   async handler(ctx, args) {
+    const excludeExportId = args.excludeExportId;
     const queueRecords = await ctx.db
       .query("articleAudioExports")
-      .withIndex("by_queueKey", (q) => q.eq("queueKey", args.queueKey))
-      .collect();
+      .withIndex("by_queueKey_status", (q) =>
+        q.eq("queueKey", args.queueKey).eq("status", "queued"),
+      )
+      .filter((q) =>
+        excludeExportId
+          ? q.and(
+              q.eq(q.field("dismissedAt"), undefined),
+              q.neq(q.field("_id"), excludeExportId),
+            )
+          : q.eq(q.field("dismissedAt"), undefined),
+      )
+      .order("asc")
+      .take(1);
     const legacyClientRecords = await ctx.db
       .query("articleAudioExports")
       .withIndex("by_clientId", (q) => q.eq("clientId", args.legacyClientId))
-      .collect();
+      .filter((q) =>
+        excludeExportId
+          ? q.and(
+              q.eq(q.field("queueKey"), undefined),
+              q.eq(q.field("status"), "queued"),
+              q.eq(q.field("dismissedAt"), undefined),
+              q.neq(q.field("_id"), excludeExportId),
+            )
+          : q.and(
+              q.eq(q.field("queueKey"), undefined),
+              q.eq(q.field("status"), "queued"),
+              q.eq(q.field("dismissedAt"), undefined),
+            ),
+      )
+      .order("asc")
+      .take(MAX_RECENT_EXPORT_CANDIDATES);
     const records = [
       ...queueRecords,
       ...legacyClientRecords.filter(
@@ -617,10 +792,7 @@ export const getNextQueuedArticleAudioExportForQueue = internalQuery({
     return (
       records
         .filter(
-          (record) =>
-            record._id !== args.excludeExportId &&
-            record.dismissedAt == null &&
-            record.status === "queued",
+          (record) => record.dismissedAt == null && record.status === "queued",
         )
         .sort((a, b) => a.createdAt - b.createdAt)[0] ?? null
     );
@@ -630,6 +802,7 @@ export const getNextQueuedArticleAudioExportForQueue = internalQuery({
 export const markArticleAudioExportRunning = internalMutation({
   args: {
     exportId: v.id("articleAudioExports"),
+    owner: v.string(),
     sectionCount: v.number(),
     ttsMetadata: ttsMetadataValidator,
   },
@@ -639,21 +812,59 @@ export const markArticleAudioExportRunning = internalMutation({
       !record ||
       record.dismissedAt != null ||
       record.status === "ready" ||
-      record.status === "failed" ||
-      record.status === "running"
+      record.status === "failed"
     ) {
+      return { claimed: false };
+    }
+
+    const now = Date.now();
+    const scheduleRetryAt = async (leaseExpiresAt: number) => {
+      await ctx.scheduler.runAfter(
+        Math.max(0, leaseExpiresAt - now) +
+          ARTICLE_AUDIO_EXPORT_WATCHDOG_GRACE_MS,
+        internal.articleExports.processArticleAudioExport,
+        { exportId: args.exportId },
+      );
+    };
+
+    if (record.status === "running" && (record.leaseExpiresAt ?? 0) > now) {
+      await scheduleRetryAt(record.leaseExpiresAt!);
+      return { claimed: false };
+    }
+
+    if (record.status !== "queued" && record.status !== "running") {
       return { claimed: false };
     }
 
     const queueKey = record.queueKey ?? getArticleAudioExportQueueKey(record);
     const queueRecords = await ctx.db
       .query("articleAudioExports")
-      .withIndex("by_queueKey", (q) => q.eq("queueKey", queueKey))
-      .collect();
+      .withIndex("by_queueKey_status", (q) =>
+        q.eq("queueKey", queueKey).eq("status", "running"),
+      )
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("_id"), args.exportId),
+          q.eq(q.field("dismissedAt"), undefined),
+          q.gt(q.field("leaseExpiresAt"), now),
+        ),
+      )
+      .order("asc")
+      .take(1);
     const legacyClientRecords = await ctx.db
       .query("articleAudioExports")
       .withIndex("by_clientId", (q) => q.eq("clientId", record.clientId))
-      .collect();
+      .filter((q) =>
+        q.and(
+          q.neq(q.field("_id"), args.exportId),
+          q.eq(q.field("queueKey"), undefined),
+          q.eq(q.field("status"), "running"),
+          q.eq(q.field("dismissedAt"), undefined),
+          q.gt(q.field("leaseExpiresAt"), now),
+        ),
+      )
+      .order("asc")
+      .take(MAX_RECENT_EXPORT_CANDIDATES);
     const queueCandidates = [
       ...queueRecords,
       ...legacyClientRecords.filter(
@@ -666,25 +877,33 @@ export const markArticleAudioExportRunning = internalMutation({
       (candidate) =>
         candidate._id !== args.exportId &&
         candidate.dismissedAt == null &&
-        candidate.status === "running",
+        candidate.status === "running" &&
+        (candidate.leaseExpiresAt ?? 0) > now,
     );
 
     if (otherRunningRecord) {
+      await scheduleRetryAt(otherRunningRecord.leaseExpiresAt!);
       return { claimed: false };
     }
 
     await ctx.db.patch(args.exportId, {
       status: "running",
       stage: "rendering_audio",
-      ttsProvider: record.ttsProvider ?? "edge",
       queueKey,
       sectionCount: args.sectionCount,
       completedSectionCount: 0,
       requestedTtsMetadata: args.ttsMetadata,
       ttsCacheKey: args.ttsMetadata.ttsCacheKey,
       lastError: undefined,
-      updatedAt: Date.now(),
+      leaseOwner: args.owner,
+      leaseExpiresAt: now + ARTICLE_AUDIO_EXPORT_LEASE_MS,
+      updatedAt: now,
     });
+    await ctx.scheduler.runAfter(
+      ARTICLE_AUDIO_EXPORT_LEASE_MS + ARTICLE_AUDIO_EXPORT_WATCHDOG_GRACE_MS,
+      internal.articleExports.processArticleAudioExport,
+      { exportId: args.exportId },
+    );
 
     return { claimed: true };
   },
@@ -693,6 +912,7 @@ export const markArticleAudioExportRunning = internalMutation({
 export const updateArticleAudioExportProgress = internalMutation({
   args: {
     exportId: v.id("articleAudioExports"),
+    owner: v.string(),
     completedSectionCount: v.number(),
     stage: v.union(
       v.literal("queued"),
@@ -701,18 +921,31 @@ export const updateArticleAudioExportProgress = internalMutation({
     ),
   },
   async handler(ctx, args) {
+    const record = await ctx.db.get(args.exportId);
+    if (
+      !record ||
+      record.status !== "running" ||
+      record.leaseOwner !== args.owner
+    ) {
+      return { updated: false };
+    }
+
+    const now = Date.now();
     await ctx.db.patch(args.exportId, {
       status: "running",
       stage: args.stage,
       completedSectionCount: args.completedSectionCount,
-      updatedAt: Date.now(),
+      leaseExpiresAt: now + ARTICLE_AUDIO_EXPORT_LEASE_MS,
+      updatedAt: now,
     });
+    return { updated: true };
   },
 });
 
 export const completeArticleAudioExport = internalMutation({
   args: {
     exportId: v.id("articleAudioExports"),
+    owner: v.string(),
     storageId: v.id("_storage"),
     byteLength: v.number(),
     producedTtsCacheKey: v.string(),
@@ -720,7 +953,13 @@ export const completeArticleAudioExport = internalMutation({
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
-    if (!record) return;
+    if (
+      !record ||
+      record.status !== "running" ||
+      record.leaseOwner !== args.owner
+    ) {
+      return { completed: false };
+    }
 
     await ctx.db.patch(args.exportId, {
       status: "ready",
@@ -730,26 +969,43 @@ export const completeArticleAudioExport = internalMutation({
       producedTtsCacheKey: args.producedTtsCacheKey,
       narrationHash: args.narrationHash,
       completedSectionCount: record.sectionCount,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
       updatedAt: Date.now(),
     });
+    return { completed: true };
   },
 });
 
 export const failArticleAudioExport = internalMutation({
   args: {
     exportId: v.id("articleAudioExports"),
+    owner: v.string(),
     lastError: v.string(),
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
-    if (!record || record.status === "ready") return;
+    const now = Date.now();
+    if (
+      !record ||
+      record.status === "ready" ||
+      record.status === "failed" ||
+      (record.status === "running" &&
+        record.leaseOwner !== args.owner &&
+        (record.leaseExpiresAt ?? 0) > now)
+    ) {
+      return { failed: false };
+    }
 
     await ctx.db.patch(args.exportId, {
       status: "failed",
       stage: undefined,
       lastError: args.lastError,
-      updatedAt: Date.now(),
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+      updatedAt: now,
     });
+    return { failed: true };
   },
 });
 
@@ -796,10 +1052,32 @@ export const processArticleAudioExport = internalAction({
       },
     );
 
-    if (!record || record.dismissedAt != null || record.status === "ready") {
+    if (
+      !record ||
+      record.dismissedAt != null ||
+      record.status === "ready" ||
+      record.status === "failed"
+    ) {
       return;
     }
     const queueKey = record.queueKey ?? getArticleAudioExportQueueKey(record);
+    const owner = crypto.randomUUID();
+    const ttsProvider = normalizeArticleAudioExportProvider(record.ttsProvider);
+
+    if (!ttsProvider) {
+      const failure = await ctx.runMutation(
+        internal.articleExports.failArticleAudioExport,
+        {
+          exportId: args.exportId,
+          owner,
+          lastError: "Audio voice provider is missing or unsupported.",
+        },
+      );
+      if (failure.failed) {
+        await scheduleNextQueuedExport(queueKey, record.clientId);
+      }
+      return;
+    }
 
     const article = await ctx.runQuery(
       internal.articleExports.getArticleExportSource,
@@ -809,32 +1087,45 @@ export const processArticleAudioExport = internalAction({
     );
 
     if (!article) {
-      await ctx.runMutation(internal.articleExports.failArticleAudioExport, {
-        exportId: args.exportId,
-        lastError: "Article not found.",
-      });
-      await scheduleNextQueuedExport(queueKey, record.clientId);
+      const failure = await ctx.runMutation(
+        internal.articleExports.failArticleAudioExport,
+        {
+          exportId: args.exportId,
+          owner,
+          lastError: "Article not found.",
+        },
+      );
+      if (failure.failed) {
+        await scheduleNextQueuedExport(queueKey, record.clientId);
+      }
       return;
     }
 
     const sections = getArticleExportSections(article);
     if (sections.length === 0) {
-      await ctx.runMutation(internal.articleExports.failArticleAudioExport, {
-        exportId: args.exportId,
-        lastError: "Article does not contain any narratable source tracks.",
-      });
-      await scheduleNextQueuedExport(queueKey, record.clientId);
+      const failure = await ctx.runMutation(
+        internal.articleExports.failArticleAudioExport,
+        {
+          exportId: args.exportId,
+          owner,
+          lastError: "Article does not contain any narratable source tracks.",
+        },
+      );
+      if (failure.failed) {
+        await scheduleNextQueuedExport(queueKey, record.clientId);
+      }
       return;
     }
 
     const requestedTtsMetadata = resolveRequestedArticleExportTtsMetadata(
       record.requestedTtsMetadata,
-      record.ttsProvider === "openai" ? "openai" : "edge",
+      ttsProvider,
     );
     const claim = await ctx.runMutation(
       internal.articleExports.markArticleAudioExportRunning,
       {
         exportId: args.exportId,
+        owner,
         sectionCount: sections.length,
         ttsMetadata: requestedTtsMetadata,
       },
@@ -845,7 +1136,7 @@ export const processArticleAudioExport = internalAction({
 
     try {
       const result = await assembleArticleAudio({
-        preferredProvider: record.ttsProvider === "openai" ? "openai" : "edge",
+        preferredProvider: ttsProvider,
         article: {
           ...article,
           slug: article.slug ?? record.slug,
@@ -908,37 +1199,50 @@ export const processArticleAudioExport = internalAction({
           );
         },
         onProgress: async ({ completedSectionCount, stage }) => {
-          await ctx.runMutation(
+          const progress = await ctx.runMutation(
             internal.articleExports.updateArticleAudioExportProgress,
             {
               exportId: args.exportId,
+              owner,
               completedSectionCount,
               stage: stage satisfies ArticleExportStage,
             },
           );
+          if (!progress.updated) {
+            throw new Error("Article audio export lease was lost.");
+          }
         },
       });
 
-      await ctx.runMutation(
+      const completion = await ctx.runMutation(
         internal.articleExports.completeArticleAudioExport,
         {
           exportId: args.exportId,
+          owner,
           storageId: result.storageId,
           byteLength: result.byteLength,
           producedTtsCacheKey: result.metadata.ttsCacheKey,
           narrationHash: result.narrationHash,
         },
       );
-      await scheduleNextQueuedExport(queueKey, record.clientId);
+      if (completion.completed) {
+        await scheduleNextQueuedExport(queueKey, record.clientId);
+      }
     } catch (error) {
-      await ctx.runMutation(internal.articleExports.failArticleAudioExport, {
-        exportId: args.exportId,
-        lastError:
-          error instanceof Error
-            ? error.message
-            : "Article audio export failed.",
-      });
-      await scheduleNextQueuedExport(queueKey, record.clientId);
+      const failure = await ctx.runMutation(
+        internal.articleExports.failArticleAudioExport,
+        {
+          exportId: args.exportId,
+          owner,
+          lastError:
+            error instanceof Error
+              ? error.message
+              : "Article audio export failed.",
+        },
+      );
+      if (failure.failed) {
+        await scheduleNextQueuedExport(queueKey, record.clientId);
+      }
     }
   },
 });

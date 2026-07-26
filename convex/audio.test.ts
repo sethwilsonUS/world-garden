@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertCurrentSectionAudioCacheContract,
   assertSectionAudioCacheAccess,
+  assertSectionAudioCacheReadAccess,
   assertSectionAudioCacheWriteAccess,
   assertSectionAudioKeyCanBeSaved,
   assertSectionAudioMetadataMatchesCacheKey,
@@ -9,30 +11,47 @@ import {
   selectSupersededSectionAudioRecords,
 } from "./audio";
 import {
+  AUDIO_CACHE_READ_ATTESTATION_SCOPE,
   AUDIO_CACHE_SAVE_ATTESTATION_SCOPE,
   AUDIO_CACHE_UPLOAD_ATTESTATION_SCOPE,
+  buildAudioCacheReadAttestationPayload,
   buildAudioCacheUploadAttestationPayload,
 } from "../lib/audio-cache-attestation";
 import { createServerAttestation } from "../lib/server-attestation";
 
 const openAiKey =
-  "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2";
-const edgeKey = "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2";
+  "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3";
+const edgeKey = "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3";
 const sourceHash = "section-narration:1:test";
+const trustedCacheContract = {
+  cacheContractVersion: 1,
+  ttsNormVersion: "ttsNorm:3",
+};
 
 describe("section audio provider access", () => {
   it("keeps Edge cache variants publicly readable and writable", () => {
-    expect(() => assertSectionAudioCacheAccess(edgeKey, false)).not.toThrow();
+    expect(() => assertSectionAudioCacheAccess(edgeKey)).not.toThrow();
     expect(() =>
       assertSectionAudioMetadataMatchesCacheKey("edge", edgeKey),
     ).not.toThrow();
   });
 
-  it("requires authentication for OpenAI cache variants", () => {
-    expect(() => assertSectionAudioCacheAccess(openAiKey, false)).toThrow(
-      "Authentication is required for OpenAI audio.",
+  it("keeps raw OpenAI cache URLs server-only", () => {
+    expect(() => assertSectionAudioCacheAccess(openAiKey)).toThrow(
+      "OpenAI cache URLs are server-only.",
     );
-    expect(() => assertSectionAudioCacheAccess(openAiKey, true)).not.toThrow();
+  });
+
+  it("quarantines every cache contract from before trusted writes", () => {
+    const oldEdgeKey =
+      "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2";
+
+    expect(() =>
+      assertCurrentSectionAudioCacheContract("ttsNorm:2", oldEdgeKey),
+    ).toThrow("Unsupported TTS cache version.");
+    expect(() =>
+      assertCurrentSectionAudioCacheContract("ttsNorm:3", edgeKey),
+    ).not.toThrow();
   });
 
   it("requires a valid server attestation for every public cache write", async () => {
@@ -82,10 +101,51 @@ describe("section audio provider access", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("requires a payload-bound server attestation for protected reads", async () => {
+    const readArgs = {
+      articleId: "article-1",
+      ttsNormVersion: "ttsNorm:3",
+      ttsCacheKey: openAiKey,
+      sourceHashes: [{ sectionKey: "summary", sourceHash }],
+    };
+    const payload = buildAudioCacheReadAttestationPayload(readArgs);
+    const attestation = await createServerAttestation({
+      scope: AUDIO_CACHE_READ_ATTESTATION_SCOPE,
+      payload,
+      secret: "server-secret",
+      now: 1_000,
+      nonce: "read-test-nonce",
+    });
+
+    await expect(
+      assertSectionAudioCacheReadAccess({
+        attestation,
+        payload,
+        secret: "server-secret",
+        now: 1_001,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertSectionAudioCacheReadAccess({
+        attestation,
+        payload: buildAudioCacheReadAttestationPayload({
+          ...readArgs,
+          sourceHashes: [
+            { sectionKey: "summary", sourceHash: "attacker-source" },
+          ],
+        }),
+        secret: "server-secret",
+        now: 1_001,
+      }),
+    ).rejects.toThrow(
+      "A valid server attestation is required to read protected audio.",
+    );
+  });
+
   it("fails closed for malformed public cache keys", () => {
-    expect(() =>
-      assertSectionAudioCacheAccess("legacy-or-unknown", false),
-    ).toThrow("Authentication is required for protected audio.");
+    expect(() => assertSectionAudioCacheAccess("legacy-or-unknown")).toThrow(
+      "Unsupported TTS cache version.",
+    );
   });
 
   it("rejects provider metadata that disagrees with the cache key", () => {
@@ -103,17 +163,17 @@ describe("selectSectionAudioVariant", () => {
     const selected = selectSectionAudioVariant(
       [
         {
+          ...trustedCacheContract,
           sectionKey: "summary",
           sourceHash,
           storageId: "edge-storage",
-          ttsNormVersion: "ttsNorm:2",
           ttsCacheKey: edgeKey,
         },
         {
+          ...trustedCacheContract,
           sectionKey: "summary",
           sourceHash,
           storageId: "openai-storage",
-          ttsNormVersion: "ttsNorm:2",
           ttsCacheKey: openAiKey,
         },
         {
@@ -125,7 +185,7 @@ describe("selectSectionAudioVariant", () => {
       ],
       {
         sectionKey: "summary",
-        ttsNormVersion: "ttsNorm:2",
+        ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: openAiKey,
         sourceHash,
       },
@@ -146,7 +206,29 @@ describe("selectSectionAudioVariant", () => {
       ],
       {
         sectionKey: "summary",
-        ttsNormVersion: "ttsNorm:2",
+        ttsNormVersion: "ttsNorm:3",
+        ttsCacheKey: openAiKey,
+        sourceHash,
+      },
+    );
+
+    expect(selected).toBeNull();
+  });
+
+  it("does not trust a matching cache row from before attestations", () => {
+    const selected = selectSectionAudioVariant(
+      [
+        {
+          sectionKey: "summary",
+          sourceHash,
+          storageId: "untrusted-storage",
+          ttsNormVersion: "ttsNorm:3",
+          ttsCacheKey: openAiKey,
+        },
+      ],
+      {
+        sectionKey: "summary",
+        ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: openAiKey,
         sourceHash,
       },
@@ -162,15 +244,15 @@ describe("selectSectionAudioVariant", () => {
         [
           {
             sectionKey,
+            ...trustedCacheContract,
             sourceHash,
             storageId: "legacy-context-storage",
-            ttsNormVersion: "ttsNorm:2",
             ttsCacheKey: openAiKey,
           },
         ],
         {
           sectionKey,
-          ttsNormVersion: "ttsNorm:2",
+          ttsNormVersion: "ttsNorm:3",
           ttsCacheKey: openAiKey,
           sourceHash,
         },
@@ -194,16 +276,16 @@ describe("selectSectionAudioVariant", () => {
       [
         {
           sectionKey: "summary",
+          ...trustedCacheContract,
           sourceHash: "old-source",
           storageId: "old-storage",
-          ttsNormVersion: "ttsNorm:2",
           ttsCacheKey: openAiKey,
         },
       ],
       {
         sectionKey: "summary",
         sourceHash: "current-source",
-        ttsNormVersion: "ttsNorm:2",
+        ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: openAiKey,
       },
     );

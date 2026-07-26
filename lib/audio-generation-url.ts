@@ -48,17 +48,66 @@ const parseLocalDevelopmentOrigin = (value: string): string | null => {
  * credentials.
  */
 export const getAudioGenerationBaseUrl = (): string =>
-  parseTrustedHttpsOrigin(process.env.AUDIO_GENERATION_BASE_URL) ??
-  parseVercelDeploymentOrigin(process.env.VERCEL_URL) ??
-  DEFAULT_AUDIO_GENERATION_BASE_URL;
+  (() => {
+    const vercelDeploymentOrigin = parseVercelDeploymentOrigin(
+      process.env.VERCEL_URL,
+    );
+    if (process.env.VERCEL_ENV === "preview") {
+      if (!vercelDeploymentOrigin) {
+        throw new Error(
+          "A validated Vercel Preview audio origin is required for self-calls.",
+        );
+      }
+      return vercelDeploymentOrigin;
+    }
+
+    return (
+      parseTrustedHttpsOrigin(process.env.AUDIO_GENERATION_BASE_URL) ??
+      vercelDeploymentOrigin ??
+      DEFAULT_AUDIO_GENERATION_BASE_URL
+    );
+  })();
+
+/**
+ * Trusted service headers may only be attached to the exact server-selected
+ * audio origin. Loopback remains available for local development without
+ * making arbitrary HTTP origins eligible for credentials.
+ */
+export const isTrustedAudioGenerationBaseUrl = (value: string): boolean => {
+  const candidate =
+    parseTrustedHttpsOrigin(value) ?? parseLocalDevelopmentOrigin(value);
+  if (!candidate) return false;
+
+  const localCandidate = parseLocalDevelopmentOrigin(value);
+  if (localCandidate) return candidate === localCandidate;
+
+  return candidate === getAudioGenerationBaseUrl();
+};
 
 /**
  * Next.js routes may use their own loopback origin during local development.
  * Deployed requests never trust the inbound Host header; Vercel's validated
  * deployment hostname or the explicit server configuration wins instead.
  */
-export const getRequestAudioGenerationBaseUrl = (requestUrl: string): string =>
-  parseTrustedHttpsOrigin(process.env.AUDIO_GENERATION_BASE_URL) ??
-  parseVercelDeploymentOrigin(process.env.VERCEL_URL) ??
-  parseLocalDevelopmentOrigin(requestUrl) ??
-  DEFAULT_AUDIO_GENERATION_BASE_URL;
+export const getRequestAudioGenerationBaseUrl = (
+  requestUrl: string,
+): string => {
+  const vercelDeploymentOrigin = parseVercelDeploymentOrigin(
+    process.env.VERCEL_URL,
+  );
+  if (process.env.VERCEL_ENV === "preview") {
+    if (!vercelDeploymentOrigin) {
+      throw new Error(
+        "A validated Vercel Preview audio origin is required for self-calls.",
+      );
+    }
+    return vercelDeploymentOrigin;
+  }
+
+  return (
+    parseTrustedHttpsOrigin(process.env.AUDIO_GENERATION_BASE_URL) ??
+    vercelDeploymentOrigin ??
+    parseLocalDevelopmentOrigin(requestUrl) ??
+    DEFAULT_AUDIO_GENERATION_BASE_URL
+  );
+};

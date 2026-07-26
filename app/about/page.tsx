@@ -14,7 +14,7 @@ const engineeringHighlights = [
   },
   {
     title: "Resilient audio delivery",
-    text: "Section-level synthesis, provider-aware caching, resumable playback, downloadable articles, and whole-session voice fallback keep listening useful when one service is under pressure.",
+    text: "Section-level synthesis, provider-aware caching and fallback, resumable playback, and downloadable articles keep listening useful when one service is under pressure.",
   },
   {
     title: "Web and podcast, one pipeline",

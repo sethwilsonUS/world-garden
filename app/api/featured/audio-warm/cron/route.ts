@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getRequestAudioGenerationBaseUrl } from "@/lib/audio-generation-url";
 import { warmLatestHomepageArticleSummaries } from "@/lib/homepage-audio-warm";
 import { getPodcastAdminAuthError } from "@/lib/podcast-admin-auth";
-import { getPodcastSiteUrl } from "@/lib/podcast-feed";
 import { enforceRouteQuota } from "@/lib/route-rate-limit";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -30,7 +30,7 @@ export const GET = async (req: NextRequest) => {
 
   try {
     const result = await warmLatestHomepageArticleSummaries({
-      baseUrl: getPodcastSiteUrl(req.nextUrl.origin),
+      baseUrl: getRequestAudioGenerationBaseUrl(req.url),
     });
     return NextResponse.json(result, { headers: NO_CACHE_HEADERS });
   } catch (error) {

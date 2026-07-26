@@ -22,7 +22,7 @@ import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import {
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
-  getTtsQuotaBypassHeaders,
+  getEdgeTtsGenerationHeaders,
 } from "@/lib/tts-quota-bypass";
 import {
   buildArticleNarrationHash,
@@ -34,11 +34,43 @@ import {
   getTtsProfile,
   type TtsMetadata,
 } from "@/lib/tts-profile";
+import {
+  createPublicAudioWriteAttestation,
+  type PublicAudioWriteOperation,
+} from "@/lib/public-audio-write-attestation";
+import { isExactCurrentEdgeAudioMetadata } from "@/lib/public-edge-audio-metadata";
 
 export { doesTtsMetadataMatch } from "@/lib/tts-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
 const JOB_LEASE_MS = 8 * 60 * 1000;
+
+const withFeaturedWriteAttestation = async <
+  TArgs extends Record<string, unknown>,
+>(
+  operation: PublicAudioWriteOperation,
+  args: TArgs,
+) => ({
+  ...args,
+  attestation: await createPublicAudioWriteAttestation({
+    pipeline: "featured",
+    operation,
+    args,
+  }),
+});
+
+const generateFeaturedUploadUrl = async (): Promise<string> =>
+  (await fetchMutation(
+    anyApi.podcast.generateUploadUrl,
+    await withFeaturedWriteAttestation("generate-upload-url", {}),
+  )) as string;
+
+class FeaturedPodcastLeaseLostError extends Error {
+  constructor() {
+    super("Featured podcast job lease was lost before finalization.");
+    this.name = "FeaturedPodcastLeaseLostError";
+  }
+}
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
@@ -191,9 +223,14 @@ export const shouldReuseExistingFeaturedEpisode = ({
   existingEpisode: Pick<
     FeaturedPodcastEpisodeWithUrl,
     | "status"
+    | "audioUrl"
     | "wikiPageId"
     | "title"
     | "artworkVersion"
+    | "provider"
+    | "model"
+    | "voiceId"
+    | "promptVersion"
     | "ttsNormVersion"
     | "ttsCacheKey"
     | "narrationHash"
@@ -204,8 +241,8 @@ export const shouldReuseExistingFeaturedEpisode = ({
   return (
     !force &&
     existingEpisode?.status === "ready" &&
-    existingEpisode.ttsNormVersion === expected.ttsNormVersion &&
-    existingEpisode.ttsCacheKey === expected.ttsCacheKey &&
+    Boolean(existingEpisode.audioUrl?.trim()) &&
+    isExactCurrentEdgeAudioMetadata(existingEpisode, expected.ttsCacheKey) &&
     existingEpisode.narrationHash === buildArticleNarrationHash(article) &&
     (!regenArt || hasCurrentFeaturedArtworkVersion(existingEpisode)) &&
     doesFeaturedEpisodeMatchArticle(existingEpisode, article)
@@ -225,13 +262,20 @@ const finalizeJob = async ({
   owner: string;
   lastError?: string;
 }) => {
-  await fetchMutation(anyApi.podcast.finalizeFeaturedEpisodeJob, {
+  const writeArgs = {
     featuredDate,
     articleId,
     owner,
     status,
     lastError,
-  });
+  };
+  const result = (await fetchMutation(
+    anyApi.podcast.finalizeFeaturedEpisodeJob,
+    await withFeaturedWriteAttestation("finalize-job", writeArgs),
+  )) as { updated?: boolean };
+  if (result.updated !== true) {
+    throw new FeaturedPodcastLeaseLostError();
+  }
 };
 
 export const syncFeaturedPodcastEpisode = async ({
@@ -263,14 +307,26 @@ export const syncFeaturedPodcastEpisode = async ({
     title: article.title,
     wikiPageId: article.wikiPageId,
   };
+  const expectedTtsMetadata = getTtsMetadata(getTtsProfile("edge"));
   const existingEpisode = await getExistingEpisode(feedDateIso);
-  const existingReadyEpisode =
+  const previousReadyEpisode =
     existingEpisode?.status === "ready" ? existingEpisode : null;
-  const existingEpisodeMatchesArticle = existingReadyEpisode
-    ? doesFeaturedEpisodeMatchArticle(existingReadyEpisode, article)
+  const previousReadyEpisodeMatchesArticle = previousReadyEpisode
+    ? doesFeaturedEpisodeMatchArticle(previousReadyEpisode, article)
     : false;
+  const previousReusableReadyEpisode =
+    previousReadyEpisode &&
+    previousReadyEpisodeMatchesArticle &&
+    Boolean(previousReadyEpisode.audioUrl?.trim()) &&
+    previousReadyEpisode.narrationHash === narrationHash &&
+    isExactCurrentEdgeAudioMetadata(
+      previousReadyEpisode,
+      expectedTtsMetadata.ttsCacheKey,
+    )
+      ? previousReadyEpisode
+      : null;
   const repairedExisting = Boolean(
-    existingReadyEpisode && !existingEpisodeMatchesArticle,
+    previousReadyEpisode && !previousReusableReadyEpisode,
   );
   const owner = randomUUID();
   const runId = owner.slice(0, 8);
@@ -280,14 +336,14 @@ export const syncFeaturedPodcastEpisode = async ({
     shouldReuseExistingFeaturedEpisode({
       force,
       regenArt,
-      existingEpisode: existingReadyEpisode,
+      existingEpisode: previousReusableReadyEpisode,
       article,
     }) &&
-    existingReadyEpisode
+    previousReusableReadyEpisode
   ) {
     return {
       status: "already_exists",
-      episode: existingReadyEpisode,
+      episode: previousReusableReadyEpisode,
       generatedSectionCount: 0,
       reusedSectionCount: 0,
       totalSectionCount: 0,
@@ -300,12 +356,16 @@ export const syncFeaturedPodcastEpisode = async ({
     };
   }
 
-  const claim = await fetchMutation(anyApi.podcast.claimFeaturedEpisodeJob, {
+  const claimArgs = {
     featuredDate: feedDateIso,
     articleId,
     owner,
     leaseMs: JOB_LEASE_MS,
-  });
+  };
+  const claim = await fetchMutation(
+    anyApi.podcast.claimFeaturedEpisodeJob,
+    await withFeaturedWriteAttestation("claim-job", claimArgs),
+  );
 
   if (!claim.claimed) {
     const latestEpisode = await getExistingEpisode(feedDateIso);
@@ -340,62 +400,60 @@ export const syncFeaturedPodcastEpisode = async ({
   const publishedAt = getPublishedAt(feedDateIso, tfa.featuredDate);
   const sections = getPodcastSectionSources(article);
   const description = getPodcastDescription(article.summary || tfa.extract);
-  const expectedTtsMetadata = getTtsMetadata(getTtsProfile("edge"));
   let currentTtsMetadata = expectedTtsMetadata;
   let committedReadyEpisode = false;
 
-  if (sections.length === 0) {
-    await finalizeJob({
-      featuredDate: feedDateIso,
-      articleId,
-      owner,
-      status: "failed",
-      lastError:
-        "Featured article does not contain any narratable source tracks",
-    });
-    throw new Error(
-      "Featured article does not contain any narratable source tracks",
-    );
-  }
-
-  if (!existingReadyEpisode) {
-    await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
-      featuredDate: feedDateIso,
-      articleId,
-      wikiPageId: article.wikiPageId,
-      slug: titleToSlug(article.title),
-      title: article.title,
-      description,
-      imageUrl: article.thumbnailUrl,
-      ttsNormVersion: currentTtsMetadata.ttsNormVersion,
-      ttsCacheKey: currentTtsMetadata.ttsCacheKey,
-      provider: currentTtsMetadata.provider,
-      model: currentTtsMetadata.model,
-      voiceId: currentTtsMetadata.voiceId,
-      promptVersion: currentTtsMetadata.promptVersion,
-      narrationHash,
-      status: "pending",
-      publishedAt,
-    });
-  }
-
   try {
+    if (sections.length === 0) {
+      throw new Error(
+        "Featured article does not contain any narratable source tracks",
+      );
+    }
+
+    if (!previousReusableReadyEpisode) {
+      const pendingEpisodeArgs = {
+        featuredDate: feedDateIso,
+        articleId,
+        owner,
+        wikiPageId: article.wikiPageId,
+        slug: titleToSlug(article.title),
+        title: article.title,
+        description,
+        imageUrl: article.thumbnailUrl,
+        ttsNormVersion: currentTtsMetadata.ttsNormVersion,
+        ttsCacheKey: currentTtsMetadata.ttsCacheKey,
+        provider: currentTtsMetadata.provider,
+        model: currentTtsMetadata.model,
+        voiceId: currentTtsMetadata.voiceId,
+        promptVersion: currentTtsMetadata.promptVersion,
+        narrationHash,
+        status: "pending",
+        publishedAt,
+      } as const;
+      await fetchMutation(
+        anyApi.podcast.saveFeaturedEpisode,
+        await withFeaturedWriteAttestation("save-record", pendingEpisodeArgs),
+      );
+    }
+
     console.info(
       `[podcast:featured ${feedDateIso} run=${runId}] start force=${force} regenArt=${regenArt} existingStatus=${existingEpisode?.status ?? "missing"} sections=${sections.length}`,
     );
 
     if (
       regenArt &&
-      existingReadyEpisode &&
-      existingEpisodeMatchesArticle &&
-      existingReadyEpisode.audioUrl &&
-      existingReadyEpisode.ttsNormVersion ===
-        expectedTtsMetadata.ttsNormVersion &&
-      existingReadyEpisode.ttsCacheKey === expectedTtsMetadata.ttsCacheKey &&
-      existingReadyEpisode.narrationHash === narrationHash
+      previousReusableReadyEpisode &&
+      previousReusableReadyEpisode.audioUrl &&
+      isExactCurrentEdgeAudioMetadata(
+        previousReusableReadyEpisode,
+        expectedTtsMetadata.ttsCacheKey,
+      ) &&
+      previousReusableReadyEpisode.narrationHash === narrationHash
     ) {
       stage = "reusing_existing_audio";
-      const audioBlob = await fetchBlobFromUrl(existingReadyEpisode.audioUrl);
+      const audioBlob = await fetchBlobFromUrl(
+        previousReusableReadyEpisode.audioUrl,
+      );
       stage = "rendering_artwork";
       const artwork = await renderFeaturedPodcastArtworkPng({
         featuredDate: feedDateIso,
@@ -412,8 +470,8 @@ export const syncFeaturedPodcastEpisode = async ({
         type: artwork.mimeType,
       });
       const [uploadUrl, artworkUploadUrl] = await Promise.all([
-        fetchMutation(anyApi.podcast.generateUploadUrl, {}),
-        fetchMutation(anyApi.podcast.generateUploadUrl, {}),
+        generateFeaturedUploadUrl(),
+        generateFeaturedUploadUrl(),
       ]);
       stage = "uploading_assets";
       const [storageId, artworkStorageId] = await Promise.all([
@@ -422,9 +480,10 @@ export const syncFeaturedPodcastEpisode = async ({
       ]);
 
       stage = "saving_episode";
-      await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
+      const readyEpisodeArgs = {
         featuredDate: feedDateIso,
         articleId,
+        owner,
         wikiPageId: article.wikiPageId,
         slug: titleToSlug(article.title),
         title: article.title,
@@ -433,18 +492,22 @@ export const syncFeaturedPodcastEpisode = async ({
         storageId,
         artworkStorageId,
         artworkVersion: FEATURED_EPISODE_ARTWORK_VERSION,
-        durationSeconds: existingReadyEpisode.durationSeconds,
+        durationSeconds: previousReusableReadyEpisode.durationSeconds,
         byteLength: taggedBlob.size,
-        ttsNormVersion: existingReadyEpisode.ttsNormVersion,
-        ttsCacheKey: existingReadyEpisode.ttsCacheKey,
-        provider: existingReadyEpisode.provider,
-        model: existingReadyEpisode.model,
-        voiceId: existingReadyEpisode.voiceId,
-        promptVersion: existingReadyEpisode.promptVersion,
+        ttsNormVersion: previousReusableReadyEpisode.ttsNormVersion,
+        ttsCacheKey: previousReusableReadyEpisode.ttsCacheKey,
+        provider: previousReusableReadyEpisode.provider,
+        model: previousReusableReadyEpisode.model,
+        voiceId: previousReusableReadyEpisode.voiceId,
+        promptVersion: previousReusableReadyEpisode.promptVersion,
         narrationHash,
         status: "ready",
         publishedAt,
-      });
+      } as const;
+      await fetchMutation(
+        anyApi.podcast.saveFeaturedEpisode,
+        await withFeaturedWriteAttestation("save-record", readyEpisodeArgs),
+      );
       committedReadyEpisode = true;
 
       stage = "finalizing_job";
@@ -526,7 +589,10 @@ export const syncFeaturedPodcastEpisode = async ({
           try {
             const generatedAudio = await generateTtsAudioWithMetadata(
               { text: section.text, provider: passMetadata.provider },
-              { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
+              {
+                apiBaseUrl: baseUrl,
+                headers: getEdgeTtsGenerationHeaders(baseUrl),
+              },
             );
             blob = generatedAudio.blob;
             metadata = generatedAudio.metadata;
@@ -615,8 +681,8 @@ export const syncFeaturedPodcastEpisode = async ({
       type: artwork.mimeType,
     });
     const [uploadUrl, artworkUploadUrl] = await Promise.all([
-      fetchMutation(anyApi.podcast.generateUploadUrl, {}),
-      fetchMutation(anyApi.podcast.generateUploadUrl, {}),
+      generateFeaturedUploadUrl(),
+      generateFeaturedUploadUrl(),
     ]);
     stage = "uploading_assets";
     const [storageId, artworkStorageId] = await Promise.all([
@@ -625,9 +691,10 @@ export const syncFeaturedPodcastEpisode = async ({
     ]);
 
     stage = "saving_episode";
-    const episodeId = (await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
+    const readyEpisodeArgs = {
       featuredDate: feedDateIso,
       articleId,
+      owner,
       wikiPageId: article.wikiPageId,
       slug: titleToSlug(article.title),
       title: article.title,
@@ -647,7 +714,11 @@ export const syncFeaturedPodcastEpisode = async ({
       narrationHash,
       status: "ready",
       publishedAt,
-    })) as Id<"featuredPodcastEpisodes">;
+    } as const;
+    const episodeId = (await fetchMutation(
+      anyApi.podcast.saveFeaturedEpisode,
+      await withFeaturedWriteAttestation("save-record", readyEpisodeArgs),
+    )) as Id<"featuredPodcastEpisodes">;
     committedReadyEpisode = true;
 
     stage = "finalizing_job";
@@ -692,33 +763,57 @@ export const syncFeaturedPodcastEpisode = async ({
       error,
     );
 
-    await finalizeJob({
-      featuredDate: feedDateIso,
-      articleId,
-      owner,
-      status: "failed",
-      lastError: detailedMessage,
-    });
+    if (error instanceof FeaturedPodcastLeaseLostError) {
+      throw error;
+    }
 
-    if (!existingReadyEpisode && !committedReadyEpisode) {
-      await fetchMutation(anyApi.podcast.saveFeaturedEpisode, {
+    let cleanupError: unknown;
+    try {
+      if (!previousReusableReadyEpisode && !committedReadyEpisode) {
+        const failedEpisodeArgs = {
+          featuredDate: feedDateIso,
+          articleId,
+          owner,
+          wikiPageId: article.wikiPageId,
+          slug: titleToSlug(article.title),
+          title: article.title,
+          description,
+          imageUrl: article.thumbnailUrl,
+          ttsNormVersion: currentTtsMetadata.ttsNormVersion,
+          ttsCacheKey: currentTtsMetadata.ttsCacheKey,
+          provider: currentTtsMetadata.provider,
+          model: currentTtsMetadata.model,
+          voiceId: currentTtsMetadata.voiceId,
+          promptVersion: currentTtsMetadata.promptVersion,
+          narrationHash,
+          status: "failed",
+          publishedAt,
+        } as const;
+        await fetchMutation(
+          anyApi.podcast.saveFeaturedEpisode,
+          await withFeaturedWriteAttestation("save-record", failedEpisodeArgs),
+        );
+      }
+    } catch (failedSaveError) {
+      cleanupError = failedSaveError;
+    }
+
+    try {
+      await finalizeJob({
         featuredDate: feedDateIso,
         articleId,
-        wikiPageId: article.wikiPageId,
-        slug: titleToSlug(article.title),
-        title: article.title,
-        description,
-        imageUrl: article.thumbnailUrl,
-        ttsNormVersion: currentTtsMetadata.ttsNormVersion,
-        ttsCacheKey: currentTtsMetadata.ttsCacheKey,
-        provider: currentTtsMetadata.provider,
-        model: currentTtsMetadata.model,
-        voiceId: currentTtsMetadata.voiceId,
-        promptVersion: currentTtsMetadata.promptVersion,
-        narrationHash,
+        owner,
         status: "failed",
-        publishedAt,
+        lastError: detailedMessage,
       });
+    } catch (finalizeError) {
+      cleanupError ??= finalizeError;
+    }
+
+    if (cleanupError) {
+      throw new Error(
+        `${detailedMessage} Cleanup failed: ${getErrorMessage(cleanupError)}`,
+      );
     }
 
     throw new Error(detailedMessage);

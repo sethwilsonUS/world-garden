@@ -61,7 +61,7 @@ describe("tts-client", () => {
           text,
           provider: "edge",
           expectedTtsCacheKey:
-            "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+            "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
         }),
       }),
     );
@@ -70,7 +70,7 @@ describe("tts-client", () => {
       text,
       provider: "edge",
       expectedTtsCacheKey:
-        "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+        "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
     });
     expect(await blob.text()).toBe(text);
   });
@@ -78,7 +78,7 @@ describe("tts-client", () => {
   it("forwards the requested voice and optimistic profile key", async () => {
     const text = "A profile-pinned narration request.";
     const expectedTtsCacheKey =
-      "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v1:ttsNorm:2";
+      "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v1:ttsNorm:3";
 
     await generateTtsAudio({
       text,
@@ -270,9 +270,9 @@ describe("tts-client", () => {
             "X-Curio-TTS-Model": "gpt-4o-mini-tts",
             "X-Curio-TTS-Voice": "marin",
             "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:3",
             "X-Curio-TTS-Cache-Key":
-              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
           },
         });
       }),
@@ -291,9 +291,9 @@ describe("tts-client", () => {
       model: "gpt-4o-mini-tts",
       voiceId: "marin",
       promptVersion: "curio-warm-narrator-v1",
-      ttsNormVersion: "ttsNorm:2",
+      ttsNormVersion: "ttsNorm:3",
       ttsCacheKey:
-        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
     });
   });
 
@@ -310,9 +310,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "edge-tts",
               "X-Curio-TTS-Voice": "en-US-AriaNeural",
               "X-Curio-TTS-Prompt-Version": "edge-default",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
               "X-Curio-TTS-Fallback": "true",
               "X-Curio-TTS-Fallback-Reason": "openai_auth",
             },
@@ -453,9 +453,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "edge-tts",
               "X-Curio-TTS-Voice": "en-US-AriaNeural",
               "X-Curio-TTS-Prompt-Version": "edge-default",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
             },
           });
         }
@@ -471,10 +471,10 @@ describe("tts-client", () => {
             "X-Curio-TTS-Prompt-Version": fallback
               ? "edge-default"
               : "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:3",
             "X-Curio-TTS-Cache-Key": fallback
-              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
-              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3"
+              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
             "X-Curio-TTS-Fallback": fallback ? "true" : "false",
             ...(fallback
               ? { "X-Curio-TTS-Fallback-Reason": "openai_auth" }
@@ -494,27 +494,27 @@ describe("tts-client", () => {
         text: "one two three",
         provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "one two three",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
     ]);
     expect(result.metadata.provider).toBe("edge");
@@ -546,9 +546,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "edge-tts",
               "X-Curio-TTS-Voice": "en-US-AriaNeural",
               "X-Curio-TTS-Prompt-Version": "edge-default",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
             },
           });
         }
@@ -564,10 +564,10 @@ describe("tts-client", () => {
             "X-Curio-TTS-Prompt-Version": fallback
               ? "edge-default"
               : "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+            "X-Curio-TTS-Norm-Version": "ttsNorm:3",
             "X-Curio-TTS-Cache-Key": fallback
-              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2"
-              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+              ? "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3"
+              : "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
             "X-Curio-TTS-Fallback": fallback ? "true" : "false",
           },
         });
@@ -584,27 +584,27 @@ describe("tts-client", () => {
         text: "one two three",
         provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "openai",
         expectedTtsCacheKey:
-          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+          "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
       },
       {
         text: "one two three",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
       {
         text: "four five six",
         provider: "edge",
         voiceId: "en-US-AriaNeural",
         expectedTtsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
       },
     ]);
     expect(result.metadata.provider).toBe("edge");
@@ -623,9 +623,9 @@ describe("tts-client", () => {
               "X-Curio-TTS-Model": "gpt-4o-mini-tts",
               "X-Curio-TTS-Voice": "marin",
               "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
-              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:3",
               "X-Curio-TTS-Cache-Key":
-                "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+                "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
             },
           }),
       ),

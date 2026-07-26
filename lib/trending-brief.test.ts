@@ -18,6 +18,7 @@ import {
 } from "./trending-brief";
 import { getTtsProfile } from "./tts-profile";
 import { renderTrendingPodcastArtworkPng } from "./trending-podcast-artwork";
+import { verifyPublicAudioWriteAttestation } from "./public-audio-write-attestation";
 
 vi.mock("convex/nextjs", () => ({
   fetchMutation: vi.fn(),
@@ -56,6 +57,15 @@ const originalAiGatewayApiKey = process.env.AI_GATEWAY_API_KEY;
 const originalConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
 const originalTrendingBriefModel = process.env.TRENDING_BRIEF_MODEL;
+const edgeTtsProfile = getTtsProfile("edge");
+const currentTrendingEdgeMetadata = {
+  provider: edgeTtsProfile.provider,
+  ttsModel: edgeTtsProfile.model,
+  voiceId: edgeTtsProfile.voiceId,
+  promptVersion: edgeTtsProfile.promptVersion,
+  ttsNormVersion: edgeTtsProfile.ttsNormVersion,
+  ttsCacheKey: getTrendingAudioCacheKey(),
+};
 
 const restoreEnvValue = (key: string, value: string | undefined) => {
   if (value === undefined) {
@@ -69,6 +79,7 @@ afterEach(async () => {
   const { fetchMutation, fetchQuery } = await import("convex/nextjs");
   vi.mocked(fetchMutation).mockClear();
   vi.mocked(fetchQuery).mockClear();
+  vi.mocked(renderTrendingPodcastArtworkPng).mockReset();
   restoreEnvValue("OPENAI_API_KEY", originalOpenAiApiKey);
   restoreEnvValue("AI_GATEWAY_API_KEY", originalAiGatewayApiKey);
   restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
@@ -191,7 +202,7 @@ describe("cached trending brief reuse", () => {
         status: "ready",
         audioUrl: "https://cdn.example.com/brief.mp3",
         artworkVersion: 2,
-        ttsCacheKey: getTrendingAudioCacheKey(),
+        ...currentTrendingEdgeMetadata,
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(true);
@@ -206,7 +217,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 1,
-          ttsCacheKey: getTrendingAudioCacheKey(),
+          ...currentTrendingEdgeMetadata,
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { regenArt: true },
@@ -223,7 +234,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 2,
-          ttsCacheKey: getTrendingAudioCacheKey(),
+          ...currentTrendingEdgeMetadata,
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { regenArt: true },
@@ -240,7 +251,7 @@ describe("cached trending brief reuse", () => {
           status: "ready",
           audioUrl: "https://cdn.example.com/brief.mp3",
           artworkVersion: 2,
-          ttsCacheKey: getTrendingAudioCacheKey(),
+          ...currentTrendingEdgeMetadata,
           updatedAt: Date.now(),
         } as Parameters<typeof shouldReuseExistingTrendingBrief>[0],
         { force: true, regenArt: true },
@@ -256,15 +267,17 @@ describe("cached trending brief reuse", () => {
         status: "ready",
         audioUrl: "https://cdn.example.com/brief.mp3",
         artworkVersion: 2,
+        ...currentTrendingEdgeMetadata,
         ttsCacheKey:
-          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:3",
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(false);
   });
 
-  it("keeps prior ready audio available when an Edge replacement fails", async () => {
+  it("invalidates incompatible ready audio when its Edge replacement fails", async () => {
     process.env.OPENAI_API_KEY = "openai-key";
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.mocked(renderTrendingPodcastArtworkPng).mockResolvedValueOnce({
@@ -310,6 +323,9 @@ describe("cached trending brief reuse", () => {
           updatedAt: Date.now(),
         };
       }
+      if (functionName === "trending:finalizeTrendingBriefJob") {
+        return { updated: true } as never;
+      }
       return undefined as never;
     });
     const ttsRequests: Array<{ provider?: string }> = [];
@@ -331,11 +347,302 @@ describe("cached trending brief reuse", () => {
       expect.objectContaining({ provider: "edge" }),
     ]);
     expect(persisted).toMatchObject({
-      status: "ready",
-      audioUrl: "https://cdn.example.com/openai.mp3",
-      storageId: "openai-storage",
-      ttsCacheKey: getTtsProfile("openai").ttsCacheKey,
+      status: "failed",
+      audioUrl: null,
     });
+
+    const operationByFunction = {
+      "trending:claimTrendingBriefJob": "claim-job",
+      "trending:finalizeTrendingBriefJob": "finalize-job",
+    } as const;
+    const publicationCalls = vi
+      .mocked(fetchMutation)
+      .mock.calls.filter(([reference]) =>
+        Object.hasOwn(operationByFunction, getFunctionName(reference)),
+      );
+    await expect(
+      Promise.all(
+        publicationCalls.map(async ([reference, callArgs]) => {
+          const functionName = getFunctionName(
+            reference,
+          ) as keyof typeof operationByFunction;
+          const { attestation, ...writeArgs } = (callArgs ?? {}) as Record<
+            string,
+            unknown
+          > & { attestation?: never };
+          return await verifyPublicAudioWriteAttestation({
+            pipeline: "trending",
+            operation: operationByFunction[functionName],
+            args: writeArgs,
+            attestation,
+            secret: "server-secret",
+          });
+        }),
+      ),
+    ).resolves.toEqual([true, true]);
+  });
+
+  it("attests exact save and successful finalization payloads when reusing assets", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    let persisted: Record<string, unknown> & {
+      status: string;
+      audioUrl: string | null;
+    } = {
+      _id: "brief-1",
+      trendingDate: "2026-03-11",
+      status: "failed",
+      headline: "Cached headline",
+      summary: "Cached summary",
+      podcastDescription: "Cached description",
+      spokenSummary: "Cached spoken summary",
+      keyPoints: ["One", "Two", "Three"],
+      articleTitles: ["Example Trend"],
+      sources: [{ title: "Example", url: "https://example.com" }],
+      storageId: "edge-storage",
+      artworkStorageId: "artwork-storage",
+      durationSeconds: 42,
+      byteLength: 4_200,
+      ...currentTrendingEdgeMetadata,
+      audioUrl: null,
+      updatedAt: Date.now(),
+    };
+    const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+    vi.mocked(fetchQuery).mockImplementation(async () => persisted as never);
+    vi.mocked(fetchMutation).mockImplementation(async (...callArgs) => {
+      const [reference, args] = callArgs;
+      const functionName = getFunctionName(reference);
+      if (functionName === "trending:claimTrendingBriefJob") {
+        return { claimed: true } as never;
+      }
+      if (functionName === "trending:saveTrendingBrief") {
+        persisted = {
+          ...persisted,
+          ...((args ?? {}) as object),
+          audioUrl:
+            (args as { status?: string }).status === "ready"
+              ? "https://cdn.example.com/edge.mp3"
+              : persisted.audioUrl,
+          updatedAt: Date.now(),
+        };
+        return "brief-1" as never;
+      }
+      if (functionName === "trending:finalizeTrendingBriefJob") {
+        return { updated: true } as never;
+      }
+      throw new Error(`Unexpected mutation: ${functionName}`);
+    });
+
+    await expect(
+      syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
+    ).resolves.toMatchObject({ status: "created" });
+    expect(renderTrendingPodcastArtworkPng).not.toHaveBeenCalled();
+
+    const operationByFunction = {
+      "trending:claimTrendingBriefJob": "claim-job",
+      "trending:saveTrendingBrief": "save-record",
+      "trending:finalizeTrendingBriefJob": "finalize-job",
+    } as const;
+    const validity = await Promise.all(
+      vi.mocked(fetchMutation).mock.calls.map(async ([reference, callArgs]) => {
+        const functionName = getFunctionName(
+          reference,
+        ) as keyof typeof operationByFunction;
+        const { attestation, ...writeArgs } = (callArgs ?? {}) as Record<
+          string,
+          unknown
+        > & { attestation?: never };
+        return await verifyPublicAudioWriteAttestation({
+          pipeline: "trending",
+          operation: operationByFunction[functionName],
+          args: writeArgs,
+          attestation,
+          secret: "server-secret",
+        });
+      }),
+    );
+    expect(validity).toEqual([true, true, true, true]);
+  });
+
+  it("attests both upload URL requests before publishing new Edge assets", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.mocked(renderTrendingPodcastArtworkPng).mockResolvedValueOnce({
+      data: Uint8Array.of(1, 2, 3),
+      mimeType: "image/png",
+    });
+    let persisted: Record<string, unknown> & {
+      status: string;
+      audioUrl: string | null;
+    } = {
+      _id: "brief-1",
+      trendingDate: "2026-03-11",
+      status: "failed",
+      headline: "Cached headline",
+      summary: "Cached summary",
+      podcastDescription: "Cached description",
+      spokenSummary: "Cached spoken summary with enough words for narration.",
+      keyPoints: ["One", "Two", "Three"],
+      articleTitles: ["Example Trend"],
+      sources: [{ title: "Example", url: "https://example.com" }],
+      audioUrl: null,
+      updatedAt: Date.now(),
+    };
+    const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+    vi.mocked(fetchQuery).mockImplementation(async () => persisted as never);
+    let uploadUrlCount = 0;
+    vi.mocked(fetchMutation).mockImplementation(async (...callArgs) => {
+      const [reference, args] = callArgs;
+      const functionName = getFunctionName(reference);
+      if (functionName === "trending:claimTrendingBriefJob") {
+        return { claimed: true } as never;
+      }
+      if (functionName === "trending:generateUploadUrl") {
+        uploadUrlCount += 1;
+        return `https://upload.example/${uploadUrlCount}` as never;
+      }
+      if (functionName === "trending:saveTrendingBrief") {
+        persisted = {
+          ...persisted,
+          ...((args ?? {}) as object),
+          audioUrl:
+            (args as { status?: string }).status === "ready"
+              ? "https://cdn.example.com/edge.mp3"
+              : persisted.audioUrl,
+          updatedAt: Date.now(),
+        };
+        return "brief-1" as never;
+      }
+      if (functionName === "trending:finalizeTrendingBriefJob") {
+        return { updated: true } as never;
+      }
+      throw new Error(`Unexpected mutation: ${functionName}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "https://curiogarden.org/api/tts") {
+          return new Response(Uint8Array.of(0xff, 0xfb, 0x90, 0x64), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+        }
+        if (url.startsWith("https://upload.example/")) {
+          return Response.json({
+            storageId: url.endsWith("/1") ? "audio-storage" : "artwork-storage",
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    await expect(
+      syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
+    ).resolves.toMatchObject({ status: "created" });
+
+    const operationByFunction = {
+      "trending:claimTrendingBriefJob": "claim-job",
+      "trending:saveTrendingBrief": "save-record",
+      "trending:generateUploadUrl": "generate-upload-url",
+      "trending:finalizeTrendingBriefJob": "finalize-job",
+    } as const;
+    const validity = await Promise.all(
+      vi.mocked(fetchMutation).mock.calls.map(async ([reference, callArgs]) => {
+        const functionName = getFunctionName(
+          reference,
+        ) as keyof typeof operationByFunction;
+        const { attestation, ...writeArgs } = (callArgs ?? {}) as Record<
+          string,
+          unknown
+        > & { attestation?: never };
+        return await verifyPublicAudioWriteAttestation({
+          pipeline: "trending",
+          operation: operationByFunction[functionName],
+          args: writeArgs,
+          attestation,
+          secret: "server-secret",
+        });
+      }),
+    );
+    expect(validity).toEqual([true, true, true, true, true, true]);
+  });
+
+  it("attests failed brief persistence after generation errors", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(renderTrendingPodcastArtworkPng).mockResolvedValueOnce({
+      data: Uint8Array.of(1, 2, 3),
+      mimeType: "image/png",
+    });
+    const existing = {
+      _id: "brief-1",
+      trendingDate: "2026-03-11",
+      status: "failed",
+      headline: "Cached headline",
+      summary: "Cached summary",
+      podcastDescription: "Cached description",
+      spokenSummary: "Cached spoken summary with enough narration words.",
+      keyPoints: ["One", "Two", "Three"],
+      articleTitles: ["Example Trend"],
+      sources: [{ title: "Example", url: "https://example.com" }],
+      audioUrl: null,
+      updatedAt: Date.now(),
+    };
+    const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+    vi.mocked(fetchQuery).mockResolvedValue(existing as never);
+    vi.mocked(fetchMutation).mockImplementation(async (...callArgs) => {
+      const functionName = getFunctionName(callArgs[0]);
+      if (functionName === "trending:claimTrendingBriefJob") {
+        return { claimed: true } as never;
+      }
+      if (functionName === "trending:saveTrendingBrief") {
+        return "brief-1" as never;
+      }
+      if (functionName === "trending:finalizeTrendingBriefJob") {
+        return { updated: true } as never;
+      }
+      throw new Error(`Unexpected mutation: ${functionName}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "speech unavailable" }, { status: 503 }),
+      ),
+    );
+
+    await expect(
+      syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
+    ).rejects.toThrow("speech unavailable");
+
+    const operationByFunction = {
+      "trending:claimTrendingBriefJob": "claim-job",
+      "trending:saveTrendingBrief": "save-record",
+      "trending:finalizeTrendingBriefJob": "finalize-job",
+    } as const;
+    const validity = await Promise.all(
+      vi.mocked(fetchMutation).mock.calls.map(async ([reference, callArgs]) => {
+        const functionName = getFunctionName(
+          reference,
+        ) as keyof typeof operationByFunction;
+        const { attestation, ...writeArgs } = (callArgs ?? {}) as Record<
+          string,
+          unknown
+        > & { attestation?: never };
+        return await verifyPublicAudioWriteAttestation({
+          pipeline: "trending",
+          operation: operationByFunction[functionName],
+          args: writeArgs,
+          attestation,
+          secret: "server-secret",
+        });
+      }),
+    );
+    expect(validity).toEqual([true, true, true, true]);
   });
 });
 

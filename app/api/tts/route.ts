@@ -20,6 +20,7 @@ import {
   type TtsProvider,
 } from "@/lib/tts-profile";
 import { resolveTtsProviderAccess } from "@/lib/tts-access-policy";
+import { isLocalMode } from "@/lib/runtime-mode";
 import {
   isTtsQuotaBypassRequest,
   resolveOpenAiTtsQuota,
@@ -49,10 +50,6 @@ const getAuthenticatedUserId = async (): Promise<string | null> => {
     return null;
   }
 };
-
-const isLocalMode = (): boolean =>
-  process.env.LOCAL_MODE === "true" ||
-  process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 const parsePositiveInt = (value: string | undefined): number | null => {
   if (!value) return null;
@@ -389,7 +386,8 @@ export const POST = async (req: NextRequest) => {
     }
 
     const localMode = isLocalMode();
-    const isTrustedRequest = !localMode && isTtsQuotaBypassRequest(req.headers);
+    const isTrustedRequest =
+      !localMode && (await isTtsQuotaBypassRequest(req.headers));
     const userId =
       localMode || isTrustedRequest ? null : await getAuthenticatedUserId();
     const providerAccess = resolveTtsProviderAccess({

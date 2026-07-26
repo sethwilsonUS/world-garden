@@ -8,10 +8,13 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { TTS_NORM_VERSION } from "../lib/tts-normalize";
 import { normalizeTtsProvider, type TtsProvider } from "../lib/tts-profile";
 import {
+  AUDIO_CACHE_READ_ATTESTATION_SCOPE,
   AUDIO_CACHE_SAVE_ATTESTATION_SCOPE,
   AUDIO_CACHE_UPLOAD_ATTESTATION_SCOPE,
+  buildAudioCacheReadAttestationPayload,
   buildAudioCacheSaveAttestationPayload,
   buildAudioCacheUploadAttestationPayload,
 } from "../lib/audio-cache-attestation";
@@ -31,6 +34,7 @@ type SectionAudioVariantRecord = {
   model?: string;
   voiceId?: string;
   promptVersion?: string;
+  cacheContractVersion?: number;
 };
 
 type PersistedSectionAudioVariantRecord = SectionAudioVariantRecord & {
@@ -42,23 +46,36 @@ const QUARANTINED_CONTEXT_AUDIO_PREFIXES = [
   "context-description-",
 ] as const;
 
+export const CURRENT_SECTION_AUDIO_CACHE_CONTRACT_VERSION = 1;
+
 const getCacheKeyProvider = (ttsCacheKey: string): TtsProvider | null => {
   const [prefix, provider] = ttsCacheKey.split(":", 3);
   return prefix === "tts" ? normalizeTtsProvider(provider) : null;
 };
 
-export const assertSectionAudioCacheAccess = (
-  ttsCacheKey: string,
-  isAuthenticated: boolean,
-): void => {
-  if (isAuthenticated) return;
+export const assertSectionAudioCacheAccess = (ttsCacheKey: string): void => {
+  if (!ttsCacheKey.endsWith(`:${TTS_NORM_VERSION}`)) {
+    throw new Error("Unsupported TTS cache version.");
+  }
 
   const provider = getCacheKeyProvider(ttsCacheKey);
   if (provider === "edge") return;
   if (provider === "openai") {
-    throw new Error("Authentication is required for OpenAI audio.");
+    throw new Error("OpenAI cache URLs are server-only.");
   }
-  throw new Error("Authentication is required for protected audio.");
+  throw new Error("Unsupported TTS cache provider.");
+};
+
+export const assertCurrentSectionAudioCacheContract = (
+  ttsNormVersion: string,
+  ttsCacheKey: string,
+): void => {
+  if (
+    ttsNormVersion !== TTS_NORM_VERSION ||
+    !ttsCacheKey.endsWith(`:${TTS_NORM_VERSION}`)
+  ) {
+    throw new Error("Unsupported TTS cache version.");
+  }
 };
 
 export const assertSectionAudioCacheWriteAccess = async ({
@@ -86,6 +103,33 @@ export const assertSectionAudioCacheWriteAccess = async ({
     return;
   }
   throw new Error("A valid server attestation is required to cache audio.");
+};
+
+export const assertSectionAudioCacheReadAccess = async ({
+  attestation,
+  payload,
+  secret,
+  now,
+}: {
+  attestation?: ServerAttestation;
+  payload: readonly ServerAttestationPayloadValue[];
+  secret?: string;
+  now?: number;
+}): Promise<void> => {
+  if (
+    await verifyServerAttestation({
+      attestation,
+      scope: AUDIO_CACHE_READ_ATTESTATION_SCOPE,
+      payload,
+      secret,
+      now,
+    })
+  ) {
+    return;
+  }
+  throw new Error(
+    "A valid server attestation is required to read protected audio.",
+  );
 };
 
 export const assertSectionAudioMetadataMatchesCacheKey = (
@@ -133,7 +177,11 @@ export const selectSectionAudioVariant = <
 
   return (
     matchingSectionRecords.find(
-      (record) => record.ttsCacheKey === args.ttsCacheKey,
+      (record) =>
+        record.cacheContractVersion ===
+          CURRENT_SECTION_AUDIO_CACHE_CONTRACT_VERSION &&
+        record.ttsNormVersion === args.ttsNormVersion &&
+        record.ttsCacheKey === args.ttsCacheKey,
     ) ?? null
   );
 };
@@ -163,6 +211,13 @@ const getAllSectionAudioArgs = {
   ),
 };
 
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
+
 type GetAllSectionAudioArgs = {
   articleId: Id<"articles">;
   ttsNormVersion: string;
@@ -171,9 +226,10 @@ type GetAllSectionAudioArgs = {
 };
 
 const getAllSectionAudioHandler = async (
-  ctx: QueryCtx,
+  ctx: Pick<QueryCtx, "db" | "storage">,
   args: GetAllSectionAudioArgs,
 ) => {
+  assertCurrentSectionAudioCacheContract(args.ttsNormVersion, args.ttsCacheKey);
   const records = await ctx.db
     .query("sectionAudio")
     .withIndex("by_article_section", (q) => q.eq("articleId", args.articleId))
@@ -220,8 +276,22 @@ const getAllSectionAudioHandler = async (
 export const getAllSectionAudio = query({
   args: getAllSectionAudioArgs,
   async handler(ctx, args) {
-    const identity = await ctx.auth.getUserIdentity();
-    assertSectionAudioCacheAccess(args.ttsCacheKey, identity != null);
+    assertSectionAudioCacheAccess(args.ttsCacheKey);
+    return await getAllSectionAudioHandler(ctx, args);
+  },
+});
+
+export const getAllSectionAudioForServer = mutation({
+  args: {
+    ...getAllSectionAudioArgs,
+    attestation: v.optional(serverAttestationValidator),
+  },
+  async handler(ctx, { attestation, ...args }) {
+    await assertSectionAudioCacheReadAccess({
+      attestation,
+      payload: buildAudioCacheReadAttestationPayload(args),
+      secret: process.env.TTS_QUOTA_BYPASS_SECRET?.trim(),
+    });
     return await getAllSectionAudioHandler(ctx, args);
   },
 });
@@ -234,13 +304,6 @@ export const getAllSectionAudioInternal = internalQuery({
 const generateUploadUrlHandler = async (ctx: MutationCtx) =>
   await ctx.storage.generateUploadUrl();
 
-const serverAttestationValidator = v.object({
-  issuedAt: v.number(),
-  expiresAt: v.number(),
-  nonce: v.string(),
-  signature: v.string(),
-});
-
 export const generateUploadUrl = mutation({
   args: { attestation: v.optional(serverAttestationValidator) },
   async handler(ctx, args) {
@@ -250,7 +313,7 @@ export const generateUploadUrl = mutation({
       payload: buildAudioCacheUploadAttestationPayload(),
       secret: process.env.TTS_QUOTA_BYPASS_SECRET?.trim(),
     });
-    return await ctx.storage.generateUploadUrl();
+    return await generateUploadUrlHandler(ctx);
   },
 });
 
@@ -294,6 +357,7 @@ const saveSectionAudioRecordHandler = async (
   args: SaveSectionAudioRecordArgs,
 ) => {
   assertSectionAudioKeyCanBeSaved(args.sectionKey);
+  assertCurrentSectionAudioCacheContract(args.ttsNormVersion, args.ttsCacheKey);
   assertSectionAudioMetadataMatchesCacheKey(args.provider, args.ttsCacheKey);
 
   const existing = await ctx.db
@@ -319,6 +383,7 @@ const saveSectionAudioRecordHandler = async (
       voiceId: args.voiceId,
       promptVersion: args.promptVersion,
       durationSeconds: args.durationSeconds,
+      cacheContractVersion: CURRENT_SECTION_AUDIO_CACHE_CONTRACT_VERSION,
     });
     savedId = existing._id;
   } else {
@@ -334,6 +399,7 @@ const saveSectionAudioRecordHandler = async (
       voiceId: args.voiceId,
       promptVersion: args.promptVersion,
       durationSeconds: args.durationSeconds,
+      cacheContractVersion: CURRENT_SECTION_AUDIO_CACHE_CONTRACT_VERSION,
       createdAt: Date.now(),
     });
   }

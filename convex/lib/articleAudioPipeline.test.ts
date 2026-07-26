@@ -10,6 +10,7 @@ import {
 } from "../../lib/tts-profile";
 import type { Id } from "../_generated/dataModel";
 import { createTestSection } from "../../lib/test-section-narration";
+import { TTS_QUOTA_BYPASS_HEADER } from "../../lib/tts-quota-bypass";
 import {
   assembleArticleAudio,
   getArticleAudioSections,
@@ -238,7 +239,7 @@ describe("assembleArticleAudio", () => {
       model: "edge-tts",
       voiceId: "en-US-AriaNeural",
       promptVersion: "edge-default",
-      ttsNormVersion: "ttsNorm:2",
+      ttsNormVersion: "ttsNorm:3",
     };
     const requestedMetadata = {
       ...requestedProfile,
@@ -364,6 +365,8 @@ describe("assembleArticleAudio", () => {
 
   it("restarts a fallback export so every packaged section uses the produced profile", async () => {
     vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "preview-secret");
     const openAiMetadata = getTtsMetadata(getTtsProfile("openai"));
     const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
     const article: ArticleAudioSource = {
@@ -397,10 +400,12 @@ describe("assembleArticleAudio", () => {
       provider?: string;
       expectedTtsCacheKey?: string;
     }> = [];
+    const generationHeaders: Headers[] = [];
     const generate = vi
       .spyOn(ttsClient, "generateTtsAudioWithMetadata")
-      .mockImplementation(async (request) => {
+      .mockImplementation(async (request, options) => {
         generationRequests.push(request);
+        generationHeaders.push(new Headers(options?.headers));
         const metadata =
           request.provider === "edge" || request.text === middleSection.text
             ? edgeMetadata
@@ -465,6 +470,14 @@ describe("assembleArticleAudio", () => {
       edgeMetadata.ttsCacheKey,
     ]);
     expect(generate).toHaveBeenCalledTimes(3);
+    expect(generationHeaders[0]?.get(TTS_QUOTA_BYPASS_HEADER)).toBeTruthy();
+    expect(generationHeaders[1]?.get(TTS_QUOTA_BYPASS_HEADER)).toBeTruthy();
+    expect(generationHeaders[2]?.get(TTS_QUOTA_BYPASS_HEADER)).toBeNull();
+    expect(
+      generationHeaders.map((headers) =>
+        headers.get("x-vercel-protection-bypass"),
+      ),
+    ).toEqual(["preview-secret", "preview-secret", "preview-secret"]);
     expect(
       generationRequests.map(({ text, provider, expectedTtsCacheKey }) => ({
         text,

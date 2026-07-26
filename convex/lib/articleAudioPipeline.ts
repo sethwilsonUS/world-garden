@@ -2,7 +2,10 @@ import { type Id } from "../_generated/dataModel";
 import { titleToSlug } from "./wikipedia";
 import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
 import { generateTtsAudioWithMetadata } from "../../lib/tts-client";
-import { getTtsQuotaBypassHeaders } from "../../lib/tts-quota-bypass";
+import {
+  getEdgeTtsGenerationHeaders,
+  getTtsQuotaBypassHeaders,
+} from "../../lib/tts-quota-bypass";
 import {
   buildArticleNarrationHash,
   buildArticleNarrationTracks,
@@ -288,7 +291,13 @@ export const assembleArticleAudio = async <TStorageId = string>({
               voiceId: passMetadata.voiceId,
               expectedTtsCacheKey: passMetadata.ttsCacheKey,
             },
-            { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
+            {
+              apiBaseUrl: baseUrl,
+              headers:
+                passMetadata.provider === "openai"
+                  ? await getTtsQuotaBypassHeaders(baseUrl)
+                  : getEdgeTtsGenerationHeaders(baseUrl),
+            },
           );
           blob = generatedAudio.blob;
           metadata = generatedAudio.metadata;

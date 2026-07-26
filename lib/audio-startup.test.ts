@@ -18,9 +18,9 @@ const metadata = {
   model: "gpt-4o-mini-tts",
   voiceId: "marin",
   promptVersion: "curio-warm-narrator-v1",
-  ttsNormVersion: "ttsNorm:2",
+  ttsNormVersion: "ttsNorm:3",
   ttsCacheKey:
-    "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+    "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3",
 };
 
 const audio = (url: string): TtsAudioUrlResult => ({ url, metadata });
@@ -127,9 +127,9 @@ describe("audio request cache", () => {
 
     await expect(wait).resolves.toBeNull();
     expect(awaitAudioRequest(cache, "section-0")).toBeNull();
-    await expect(startAudioRequest(cache, "section-0", async () => audio("retry"))).resolves.toEqual(
-      audio("retry"),
-    );
+    await expect(
+      startAudioRequest(cache, "section-0", async () => audio("retry")),
+    ).resolves.toEqual(audio("retry"));
     expect(generate).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
@@ -218,7 +218,9 @@ describe("audio request cache", () => {
     await vi.advanceTimersByTimeAsync(50);
 
     await expect(playback).resolves.toEqual(audio("playback"));
-    expect(getAudioRequestResult(cache, "section-0")).toEqual(audio("playback"));
+    expect(getAudioRequestResult(cache, "section-0")).toEqual(
+      audio("playback"),
+    );
     expect(warmGenerate).toHaveBeenCalledTimes(1);
     expect(playbackGenerate).toHaveBeenCalledTimes(1);
 
@@ -259,12 +261,14 @@ describe("audio request cache", () => {
       .mockRejectedValueOnce(new Error("TTS failed"))
       .mockResolvedValueOnce(audio("retry"));
 
-    await expect(warmAudioRequest(cache, "section-0", generate)).resolves.toBeNull();
+    await expect(
+      warmAudioRequest(cache, "section-0", generate),
+    ).resolves.toBeNull();
     expect(awaitAudioRequest(cache, "section-0")).toBeNull();
 
-    await expect(startAudioRequest(cache, "section-0", generate)).resolves.toEqual(
-      audio("retry"),
-    );
+    await expect(
+      startAudioRequest(cache, "section-0", generate),
+    ).resolves.toEqual(audio("retry"));
     expect(generate).toHaveBeenCalledTimes(2);
   });
 
@@ -273,9 +277,9 @@ describe("audio request cache", () => {
     const generate = vi.fn(async () => audio("generated"));
 
     primeAudioRequest(cache, "section-0", audio("convex"));
-    await expect(startAudioRequest(cache, "section-0", generate)).resolves.toEqual(
-      audio("convex"),
-    );
+    await expect(
+      startAudioRequest(cache, "section-0", generate),
+    ).resolves.toEqual(audio("convex"));
 
     expect(generate).not.toHaveBeenCalled();
   });

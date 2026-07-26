@@ -9,6 +9,7 @@ import {
   TTS_QUOTA_BYPASS_HEADER,
   resolveOpenAiTtsQuota,
 } from "./tts-quota";
+import { getTtsQuotaBypassHeaders } from "./tts-quota-bypass";
 
 const fetchMutation = vi.hoisted(() => vi.fn());
 
@@ -151,12 +152,15 @@ describe("resolveOpenAiTtsQuota", () => {
     expect(consumeQuota).not.toHaveBeenCalled();
   });
 
-  it("skips quota when the trusted bypass header matches the secret", async () => {
+  it("skips quota for a valid trusted bypass attestation", async () => {
     process.env.TTS_QUOTA_BYPASS_SECRET = "trust-me";
     const consumeQuota = vi.fn();
+    const bypassHeaders = await getTtsQuotaBypassHeaders(
+      "https://curiogarden.org",
+    );
 
     const decision = await resolveOpenAiTtsQuota({
-      headers: headersFor({ [TTS_QUOTA_BYPASS_HEADER]: "trust-me" }),
+      headers: headersFor(bypassHeaders),
       provider: "openai",
       consumeQuota,
     });
@@ -168,6 +172,22 @@ describe("resolveOpenAiTtsQuota", () => {
     expect(consumeQuota).not.toHaveBeenCalled();
 
     delete process.env.TTS_QUOTA_BYPASS_SECRET;
+  });
+
+  it("does not accept the root secret itself as a bearer bypass", async () => {
+    process.env.TTS_QUOTA_BYPASS_SECRET = "trust-me";
+    const consumeQuota = vi
+      .fn()
+      .mockResolvedValue({ allowed: true, remaining: 1, resetAt: 2 });
+
+    const decision = await resolveOpenAiTtsQuota({
+      headers: headersFor({ [TTS_QUOTA_BYPASS_HEADER]: "trust-me" }),
+      provider: "openai",
+      consumeQuota,
+    });
+
+    expect(decision.mode).toBe("public");
+    expect(consumeQuota).toHaveBeenCalledTimes(2);
   });
 
   it("routes to quota fallback when quota storage cannot be checked", async () => {
