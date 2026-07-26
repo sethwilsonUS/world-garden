@@ -14,9 +14,8 @@ vi.mock("@vercel/analytics/server", () => ({
 }));
 
 vi.mock("next/server", async () => {
-  const actual = await vi.importActual<typeof import("next/server")>(
-    "next/server",
-  );
+  const actual =
+    await vi.importActual<typeof import("next/server")>("next/server");
   return {
     ...actual,
     after,
@@ -45,10 +44,13 @@ describe("POST /api/tts", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
-        status: 200,
-        headers: { "Content-Type": "audio/mpeg" },
-      })),
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
     );
 
     const { POST } = await import("./route");
@@ -99,15 +101,45 @@ describe("POST /api/tts", () => {
     );
   });
 
+  it("rejects a stale expected profile before quota checks or generation", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This request was queued under an older narration profile.",
+          provider: "openai",
+          voiceId: "cedar",
+          expectedTtsCacheKey:
+            "tts:openai:retired-model:cedar:retired-prompt:ttsNorm:2",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "The requested TTS profile is no longer active; retry with the current profile.",
+    });
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not forward raw request headers to analytics", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
-        status: 200,
-        headers: { "Content-Type": "audio/mpeg" },
-      })),
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
     );
 
     const { POST } = await import("./route");
@@ -138,23 +170,24 @@ describe("POST /api/tts", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "preview-bypass-secret");
     vi.stubEnv("VERCEL_URL", "world-garden-preview.vercel.app");
-    const fetchMock = vi.fn<typeof fetch>(
-      async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "https://api.openai.com/v1/audio/speech") {
-          return Response.json({ error: { message: "OpenAI unavailable" } }, { status: 503 });
-        }
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://api.openai.com/v1/audio/speech") {
+        return Response.json(
+          { error: { message: "OpenAI unavailable" } },
+          { status: 503 },
+        );
+      }
 
-        if (url === "https://world-garden-preview.vercel.app/api/tts/edge") {
-          return new Response(new Uint8Array([0xff, 0xfb, 0x91, 0x64]), {
-            status: 200,
-            headers: { "Content-Type": "audio/mpeg" },
-          });
-        }
+      if (url === "https://world-garden-preview.vercel.app/api/tts/edge") {
+        return new Response(new Uint8Array([0xff, 0xfb, 0x91, 0x64]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }
 
-        throw new Error(`Unexpected fetch: ${url}`);
-      },
-    );
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const { POST } = await import("./route");
@@ -187,9 +220,7 @@ describe("POST /api/tts", () => {
         "https://world-garden-preview.vercel.app/api/tts/edge",
     );
     expect(
-      new Headers(edgeRequest?.[1]?.headers).get(
-        "x-vercel-protection-bypass",
-      ),
+      new Headers(edgeRequest?.[1]?.headers).get("x-vercel-protection-bypass"),
     ).toBe("preview-bypass-secret");
     expect(response.headers.has("x-vercel-protection-bypass")).toBe(false);
     expect(JSON.stringify(track.mock.calls)).not.toContain(
@@ -240,13 +271,17 @@ describe("POST /api/tts", () => {
           const signal = init?.signal as AbortSignal | undefined;
           return new Promise<Response>((resolve, reject) => {
             signal?.addEventListener("abort", () => {
-              reject(new DOMException("The operation was aborted.", "AbortError"));
+              reject(
+                new DOMException("The operation was aborted.", "AbortError"),
+              );
             });
             setTimeout(() => {
-              resolve(new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
-                status: 200,
-                headers: { "Content-Type": "audio/mpeg" },
-              }));
+              resolve(
+                new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                  status: 200,
+                  headers: { "Content-Type": "audio/mpeg" },
+                }),
+              );
             }, 100);
           });
         }
@@ -301,13 +336,17 @@ describe("POST /api/tts", () => {
           return new Promise<Response>((resolve, reject) => {
             signal?.addEventListener("abort", () => {
               openAiAborted = true;
-              reject(new DOMException("The operation was aborted.", "AbortError"));
+              reject(
+                new DOMException("The operation was aborted.", "AbortError"),
+              );
             });
             setTimeout(() => {
-              resolve(new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
-                status: 200,
-                headers: { "Content-Type": "audio/mpeg" },
-              }));
+              resolve(
+                new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                  status: 200,
+                  headers: { "Content-Type": "audio/mpeg" },
+                }),
+              );
             }, 500);
           });
         }
@@ -337,7 +376,9 @@ describe("POST /api/tts", () => {
     const sentinel = Symbol("pending");
     const resultPromise = Promise.race([
       responsePromise,
-      new Promise<typeof sentinel>((resolve) => setTimeout(() => resolve(sentinel), 1)),
+      new Promise<typeof sentinel>((resolve) =>
+        setTimeout(() => resolve(sentinel), 1),
+      ),
     ]);
     await vi.advanceTimersByTimeAsync(1);
     const result = await resultPromise;
@@ -382,13 +423,17 @@ describe("POST /api/tts", () => {
           const signal = init?.signal as AbortSignal | undefined;
           return new Promise<Response>((resolve, reject) => {
             signal?.addEventListener("abort", () => {
-              reject(new DOMException("The operation was aborted.", "AbortError"));
+              reject(
+                new DOMException("The operation was aborted.", "AbortError"),
+              );
             });
             setTimeout(() => {
-              resolve(new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
-                status: 200,
-                headers: { "Content-Type": "audio/mpeg" },
-              }));
+              resolve(
+                new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                  status: 200,
+                  headers: { "Content-Type": "audio/mpeg" },
+                }),
+              );
             }, 500);
           });
         }
@@ -447,16 +492,20 @@ describe("POST /api/tts", () => {
           const signal = init?.signal as AbortSignal | undefined;
           return new Promise<Response>((resolve, reject) => {
             signal?.addEventListener("abort", () => {
-              reject(new DOMException("The operation was aborted.", "AbortError"));
+              reject(
+                new DOMException("The operation was aborted.", "AbortError"),
+              );
             });
             setTimeout(() => {
               if (url === "https://api.openai.com/v1/audio/speech") {
                 reject(new Error("OpenAI eventually failed"));
               } else {
-                resolve(new Response(new Uint8Array([0xff, 0xfb, 0x91]), {
-                  status: 200,
-                  headers: { "Content-Type": "audio/mpeg" },
-                }));
+                resolve(
+                  new Response(new Uint8Array([0xff, 0xfb, 0x91]), {
+                    status: 200,
+                    headers: { "Content-Type": "audio/mpeg" },
+                  }),
+                );
               }
             }, 100);
           });
@@ -509,7 +558,10 @@ describe("POST /api/tts", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === "https://api.openai.com/v1/audio/speech") {
-          return Response.json({ error: { message: "OpenAI unavailable" } }, { status: 503 });
+          return Response.json(
+            { error: { message: "OpenAI unavailable" } },
+            { status: 503 },
+          );
         }
 
         if (url === "https://curiogarden.org/api/tts/edge") {
@@ -651,7 +703,9 @@ describe("POST /api/tts", () => {
         const url = String(input);
         fetchCalls.push(url);
         if (url === "https://api.openai.com/v1/audio/speech") {
-          throw new Error("OpenAI should not be called after quota check failure");
+          throw new Error(
+            "OpenAI should not be called after quota check failure",
+          );
         }
         if (url === "https://curiogarden.org/api/tts/edge") {
           return new Response(new Uint8Array([0xff, 0xfb, 0x97]), {
@@ -688,10 +742,13 @@ describe("POST /api/tts", () => {
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(new Uint8Array([0xff, 0xfb, 0x94]), {
-        status: 200,
-        headers: { "Content-Type": "audio/mpeg" },
-      })),
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0xff, 0xfb, 0x94]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
     );
 
     const { POST } = await import("./route");
@@ -759,18 +816,16 @@ describe("POST /api/tts", () => {
   });
 
   it("skips OpenAI quota for explicit Edge requests", async () => {
-    const fetchMock = vi.fn<typeof fetch>(
-      async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "https://curiogarden.org/api/tts/edge") {
-          return new Response(new Uint8Array([0xff, 0xfb, 0x96]), {
-            status: 200,
-            headers: { "Content-Type": "audio/mpeg" },
-          });
-        }
-        throw new Error(`Unexpected fetch: ${url}`);
-      },
-    );
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://curiogarden.org/api/tts/edge") {
+        return new Response(new Uint8Array([0xff, 0xfb, 0x96]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const { POST } = await import("./route");

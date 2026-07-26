@@ -15,7 +15,7 @@ export const usePrefetch = () => {
     (title: string) => {
       if (!fetchArticle) return;
       const slug = title.replace(/ /g, "_");
-      warmSummaryAudio(slug, fetchArticle);
+      void warmSummaryAudio(slug, fetchArticle);
       warmArticleImage(slug, fetchArticle);
     },
     [fetchArticle],

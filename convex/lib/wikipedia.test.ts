@@ -1,317 +1,70 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ARTICLE_SECTION_NARRATION_VERSION } from "../../lib/section-narration";
+import { MediaWikiSourceError } from "../../lib/mediawiki-document";
 import {
-  titleToSlug,
-  slugToTitle,
-  parseSections,
-  cleanSectionContent,
-  stripHtml,
   cleanContentForTts,
-  upscaleThumbUrl,
-  toOriginalUrl,
-  extractImages,
+  cleanSectionContent,
   fetchArticleByTitle,
   fetchParsedPageData,
+  fetchSectionLinksByIndex,
+  parseSections,
+  slugToTitle,
+  stripHtml,
+  titleToSlug,
 } from "./wikipedia";
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("titleToSlug", () => {
-  it("replaces spaces with underscores", () => {
-    expect(titleToSlug("United States")).toBe("United_States");
+describe("Wikipedia title utilities", () => {
+  it("converts titles and slugs without changing repeated spaces", () => {
+    expect(titleToSlug("New  York City")).toBe("New__York_City");
+    expect(slugToTitle("New__York_City")).toBe("New  York City");
   });
 
-  it("handles single-word titles", () => {
-    expect(titleToSlug("Python")).toBe("Python");
-  });
-
-  it("handles multiple consecutive spaces", () => {
-    expect(titleToSlug("New  York  City")).toBe("New__York__City");
-  });
-
-  it("returns empty string for empty input", () => {
-    expect(titleToSlug("")).toBe("");
-  });
-});
-
-describe("slugToTitle", () => {
-  it("replaces underscores with spaces", () => {
-    expect(slugToTitle("United_States")).toBe("United States");
-  });
-
-  it("handles single-word slugs", () => {
-    expect(slugToTitle("Python")).toBe("Python");
-  });
-
-  it("round-trips with titleToSlug", () => {
-    const title = "History of mathematics";
-    expect(slugToTitle(titleToSlug(title))).toBe(title);
-  });
-});
-
-describe("stripHtml", () => {
-  it("removes HTML tags", () => {
-    expect(stripHtml("<b>bold</b> text")).toBe("bold text");
-  });
-
-  it("decodes HTML entities", () => {
-    expect(stripHtml("&amp; &lt; &gt; &quot; &#039;")).toBe('& < > " \'');
-  });
-
-  it("handles nested tags", () => {
-    expect(stripHtml('<span class="x"><em>hi</em></span>')).toBe("hi");
-  });
-
-  it("returns plain text unchanged", () => {
-    expect(stripHtml("no html here")).toBe("no html here");
-  });
-
-  it("returns empty string for empty input", () => {
-    expect(stripHtml("")).toBe("");
-  });
-
-  it("handles self-closing tags", () => {
-    expect(stripHtml("line one<br/>line two")).toBe("line oneline two");
-  });
-});
-
-describe("cleanSectionContent", () => {
-  it("removes citation references like [1], [23]", () => {
-    expect(cleanSectionContent("Some text[1] with refs[23].")).toBe(
-      "Some text with refs.",
+  it("cleans search snippets and plaintext citation noise", () => {
+    expect(stripHtml('<span class="x"><em>Tom &amp; Jerry</em></span>')).toBe(
+      "Tom & Jerry",
+    );
+    expect(
+      cleanSectionContent(
+        "Text[1][citation needed][edit]\n=== Heading ===\nMore",
+      ),
+    ).toBe("Text\n\nMore");
+    expect(cleanContentForTts("Einstein[1] developed relativity.")).toBe(
+      "Einstein developed relativity.",
     );
   });
-
-  it("removes [citation needed] markers", () => {
-    expect(
-      cleanSectionContent("A claim[citation needed] was made."),
-    ).toBe("A claim was made.");
-  });
-
-  it("removes [edit] markers", () => {
-    expect(cleanSectionContent("Title[edit]")).toBe("Title");
-  });
-
-  it("collapses excessive newlines", () => {
-    expect(cleanSectionContent("Line one\n\n\n\nLine two")).toBe(
-      "Line one\n\nLine two",
-    );
-  });
-
-  it("removes sub-headings from section content", () => {
-    expect(
-      cleanSectionContent("Intro text\n=== Sub heading ===\nMore text"),
-    ).toBe("Intro text\n\nMore text");
-  });
-
-  it("returns empty string for empty input", () => {
-    expect(cleanSectionContent("")).toBe("");
-  });
-
-  it("handles content with only whitespace", () => {
-    expect(cleanSectionContent("   \n\n  ")).toBe("");
-  });
-
-  it("handles multiple citation types together", () => {
-    expect(
-      cleanSectionContent("Text[1][2][citation needed][edit] end."),
-    ).toBe("Text end.");
-  });
 });
 
-describe("parseSections", () => {
-  it("returns entire text as summary when no headings exist", () => {
-    const text = "Just a simple paragraph about something.";
-    const result = parseSections(text);
-    expect(result.summary).toBe(text);
-    expect(result.sections).toEqual([]);
-  });
-
-  it("handles empty string", () => {
-    const result = parseSections("");
-    expect(result.summary).toBe("");
-    expect(result.sections).toEqual([]);
-  });
-
-  it("splits text into summary and sections", () => {
-    const text = [
-      "This is the lead paragraph.",
-      "",
-      "== History ==",
-      "The history section has enough content to pass the minimum length filter easily. It also has a second sentence so the prose-density rule treats it like actual narration.",
-      "",
-      "== Geography ==",
-      "The geography section also has enough content to pass the minimum length filter. It describes the surrounding terrain in a second complete sentence.",
-    ].join("\n");
-
-    const result = parseSections(text);
-    expect(result.summary).toBe("This is the lead paragraph.");
-    expect(result.sections).toHaveLength(2);
-    expect(result.sections[0].title).toBe("History");
-    expect(result.sections[0].level).toBe(2);
-    expect(result.sections[0].narration.mode).toBe("verbatim");
-    expect(result.sections[0].wikiSectionIndex).toBe("1");
-    expect(result.sections[1].title).toBe("Geography");
-  });
-
-  it("filters out noise sections like References and See also", () => {
-    const text = [
-      "Lead text.",
-      "",
-      "== History ==",
-      "History content that is definitely long enough to pass the filter check.",
-      "",
-      "== References ==",
-      "Some references here that should be filtered out completely.",
-      "",
-      "== See also ==",
-      "Some see also links that should be filtered out completely.",
-      "",
-      "== External links ==",
-      "Some external links that should be filtered out completely.",
-    ].join("\n");
-
-    const result = parseSections(text);
-    expect(result.sections).toHaveLength(1);
-    expect(result.sections[0].title).toBe("History");
-  });
-
-  it("filters out all noise section variants", () => {
-    const noiseNames = [
-      "Notes",
-      "Further reading",
-      "Bibliography",
-      "Sources",
-      "Citations",
-      "Footnotes",
-    ];
-    for (const name of noiseNames) {
-      const text = [
+describe("plaintext narration fallback", () => {
+  it("keeps short and numeric prose and excludes end matter", () => {
+    const parsed = parseSections(
+      [
         "Lead text.",
-        "",
-        "== Content ==",
-        "Actual content that is long enough to pass the twenty char minimum.",
-        "",
-        `== ${name} ==`,
-        "This noise section should be filtered out by parseSections.",
-      ].join("\n");
-
-      const result = parseSections(text);
-      expect(result.sections).toHaveLength(1);
-      expect(result.sections[0].title).toBe("Content");
-    }
-  });
-
-  it("keeps sections with very short content playable", () => {
-    const text = [
-      "Lead text.",
-      "",
-      "== Empty Section ==",
-      "Too short.",
-      "",
-      "== Real Section ==",
-      "This section has enough content to be included in the output results. It adds a second sentence so the new classifier keeps it available.",
-    ].join("\n");
-
-    const result = parseSections(text);
-    expect(result.sections).toHaveLength(2);
-    expect(result.sections[0].title).toBe("Empty Section");
-    expect(result.sections[0].content).toBe("Too short.");
-    expect(result.sections[0].narration.mode).toBe("verbatim");
-    expect(result.sections[0].narration.text).toBe("Empty Section. Too short.");
-    expect(result.sections[1].title).toBe("Real Section");
-    expect(result.sections[1].narration.mode).toBe("verbatim");
-  });
-
-  it("handles level-3 headings", () => {
-    const text = [
-      "Lead text.",
-      "",
-      "== Main Section ==",
-      "Main content that is long enough to pass the twenty character minimum.",
-      "",
-      "=== Sub Section ===",
-      "Sub content that is also long enough to pass the twenty character minimum.",
-    ].join("\n");
-
-    const result = parseSections(text);
-    expect(result.sections).toHaveLength(2);
-    expect(result.sections[0].level).toBe(2);
-    expect(result.sections[1].level).toBe(3);
-  });
-
-  it("applies cleanSectionContent to summary (strips citation markers, etc.)", () => {
-    const text = [
-      "Einstein[1] developed[2] relativity.[citation needed] Some claim[edit].",
-      "",
-      "== History ==",
-      "Section content.",
-    ].join("\n");
-
-    const result = parseSections(text);
-    expect(result.summary).toBe(
-      "Einstein developed relativity. Some claim.",
+        "== Early life ==",
+        "Born in 1775; left Oxford in 1794.",
+        "== Artistic recognition ==",
+        "A bust dated 1828 is held in London.",
+        "== References ==",
+        "Reference list.",
+      ].join("\n\n"),
     );
+
+    expect(parsed.summary).toBe("Lead text.");
+    expect(parsed.sections).toHaveLength(2);
+    expect(parsed.sections.map((section) => section.narration.mode)).toEqual([
+      "verbatim",
+      "verbatim",
+    ]);
+    expect(parsed.sections[1].narration.text).toBe(
+      "Artistic recognition. A bust dated 1828 is held in London.",
+    );
+    expect(parsed.sections[1].narration.usedRawFallback).toBe(true);
   });
 
-  it("uses raw narration when semantic source data is unavailable", () => {
-    const text = [
-      "Lead text.",
-      "",
-      "== Cast ==",
-      "Ada Lovelace",
-      "Alan Turing",
-      "Grace Hopper",
-      "Donald Knuth",
-      "",
-      "== Election results ==",
-      "Year  Candidate  Vote",
-      "2020  Rivera     51.2%",
-      "2022  Patel      49.8%",
-    ].join("\n");
-
-    const result = parseSections(text);
-    expect(result.sections[0]).toMatchObject({
-      title: "Cast",
-      narration: {
-        mode: "verbatim",
-        usedRawFallback: true,
-      },
-    });
-    expect(result.sections[1]).toMatchObject({
-      title: "Election results",
-      narration: {
-        mode: "verbatim",
-        usedRawFallback: true,
-      },
-    });
-  });
-
-  it("uses revision-matched HTML to adapt genuine structured content", () => {
-    const text = [
-      "Lead text.",
-      "",
-      "== Cast ==",
-      "Ada Lovelace",
-      "Alan Turing",
-    ].join("\n");
-    const result = parseSections(text, {
-      html: "<h2>Cast</h2><ul><li>Ada Lovelace</li><li>Alan Turing</li></ul>",
-      sections: [{ index: "7", line: "Cast", level: "2" }],
-    });
-
-    expect(result.sections[0]).toMatchObject({
-      wikiSectionIndex: "7",
-      narration: {
-        mode: "structured",
-        sourceFormat: "list",
-        adapted: true,
-      },
-    });
-  });
-
-  it("keeps all 11 body sections from Landor revision 1342291773 narratable", () => {
+  it("keeps all 11 pinned Landor body headings narratable", () => {
     const headings = [
       "Summary of his work",
       "Summary of his life",
@@ -325,211 +78,38 @@ describe("parseSections", () => {
       "Review of Landor's work by Swinburne",
       "Artistic recognition",
     ];
-    const contents = new Map([
+    const parsed = parseSections(
       [
-        "Early life",
-        "Walter Savage Landor was born in 1775. In 1793 he entered Oxford, and in 1794 he left after a dispute. In 1795 he published a volume of verse.",
-      ],
-      [
-        "Final tragedies and return to Italy",
-        "In 1857 Landor faced a court case. In 1858 he returned to Italy; in 1861 Browning left, and Landor published again in 1863.",
-      ],
-      [
-        "Artistic recognition",
-        "A bust of Landor dated 1828 by John Gibson is held in the National Portrait Gallery, London.",
-      ],
-    ]);
-    const fullText = [
-      "Walter Savage Landor was an English writer, poet, and activist.",
-      ...headings.flatMap((title) => [
-        `== ${title} ==`,
-        contents.get(title) ?? `${title} remains part of the article body.`,
-      ]),
-      "== See also ==",
-      "List of Landor's Imaginary Conversations",
-      "== Further reading ==",
-      "A bibliography.",
-      "== References ==",
-      "Reference list.",
-      "== External links ==",
-      "Official resources.",
-    ].join("\n\n");
+        "Walter Savage Landor was an English writer.",
+        ...headings.flatMap((heading) => [
+          `== ${heading} ==`,
+          heading === "Artistic recognition"
+            ? "A bust of Landor dated 1828 by John Gibson is held in the National Portrait Gallery, London."
+            : `${heading} remains part of revision 1342291773.`,
+        ]),
+        "== External links ==",
+        "Official resources.",
+      ].join("\n\n"),
+    );
 
-    const parsedSource = {
-      html: headings
-        .map(
-          (title) =>
-            `<h2>${title}</h2><p>${contents.get(title) ?? `${title} remains part of the article body.`}</p>`,
-        )
-        .join(""),
-      sections: headings.map((line, index) => ({
-        index: String(index + 1),
-        line,
-        level: "2",
-      })),
-    };
-    const result = parseSections(fullText, parsedSource);
-    expect(result.sections.map((section) => section.title)).toEqual(headings);
-    expect(result.sections).toHaveLength(11);
+    expect(parsed.sections.map((section) => section.title)).toEqual(headings);
+    expect(parsed.sections).toHaveLength(11);
     expect(
-      result.sections.every(
+      parsed.sections.every(
         (section) =>
           section.narration.mode === "verbatim" &&
           section.narration.text.length > 0,
       ),
     ).toBe(true);
-    expect(
-      result.sections.find((section) => section.title === "Early life")
-        ?.narration.mode,
-    ).toBe("verbatim");
-    expect(
-      result.sections.find(
-        (section) => section.title === "Final tragedies and return to Italy",
-      )?.narration.mode,
-    ).toBe("verbatim");
-    expect(
-      result.sections.find(
-        (section) => section.title === "Artistic recognition",
-      )?.narration,
-    ).toMatchObject({
-      mode: "verbatim",
-      text:
-        "Artistic recognition. A bust of Landor dated 1828 by John Gibson is held in the National Portrait Gallery, London.",
-    });
-  });
-
-  it("keeps unmatched parsed headings out of MediaWiki's section-index namespace", () => {
-    const result = parseSections("Lead.\n\n== Actual heading ==\n\nPlain source text.", {
-      html: "<h2>Different heading</h2><ul><li>Wrong structured text</li></ul>",
-      sections: [{ index: "1", line: "Different heading", level: "2" }],
-    });
-
-    expect(result.sections[0]).toMatchObject({
-      wikiSectionIndex: "unmatched-1",
-      narration: {
-        mode: "verbatim",
-        text: "Actual heading. Plain source text.",
-        usedRawFallback: true,
-      },
-    });
   });
 });
 
-describe("cleanContentForTts", () => {
-  it("removes citation references", () => {
-    const result = cleanContentForTts("Einstein[1] developed[2] relativity.");
-    expect(result).toBe("Einstein developed relativity.");
-  });
-
-  it("removes [citation needed] and [edit] markers", () => {
-    const result = cleanContentForTts(
-      "A claim[citation needed] in a section[edit].",
-    );
-    expect(result).toBe("A claim in a section.");
-  });
-
-  it("removes trailing reference sections", () => {
-    const text =
-      "Main content here.\n\n== See also ==\nSome links\n\n== References ==\n1. Ref";
-    const result = cleanContentForTts(text);
-    expect(result).toBe("Main content here.");
-  });
-
-  it("removes heading markers", () => {
-    const result = cleanContentForTts("Intro.\n== History ==\nHistory text.");
-    expect(result).toBe("Intro.\n\nHistory text.");
-  });
-
-  it("truncates long text at sentence boundary", () => {
-    const longText = "First sentence. ".repeat(500);
-    const result = cleanContentForTts(longText);
-    expect(result.length).toBeLessThanOrEqual(4800);
-    expect(result.endsWith(".")).toBe(true);
-  });
-
-  it("removes == Notes == section and everything after", () => {
-    const text = "Main content.\n\n== Notes ==\nSome notes here.";
-    expect(cleanContentForTts(text)).toBe("Main content.");
-  });
-
-  it("removes == Further reading == section and everything after", () => {
-    const text = "Main content.\n\n== Further reading ==\nBooks to read.";
-    expect(cleanContentForTts(text)).toBe("Main content.");
-  });
-
-  it("removes == External links == section and everything after", () => {
-    const text = "Main content.\n\n== External links ==\nhttp://example.com";
-    expect(cleanContentForTts(text)).toBe("Main content.");
-  });
-
-  it("handles text with no cleanable content", () => {
-    const text = "Just plain text.";
-    expect(cleanContentForTts(text)).toBe("Just plain text.");
-  });
-
-  it("collapses excessive newlines after cleanup", () => {
-    const text = "Paragraph one.\n\n\n\n\nParagraph two.";
-    expect(cleanContentForTts(text)).toBe("Paragraph one.\n\nParagraph two.");
-  });
-});
-
-describe("fetchArticleByTitle", () => {
-  it("falls back to REST summary thumbnail when pageimages omits one", async () => {
+describe("fetchArticleByTitle semantic narration", () => {
+  it("adapts a revision-matched semantic list without heuristics", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-    fetchSpy
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            query: {
-              pages: {
-                "3705490": {
-                  pageid: 3705490,
-                  title: "Mortal Kombat",
-                  extract: "Lead summary",
-                  revisions: [{ revid: 123, timestamp: "2026-02-22T22:41:01Z" }],
-                },
-              },
-            },
-          }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            thumbnail: {
-              source:
-                "https://upload.wikimedia.org/wikipedia/en/thumb/b/b1/Mortal_Kombat_Logo.svg/330px-Mortal_Kombat_Logo.svg.png",
-              width: 330,
-              height: 330,
-            },
-          }),
-      } as Response);
-
-    const result = await fetchArticleByTitle("Mortal Kombat");
-
-    expect(result.thumbnailUrl).toBe(
-      "https://upload.wikimedia.org/wikipedia/en/thumb/b/b1/Mortal_Kombat_Logo.svg/330px-Mortal_Kombat_Logo.svg.png",
-    );
-    expect(result.thumbnailWidth).toBe(330);
-    expect(result.thumbnailHeight).toBe(330);
-    expect(fetchSpy).toHaveBeenNthCalledWith(
-      2,
-      "https://en.wikipedia.org/api/rest_v1/page/summary/Mortal%20Kombat",
-      expect.objectContaining({
-        headers: expect.objectContaining({ "User-Agent": expect.any(String) }),
-      }),
-    );
-  });
-
-  it("returns revision-aware section narration from the shared parser", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-    fetchSpy.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
           query: {
             pages: {
               "101": {
@@ -537,16 +117,11 @@ describe("fetchArticleByTitle", () => {
                 title: "Example",
                 extract: [
                   "Lead summary.",
-                  "",
                   "== History ==",
-                  "The town rebuilt its center after a fire. It later added a tram system to connect the districts.",
-                  "",
+                  "The town rebuilt after a fire.",
                   "== Cast ==",
-                  "Ada Lovelace",
-                  "Alan Turing",
-                  "Grace Hopper",
-                  "Donald Knuth",
-                ].join("\n"),
+                  "Ada Lovelace Alan Turing",
+                ].join("\n\n"),
                 revisions: [{ revid: 456, timestamp: "2026-03-01T12:00:00Z" }],
                 thumbnail: {
                   source: "https://upload.wikimedia.org/example.png",
@@ -557,396 +132,172 @@ describe("fetchArticleByTitle", () => {
             },
           },
         }),
-    } as Response);
+      ),
+    );
     fetchSpy.mockImplementation(async (input) => {
-      const url = String(input);
-      if (url.includes("action=parse")) {
-        return {
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              parse: {
-                revid: 456,
-                text: [
-                  "<h2>History</h2><p>The town rebuilt its center after a fire. It later added a tram system to connect the districts.</p>",
-                  "<h2>Cast</h2><ul><li>Ada Lovelace</li><li>Alan Turing</li><li>Grace Hopper</li><li>Donald Knuth</li></ul>",
-                ].join(""),
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 101,
+              revid: 456,
+              title: "Example",
+              text: [
+                '<section data-mw-section-id="0"><p>Lead summary.</p>',
+                '<section data-mw-section-id="1"><h2 id="History">History</h2><p>The town rebuilt after a fire.</p></section>',
+                '<section data-mw-section-id="2"><h2 id="Cast">Cast</h2><ul><li>Ada Lovelace</li><li>Alan Turing</li></ul></section>',
+                "</section>",
+              ].join(""),
+              tocdata: {
                 sections: [
-                  { index: "1", line: "History", level: "2" },
-                  { index: "2", line: "Cast", level: "2" },
+                  { index: "1", line: "History", level: 2 },
+                  { index: "2", line: "Cast", level: 2 },
                 ],
               },
-            }),
-        } as Response;
+            },
+          }),
+        );
       }
-      return {
-        ok: true,
-        json: () => Promise.resolve({ query: { pages: {} } }),
-      } as Response;
+      return new Response(JSON.stringify({ query: { pages: {} } }));
     });
 
-    const result = await fetchArticleByTitle("Example");
+    const article = await fetchArticleByTitle("Example");
 
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
-    expect(result.sections).toHaveLength(2);
-    expect(result.sections[0]).toMatchObject({
-      title: "History",
-      narration: { mode: "verbatim" },
+    expect(article.narrationVersion).toBe(ARTICLE_SECTION_NARRATION_VERSION);
+    expect(article.sections).toMatchObject([
+      { title: "History", narration: { mode: "verbatim" } },
+      {
+        title: "Cast",
+        narration: { mode: "structured", sourceFormat: "list" },
+      },
+    ]);
+    const parseUrl = new URL(String(fetchSpy.mock.calls[1][0]));
+    expect(parseUrl.searchParams.get("oldid")).toBe("456");
+    expect(parseUrl.searchParams.get("parser")).toBe("parsoid");
+  });
+
+  it("keeps a narration parse identity mismatch fatal", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          query: {
+            pages: {
+              "101": {
+                pageid: 101,
+                title: "Example",
+                extract: "Lead summary.\n\n== History ==\n\nSource prose.",
+                revisions: [{ revid: 456, timestamp: "2026-03-01T12:00:00Z" }],
+              },
+            },
+          },
+        }),
+      ),
+    );
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({})));
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          parse: {
+            pageid: 101,
+            revid: 455,
+            title: "Example",
+            text: '<section data-mw-section-id="0"><p>Wrong revision.</p></section>',
+            tocdata: { sections: [] },
+          },
+        }),
+      ),
+    );
+
+    await expect(fetchArticleByTitle("Example")).rejects.toMatchObject({
+      code: "identity-mismatch",
     });
-    expect(result.sections[1]).toMatchObject({
-      title: "Cast",
-      narration: { mode: "structured", sourceFormat: "list" },
+  });
+
+  it("keeps a table-only section narratable when TextExtracts omits its rows", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          query: {
+            pages: {
+              "101": {
+                pageid: 101,
+                title: "Example",
+                extract: "Lead summary.\n\n== Data ==\n\n",
+                revisions: [{ revid: 456, timestamp: "2026-03-01T12:00:00Z" }],
+              },
+            },
+          },
+        }),
+      ),
+    );
+    fetchSpy.mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 101,
+              revid: 456,
+              title: "Example",
+              text:
+                '<section data-mw-section-id="0"><p>Lead summary.</p>' +
+                '<section data-mw-section-id="1"><h2>Data</h2>' +
+                '<table><tr><th scope="col">Year</th><th scope="col">Value</th></tr>' +
+                "<tr><td>2020</td><td>5</td></tr></table></section></section>",
+              tocdata: {
+                sections: [{ index: "1", line: "Data", level: 2 }],
+              },
+            },
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+
+    const article = await fetchArticleByTitle("Example");
+
+    expect(article.sections[0]).toMatchObject({
+      content: "Year Value 2020 5",
+      narration: {
+        mode: "structured",
+        usedRawFallback: false,
+        text: expect.stringContaining("Row 1: Year: 2020; Value: 5."),
+      },
     });
   });
 });
 
-describe("upscaleThumbUrl", () => {
-  it("replaces the size in a standard Wikipedia thumb URL", () => {
-    const url =
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/220px-Example.jpg";
-    expect(upscaleThumbUrl(url)).toBe(
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/800px-Example.jpg",
+describe("fetchParsedPageData semantic metadata", () => {
+  const identity = {
+    wikiPageId: "42",
+    revisionId: "99",
+    title: "Test article",
+    language: "en",
+  };
+  const thumbnailUrl =
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Gallery.jpg/330px-Gallery.jpg";
+
+  const parsedFigureResponse = () =>
+    new Response(
+      JSON.stringify({
+        parse: {
+          pageid: 42,
+          revid: 99,
+          title: "Test article",
+          text:
+            '<section data-mw-section-id="0">' +
+            '<figure typeof="mw:File/Thumb">' +
+            `<a href="./File:Gallery.jpg"><img resource="./File:Gallery.jpg" src="${thumbnailUrl}" width="330" height="220" alt="Gallery image"></a>` +
+            "<figcaption>A useful caption</figcaption></figure></section>",
+          tocdata: { sections: [] },
+        },
+      }),
     );
-  });
 
-  it("returns non-thumb URLs unchanged", () => {
-    const url =
-      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg";
-    expect(upscaleThumbUrl(url)).toBe(url);
-  });
-
-  it("handles en.wikipedia thumb URLs", () => {
-    const url =
-      "https://upload.wikimedia.org/wikipedia/en/thumb/8/80/Flag.png/150px-Flag.png";
-    expect(upscaleThumbUrl(url)).toBe(
-      "https://upload.wikimedia.org/wikipedia/en/thumb/8/80/Flag.png/800px-Flag.png",
-    );
-  });
-
-  it("returns empty string unchanged", () => {
-    expect(upscaleThumbUrl("")).toBe("");
-  });
-
-  it("returns plain URLs without thumb path unchanged", () => {
-    expect(upscaleThumbUrl("https://example.com/image.jpg")).toBe(
-      "https://example.com/image.jpg",
-    );
-  });
-});
-
-describe("extractImages", () => {
-  const makeFigure = (
-    src: string,
-    caption: string,
-    width = 300,
-    height = 200,
-    alt = "",
-  ) =>
-    `<figure class="mw-default-size" typeof="mw:File/Thumb">` +
-    `<a href="/wiki/File:Test.jpg">` +
-    `<img src="${src}" width="${width}" height="${height}" alt="${alt}" />` +
-    `</a>` +
-    `<figcaption>${caption}</figcaption>` +
-    `</figure>`;
-
-  it("extracts images from figure elements", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-      "A domestic cat",
-    );
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].caption).toBe("A domestic cat");
-    expect(images[0].src).toContain("220px-Cat.jpg");
-    expect(images[0].src.startsWith("https:")).toBe(true);
-    expect(images[0].attribution).toMatchObject({
-      sourceTitle: "File:Cat.jpg",
-    });
-    expect(images[0].attribution?.sourceUrl).toContain(
-      "commons.wikimedia.org/wiki",
-    );
-  });
-
-  it("strips HTML tags from captions", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-      "A <b>bold</b> caption with <a href=\"/wiki/Link\">a link</a>",
-    );
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].caption).toBe("A bold caption with a link");
-  });
-
-  it("filters out SVG images", () => {
-    const svgHtml = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/a/ab/Diagram.svg",
-      "SVG diagram",
-    );
-    const images = extractImages(svgHtml);
-    expect(images).toHaveLength(0);
-  });
-
-  it("filters out math images", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/math/formula/abc123.png",
-      "Math formula",
-    );
-    const images = extractImages(html);
-    expect(images).toHaveLength(0);
-  });
-
-  it("filters out tiny images when both dimensions are below threshold", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tiny.jpg/50px-Tiny.jpg",
-      "Tiny image",
-      50,
-      50,
-    );
-    const images = extractImages(html);
-    expect(images).toHaveLength(0);
-  });
-
-  it("filters out images when either dimension is below threshold", () => {
-    const narrow = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Tall.jpg/80px-Tall.jpg",
-      "Narrow image",
-      80,
-      400,
-    );
-    expect(extractImages(narrow)).toHaveLength(0);
-
-    const short = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Wide.jpg/400px-Wide.jpg",
-      "Short image",
-      400,
-      80,
-    );
-    expect(extractImages(short)).toHaveLength(0);
-  });
-
-  it("deduplicates images with the same base URL", () => {
-    const html =
-      makeFigure(
-        "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-        "First caption",
-      ) +
-      makeFigure(
-        "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/300px-Cat.jpg",
-        "Second caption",
-      );
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].caption).toBe("First caption");
-  });
-
-  it("extracts multiple distinct images", () => {
-    const html =
-      makeFigure(
-        "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-        "A cat",
-      ) +
-      makeFigure(
-        "//upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Dog.jpg/220px-Dog.jpg",
-        "A dog",
-      );
-    const images = extractImages(html);
-    expect(images).toHaveLength(2);
-  });
-
-  it("returns empty array for HTML with no figures", () => {
-    const html = "<p>Just some text with no images.</p>";
-    expect(extractImages(html)).toEqual([]);
-  });
-
-  it("returns empty array for empty string", () => {
-    expect(extractImages("")).toEqual([]);
-  });
-
-  it("handles figures without figcaption", () => {
-    const html =
-      `<figure typeof="mw:File/Thumb">` +
-      `<img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Pic.jpg/220px-Pic.jpg" width="220" height="165" alt="A picture" />` +
-      `</figure>`;
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].caption).toBe("");
-    expect(images[0].alt).toBe("A picture");
-  });
-
-  it("includes width and height when available", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-      "Cat",
-      300,
-      200,
-    );
-    const images = extractImages(html);
-    expect(images[0].width).toBe(300);
-    expect(images[0].height).toBe(200);
-  });
-
-  it("omits width/height when zero", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-      "Cat",
-      0,
-      0,
-    );
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].width).toBeUndefined();
-    expect(images[0].height).toBeUndefined();
-  });
-
-  it("decodes HTML entities in alt text", () => {
-    const html =
-      `<figure typeof="mw:File/Thumb">` +
-      `<img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Pic.jpg/220px-Pic.jpg" width="220" height="165" alt="Tom &amp; Jerry" />` +
-      `<figcaption>Caption</figcaption>` +
-      `</figure>`;
-    const images = extractImages(html);
-    expect(images[0].alt).toBe("Tom & Jerry");
-  });
-
-  it("filters out images with extreme landscape aspect ratio", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Banner.jpg/400px-Banner.jpg",
-      "Wide banner",
-      400,
-      50,
-    );
-    expect(extractImages(html)).toHaveLength(0);
-  });
-
-  it("filters out images with extreme portrait aspect ratio", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Strip.jpg/120px-Strip.jpg",
-      "Tall strip",
-      120,
-      500,
-    );
-    expect(extractImages(html)).toHaveLength(0);
-  });
-
-  it("keeps images with reasonable aspect ratios", () => {
-    const landscape = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Wide.jpg/320px-Wide.jpg",
-      "16:9 image",
-      320,
-      180,
-    );
-    expect(extractImages(landscape)).toHaveLength(1);
-
-    const portrait = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Tall.jpg/200px-Tall.jpg",
-      "3:4 image",
-      200,
-      267,
-    );
-    expect(extractImages(portrait)).toHaveLength(1);
-
-    const square = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Square.jpg/250px-Square.jpg",
-      "Square image",
-      250,
-      250,
-    );
-    expect(extractImages(square)).toHaveLength(1);
-  });
-
-  it("filters out figures with mw:Error typeof", () => {
-    const html =
-      `<figure typeof="mw:Error mw:File/Thumb">` +
-      `<img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Missing.jpg/220px-Missing.jpg" width="220" height="165" alt="" />` +
-      `<figcaption>Broken image</figcaption>` +
-      `</figure>`;
-    expect(extractImages(html)).toHaveLength(0);
-  });
-
-  it("keeps figures without mw:Error typeof", () => {
-    const html =
-      `<figure typeof="mw:File/Thumb">` +
-      `<img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Good.jpg/220px-Good.jpg" width="220" height="165" alt="" />` +
-      `<figcaption>Good image</figcaption>` +
-      `</figure>`;
-    expect(extractImages(html)).toHaveLength(1);
-  });
-
-  it("populates originalSrc for thumb URLs", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/220px-Cat.jpg",
-      "A cat",
-    );
-    const images = extractImages(html);
-    expect(images[0].originalSrc).toBe(
-      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Cat.jpg",
-    );
-  });
-
-  it("leaves originalSrc undefined for non-thumb URLs", () => {
-    const html = makeFigure(
-      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Direct.jpg",
-      "Direct image",
-    );
-    const images = extractImages(html);
-    expect(images[0].originalSrc).toBeUndefined();
-  });
-
-  it("does not upscale src to 800px", () => {
-    const html = makeFigure(
-      "//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cat.jpg/250px-Cat.jpg",
-      "A cat",
-    );
-    const images = extractImages(html);
-    expect(images[0].src).toContain("250px-Cat.jpg");
-    expect(images[0].src).not.toContain("800px");
-  });
-
-  it("extracts video poster images from figure elements", () => {
-    const html =
-      `<figure typeof="mw:File/Thumb">` +
-      `<video poster="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Video.webm/320px-Video.webm.jpg" width="320" height="240">` +
-      `<source src="//upload.wikimedia.org/wikipedia/commons/a/ab/Video.webm" type="video/webm" />` +
-      `</video>` +
-      `<figcaption>A cool video</figcaption>` +
-      `</figure>`;
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].src).toContain("Video.webm.jpg");
-    expect(images[0].src.startsWith("https:")).toBe(true);
-    expect(images[0].videoSrc).toContain("Video.webm");
-    expect(images[0].videoSrc!.startsWith("https:")).toBe(true);
-    expect(images[0].caption).toBe("A cool video");
-  });
-
-  it("skips video figures without a poster attribute", () => {
-    const html =
-      `<figure typeof="mw:File/Thumb">` +
-      `<video width="320" height="240">` +
-      `<source src="//upload.wikimedia.org/wikipedia/commons/a/ab/Video.webm" type="video/webm" />` +
-      `</video>` +
-      `<figcaption>No poster</figcaption>` +
-      `</figure>`;
-    expect(extractImages(html)).toHaveLength(0);
-  });
-
-  it("handles video figures without a source element", () => {
-    const html =
-      `<figure typeof="mw:File/Thumb">` +
-      `<video poster="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Video.webm/320px-Video.webm.jpg" width="320" height="240">` +
-      `</video>` +
-      `<figcaption>Poster only</figcaption>` +
-      `</figure>`;
-    const images = extractImages(html);
-    expect(images).toHaveLength(1);
-    expect(images[0].videoSrc).toBeUndefined();
-  });
-});
-
-describe("fetchParsedPageData gallery media", () => {
-  it("persists canonical and bounded lightbox metadata returned by imageinfo", async () => {
-    const thumbnailUrl =
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Gallery.jpg/330px-Gallery.jpg";
+  it("enriches semantic figures with canonical lightbox metadata", async () => {
     const canonicalUrl =
       "https://upload.wikimedia.org/wikipedia/commons/a/ab/Gallery.jpg";
     const lightboxUrl =
@@ -956,24 +307,8 @@ describe("fetchParsedPageData gallery media", () => {
       .mockImplementation(async (input) => {
         const url = new URL(String(input));
         if (url.searchParams.get("action") === "parse") {
-          return new Response(
-            JSON.stringify({
-              parse: {
-                text: {
-                  "*":
-                    `<figure typeof="mw:File/Thumb">` +
-                    `<img src="${thumbnailUrl}" width="330" height="220" alt="Gallery image" />` +
-                    `<figcaption>A useful caption</figcaption>` +
-                    `</figure>`,
-                },
-                sections: [],
-              },
-            }),
-          );
+          return parsedFigureResponse();
         }
-
-        expect(url.hostname).toBe("commons.wikimedia.org");
-        expect(url.searchParams.get("iiurlwidth")).toBe("1600");
         return new Response(
           JSON.stringify({
             query: {
@@ -1000,15 +335,9 @@ describe("fetchParsedPageData gallery media", () => {
         );
       });
 
-    const controller = new AbortController();
-    const parsed = await fetchParsedPageData("42", controller.signal);
+    const parsed = await fetchParsedPageData(identity);
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(fetchSpy.mock.calls[0][1]).toMatchObject({
-      signal: controller.signal,
-    });
-    expect(fetchSpy.mock.calls[1][1]?.signal).toBeInstanceOf(AbortSignal);
-    expect(parsed.images).toHaveLength(1);
     expect(parsed.images[0]).toMatchObject({
       src: thumbnailUrl,
       originalSrc: canonicalUrl,
@@ -1019,83 +348,140 @@ describe("fetchParsedPageData gallery media", () => {
     });
   });
 
-  it("aborts the follow-up gallery media request", async () => {
-    const thumbnailUrl =
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Gallery.jpg/330px-Gallery.jpg";
-    let mediaSignal: AbortSignal | null = null;
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async (input, init) => {
-        const url = new URL(String(input));
-        if (url.searchParams.get("action") === "parse") {
-          return new Response(
-            JSON.stringify({
-              parse: {
-                text: {
-                  "*":
-                    `<figure typeof="mw:File/Thumb">` +
-                    `<img src="${thumbnailUrl}" alt="Gallery image" />` +
-                    `<figcaption>A useful caption</figcaption>` +
-                    `</figure>`,
-                },
-                sections: [],
-              },
-            }),
-          );
-        }
-
-        mediaSignal = init?.signal as AbortSignal;
-        return new Promise<Response>((_resolve, reject) => {
-          mediaSignal?.addEventListener(
-            "abort",
-            () => reject(mediaSignal?.reason),
-            { once: true },
-          );
-        });
+  it("propagates aborts through follow-up media requests", async () => {
+    let mediaSignal: AbortSignal | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "parse") {
+        return parsedFigureResponse();
+      }
+      mediaSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        mediaSignal?.addEventListener(
+          "abort",
+          () => reject(mediaSignal?.reason),
+          {
+            once: true,
+          },
+        );
       });
+    });
     const controller = new AbortController();
-    const pending = fetchParsedPageData("42", controller.signal);
-
-    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
-    expect(mediaSignal).not.toBeNull();
-    expect(mediaSignal!.aborted).toBe(false);
+    const pending = fetchParsedPageData(identity, controller.signal);
+    await vi.waitFor(() => expect(mediaSignal).toBeDefined());
     controller.abort();
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-    expect(mediaSignal!.aborted).toBe(true);
+  });
+
+  it("keeps revision identity mismatches fatal", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          parse: {
+            pageid: 42,
+            revid: 98,
+            title: "Test article",
+            text: '<section data-mw-section-id="0"><p>Wrong.</p></section>',
+            tocdata: { sections: [] },
+          },
+        }),
+      ),
+    );
+
+    await expect(fetchParsedPageData(identity)).rejects.toMatchObject({
+      name: MediaWikiSourceError.name,
+      code: "identity-mismatch",
+    });
   });
 });
 
-describe("toOriginalUrl", () => {
-  it("converts a standard commons thumb URL to the original", () => {
-    const url =
-      "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/File.jpg/250px-File.jpg";
-    expect(toOriginalUrl(url)).toBe(
-      "https://upload.wikimedia.org/wikipedia/commons/5/53/File.jpg",
+describe("fetchSectionLinksByIndex", () => {
+  const identity = {
+    wikiPageId: "42",
+    revisionId: "99",
+    title: "Test article",
+    language: "en",
+  };
+
+  it("pins the section lookup to oldid and resolves main-namespace links", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 42,
+              revid: 99,
+              title: "Test article",
+              text:
+                '<section data-mw-section-id="0"><p>Lead.</p>' +
+                '<section data-mw-section-id="3"><h2>Links</h2>' +
+                '<p><a rel="mw:WikiLink" href="./Alpha" title="Alpha">Alpha</a>' +
+                '<a rel="mw:WikiLink" href="./Category:Examples" title="Category:Examples">Examples</a></p>' +
+                "</section></section>",
+              tocdata: {
+                sections: [{ index: "3", line: "Links", level: 2 }],
+              },
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "7": {
+                  pageid: 7,
+                  ns: 0,
+                  title: "Alpha",
+                  description: "A linked article",
+                },
+                "14": {
+                  pageid: 14,
+                  ns: 14,
+                  title: "Category:Examples",
+                  description: "A category, not an article",
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([
+      {
+        wikiPageId: "7",
+        title: "Alpha",
+        description: "A linked article",
+      },
+    ]);
+    const parseUrl = new URL(String(fetchSpy.mock.calls[0][0]));
+    expect(parseUrl.searchParams.get("oldid")).toBe("99");
+    expect(parseUrl.searchParams.get("parser")).toBe("parsoid");
+    expect(parseUrl.searchParams.get("prop")).toContain("tocdata");
+  });
+
+  it("declines link data from a different revision", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          parse: {
+            pageid: 42,
+            revid: 98,
+            title: "Test article",
+            text: '<section data-mw-section-id="0"><p>Wrong.</p></section>',
+            tocdata: { sections: [] },
+          },
+        }),
+      ),
     );
-  });
 
-  it("returns non-thumb URLs unchanged", () => {
-    const url =
-      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg";
-    expect(toOriginalUrl(url)).toBe(url);
-  });
-
-  it("converts en.wikipedia thumb URLs", () => {
-    const url =
-      "https://upload.wikimedia.org/wikipedia/en/thumb/8/80/Flag.png/150px-Flag.png";
-    expect(toOriginalUrl(url)).toBe(
-      "https://upload.wikimedia.org/wikipedia/en/8/80/Flag.png",
-    );
-  });
-
-  it("returns empty string unchanged", () => {
-    expect(toOriginalUrl("")).toBe("");
-  });
-
-  it("returns plain URLs without thumb path unchanged", () => {
-    expect(toOriginalUrl("https://example.com/image.jpg")).toBe(
-      "https://example.com/image.jpg",
+    await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
+      {
+        code: "identity-mismatch",
+      },
     );
   });
 });

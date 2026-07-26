@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   ARTICLE_PARSE_MEDIA_CACHE_VERSION,
   ARTICLE_CACHE_TTL_MS,
+  canPersistNormalizedCachedNarration,
   cachedArticleToFetchResult,
+  hasCompleteArticleParseSectionIdentity,
   isArticleParseMediaCacheCompatible,
   isCachedArticleFresh,
   isCachedArticleNarrationCompatible,
+  normalizeCachedArticleForPersistence,
 } from "./articles";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
@@ -43,9 +46,7 @@ describe("isCachedArticleNarrationCompatible", () => {
     expect(
       isCachedArticleNarrationCompatible({
         narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
-        sections: [
-          { title: "Legacy", level: 2, content: "Source text." },
-        ],
+        sections: [{ title: "Legacy", level: 2, content: "Source text." }],
       }),
     ).toBe(false);
     const narrationText = "History. Source text.";
@@ -122,11 +123,117 @@ describe("cachedArticleToFetchResult", () => {
         narration: expect.objectContaining({
           mode: "verbatim",
           usedRawFallback: true,
-          text:
-            "History. The first sentence establishes the section. The second sentence makes it suitable for audio.",
+          text: "History. The first sentence establishes the section. The second sentence makes it suitable for audio.",
         }),
       },
     ]);
+  });
+
+  it("rebuilds stale narration as complete plaintext instead of reviving old omissions", () => {
+    const result = cachedArticleToFetchResult({
+      _id: "article-stale" as never,
+      wikiPageId: "123",
+      title: "Example article",
+      language: "en",
+      revisionId: "456",
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION - 1,
+      lastFetchedAt: Date.UTC(2026, 3, 28, 12),
+      sections: [
+        {
+          wikiSectionIndex: "7",
+          title: "Artistic recognition",
+          level: 2,
+          content:
+            "A seventeen-word source sentence remains independently playable.",
+          narration: {
+            mode: "none",
+            text: "",
+            sourceFormat: "heading",
+            adapted: false,
+            usedRawFallback: false,
+            sourceHash: "obsolete",
+          },
+        },
+      ],
+    });
+
+    expect(result.narrationVersion).toBe(ARTICLE_SECTION_NARRATION_VERSION);
+    expect(result.sections[0].narration).toMatchObject({
+      mode: "verbatim",
+      usedRawFallback: true,
+      text: "Artistic recognition. A seventeen-word source sentence remains independently playable.",
+    });
+    expect(result.sections[0].narration.sourceHash).not.toBe("obsolete");
+  });
+
+  it("produces the exact narration patch workers will read after a failed refresh", () => {
+    const article = {
+      _id: "article-stale" as never,
+      wikiPageId: "123",
+      title: "Example article",
+      language: "en",
+      revisionId: "456",
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION - 1,
+      lastFetchedAt: Date.UTC(2026, 3, 28, 12),
+      sections: [
+        {
+          title: "Tiny section",
+          level: 2,
+          content: "Still source text.",
+        },
+      ],
+    };
+
+    const { result, mutationArgs } =
+      normalizeCachedArticleForPersistence(article);
+
+    expect(mutationArgs).toEqual({
+      articleId: "article-stale",
+      expectedRevisionId: "456",
+      expectedNarrationVersion: ARTICLE_SECTION_NARRATION_VERSION - 1,
+      expectedLastFetchedAt: Date.UTC(2026, 3, 28, 12),
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+      sections: result.sections,
+    });
+    expect(mutationArgs.sections[0].narration).toMatchObject({
+      mode: "verbatim",
+      usedRawFallback: true,
+      text: "Tiny section. Still source text.",
+    });
+  });
+});
+
+describe("canPersistNormalizedCachedNarration", () => {
+  const expected = {
+    expectedRevisionId: "456",
+    expectedNarrationVersion: ARTICLE_SECTION_NARRATION_VERSION - 1,
+    expectedLastFetchedAt: 100,
+  };
+
+  it("accepts only the exact stale row used to build the fallback", () => {
+    expect(
+      canPersistNormalizedCachedNarration(
+        {
+          revisionId: "456",
+          narrationVersion: ARTICLE_SECTION_NARRATION_VERSION - 1,
+          lastFetchedAt: 100,
+        },
+        expected,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not overwrite a concurrent successful refresh of the same revision", () => {
+    expect(
+      canPersistNormalizedCachedNarration(
+        {
+          revisionId: "456",
+          narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+          lastFetchedAt: 101,
+        },
+        expected,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -229,5 +336,40 @@ describe("isArticleParseMediaCacheCompatible", () => {
 
   it("continues to reject rows where images were never populated", () => {
     expect(isArticleParseMediaCacheCompatible(undefined)).toBe(false);
+  });
+});
+
+describe("hasCompleteArticleParseSectionIdentity", () => {
+  it("makes title-only parse cache rows a lazy miss while accepting indexed projections", () => {
+    expect(
+      hasCompleteArticleParseSectionIdentity({
+        linkCounts: [{ title: "History", count: 2 }],
+        sectionCitations: [
+          { title: "History", count: 1, citationIds: ["cite-1"] },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      hasCompleteArticleParseSectionIdentity({
+        linkCounts: [{ index: "8", title: "History", count: 2 }],
+        sectionCitations: [
+          {
+            index: "8",
+            title: "History",
+            count: 1,
+            citationIds: ["cite-1"],
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts an empty metadata projection", () => {
+    expect(
+      hasCompleteArticleParseSectionIdentity({
+        linkCounts: [],
+        sectionCitations: [],
+      }),
+    ).toBe(true);
   });
 });

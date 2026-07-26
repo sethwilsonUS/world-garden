@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBadgeListenTracking } from "./useBadgeListenTracking";
 import type { AwardedBadgeProgress, BadgeKey } from "@/lib/badges";
 import { createTestSection } from "@/lib/test-section-narration";
+import { ARTICLE_SECTION_NARRATION_VERSION } from "@/lib/section-narration";
 
 Object.assign(globalThis, {
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -41,6 +42,8 @@ const Harness = ({
     enabled,
     articleId,
     wikiPageId: "wiki-1",
+    revisionId: "revision-1",
+    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
     slug: "Roman_roads",
     title: "Roman roads",
     summaryText: "One two three four five six seven eight nine ten.",
@@ -84,7 +87,7 @@ const createAudioStub = (): HTMLAudioElement & MutableAudioStub =>
     currentTime: 0,
     paused: false,
     playbackRate: 1,
-  } as HTMLAudioElement & MutableAudioStub);
+  }) as HTMLAudioElement & MutableAudioStub;
 
 describe("useBadgeListenTracking", () => {
   let container: HTMLDivElement;

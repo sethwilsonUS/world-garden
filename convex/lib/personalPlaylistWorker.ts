@@ -81,10 +81,23 @@ export const processViewerPlaylistEpisodeForCtx = async (
 
   let shouldRetryCurrentAfterLease = false;
   try {
+    const generationEpisode = await ctx.runQuery(
+      internal.personalPlaylist.getPersonalPlaylistEpisodeInternal,
+      { episodeId: args.episodeId },
+    );
+    if (
+      !generationEpisode ||
+      generationEpisode.removedAt != null ||
+      generationEpisode.status !== "running" ||
+      generationEpisode.leaseOwner !== owner
+    ) {
+      throw new Error("Personal playlist episode lease was lost.");
+    }
+
     const article = await ctx.runQuery(
       internal.personalPlaylist.getPersonalPlaylistArticleInternal,
       {
-        articleId: episode.articleId,
+        articleId: generationEpisode.articleId,
       },
     );
 
@@ -114,10 +127,11 @@ export const processViewerPlaylistEpisodeForCtx = async (
     const result = await assembleArticleAudio({
       article: {
         ...article,
-        slug: article.slug ?? episode.slug,
+        slug: article.slug ?? generationEpisode.slug,
       },
       albumTitle: PERSONAL_PODCAST_ALBUM_TITLE,
       baseUrl: args.baseUrl,
+      requestedTtsMetadata: generationEpisode.requestedTtsMetadata,
       getCachedSectionAudioUrls: async ({ ttsCacheKey, sourceHashes }) => {
         const cachedAudio = await ctx.runQuery(api.audio.getAllSectionAudio, {
           articleId: article._id,
@@ -134,7 +148,10 @@ export const processViewerPlaylistEpisodeForCtx = async (
         durationSeconds,
         metadata,
       }) => {
-        const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
+        const uploadUrl = await ctx.runMutation(
+          api.audio.generateUploadUrl,
+          {},
+        );
         const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
         await ctx.runMutation(api.audio.saveSectionAudioRecord, {
           articleId: article._id,
@@ -156,8 +173,15 @@ export const processViewerPlaylistEpisodeForCtx = async (
         return storageUrl;
       },
       saveCombinedAudio: async ({ stream, contentType }) => {
-        const uploadUrl = await ctx.runMutation(api.audio.generateUploadUrl, {});
-        return await uploadStreamToConvexStorage(uploadUrl, stream, contentType);
+        const uploadUrl = await ctx.runMutation(
+          api.audio.generateUploadUrl,
+          {},
+        );
+        return await uploadStreamToConvexStorage(
+          uploadUrl,
+          stream,
+          contentType,
+        );
       },
       onProgress: async ({ completedSectionCount, sectionCount, stage }) => {
         const progress = await ctx.runMutation(

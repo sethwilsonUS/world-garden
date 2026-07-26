@@ -18,6 +18,7 @@ import {
   ContextMapView,
   ContextTimelineView,
 } from "./ArticleContextVisuals";
+import { VisualLoadStatus } from "./ArticleContextVisualShared";
 
 const KIND_LABELS: Record<ContextBlockKind, string> = {
   map: "Map",
@@ -39,17 +40,33 @@ export const getContextBlocksForSection = (
   blocks: ContextBlock[],
   sectionIndex: number | null,
   sectionTitle?: string,
+  wikiSectionIndex?: string,
 ): ContextBlock[] => {
   if (sectionIndex === null) {
     return blocks.filter((block) => block.section.index === "__summary__");
   }
 
-  const normalizedTitle = sectionTitle?.trim().toLocaleLowerCase();
-  return blocks.filter(
-    (block) =>
-      block.section.index === String(sectionIndex + 1) ||
-      (normalizedTitle && block.section.title.trim().toLocaleLowerCase() === normalizedTitle),
+  const exactSectionIndex = wikiSectionIndex?.trim();
+  if (exactSectionIndex) {
+    return blocks.filter((block) => block.section.index === exactSectionIndex);
+  }
+
+  // Older cached articles did not retain MediaWiki's section index. Keep a
+  // narrow compatibility path for those records, but never let a repeated
+  // title override an exact revision-local section identity.
+  const legacyIndex = String(sectionIndex + 1);
+  const indexMatches = blocks.filter(
+    (block) => block.section.index === legacyIndex,
   );
+  if (indexMatches.length > 0) return indexMatches;
+
+  const normalizedTitle = sectionTitle?.trim().toLocaleLowerCase();
+  return normalizedTitle
+    ? blocks.filter(
+        (block) =>
+          block.section.title.trim().toLocaleLowerCase() === normalizedTitle,
+      )
+    : [];
 };
 
 const ContextGlyph = ({ kind }: { kind: ContextBlockKind }) => {
@@ -65,7 +82,9 @@ const ContextGlyph = ({ kind }: { kind: ContextBlockKind }) => {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M5 4v16M5 7h7M5 12h11M5 17h8" />
-        <circle cx="5" cy="7" r="1.5" /><circle cx="5" cy="12" r="1.5" /><circle cx="5" cy="17" r="1.5" />
+        <circle cx="5" cy="7" r="1.5" />
+        <circle cx="5" cy="12" r="1.5" />
+        <circle cx="5" cy="17" r="1.5" />
       </svg>
     );
   }
@@ -78,7 +97,8 @@ const ContextGlyph = ({ kind }: { kind: ContextBlockKind }) => {
   }
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="3" y="4" width="7" height="5" rx="1" /><rect x="14" y="15" width="7" height="5" rx="1" />
+      <rect x="3" y="4" width="7" height="5" rx="1" />
+      <rect x="14" y="15" width="7" height="5" rx="1" />
       <path d="M10 6.5h3a3 3 0 0 1 3 3V15M8 9v4a3 3 0 0 0 3 3h3" />
     </svg>
   );
@@ -89,11 +109,18 @@ export const ContextSectionLink = ({ blocks }: { blocks: ContextBlock[] }) => {
   const first = blocks[0];
   const targetId = getContextBlockDomId(first);
   const label = `${blocks.length} ${blocks.length === 1 ? "visual" : "visuals"}`;
-  const destination = blocks.length === 1
-    ? `${KIND_LABELS[first.kind].toLowerCase()}: ${first.title}`
-    : `${KIND_LABELS[first.kind].toLowerCase()}: ${first.title}, plus ${blocks.length - 1} more`;
+  const destination =
+    blocks.length === 1
+      ? `${KIND_LABELS[first.kind].toLowerCase()}: ${first.title}`
+      : `${KIND_LABELS[first.kind].toLowerCase()}: ${first.title}, plus ${blocks.length - 1} more`;
   const focusVisual = (event: ReactMouseEvent<HTMLAnchorElement>) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
       return;
     }
     requestAnimationFrame(() => {
@@ -128,13 +155,15 @@ export const chartToCsv = (block: ContextChartBlock): string => {
   const escape = (value: unknown): string => {
     const raw = value == null ? "" : String(value);
     const text =
-      typeof value === "string" && /^\s*[=+@-]/.test(value)
-        ? `'${raw}`
-        : raw;
+      typeof value === "string" && /^\s*[=+@-]/.test(value) ? `'${raw}` : raw;
     return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
-  const header = block.chart.columns.map((column) => escape(column.label)).join(",");
-  const rows = block.chart.rows.map((row) => block.chart.columns.map((column) => escape(row[column.key])).join(","));
+  const header = block.chart.columns
+    .map((column) => escape(column.label))
+    .join(",");
+  const rows = block.chart.rows.map((row) =>
+    block.chart.columns.map((column) => escape(row[column.key])).join(","),
+  );
   return [header, ...rows].join("\n");
 };
 
@@ -145,7 +174,8 @@ const ContextSources = ({ block }: { block: ContextBlock }) => (
       {block.sources.map((source, index) => (
         <li key={`${source.url}-${index}`}>
           <a href={source.url} target="_blank" rel="noopener noreferrer">
-            {source.label}<span className="sr-only"> (opens in a new tab)</span>
+            {source.label}
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
           {source.revisionId ? <span>Revision {source.revisionId}</span> : null}
           {source.license ? <span>{source.license}</span> : null}
@@ -153,14 +183,23 @@ const ContextSources = ({ block }: { block: ContextBlock }) => (
       ))}
     </ul>
     <p>
-      Based on the saved Wikipedia revision. Description: {block.provenance.descriptionMethod === "ai-assisted" ? "AI-assisted from cited source material" : "generated from structured source material"}.
-      {block.provenance.model ? ` Model: ${block.provenance.model}.` : ""}
+      Based on the saved Wikipedia revision. Description:{" "}
+      {block.provenance.descriptionMethod === "ai-assisted"
+        ? "AI-assisted from cited source material"
+        : "generated from structured source material"}
+      .{block.provenance.model ? ` Model: ${block.provenance.model}.` : ""}
       {block.provenance.editorialOverride
         ? " Curio Garden applied an owner-reviewed accessibility-copy override."
         : ""}
     </p>
-    <a href={block.provenance.articleRevisionUrl} target="_blank" rel="noopener noreferrer" className="context-text-link">
-      Open the exact article revision<span className="sr-only"> (opens in a new tab)</span>
+    <a
+      href={block.provenance.articleRevisionUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="context-text-link"
+    >
+      Open the exact article revision
+      <span className="sr-only"> (opens in a new tab)</span>
     </a>
   </details>
 );
@@ -176,7 +215,9 @@ const ContextReportForm = ({
 }) => {
   const [reason, setReason] = useState<ReportReason>("incorrect");
   const [details, setDetails] = useState("");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle",
+  );
   const formId = `context-report-${slugify(block.id)}`;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -208,14 +249,19 @@ const ContextReportForm = ({
       <summary>Report a problem</summary>
       <form onSubmit={submit}>
         <label htmlFor={`${formId}-reason`}>What went wrong?</label>
-        <select id={`${formId}-reason`} value={reason} onChange={(event) => setReason(event.target.value as ReportReason)}>
+        <select
+          id={`${formId}-reason`}
+          value={reason}
+          onChange={(event) => setReason(event.target.value as ReportReason)}
+        >
           <option value="incorrect">Information appears incorrect</option>
           <option value="inaccessible">Something is difficult to use</option>
           <option value="confusing">The description is confusing</option>
           <option value="other">Something else</option>
         </select>
         <label htmlFor={`${formId}-details`}>
-          Details <span>{reason === "other" ? "(required)" : "(optional)"}</span>
+          Details{" "}
+          <span>{reason === "other" ? "(required)" : "(optional)"}</span>
         </label>
         <textarea
           id={`${formId}-details`}
@@ -225,11 +271,19 @@ const ContextReportForm = ({
           required={reason === "other"}
           onChange={(event) => setDetails(event.target.value)}
         />
-        <button type="submit" className="btn-secondary" disabled={status === "sending"}>
+        <button
+          type="submit"
+          className="btn-secondary"
+          disabled={status === "sending"}
+        >
           {status === "sending" ? "Sending…" : "Send report"}
         </button>
         <p className="context-status" role="status" aria-live="polite">
-          {status === "sent" ? "Thank you. The context note was reported." : status === "error" ? "The report could not be sent. Please try again." : ""}
+          {status === "sent"
+            ? "Thank you. The context note was reported."
+            : status === "error"
+              ? "The report could not be sent. Please try again."
+              : ""}
         </p>
       </form>
     </details>
@@ -247,13 +301,39 @@ const ContextKindView = ({
 }) => {
   switch (block.kind) {
     case "map":
-      return <ContextMapView block={block} caption={block.caption} captionId={captionId} descriptionId={descriptionId} />;
+      return (
+        <ContextMapView
+          block={block}
+          caption={block.caption}
+          captionId={captionId}
+          descriptionId={descriptionId}
+        />
+      );
     case "timeline":
-      return <ContextTimelineView block={block} caption={block.caption} captionId={captionId} />;
+      return (
+        <ContextTimelineView
+          block={block}
+          caption={block.caption}
+          captionId={captionId}
+        />
+      );
     case "chart":
-      return <ContextChartView block={block} caption={block.caption} captionId={captionId} />;
+      return (
+        <ContextChartView
+          block={block}
+          caption={block.caption}
+          captionId={captionId}
+        />
+      );
     case "diagram":
-      return <ContextDiagramView block={block} caption={block.caption} captionId={captionId} descriptionId={descriptionId} />;
+      return (
+        <ContextDiagramView
+          block={block}
+          caption={block.caption}
+          captionId={captionId}
+          descriptionId={descriptionId}
+        />
+      );
   }
 };
 
@@ -281,26 +361,53 @@ const ContextCard = ({
             <ContextGlyph kind={block.kind} />
             {KIND_LABELS[block.kind]}
           </span>
-          <span>{block.section.index === "__summary__" ? "Article summary" : `From “${block.section.title}”`}</span>
-          {block.sources[0] ? <span>Source: {block.sources[0].label}</span> : null}
+          <span>
+            {block.section.index === "__summary__"
+              ? "Article summary"
+              : `From “${block.section.title}”`}
+          </span>
+          {block.sources[0] ? (
+            <span>Source: {block.sources[0].label}</span>
+          ) : null}
         </div>
         <h3 id={`${domId}-heading`}>{block.title}</h3>
       </header>
-      <ContextKindView block={block} captionId={captionId} descriptionId={descriptionId} />
-      <p id={descriptionId} className="sr-only">{block.longDescription}</p>
+      <ContextKindView
+        block={block}
+        captionId={captionId}
+        descriptionId={descriptionId}
+      />
+      <p id={descriptionId} className="sr-only">
+        {block.longDescription}
+      </p>
 
       <div className="context-card-footer">
-        <div className="context-downloads" aria-label={`Download data for ${block.title}`}>
+        <div
+          className="context-downloads"
+          aria-label={`Download data for ${block.title}`}
+        >
           <button
             type="button"
-            onClick={() => downloadFile(`${slugify(block.title)}.json`, JSON.stringify(block, null, 2), "application/json")}
+            onClick={() =>
+              downloadFile(
+                `${slugify(block.title)}.json`,
+                JSON.stringify(block, null, 2),
+                "application/json",
+              )
+            }
           >
             Download JSON
           </button>
           {block.kind === "chart" ? (
             <button
               type="button"
-              onClick={() => downloadFile(`${slugify(block.title)}.csv`, chartToCsv(block), "text/csv;charset=utf-8")}
+              onClick={() =>
+                downloadFile(
+                  `${slugify(block.title)}.csv`,
+                  chartToCsv(block),
+                  "text/csv;charset=utf-8",
+                )
+              }
             >
               Download CSV
             </button>
@@ -323,18 +430,34 @@ export const ArticleContextLane = ({
   if (state.status === "idle") return null;
   if (state.status === "loading") {
     return (
-      <section className="context-lane context-lane-loading" aria-labelledby="article-context-heading">
-        <h2 id="article-context-heading">Visual context</h2>
-        <p role="status">Gathering maps, timelines, data, and diagrams with accessible descriptions…</p>
+      <section
+        className="context-lane context-lane-loading"
+        data-context-lane-state="loading"
+        aria-labelledby="article-context-heading"
+      >
+        <div className="context-lane-busy-region" aria-busy="true">
+          <h2 id="article-context-heading">Visual context</h2>
+        </div>
+        <VisualLoadStatus phase="loading">
+          Gathering maps, timelines, data, and diagrams with accessible
+          descriptions…
+        </VisualLoadStatus>
       </section>
     );
   }
   if (state.status === "error") {
     return (
-      <section className="context-lane context-lane-error" aria-labelledby="article-context-heading">
+      <section
+        className="context-lane context-lane-error"
+        data-context-lane-state="error"
+        aria-labelledby="article-context-heading"
+        aria-busy="false"
+      >
         <h2 id="article-context-heading">Visual context</h2>
-        <p>{state.error}</p>
-        <button type="button" className="btn-secondary" onClick={retry}>Try context again</button>
+        <VisualLoadStatus phase="error">{state.error}</VisualLoadStatus>
+        <button type="button" className="btn-secondary" onClick={retry}>
+          Try context again
+        </button>
       </section>
     );
   }
@@ -343,19 +466,27 @@ export const ArticleContextLane = ({
   const manifest = state.manifest;
 
   return (
-    <section className="context-lane" aria-labelledby="article-context-heading">
+    <section
+      className="context-lane"
+      data-context-lane-state="ready"
+      aria-labelledby="article-context-heading"
+      aria-busy="false"
+    >
+      <VisualLoadStatus phase="ready">
+        Visual context ready with {manifest.blocks.length}{" "}
+        {manifest.blocks.length === 1 ? "visual" : "visuals"}.
+      </VisualLoadStatus>
       <div className="context-lane-heading">
         <span className="context-lane-kicker">Field notes</span>
         <h2 id="article-context-heading">Context that rewards a closer look</h2>
-        <p>Visual views are paired with descriptions and structured data, so every path through the material carries the same meaning.</p>
+        <p>
+          Visual views are paired with descriptions and structured data, so
+          every path through the material carries the same meaning.
+        </p>
       </div>
       <div className="context-card-list">
         {manifest.blocks.map((block) => (
-          <ContextCard
-            key={block.id}
-            block={block}
-            manifest={manifest}
-          />
+          <ContextCard key={block.id} block={block} manifest={manifest} />
         ))}
       </div>
     </section>

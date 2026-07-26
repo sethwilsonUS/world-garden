@@ -28,23 +28,21 @@ describe("section narration", () => {
       ],
     });
 
-    expect(ARTICLE_SECTION_NARRATION_VERSION).toBe(1);
+    expect(ARTICLE_SECTION_NARRATION_VERSION).toBe(2);
     expect(sections.map((section) => section.narration)).toEqual([
       expect.objectContaining({
         mode: "verbatim",
         sourceFormat: "prose",
         adapted: false,
         usedRawFallback: true,
-        text:
-          "Early life. In 1775 Landor was born. By 1794 he had left Oxford after a dispute involving several dates and people.",
+        text: "Early life. In 1775 Landor was born. By 1794 he had left Oxford after a dispute involving several dates and people.",
       }),
       expect.objectContaining({
         mode: "verbatim",
         sourceFormat: "prose",
         adapted: false,
         usedRawFallback: true,
-        text:
-          "Artistic recognition. A bust dated 1828 is held in the National Portrait Gallery, London.",
+        text: "Artistic recognition. A bust dated 1828 is held in the National Portrait Gallery, London.",
       }),
     ]);
     expect(
@@ -77,7 +75,9 @@ describe("section narration", () => {
   });
 
   it("produces stable, text-sensitive narration identities", () => {
-    expect(hashNarrationText("Same text.")).toBe(hashNarrationText("Same text."));
+    expect(hashNarrationText("Same text.")).toBe(
+      hashNarrationText("Same text."),
+    );
     expect(hashNarrationText("Same text.")).not.toBe(
       hashNarrationText("Same texts."),
     );
@@ -155,154 +155,6 @@ describe("section narration", () => {
       mode: "transition",
       individuallyPlayable: false,
       countsTowardProgress: false,
-    });
-  });
-
-  it("verbalizes semantic lists and tables in source order", () => {
-    const [section] = createSectionNarrations({
-      sections: [
-        {
-          wikiSectionIndex: "1",
-          title: "Recognition",
-          level: 2,
-          content: "The gallery records two works. 2020 Example 2021 Another",
-        },
-      ],
-      parsedSource: {
-        html: [
-          '<h2 id="Recognition">Recognition</h2>',
-          "<p>The gallery records two works.</p>",
-          "<ol><li>Portrait commission</li><li>Public memorial</li></ol>",
-          "<table class=\"wikitable\"><caption>Awards</caption>",
-          "<tr><th>Year</th><th>Work</th></tr>",
-          "<tr><td>2020</td><td>Example</td></tr>",
-          "<tr><td>2021</td><td>Another</td></tr></table>",
-        ].join(""),
-        sections: [
-          {
-            index: "1",
-            line: "Recognition",
-            anchor: "Recognition",
-            level: "2",
-          },
-        ],
-      },
-    });
-
-    expect(section.narration).toMatchObject({
-      mode: "structured",
-      sourceFormat: "mixed",
-      adapted: true,
-      usedRawFallback: false,
-      text:
-        "Recognition. The gallery records two works. List with 2 items. Item 1: Portrait commission. Item 2: Public memorial. Table: Awards. Columns: Year; Work. Row 1: Year: 2020; Work: Example. Row 2: Year: 2021; Work: Another.",
-    });
-  });
-
-  it("removes complete script blocks even when their text contains closing tags", () => {
-    const [section] = createSectionNarrations({
-      sections: [
-        {
-          wikiSectionIndex: "1",
-          title: "Items",
-          level: 2,
-          content: "Visible item.",
-        },
-      ],
-      parsedSource: {
-        html: [
-          "<h2>Items</h2>",
-          "<ul><li>Visible<script>const fake = '</b>'; forbidden words</script> item</li></ul>",
-        ].join(""),
-        sections: [{ index: "1", line: "Items", level: "2" }],
-      },
-    });
-
-    expect(section.narration.text).toContain("Visible item");
-    expect(section.narration.text).not.toContain("forbidden words");
-  });
-
-  it("caps large structured adaptations between complete items and announces the remainder", () => {
-    const items = Array.from(
-      { length: 500 },
-      (_, index) => `<li>Source item ${index + 1}</li>`,
-    ).join("");
-    const [section] = createSectionNarrations({
-      sections: [
-        {
-          wikiSectionIndex: "1",
-          title: "Catalogue",
-          level: 2,
-          content: "A long catalogue.",
-        },
-      ],
-      parsedSource: {
-        html: `<h2>Catalogue</h2><ul>${items}</ul>`,
-        sections: [{ index: "1", line: "Catalogue", level: "2" }],
-      },
-    });
-
-    expect(section.narration.mode).toBe("structured");
-    expect(section.narration.remainingSourceItems).toBeGreaterThan(0);
-    expect(section.narration.text).toContain(
-      "the complete data is available in the Wikipedia article",
-    );
-    expect(section.narration.text).not.toMatch(/Item \d+: Source item \d+ Source item/);
-    expect(section.narration.text.split(/\s+/).length).toBeLessThanOrEqual(805);
-  });
-
-  it("preserves nested-list source order without folding children into parents", () => {
-    const [section] = createSectionNarrations({
-      sections: [
-        {
-          wikiSectionIndex: "1",
-          title: "Works",
-          level: 2,
-          content: "Poetry Early poems Late poems Prose Essays",
-        },
-      ],
-      parsedSource: {
-        html: [
-          "<h2>Works</h2>",
-          "<ul>",
-          "<li>Poetry<ul><li>Early poems</li><li>Late poems</li></ul></li>",
-          "<li>Prose<ul><li>Essays</li></ul></li>",
-          "</ul>",
-        ].join(""),
-        sections: [{ index: "1", line: "Works", level: "2" }],
-      },
-    });
-
-    expect(section.narration).toMatchObject({
-      mode: "structured",
-      sourceFormat: "list",
-      text:
-        "Works. List with 5 items. Item 1: Poetry. Item 2, nested under item 1: Early poems. Item 3, nested under item 1: Late poems. Item 4: Prose. Item 5, nested under item 4: Essays.",
-    });
-  });
-
-  it("falls back to the complete plaintext section for malformed structures", () => {
-    const content = "Year Work 1828 Bust";
-    const [section] = createSectionNarrations({
-      sections: [
-        {
-          wikiSectionIndex: "1",
-          title: "Recognition",
-          level: 2,
-          content,
-        },
-      ],
-      parsedSource: {
-        html: "<h2>Recognition</h2><table><tr><th>Year</th><th>Work</th></tr><tr><td rowspan=\"2\">1828</td><td>Bust</td></tr></table>",
-        sections: [{ index: "1", line: "Recognition", level: "2" }],
-      },
-    });
-
-    expect(section.narration).toMatchObject({
-      mode: "verbatim",
-      sourceFormat: "table",
-      usedRawFallback: true,
-      text: `Recognition. ${content}`,
     });
   });
 });

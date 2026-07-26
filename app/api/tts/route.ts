@@ -82,7 +82,8 @@ const fetchWithTimeout = async (
 ): Promise<Response> => {
   const timeoutMs = options.timeoutMs ?? getTtsUpstreamTimeoutMs();
   const timeoutMessage =
-    options.timeoutMessage ?? `TTS upstream request timed out after ${timeoutMs}ms`;
+    options.timeoutMessage ??
+    `TTS upstream request timed out after ${timeoutMs}ms`;
   const controller =
     typeof AbortController !== "undefined" ? new AbortController() : null;
   let didTimeout = false;
@@ -127,7 +128,8 @@ const readErrorBody = async (response: Response): Promise<string> => {
       const body = JSON.parse(text) as {
         error?: string | { message?: string };
       };
-      if (typeof body.error === "string" && body.error.trim()) return body.error;
+      if (typeof body.error === "string" && body.error.trim())
+        return body.error;
       if (
         body.error &&
         typeof body.error === "object" &&
@@ -338,6 +340,10 @@ export const POST = async (req: NextRequest) => {
   try {
     const body = (await req.json()) as TtsRequest;
     const { text, voiceId } = body;
+    const expectedTtsCacheKey =
+      typeof body.expectedTtsCacheKey === "string"
+        ? body.expectedTtsCacheKey.trim()
+        : "";
 
     if (!text || text.length < TTS_MIN_TEXT_LENGTH) {
       return NextResponse.json(
@@ -358,14 +364,36 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
+    if (expectedTtsCacheKey.length > 500) {
+      return NextResponse.json(
+        { error: "Expected TTS profile key is invalid" },
+        { status: 400 },
+      );
+    }
+
     provider = resolveRequestedProvider(body);
     effectiveProvider = provider;
     const voiceValidationError = getVoiceValidationError(provider, voiceId);
     if (voiceValidationError) {
-      return NextResponse.json({ error: voiceValidationError }, { status: 400 });
+      return NextResponse.json(
+        { error: voiceValidationError },
+        { status: 400 },
+      );
     }
 
     const primaryProfile = getTtsProfile(provider, voiceId);
+    if (
+      expectedTtsCacheKey &&
+      primaryProfile.ttsCacheKey !== expectedTtsCacheKey
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "The requested TTS profile is no longer active; retry with the current profile.",
+        },
+        { status: 409 },
+      );
+    }
     quotaDecision = await resolveOpenAiTtsQuota({
       headers: req.headers,
       provider: primaryProfile.provider,
@@ -381,10 +409,14 @@ export const POST = async (req: NextRequest) => {
     if (primaryProfile.provider === "edge") {
       effectiveProvider = "edge";
       const audioBuffer = await generateEdgeSpeech(req, text, primaryProfile);
-      const response = audioResponse(audioBuffer, getTtsMetadata(primaryProfile), {
-        quotaMode: quotaDecision.mode,
-        quotaExceeded: quotaDecision.exceeded,
-      });
+      const response = audioResponse(
+        audioBuffer,
+        getTtsMetadata(primaryProfile),
+        {
+          quotaMode: quotaDecision.mode,
+          quotaExceeded: quotaDecision.exceeded,
+        },
+      );
       emitTtsRouteTelemetry({
         startedAt,
         requestedProvider: provider,
@@ -434,10 +466,14 @@ export const POST = async (req: NextRequest) => {
       const audioBuffer = await generateOpenAiSpeech(text, primaryProfile, {
         timeoutMs: openAiTimeoutMs,
       });
-      const response = audioResponse(audioBuffer, getTtsMetadata(primaryProfile), {
-        quotaMode: quotaDecision.mode,
-        quotaExceeded: quotaDecision.exceeded,
-      });
+      const response = audioResponse(
+        audioBuffer,
+        getTtsMetadata(primaryProfile),
+        {
+          quotaMode: quotaDecision.mode,
+          quotaExceeded: quotaDecision.exceeded,
+        },
+      );
       emitTtsRouteTelemetry({
         startedAt,
         requestedProvider: provider,

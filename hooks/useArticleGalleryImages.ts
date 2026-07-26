@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useData, type ArticleImage } from "@/lib/data-context";
+import {
+  useData,
+  type ArticleImage,
+  type WikipediaRevisionIdentity,
+} from "@/lib/data-context";
+import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 
 type GalleryImagesState = {
   key: string;
@@ -15,17 +20,25 @@ const loadingState = (key: string): GalleryImagesState => ({
   loading: true,
 });
 
-export const useArticleGalleryImages = (wikiPageId: string) => {
+export const useArticleGalleryImages = (
+  identity: WikipediaRevisionIdentity,
+) => {
   const { getArticleImages } = useData();
+  const { wikiPageId, revisionId, title, language } = identity;
+  const identityKey = wikipediaRevisionKey(identity);
   const [state, setState] = useState<GalleryImagesState>(() =>
-    loadingState(wikiPageId),
+    loadingState(identityKey),
   );
 
   useEffect(() => {
     const controller = new AbortController();
-    const key = wikiPageId;
+    const key = identityKey;
+    const requestIdentity = { wikiPageId, revisionId, title, language };
 
-    void getArticleImages({ wikiPageId })
+    void getArticleImages({
+      identity: requestIdentity,
+      signal: controller.signal,
+    })
       .then((images) => {
         if (controller.signal.aborted) return;
         setState({ key, images, loading: false });
@@ -37,7 +50,7 @@ export const useArticleGalleryImages = (wikiPageId: string) => {
       });
 
     return () => controller.abort();
-  }, [getArticleImages, wikiPageId]);
+  }, [getArticleImages, identityKey, language, revisionId, title, wikiPageId]);
 
-  return state.key === wikiPageId ? state : loadingState(wikiPageId);
+  return state.key === identityKey ? state : loadingState(identityKey);
 };

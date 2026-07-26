@@ -13,6 +13,7 @@ import {
 import { DataContext, type DataContextValue } from "@/lib/data-context";
 import type { ContextBlock } from "@/lib/article-context-types";
 import { createTestSection } from "@/lib/test-section-narration";
+import { ARTICLE_SECTION_NARRATION_VERSION } from "@/lib/section-narration";
 
 const dataContextValue: DataContextValue = {
   search: async () => [],
@@ -38,6 +39,14 @@ const playback = (
   ...overrides,
 });
 
+const articleIdentity = {
+  wikiPageId: "123",
+  revisionId: "456",
+  title: "Example article",
+  language: "en",
+  narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+};
+
 const historySection = createTestSection({
   title: "History",
   level: 2,
@@ -57,6 +66,7 @@ const adaptedResultsSection = createTestSection({
     mode: "structured",
     sourceFormat: "table",
     adapted: true,
+    remainingSourceItems: 4,
     text: "Election results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
   },
 });
@@ -164,7 +174,9 @@ describe("formatDurationAccessible", () => {
   });
 
   it("formats hours, minutes, and seconds", () => {
-    expect(formatDurationAccessible(3661, false)).toBe("1 hour 1 minute 1 second");
+    expect(formatDurationAccessible(3661, false)).toBe(
+      "1 hour 1 minute 1 second",
+    );
   });
 
   it("formats zero seconds", () => {
@@ -173,15 +185,21 @@ describe("formatDurationAccessible", () => {
 
   it("prepends approximately for estimated durations", () => {
     expect(formatDurationAccessible(45, true)).toBe("approximately 45 seconds");
-    expect(formatDurationAccessible(125, true)).toBe("approximately 2 minutes 5 seconds");
+    expect(formatDurationAccessible(125, true)).toBe(
+      "approximately 2 minutes 5 seconds",
+    );
   });
 
   it("uses singular for 1 unit", () => {
-    expect(formatDurationAccessible(3661, false)).toBe("1 hour 1 minute 1 second");
+    expect(formatDurationAccessible(3661, false)).toBe(
+      "1 hour 1 minute 1 second",
+    );
   });
 
   it("uses plural for multiple units", () => {
-    expect(formatDurationAccessible(7322, false)).toBe("2 hours 2 minutes 2 seconds");
+    expect(formatDurationAccessible(7322, false)).toBe(
+      "2 hours 2 minutes 2 seconds",
+    );
   });
 });
 
@@ -255,13 +273,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-            adaptedResultsSection,
-          ],
+          sections: [historySection, adaptedResultsSection],
           playback: playback(),
           onListenSection: () => {},
           onListenSummary: () => {},
@@ -276,6 +290,9 @@ describe("TableOfContents narration", () => {
     expect(markup).toContain("(3)");
     expect(markup).toContain("Adapted for audio");
     expect(markup).toContain("How Election results was adapted for audio");
+    expect(markup).toContain("View complete source data");
+    expect(markup).toContain("oldid=456");
+    expect(markup).toContain("4 items remain");
     expect(markup).toContain("Listen to Election results");
     expect(markup).not.toContain("Not suited for audio");
   });
@@ -286,12 +303,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: playback(),
           onListenSection: () => {},
           onListenSummary: () => {},
@@ -316,14 +330,16 @@ describe("TableOfContents narration", () => {
         text: "Next section: Career.",
       },
     });
-    const leaf = createTestSection({ title: "Unwritten appendix", content: "" });
+    const leaf = createTestSection({
+      title: "Unwritten appendix",
+      content: "",
+    });
     const markup = renderToStaticMarkup(
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary.",
           sections: [adaptedResultsSection, parent, leaf],
           playback: playback(),
@@ -352,12 +368,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: playback({
             status: "loading",
             sectionKey: "section-0",
@@ -387,12 +400,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: playback({
             status: "loading",
             sectionKey: "section-0",
@@ -424,12 +434,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: playback({
             status: "loading",
             sectionKey: "section-0",
@@ -462,8 +469,7 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "A short summary.",
           sections: [],
           contextBlocks: [contextBlock],
@@ -498,18 +504,66 @@ describe("TableOfContents narration", () => {
     expect(markup).not.toContain("Generating accessible context");
   });
 
+  it("binds duplicate section titles by their non-contiguous MediaWiki indices", () => {
+    const firstHistory = createTestSection({
+      wikiSectionIndex: "1",
+      title: "History",
+      content: "The first history section.",
+    });
+    const laterHistory = createTestSection({
+      wikiSectionIndex: "7",
+      title: "History",
+      content: "The later history section.",
+    });
+    const firstVisual: ContextBlock = {
+      ...contextBlock,
+      id: "first-history-visual",
+      title: "First history visual",
+      section: { index: "1", title: "History" },
+    };
+    const laterVisual: ContextBlock = {
+      ...contextBlock,
+      id: "later-history-visual",
+      title: "Later history visual",
+      section: { index: "7", title: "History" },
+    };
+    const markup = renderToStaticMarkup(
+      createElement(
+        DataContext.Provider,
+        { value: dataContextValue },
+        createElement(TableOfContents, {
+          identity: articleIdentity,
+          summaryText: "A short summary.",
+          sections: [firstHistory, laterHistory],
+          contextBlocks: [firstVisual, laterVisual],
+          playback: playback(),
+          onListenSection: () => {},
+          onListenSummary: () => {},
+          onPlayAll: () => {},
+          onStopPlayAll: () => {},
+          playbackRate: 1,
+        }),
+      ),
+    );
+
+    expect(markup).toContain(
+      'aria-label="1 visual: jump to timeline: First history visual"',
+    );
+    expect(markup).toContain(
+      'aria-label="1 visual: jump to timeline: Later history visual"',
+    );
+    expect(markup).not.toContain("2 visuals: jump to");
+  });
+
   it("shows the active Play All section with the same playing state as an individual section", () => {
     const markup = renderToStaticMarkup(
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: {
             status: "playing",
             sectionKey: "section-0",
@@ -547,12 +601,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: {
             status: "paused",
             sectionKey: "section-0",
@@ -590,12 +641,9 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
-          sections: [
-            historySection,
-          ],
+          sections: [historySection],
           playback: {
             status: "loading",
             sectionKey: "section-0",
@@ -613,8 +661,10 @@ describe("TableOfContents narration", () => {
       ),
     );
 
-    expect(markup).toContain("aria-live=\"polite\"");
-    expect(markup).toContain("Still generating audio. OpenAI is taking a little longer.");
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).toContain(
+      "Still generating audio. OpenAI is taking a little longer.",
+    );
   });
 
   it("renders the high-demand fallback voice notice as polite status text", () => {
@@ -623,8 +673,7 @@ describe("TableOfContents narration", () => {
         DataContext.Provider,
         { value: dataContextValue },
         createElement(TableOfContents, {
-          articleTitle: "Example article",
-          wikiPageId: "123",
+          identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [],
           playback: playback(),
@@ -639,8 +688,8 @@ describe("TableOfContents narration", () => {
       ),
     );
 
-    expect(markup).toContain("role=\"status\"");
-    expect(markup).toContain("aria-live=\"polite\"");
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-live="polite"');
     expect(markup).toContain(
       "High demand is using Curio Garden’s fallback voice for this article. Audio will keep playing.",
     );

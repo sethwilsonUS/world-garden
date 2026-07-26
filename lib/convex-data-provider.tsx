@@ -67,21 +67,23 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
         return result as unknown as Article;
       },
 
-      getSectionLinkCounts: ({ wikiPageId, signal }) =>
-        runAbortableAction(() => linkCountsAction({ wikiPageId }), signal),
-      getCitationCounts: ({ wikiPageId, signal }) =>
-        runAbortableAction(() => citationCountsAction({ wikiPageId }), signal),
-      getSectionLinks: ({ wikiPageId, sectionTitle, signal }) =>
+      getSectionLinkCounts: ({ identity, signal }) =>
+        runAbortableAction(() => linkCountsAction(identity), signal),
+      getCitationCounts: ({ identity, signal }) =>
+        runAbortableAction(() => citationCountsAction(identity), signal),
+      getSectionLinks: ({ identity, sectionTitle, sectionIndex, signal }) =>
         runAbortableAction(
-          () => sectionLinksAction({ wikiPageId, sectionTitle }),
+          () => sectionLinksAction({ ...identity, sectionTitle, sectionIndex }),
           signal,
         ),
-      getSectionCitations: ({ wikiPageId, sectionTitle, signal }) =>
+      getSectionCitations: ({ identity, sectionTitle, sectionIndex, signal }) =>
         runAbortableAction(
-          () => sectionCitationsAction({ wikiPageId, sectionTitle }),
+          () =>
+            sectionCitationsAction({ ...identity, sectionTitle, sectionIndex }),
           signal,
         ),
-      getArticleImages: articleImagesAction,
+      getArticleImages: ({ identity, signal }) =>
+        runAbortableAction(() => articleImagesAction(identity), signal),
     }),
     [
       searchAction,

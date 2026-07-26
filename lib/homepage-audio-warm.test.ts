@@ -5,8 +5,15 @@ import {
   warmHomepageArticleSummaries,
   type HomepageAudioWarmDependencies,
 } from "./homepage-audio-warm";
-import { hashNarrationText } from "./section-narration";
-import { getActiveTtsProfile, getTtsMetadata, getTtsProfile } from "./tts-profile";
+import {
+  ARTICLE_SECTION_NARRATION_VERSION,
+  buildArticleNarrationTracks,
+} from "./section-narration";
+import {
+  getActiveTtsProfile,
+  getTtsMetadata,
+  getTtsProfile,
+} from "./tts-profile";
 
 const snapshot = (titles: string[]): TodayWikipediaData => ({
   tfa: titles[0]
@@ -27,15 +34,23 @@ const snapshot = (titles: string[]): TodayWikipediaData => ({
   snapshotIsStale: false,
 });
 
+const warmArticleFixture = (
+  article: { slug: string; title: string },
+  summary = `A sufficiently long summary for ${article.title}.`,
+) => ({
+  _id: article.slug,
+  title: article.title,
+  revisionId: `revision-${article.slug}`,
+  narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+  summary,
+});
+
 const makeDependencies = (
   overrides: Partial<HomepageAudioWarmDependencies> = {},
 ): HomepageAudioWarmDependencies => {
   const expected = getTtsMetadata(getActiveTtsProfile());
   return {
-    fetchArticle: vi.fn(async (article) => ({
-      _id: article.slug,
-      summary: `A sufficiently long summary for ${article.title}.`,
-    })),
+    fetchArticle: vi.fn(async (article) => warmArticleFixture(article)),
     getCachedSummary: vi.fn(async () => ({})),
     verifyAudioUrl: vi.fn(async () => undefined),
     generateAudio: vi.fn(async () => ({
@@ -65,8 +80,14 @@ describe("homepage summary audio warmer", () => {
     const expected = getTtsMetadata(getActiveTtsProfile());
     const getCachedSummary = vi
       .fn<HomepageAudioWarmDependencies["getCachedSummary"]>()
-      .mockResolvedValueOnce({ url: "https://audio.test/good.mp3", metadata: expected })
-      .mockResolvedValueOnce({ url: "https://audio.test/stale.mp3", metadata: expected });
+      .mockResolvedValueOnce({
+        url: "https://audio.test/good.mp3",
+        metadata: expected,
+      })
+      .mockResolvedValueOnce({
+        url: "https://audio.test/stale.mp3",
+        metadata: expected,
+      });
     const verifyAudioUrl = vi
       .fn<HomepageAudioWarmDependencies["verifyAudioUrl"]>()
       .mockResolvedValueOnce(undefined)
@@ -104,11 +125,12 @@ describe("homepage summary audio warmer", () => {
   });
 
   it("uses the canonical normalized summary text and hash", async () => {
+    const article = warmArticleFixture(
+      { slug: "Canonical", title: "Canonical" },
+      "  A summary\nwith   uneven spacing.  ",
+    );
     const dependencies = makeDependencies({
-      fetchArticle: vi.fn(async (article) => ({
-        _id: article.slug,
-        summary: "  A summary\nwith   uneven spacing.  ",
-      })),
+      fetchArticle: vi.fn(async () => article),
     });
 
     await warmHomepageArticleSummaries({
@@ -118,15 +140,63 @@ describe("homepage summary audio warmer", () => {
     });
 
     const text = "A summary with uneven spacing.";
+    const sourceHash = buildArticleNarrationTracks(article).find(
+      (track) => track.sectionKey === "summary",
+    )!.sourceHash;
     expect(dependencies.getCachedSummary).toHaveBeenCalledWith(
       "Canonical",
-      hashNarrationText(text),
+      sourceHash,
       expect.any(Object),
     );
     expect(dependencies.generateAudio).toHaveBeenCalledWith(
       text,
       expect.any(Object),
     );
+  });
+
+  it("uses the revision-bound summary track identity shared by article playback", async () => {
+    const summary = "The same source summary appears in both revisions.";
+    const articles = [
+      {
+        _id: "Revision_one",
+        title: "Revision one",
+        revisionId: "100",
+        narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+        summary,
+      },
+      {
+        _id: "Revision_two",
+        title: "Revision two",
+        revisionId: "101",
+        narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+        summary,
+      },
+    ];
+    const dependencies = makeDependencies({
+      fetchArticle: vi
+        .fn<HomepageAudioWarmDependencies["fetchArticle"]>()
+        .mockResolvedValueOnce(articles[0])
+        .mockResolvedValueOnce(articles[1]),
+    });
+
+    await warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot: snapshot(["Revision one", "Revision two"]),
+      dependencies,
+      concurrency: 1,
+    });
+
+    const requestedHashes = vi
+      .mocked(dependencies.getCachedSummary)
+      .mock.calls.map(([, sourceHash]) => sourceHash);
+    const canonicalHashes = articles.map(
+      (article) =>
+        buildArticleNarrationTracks(article).find(
+          (track) => track.sectionKey === "summary",
+        )!.sourceHash,
+    );
+    expect(requestedHashes).toEqual(canonicalHashes);
+    expect(requestedHashes[0]).not.toBe(requestedHashes[1]);
   });
 
   it("stores fallback audio as degraded so a later run retries the primary key", async () => {
@@ -159,7 +229,7 @@ describe("homepage summary audio warmer", () => {
         if (article.title === "Broken") {
           throw new Error("Request https://secret.test/token failed");
         }
-        return { _id: article.slug, summary: "A healthy article summary." };
+        return warmArticleFixture(article, "A healthy article summary.");
       }),
     });
 
@@ -170,7 +240,11 @@ describe("homepage summary audio warmer", () => {
       concurrency: 1,
     });
 
-    expect(result).toMatchObject({ status: "partial", failed: 1, generated: 1 });
+    expect(result).toMatchObject({
+      status: "partial",
+      failed: 1,
+      generated: 1,
+    });
     expect(result.failures[0]).toMatchObject({
       title: "Broken",
       error: "Request [url] failed",
@@ -186,7 +260,7 @@ describe("homepage summary audio warmer", () => {
         peak = Math.max(peak, active);
         await new Promise((resolve) => setTimeout(resolve, 5));
         active -= 1;
-        return { _id: article.slug, summary: "A healthy article summary." };
+        return warmArticleFixture(article, "A healthy article summary.");
       }),
     });
 
@@ -205,7 +279,7 @@ describe("homepage summary audio warmer", () => {
     const dependencies = makeDependencies({
       fetchArticle: vi.fn(async (article) => {
         currentTime = 250;
-        return { _id: article.slug, summary: "A healthy article summary." };
+        return warmArticleFixture(article, "A healthy article summary.");
       }),
       now: () => currentTime,
     });

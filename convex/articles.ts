@@ -25,15 +25,17 @@ import {
   WikiCitation,
   ParsedPageData,
 } from "./lib/wikipedia";
-import {
-  BADGE_TOPIC_CACHE_VERSION,
-  type BadgeKey,
-} from "../lib/badges";
+import { BADGE_TOPIC_CACHE_VERSION, type BadgeKey } from "../lib/badges";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
   createSectionNarrations,
   type SectionNarration,
 } from "../lib/section-narration";
+import type { WikipediaRevisionIdentity } from "../lib/wikipedia-contracts";
+import {
+  findWikipediaSectionMetadata,
+  normalizeWikipediaSectionTitle,
+} from "../lib/wikipedia-utils";
 
 const sectionNarrationMode = v.union(
   v.literal("verbatim"),
@@ -60,6 +62,14 @@ const sectionNarration = v.object({
   sourceHash: v.string(),
 });
 
+const narratedWikiSection = v.object({
+  wikiSectionIndex: v.string(),
+  title: v.string(),
+  level: v.number(),
+  content: v.string(),
+  narration: sectionNarration,
+});
+
 const badgeKey = v.union(
   v.literal("history"),
   v.literal("geography"),
@@ -79,6 +89,13 @@ const wikimediaMediaAttribution = v.object({
   sourceTitle: v.optional(v.string()),
   sourceUrl: v.optional(v.string()),
 });
+
+const wikipediaRevisionIdentityArgs = {
+  wikiPageId: v.string(),
+  revisionId: v.string(),
+  title: v.string(),
+  language: v.string(),
+};
 
 /* ── Article CRUD ── */
 
@@ -139,17 +156,7 @@ export const upsertArticle = internalMutation({
     badgeKeys: v.optional(v.array(badgeKey)),
     badgeTopicVersion: v.optional(v.number()),
     badgeTopicsCachedAt: v.optional(v.number()),
-    sections: v.optional(
-      v.array(
-        v.object({
-          wikiSectionIndex: v.string(),
-          title: v.string(),
-          level: v.number(),
-          content: v.string(),
-          narration: sectionNarration,
-        }),
-      ),
-    ),
+    sections: v.optional(v.array(narratedWikiSection)),
   },
   async handler(ctx, args) {
     const existing = await ctx.db
@@ -203,6 +210,28 @@ export const upsertArticle = internalMutation({
   },
 });
 
+export const persistNormalizedCachedNarration = internalMutation({
+  args: {
+    articleId: v.id("articles"),
+    expectedRevisionId: v.string(),
+    expectedNarrationVersion: v.union(v.number(), v.null()),
+    expectedLastFetchedAt: v.number(),
+    narrationVersion: v.number(),
+    sections: v.array(narratedWikiSection),
+  },
+  async handler(ctx, args) {
+    const article = await ctx.db.get(args.articleId);
+    if (!article || !canPersistNormalizedCachedNarration(article, args)) {
+      return { persisted: false };
+    }
+    await ctx.db.patch(args.articleId, {
+      narrationVersion: args.narrationVersion,
+      sections: args.sections,
+    });
+    return { persisted: true };
+  },
+});
+
 export type FetchAndCacheResult = WikiArticle & {
   _id: Id<"articles">;
   sections: WikiSection[];
@@ -243,6 +272,23 @@ type StoredArticle = {
   }>;
 };
 
+type CachedNarrationWriteExpectation = {
+  expectedRevisionId: string;
+  expectedNarrationVersion: number | null;
+  expectedLastFetchedAt: number;
+};
+
+export const canPersistNormalizedCachedNarration = (
+  article: Pick<
+    StoredArticle,
+    "revisionId" | "narrationVersion" | "lastFetchedAt"
+  >,
+  expected: CachedNarrationWriteExpectation,
+): boolean =>
+  article.revisionId === expected.expectedRevisionId &&
+  (article.narrationVersion ?? null) === expected.expectedNarrationVersion &&
+  article.lastFetchedAt === expected.expectedLastFetchedAt;
+
 export const isCachedArticleFresh = (
   article: Pick<StoredArticle, "lastFetchedAt">,
   now = Date.now(),
@@ -252,8 +298,8 @@ export const isCachedArticleNarrationCompatible = (
   article: Pick<StoredArticle, "narrationVersion" | "sections">,
 ): boolean =>
   article.narrationVersion === ARTICLE_SECTION_NARRATION_VERSION &&
-  (article.sections ?? []).every(
-    (section) => Boolean(section.wikiSectionIndex && section.narration),
+  (article.sections ?? []).every((section) =>
+    Boolean(section.wikiSectionIndex && section.narration),
   );
 
 const getErrorMessage = (error: unknown): string =>
@@ -261,10 +307,13 @@ const getErrorMessage = (error: unknown): string =>
 
 const normalizeCachedSections = (
   sections: StoredArticle["sections"],
+  narrationVersion: StoredArticle["narrationVersion"],
+  sourceIdentity: string,
 ): WikiSection[] => {
   if (
-    (sections ?? []).every(
-      (section) => Boolean(section.wikiSectionIndex && section.narration),
+    narrationVersion === ARTICLE_SECTION_NARRATION_VERSION &&
+    (sections ?? []).every((section) =>
+      Boolean(section.wikiSectionIndex && section.narration),
     )
   ) {
     return (sections ?? []).map((section) => ({
@@ -283,32 +332,27 @@ const normalizeCachedSections = (
       level: section.level,
       content: section.content,
     })),
+    sourceIdentity,
   });
 
-  return legacyNarrations.map((normalized, index) => {
-    const stored = sections?.[index];
-    return stored?.narration && stored.wikiSectionIndex
-      ? {
-          wikiSectionIndex: stored.wikiSectionIndex,
-          title: stored.title,
-          level: stored.level,
-          content: stored.content,
-          narration: stored.narration,
-        }
-      : normalized;
-  });
+  return legacyNarrations;
 };
 
 export const cachedArticleToFetchResult = (
   article: StoredArticle,
 ): FetchAndCacheResult => {
-  const sections = normalizeCachedSections(article.sections);
+  const sections = normalizeCachedSections(
+    article.sections,
+    article.narrationVersion,
+    [article.wikiPageId, article.revisionId, article.title].join(":"),
+  );
   const summary = article.summary ?? "";
   const contentText = cleanContentForTts(
     [
       summary,
-      ...sections.map((section) =>
-        `${"=".repeat(section.level)} ${section.title} ${"=".repeat(section.level)}\n${section.content}`,
+      ...sections.map(
+        (section) =>
+          `${"=".repeat(section.level)} ${section.title} ${"=".repeat(section.level)}\n${section.content}`,
       ),
     ]
       .filter(Boolean)
@@ -321,8 +365,7 @@ export const cachedArticleToFetchResult = (
     title: article.title,
     language: article.language,
     revisionId: article.revisionId,
-    narrationVersion:
-      article.narrationVersion ?? ARTICLE_SECTION_NARRATION_VERSION,
+    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
     lastEdited: new Date(article.lastFetchedAt).toISOString(),
     summary,
     contentText,
@@ -333,6 +376,68 @@ export const cachedArticleToFetchResult = (
     thumbnailAttribution: article.thumbnailAttribution,
     badgeKeys: article.badgeKeys,
   };
+};
+
+export const normalizeCachedArticleForPersistence = (
+  article: StoredArticle,
+): {
+  result: FetchAndCacheResult;
+  mutationArgs: {
+    articleId: Id<"articles">;
+    expectedRevisionId: string;
+    expectedNarrationVersion: number | null;
+    expectedLastFetchedAt: number;
+    narrationVersion: number;
+    sections: WikiSection[];
+  };
+} => {
+  const result = cachedArticleToFetchResult(article);
+  return {
+    result,
+    mutationArgs: {
+      articleId: article._id,
+      expectedRevisionId: article.revisionId,
+      expectedNarrationVersion: article.narrationVersion ?? null,
+      expectedLastFetchedAt: article.lastFetchedAt,
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+      sections: result.sections,
+    },
+  };
+};
+
+const persistCachedNarrationFallback = async (
+  ctx: ActionCtx,
+  cached: StoredArticle,
+): Promise<FetchAndCacheResult> => {
+  let candidate = cached;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (isCachedArticleNarrationCompatible(candidate)) {
+      return cachedArticleToFetchResult(candidate);
+    }
+    const normalized = normalizeCachedArticleForPersistence(candidate);
+    const persistence = await ctx.runMutation(
+      internal.articles.persistNormalizedCachedNarration,
+      normalized.mutationArgs,
+    );
+    if (persistence.persisted) return normalized.result;
+
+    const current = await ctx.runQuery(
+      internal.articles.getCachedArticleByWikiPageId,
+      { wikiPageId: cached.wikiPageId },
+    );
+    if (!current) {
+      throw new Error(
+        `Cached article ${cached.wikiPageId} disappeared while its narration fallback was being persisted.`,
+      );
+    }
+    if (isCachedArticleNarrationCompatible(current)) {
+      return cachedArticleToFetchResult(current);
+    }
+    candidate = current;
+  }
+  throw new Error(
+    `Cached article ${cached.wikiPageId} kept changing while its narration fallback was being persisted.`,
+  );
 };
 
 export const getExistingArticleForRefresh = internalQuery({
@@ -353,9 +458,12 @@ const resolveBadgeCacheUpdate = async (
   badgeTopicVersion?: number;
   badgeTopicsCachedAt?: number;
 }> => {
-  const existing = await ctx.runQuery(internal.articles.getExistingArticleForRefresh, {
-    wikiPageId,
-  });
+  const existing = await ctx.runQuery(
+    internal.articles.getExistingArticleForRefresh,
+    {
+      wikiPageId,
+    },
+  );
 
   if (
     existing?.badgeKeys &&
@@ -413,11 +521,14 @@ export const fetchAndCache = action({
         console.warn(
           `Returning cached article ${args.wikiPageId} after Wikipedia fetch failed: ${getErrorMessage(error)}`,
         );
-        return cachedArticleToFetchResult(cached);
+        return await persistCachedNarrationFallback(ctx, cached);
       }
       throw error;
     }
-    const badgeCacheUpdate = await resolveBadgeCacheUpdate(ctx, data.wikiPageId);
+    const badgeCacheUpdate = await resolveBadgeCacheUpdate(
+      ctx,
+      data.wikiPageId,
+    );
 
     const articleId: Id<"articles"> = await ctx.runMutation(
       internal.articles.upsertArticle,
@@ -452,9 +563,12 @@ export const fetchAndCache = action({
 export const fetchAndCacheBySlug = action({
   args: { slug: v.string() },
   async handler(ctx, args): Promise<FetchAndCacheResult> {
-    const cached = await ctx.runQuery(internal.articles.getCachedArticleBySlug, {
-      slug: args.slug,
-    });
+    const cached = await ctx.runQuery(
+      internal.articles.getCachedArticleBySlug,
+      {
+        slug: args.slug,
+      },
+    );
 
     if (
       cached &&
@@ -473,11 +587,14 @@ export const fetchAndCacheBySlug = action({
         console.warn(
           `Returning cached article "${args.slug}" after Wikipedia fetch failed: ${getErrorMessage(error)}`,
         );
-        return cachedArticleToFetchResult(cached);
+        return await persistCachedNarrationFallback(ctx, cached);
       }
       throw error;
     }
-    const badgeCacheUpdate = await resolveBadgeCacheUpdate(ctx, data.wikiPageId);
+    const badgeCacheUpdate = await resolveBadgeCacheUpdate(
+      ctx,
+      data.wikiPageId,
+    );
 
     const articleId: Id<"articles"> = await ctx.runMutation(
       internal.articles.upsertArticle,
@@ -512,7 +629,9 @@ export const fetchAndCacheBySlug = action({
 /* ── Parse cache (link counts + citations + section index map) ── */
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-export const ARTICLE_PARSE_MEDIA_CACHE_VERSION = 1;
+// Bump whenever the semantic document projection changes. This forces legacy
+// regex-derived metadata to become a lazy miss without a destructive migration.
+export const ARTICLE_PARSE_MEDIA_CACHE_VERSION = 2;
 
 type CachedParseImageMetadata = {
   src: string;
@@ -521,6 +640,22 @@ type CachedParseImageMetadata = {
   lightboxHeight?: number;
   videoSrc?: string;
 };
+
+type CachedParseSectionIdentityMetadata = {
+  linkCounts: readonly { index?: string; title: string; count: number }[];
+  sectionCitations: readonly {
+    index?: string;
+    title: string;
+    count: number;
+    citationIds: readonly string[];
+  }[];
+};
+
+export const hasCompleteArticleParseSectionIdentity = (
+  metadata: CachedParseSectionIdentityMetadata,
+): boolean =>
+  metadata.linkCounts.every((section) => section.index !== undefined) &&
+  metadata.sectionCitations.every((section) => section.index !== undefined);
 
 /**
  * Keeps legacy cache rows that are already complete while forcing every
@@ -557,20 +692,29 @@ export const isArticleParseMediaCacheCompatible = (
 };
 
 export const getParseCache = internalQuery({
-  args: { wikiPageId: v.string() },
+  args: {
+    wikiPageId: v.string(),
+    revisionId: v.string(),
+  },
   async handler(ctx, args) {
     return await ctx.db
       .query("articleParseCache")
-      .withIndex("by_wikiPageId", (q) => q.eq("wikiPageId", args.wikiPageId))
+      .withIndex("by_wikiPageId_revisionId", (q) =>
+        q.eq("wikiPageId", args.wikiPageId).eq("revisionId", args.revisionId),
+      )
       .first();
   },
 });
 
 export const upsertParseCache = internalMutation({
   args: {
-    wikiPageId: v.string(),
+    ...wikipediaRevisionIdentityArgs,
     linkCounts: v.array(
-      v.object({ title: v.string(), count: v.number() }),
+      v.object({
+        index: v.optional(v.string()),
+        title: v.string(),
+        count: v.number(),
+      }),
     ),
     citations: v.array(
       v.object({
@@ -582,6 +726,7 @@ export const upsertParseCache = internalMutation({
     ),
     sectionCitations: v.array(
       v.object({
+        index: v.optional(v.string()),
         title: v.string(),
         count: v.number(),
         citationIds: v.array(v.string()),
@@ -611,11 +756,16 @@ export const upsertParseCache = internalMutation({
   async handler(ctx, args) {
     const existing = await ctx.db
       .query("articleParseCache")
-      .withIndex("by_wikiPageId", (q) => q.eq("wikiPageId", args.wikiPageId))
+      .withIndex("by_wikiPageId_revisionId", (q) =>
+        q.eq("wikiPageId", args.wikiPageId).eq("revisionId", args.revisionId),
+      )
       .first();
 
     const data = {
       wikiPageId: args.wikiPageId,
+      revisionId: args.revisionId,
+      title: args.title,
+      language: args.language,
       linkCounts: args.linkCounts,
       citations: args.citations,
       sectionCitations: args.sectionCitations,
@@ -634,24 +784,42 @@ export const upsertParseCache = internalMutation({
 });
 
 const getOrFetchParsedData = async (
-  ctx: Pick<import("./_generated/server").ActionCtx, "runQuery" | "runMutation">,
-  wikiPageId: string,
+  ctx: Pick<
+    import("./_generated/server").ActionCtx,
+    "runQuery" | "runMutation"
+  >,
+  identity: WikipediaRevisionIdentity,
 ): Promise<ParsedPageData> => {
+  if (identity.language !== "en") {
+    return {
+      linkCounts: [],
+      citations: [],
+      sectionCitations: [],
+      sectionIndexMap: [],
+      images: [],
+    };
+  }
   const cached = await ctx.runQuery(internal.articles.getParseCache, {
-    wikiPageId,
+    wikiPageId: identity.wikiPageId,
+    revisionId: identity.revisionId,
   });
   const hasCitationCounts =
-    cached?.sectionCitations?.some((s: { count: number }) => s.count > 0) ?? false;
+    cached?.sectionCitations?.some((s: { count: number }) => s.count > 0) ??
+    false;
   const citationsPopulated = (cached?.citations?.length ?? 0) > 0;
   const imagesPopulated = isArticleParseMediaCacheCompatible(
     cached?.images,
     cached?.mediaMetadataVersion,
   );
+  const sectionIdentityPopulated = cached
+    ? hasCompleteArticleParseSectionIdentity(cached)
+    : false;
   const cacheValid =
     cached &&
     Date.now() - cached.cachedAt < CACHE_TTL_MS &&
     (!hasCitationCounts || citationsPopulated) &&
-    imagesPopulated;
+    imagesPopulated &&
+    sectionIdentityPopulated;
   if (cacheValid) {
     return {
       linkCounts: cached.linkCounts,
@@ -662,10 +830,10 @@ const getOrFetchParsedData = async (
     };
   }
 
-  const data = await fetchParsedPageData(wikiPageId);
+  const data = await fetchParsedPageData(identity);
 
   await ctx.runMutation(internal.articles.upsertParseCache, {
-    wikiPageId,
+    ...identity,
     linkCounts: data.linkCounts,
     citations: data.citations,
     sectionCitations: data.sectionCitations,
@@ -677,38 +845,39 @@ const getOrFetchParsedData = async (
 };
 
 export const getSectionLinkCounts = action({
-  args: { wikiPageId: v.string() },
+  args: wikipediaRevisionIdentityArgs,
   async handler(ctx, args): Promise<WikiSectionLinkCount[]> {
-    const data = await getOrFetchParsedData(ctx, args.wikiPageId);
+    const data = await getOrFetchParsedData(ctx, args);
     return data.linkCounts;
   },
 });
 
 export const getCitationCounts = action({
-  args: { wikiPageId: v.string() },
-  async handler(
-    ctx,
-    args,
-  ): Promise<{ title: string; count: number }[]> {
-    const data = await getOrFetchParsedData(ctx, args.wikiPageId);
-    return data.sectionCitations.map(({ title, count }) => ({ title, count }));
+  args: wikipediaRevisionIdentityArgs,
+  async handler(ctx, args): Promise<WikiSectionLinkCount[]> {
+    const data = await getOrFetchParsedData(ctx, args);
+    return data.sectionCitations.map(({ index, title, count }) => ({
+      ...(index !== undefined ? { index } : {}),
+      title,
+      count,
+    }));
   },
 });
 
 export const getSectionCitations = action({
   args: {
-    wikiPageId: v.string(),
+    ...wikipediaRevisionIdentityArgs,
     sectionTitle: v.union(v.string(), v.null()),
+    sectionIndex: v.optional(v.string()),
   },
   async handler(ctx, args): Promise<WikiCitation[]> {
-    const data = await getOrFetchParsedData(ctx, args.wikiPageId);
-    const key = args.sectionTitle ?? "__summary__";
-    const normalise = (s: string) =>
-      s.replace(/<[^>]+>/g, "").trim().toLowerCase();
-    const target = normalise(key);
-
-    const sectionInfo = data.sectionCitations.find(
-      (s) => normalise(s.title) === target,
+    const data = await getOrFetchParsedData(ctx, args);
+    const sectionInfo = findWikipediaSectionMetadata(
+      data.sectionCitations,
+      {
+        sectionTitle: args.sectionTitle,
+        sectionIndex: args.sectionIndex,
+      },
     );
     if (!sectionInfo) return [];
 
@@ -718,9 +887,9 @@ export const getSectionCitations = action({
 });
 
 export const getArticleImages = action({
-  args: { wikiPageId: v.string() },
+  args: wikipediaRevisionIdentityArgs,
   async handler(ctx, args): Promise<WikiArticleImage[]> {
-    const data = await getOrFetchParsedData(ctx, args.wikiPageId);
+    const data = await getOrFetchParsedData(ctx, args);
     return data.images;
   },
 });
@@ -728,13 +897,18 @@ export const getArticleImages = action({
 /* ── Section links cache ── */
 
 export const getSectionLinksFromCache = internalQuery({
-  args: { wikiPageId: v.string(), sectionTitle: v.string() },
+  args: {
+    wikiPageId: v.string(),
+    revisionId: v.string(),
+    sectionTitle: v.string(),
+  },
   async handler(ctx, args) {
     return await ctx.db
       .query("sectionLinksCache")
-      .withIndex("by_wikiPageId_section", (q) =>
+      .withIndex("by_wikiPageId_revisionId_section", (q) =>
         q
           .eq("wikiPageId", args.wikiPageId)
+          .eq("revisionId", args.revisionId)
           .eq("sectionTitle", args.sectionTitle),
       )
       .first();
@@ -744,6 +918,7 @@ export const getSectionLinksFromCache = internalQuery({
 export const upsertSectionLinksCache = internalMutation({
   args: {
     wikiPageId: v.string(),
+    revisionId: v.string(),
     sectionTitle: v.string(),
     links: v.array(
       v.object({
@@ -756,15 +931,17 @@ export const upsertSectionLinksCache = internalMutation({
   async handler(ctx, args) {
     const existing = await ctx.db
       .query("sectionLinksCache")
-      .withIndex("by_wikiPageId_section", (q) =>
+      .withIndex("by_wikiPageId_revisionId_section", (q) =>
         q
           .eq("wikiPageId", args.wikiPageId)
+          .eq("revisionId", args.revisionId)
           .eq("sectionTitle", args.sectionTitle),
       )
       .first();
 
     const data = {
       wikiPageId: args.wikiPageId,
+      revisionId: args.revisionId,
       sectionTitle: args.sectionTitle,
       links: args.links,
       cachedAt: Date.now(),
@@ -780,40 +957,46 @@ export const upsertSectionLinksCache = internalMutation({
 
 export const getSectionLinks = action({
   args: {
-    wikiPageId: v.string(),
+    ...wikipediaRevisionIdentityArgs,
     sectionTitle: v.union(v.string(), v.null()),
+    sectionIndex: v.optional(v.string()),
   },
   async handler(ctx, args): Promise<WikiLinkedArticle[]> {
-    const cacheKey = args.sectionTitle ?? "__summary__";
+    if (args.language !== "en") return [];
+    const cacheKey = args.sectionIndex
+      ? `index:${args.sectionIndex}`
+      : args.sectionTitle === null
+        ? "__summary__"
+        : normalizeWikipediaSectionTitle(args.sectionTitle);
 
     const cachedLinks = await ctx.runQuery(
       internal.articles.getSectionLinksFromCache,
-      { wikiPageId: args.wikiPageId, sectionTitle: cacheKey },
+      {
+        wikiPageId: args.wikiPageId,
+        revisionId: args.revisionId,
+        sectionTitle: cacheKey,
+      },
     );
     if (cachedLinks && Date.now() - cachedLinks.cachedAt < CACHE_TTL_MS) {
       return cachedLinks.links;
     }
 
-    let sectionIndex = "0";
-    if (args.sectionTitle !== null) {
-      const parseData = await getOrFetchParsedData(ctx, args.wikiPageId);
-      const normalise = (s: string) =>
-        s.replace(/<[^>]+>/g, "").trim().toLowerCase();
-      const target = normalise(args.sectionTitle);
+    let sectionIndex = args.sectionIndex ?? "0";
+    if (!args.sectionIndex && args.sectionTitle !== null) {
+      const parseData = await getOrFetchParsedData(ctx, args);
+      const target = normalizeWikipediaSectionTitle(args.sectionTitle);
       const match = parseData.sectionIndexMap.find(
-        (s) => normalise(s.title) === target,
+        (section) => normalizeWikipediaSectionTitle(section.title) === target,
       );
       if (!match) return [];
       sectionIndex = match.index;
     }
 
-    const links = await fetchSectionLinksByIndex(
-      args.wikiPageId,
-      sectionIndex,
-    );
+    const links = await fetchSectionLinksByIndex(args, sectionIndex);
 
     await ctx.runMutation(internal.articles.upsertSectionLinksCache, {
       wikiPageId: args.wikiPageId,
+      revisionId: args.revisionId,
       sectionTitle: cacheKey,
       links,
     });

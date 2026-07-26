@@ -1,12 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { TtsMetadata } from "../../lib/tts-profile";
 import { upsertTtsAudioVariant } from "./ttsAudioVariants";
 
 export type PersonalPlaylistReadCtx = Pick<QueryCtx, "db" | "storage">;
-export type PersonalPlaylistMutationCtx = Pick<
-  MutationCtx,
-  "db" | "storage"
->;
+export type PersonalPlaylistMutationCtx = Pick<MutationCtx, "db" | "storage">;
 
 export const PERSONAL_PLAYLIST_LEASE_MS = 8 * 60 * 1000;
 export type PersonalPlaylistEpisodeDoc = Omit<
@@ -108,7 +106,9 @@ const rewriteActiveViewerQueue = async (
   episodes: PersonalPlaylistEpisodeDoc[],
   baseTimestamp = Date.now(),
 ) => {
-  const orderedEpisodes = episodes.filter((episode) => episode.removedAt == null);
+  const orderedEpisodes = episodes.filter(
+    (episode) => episode.removedAt == null,
+  );
 
   for (let index = 0; index < orderedEpisodes.length; index += 1) {
     const episode = orderedEpisodes[index];
@@ -129,7 +129,9 @@ const findViewerEpisodeByArticle = async (
   const byArticleId = await ctx.db
     .query("personalPlaylistEpisodes")
     .withIndex("by_viewerTokenIdentifier_articleId", (q) =>
-      q.eq("viewerTokenIdentifier", viewerTokenIdentifier).eq("articleId", articleId),
+      q
+        .eq("viewerTokenIdentifier", viewerTokenIdentifier)
+        .eq("articleId", articleId),
     )
     .collect();
 
@@ -187,6 +189,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     imageUrl?: string;
     sectionCount: number;
     narrationHash: string;
+    requestedTtsMetadata?: TtsMetadata;
   },
 ): Promise<UpsertViewerPlaylistEpisodeResult> => {
   const now = Date.now();
@@ -200,7 +203,10 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     args.articleId,
     args.slug,
   );
-  const activeEpisodes = await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier);
+  const activeEpisodes = await getActiveViewerEpisodes(
+    ctx,
+    args.viewerTokenIdentifier,
+  );
 
   if (existing && existing.removedAt == null) {
     const narrationChanged = existing.narrationHash !== args.narrationHash;
@@ -215,6 +221,9 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       narrationHash: args.narrationHash,
       ...(narrationChanged
         ? {
+            ...(args.requestedTtsMetadata
+              ? { requestedTtsMetadata: args.requestedTtsMetadata }
+              : {}),
             status: "queued" as const,
             stage: "queued" as const,
             completedSectionCount: 0,
@@ -253,6 +262,9 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       stage: "queued",
       sectionCount: args.sectionCount,
       narrationHash: args.narrationHash,
+      ...(args.requestedTtsMetadata
+        ? { requestedTtsMetadata: args.requestedTtsMetadata }
+        : {}),
       completedSectionCount: 0,
       storageId: undefined,
       durationSeconds: undefined,
@@ -309,6 +321,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     stage: "queued",
     sectionCount: args.sectionCount,
     narrationHash: args.narrationHash,
+    requestedTtsMetadata: args.requestedTtsMetadata,
     completedSectionCount: 0,
     createdAt: now,
     updatedAt: now,
@@ -333,6 +346,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
         stage: "queued" as const,
         sectionCount: args.sectionCount,
         narrationHash: args.narrationHash,
+        requestedTtsMetadata: args.requestedTtsMetadata,
         completedSectionCount: 0,
         createdAt: now,
         updatedAt: now,
@@ -386,8 +400,13 @@ export const moveViewerPlaylistEpisodeForCtx = async (
     return { moved: false, position: null };
   }
 
-  const episodes = await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier);
-  const currentIndex = episodes.findIndex((episode) => episode._id === args.episodeId);
+  const episodes = await getActiveViewerEpisodes(
+    ctx,
+    args.viewerTokenIdentifier,
+  );
+  const currentIndex = episodes.findIndex(
+    (episode) => episode._id === args.episodeId,
+  );
   if (currentIndex === -1) {
     return { moved: false, position: null };
   }
@@ -428,20 +447,20 @@ export const removeViewerPlaylistEpisodeForCtx = async (
     updatedAt: now,
   });
 
-  const activeEpisodes = (await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier)).filter(
-    (candidate) => candidate._id !== args.episodeId,
-  );
+  const activeEpisodes = (
+    await getActiveViewerEpisodes(ctx, args.viewerTokenIdentifier)
+  ).filter((candidate) => candidate._id !== args.episodeId);
   await rewriteActiveViewerQueue(ctx, activeEpisodes, now);
 
   return { removed: true };
 };
-
 
 export const retryViewerPlaylistEpisodeForCtx = async (
   ctx: PersonalPlaylistMutationCtx,
   args: {
     viewerTokenIdentifier: string;
     episodeId: Id<"personalPlaylistEpisodes">;
+    requestedTtsMetadata?: TtsMetadata;
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
@@ -459,6 +478,9 @@ export const retryViewerPlaylistEpisodeForCtx = async (
     status: "queued",
     stage: "queued",
     completedSectionCount: 0,
+    ...(args.requestedTtsMetadata
+      ? { requestedTtsMetadata: args.requestedTtsMetadata }
+      : {}),
     lastError: undefined,
     leaseOwner: undefined,
     leaseExpiresAt: undefined,
@@ -494,10 +516,10 @@ const hasActiveEpisodeLease = (
 ): episode is PersonalPlaylistEpisodeDoc =>
   Boolean(
     episode &&
-      episode.removedAt == null &&
-      episode.status === "running" &&
-      episode.leaseOwner === owner &&
-      (episode.leaseExpiresAt ?? 0) > now,
+    episode.removedAt == null &&
+    episode.status === "running" &&
+    episode.leaseOwner === owner &&
+    (episode.leaseExpiresAt ?? 0) > now,
   );
 
 export const markViewerPlaylistEpisodeRunningForCtx = async (

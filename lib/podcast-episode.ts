@@ -13,7 +13,10 @@ import {
   FEATURED_EPISODE_ARTWORK_VERSION,
   renderFeaturedPodcastArtworkPng,
 } from "@/lib/featured-podcast-artwork";
-import { FEATURED_PODCAST_TITLE, getPodcastDescription } from "@/lib/podcast-feed";
+import {
+  FEATURED_PODCAST_TITLE,
+  getPodcastDescription,
+} from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
@@ -22,6 +25,7 @@ import {
   buildArticleNarrationTracks,
 } from "@/lib/section-narration";
 import {
+  doesTtsMetadataMatch,
   getActiveTtsNormVersion,
   getActiveTtsCacheKey,
   getTtsMetadata,
@@ -30,11 +34,11 @@ import {
   type TtsProvider,
 } from "@/lib/tts-profile";
 
+export { doesTtsMetadataMatch } from "@/lib/tts-profile";
+
 const TTS_WORDS_PER_SECOND = 2.5;
 const JOB_LEASE_MS = 8 * 60 * 1000;
 const MAX_TTS_PROVIDER_RETRIES = 1;
-
-type TtsMetadataLike = Partial<Record<keyof TtsMetadata, string>>;
 
 type FeaturedPodcastEpisodeWithUrl = Doc<"featuredPodcastEpisodes"> & {
   audioUrl: string | null;
@@ -110,7 +114,9 @@ const uploadBlobToConvexStorage = async (
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown error";
 
-export const getPodcastSectionSources = (article: FetchAndCacheResult): PodcastSectionSource[] => {
+export const getPodcastSectionSources = (
+  article: FetchAndCacheResult,
+): PodcastSectionSource[] => {
   return buildArticleNarrationTracks(article).map((track) => ({
     sectionKey: track.sectionKey,
     text: track.text,
@@ -173,17 +179,6 @@ export const doesFeaturedEpisodeMatchArticle = (
 export const hasCurrentFeaturedArtworkVersion = (
   episode: Pick<FeaturedPodcastEpisodeWithUrl, "artworkVersion"> | null,
 ): boolean => episode?.artworkVersion === FEATURED_EPISODE_ARTWORK_VERSION;
-
-export const doesTtsMetadataMatch = (
-  actual: TtsMetadataLike | null | undefined,
-  expected: TtsMetadata,
-): boolean =>
-  actual?.provider === expected.provider &&
-  actual.model === expected.model &&
-  actual.voiceId === expected.voiceId &&
-  actual.promptVersion === expected.promptVersion &&
-  actual.ttsNormVersion === expected.ttsNormVersion &&
-  actual.ttsCacheKey === expected.ttsCacheKey;
 
 export const shouldReuseExistingFeaturedEpisode = ({
   force,
@@ -283,8 +278,8 @@ export const syncFeaturedPodcastEpisode = async ({
       regenArt,
       existingEpisode: existingReadyEpisode,
       article,
-    })
-    && existingReadyEpisode
+    }) &&
+    existingReadyEpisode
   ) {
     return {
       status: "already_exists",
@@ -315,7 +310,8 @@ export const syncFeaturedPodcastEpisode = async ({
       shouldReuseExistingFeaturedEpisode({
         force: false,
         regenArt,
-        existingEpisode: latestEpisode.status === "ready" ? latestEpisode : null,
+        existingEpisode:
+          latestEpisode.status === "ready" ? latestEpisode : null,
         article,
       })
     ) {
@@ -349,9 +345,12 @@ export const syncFeaturedPodcastEpisode = async ({
       articleId,
       owner,
       status: "failed",
-      lastError: "Featured article does not contain any narratable source tracks",
+      lastError:
+        "Featured article does not contain any narratable source tracks",
     });
-    throw new Error("Featured article does not contain any narratable source tracks");
+    throw new Error(
+      "Featured article does not contain any narratable source tracks",
+    );
   }
 
   if (!existingReadyEpisode) {
@@ -453,7 +452,9 @@ export const syncFeaturedPodcastEpisode = async ({
       stage = "reloading_saved_episode";
       const savedEpisode = await getExistingEpisode(feedDateIso);
       if (!savedEpisode) {
-        throw new Error("Featured podcast episode artwork was regenerated but could not be reloaded");
+        throw new Error(
+          "Featured podcast episode artwork was regenerated but could not be reloaded",
+        );
       }
 
       return {
@@ -549,7 +550,10 @@ export const syncFeaturedPodcastEpisode = async ({
           generatedSectionCount += 1;
 
           stage = `uploading_section_audio:${section.sectionKey}`;
-          const sectionUploadUrl = await fetchMutation(api.audio.generateUploadUrl, {});
+          const sectionUploadUrl = await fetchMutation(
+            api.audio.generateUploadUrl,
+            {},
+          );
           const sectionStorageId = await uploadBlobToConvexStorage(
             sectionUploadUrl,
             blob,
@@ -586,7 +590,8 @@ export const syncFeaturedPodcastEpisode = async ({
     };
 
     const sectionAudio = await loadSectionAudio();
-    const { audioChunks, generatedSectionCount, reusedSectionCount } = sectionAudio;
+    const { audioChunks, generatedSectionCount, reusedSectionCount } =
+      sectionAudio;
 
     const combinedBlob = await concatenateMp3Blobs(audioChunks, {
       stripId3Tags: "none",
@@ -654,7 +659,9 @@ export const syncFeaturedPodcastEpisode = async ({
     stage = "reloading_saved_episode";
     const savedEpisode = await getExistingEpisode(feedDateIso);
     if (!savedEpisode || savedEpisode._id !== episodeId) {
-      throw new Error("Featured podcast episode was saved but could not be reloaded");
+      throw new Error(
+        "Featured podcast episode was saved but could not be reloaded",
+      );
     }
 
     console.info(

@@ -2,15 +2,24 @@ import { describe, expect, it } from "vitest";
 import {
   findReusableArticleAudioExport,
   getArticleExportSections,
+  isArticleAudioExportCompatible,
+  isArticleAudioExportReusable,
+  isRequestedTtsMetadataValid,
 } from "./articleExports";
-import { hashNarrationText } from "../lib/section-narration";
+import { buildTtsCacheKey, type TtsMetadata } from "../lib/tts-profile";
+import {
+  ARTICLE_SECTION_NARRATION_VERSION,
+  buildArticleNarrationTracks,
+} from "../lib/section-narration";
 import { createTestSection } from "../lib/test-section-narration";
 
 describe("getArticleExportSections", () => {
   it("includes every narrated section", () => {
-    const result = getArticleExportSections({
+    const article = {
       _id: "article-1" as never,
       title: "Example article",
+      revisionId: "100",
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
       summary: "Lead summary with enough content to speak aloud.",
       sections: [
         createTestSection({
@@ -35,30 +44,30 @@ describe("getArticleExportSections", () => {
           },
         }),
       ],
-    });
+    };
+    const result = getArticleExportSections(article);
+    const sourceHashes = new Map(
+      buildArticleNarrationTracks(article).map((track) => [
+        track.sectionKey,
+        track.sourceHash,
+      ]),
+    );
 
     expect(result).toEqual([
       {
         sectionKey: "summary",
         text: "Lead summary with enough content to speak aloud.",
-        sourceHash: hashNarrationText(
-          "Lead summary with enough content to speak aloud.",
-        ),
+        sourceHash: sourceHashes.get("summary"),
       },
       {
         sectionKey: "section-0",
-        text:
-          "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
-        sourceHash: hashNarrationText(
-          "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
-        ),
+        text: "History. The city rebuilt its harbor after the storm. Officials later expanded the rail connection to the capital.",
+        sourceHash: sourceHashes.get("section-0"),
       },
       {
         sectionKey: "section-1",
         text: "Election results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
-        sourceHash: hashNarrationText(
-          "Election results. Table. Columns: Year; Candidate; Vote. Row 1: Year: 2020; Candidate: Rivera; Vote: 51.2%. Row 2: Year: 2022; Candidate: Patel; Vote: 49.8%.",
-        ),
+        sourceHash: sourceHashes.get("section-1"),
       },
     ]);
   });
@@ -67,6 +76,8 @@ describe("getArticleExportSections", () => {
     const articleWithVisualContext = {
       _id: "article-1" as never,
       title: "Example article",
+      revisionId: "100",
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
       summary: "Lead summary with enough content to speak aloud.",
       sections: [],
       contextBlocks: [
@@ -80,14 +91,15 @@ describe("getArticleExportSections", () => {
     };
 
     const result = getArticleExportSections(articleWithVisualContext);
+    const summarySourceHash = buildArticleNarrationTracks(
+      articleWithVisualContext,
+    )[0].sourceHash;
 
     expect(result).toEqual([
       {
         sectionKey: "summary",
         text: "Lead summary with enough content to speak aloud.",
-        sourceHash: hashNarrationText(
-          "Lead summary with enough content to speak aloud.",
-        ),
+        sourceHash: summarySourceHash,
       },
     ]);
     expect(JSON.stringify(result)).not.toContain("milestone");
@@ -104,7 +116,8 @@ describe("findReusableArticleAudioExport", () => {
           status: "ready",
           updatedAt: 1,
           narrationHash: "current-narration",
-          ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          ttsCacheKey:
+            "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
         },
         {
           _id: "new-export",
@@ -138,5 +151,95 @@ describe("findReusableArticleAudioExport", () => {
         "current-narration",
       ),
     ).toBeUndefined();
+  });
+
+  it("keeps a fallback export deliverable but does not reuse it as primary-profile audio", () => {
+    const fallbackExport = {
+      _id: "fallback-export",
+      status: "ready",
+      updatedAt: 1,
+      narrationHash: "current-narration",
+      ttsCacheKey: "requested-primary-profile",
+      producedTtsCacheKey: "produced-fallback-profile",
+    };
+
+    expect(
+      isArticleAudioExportCompatible(
+        fallbackExport,
+        "requested-primary-profile",
+        "current-narration",
+      ),
+    ).toBe(true);
+    expect(
+      isArticleAudioExportReusable(
+        fallbackExport,
+        "requested-primary-profile",
+        "current-narration",
+      ),
+    ).toBe(false);
+    expect(
+      findReusableArticleAudioExport(
+        [fallbackExport],
+        "requested-primary-profile",
+        "current-narration",
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("isArticleAudioExportCompatible", () => {
+  it("rejects exports from a different TTS profile even when narration matches", () => {
+    expect(
+      isArticleAudioExportCompatible(
+        {
+          narrationHash: "current-narration",
+          ttsCacheKey: "previous-profile",
+        },
+        "current-profile",
+        "current-narration",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts an export only when both TTS profile and narration match", () => {
+    expect(
+      isArticleAudioExportCompatible(
+        {
+          narrationHash: "current-narration",
+          ttsCacheKey: "current-profile",
+        },
+        "current-profile",
+        "current-narration",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isRequestedTtsMetadataValid", () => {
+  const metadata = (() => {
+    const profile = {
+      provider: "edge" as const,
+      model: "edge-tts",
+      voiceId: "en-US-AriaNeural",
+      promptVersion: "edge-default",
+      ttsNormVersion: "ttsNorm:2",
+    };
+    return {
+      ...profile,
+      ttsCacheKey: buildTtsCacheKey(profile),
+    } satisfies TtsMetadata;
+  })();
+
+  it("accepts a complete profile supplied by the initiating server", () => {
+    expect(isRequestedTtsMetadataValid(metadata)).toBe(true);
+  });
+
+  it("rejects a profile whose cache identity does not match its fields", () => {
+    expect(
+      isRequestedTtsMetadataValid({
+        ...metadata,
+        voiceId: "en-US-GuyNeural",
+      }),
+    ).toBe(false);
   });
 });

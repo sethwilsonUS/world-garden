@@ -9,10 +9,10 @@ import {
   type SectionNarration,
 } from "../../lib/section-narration";
 import {
+  doesTtsMetadataMatch,
   getTtsMetadata,
   getTtsProfile,
   type TtsMetadata,
-  type TtsProvider,
 } from "../../lib/tts-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -44,6 +44,7 @@ export type AssembleArticleAudioArgs<TStorageId = string> = {
   article: ArticleAudioSource;
   albumTitle: string;
   baseUrl: string;
+  requestedTtsMetadata?: TtsMetadata;
   getCachedSectionAudioUrls: (args: {
     ttsCacheKey: string;
     sourceHashes: Array<{ sectionKey: string; sourceHash: string }>;
@@ -166,7 +167,9 @@ const createArticleAudioStream = async ({
         for (const sectionAudioUrl of sectionAudioUrls) {
           const response = await fetch(sectionAudioUrl, { cache: "no-store" });
           if (!response.ok || !response.body) {
-            throw new Error(`Fetching section audio failed: ${response.status}`);
+            throw new Error(
+              `Fetching section audio failed: ${response.status}`,
+            );
           }
 
           await pipeStreamToController(response.body, controller);
@@ -199,7 +202,10 @@ export const fetchArticleArtwork = async ({
       `${baseUrl}/api/article/${encodeURIComponent(resolvedSlug)}/artwork`,
       { cache: "no-store" },
     );
-    const mimeType = response.headers.get("Content-Type")?.split(";")[0]?.trim();
+    const mimeType = response.headers
+      .get("Content-Type")
+      ?.split(";")[0]
+      ?.trim();
 
     if (!response.ok || !mimeType?.startsWith("image/")) {
       return undefined;
@@ -222,20 +228,23 @@ export const assembleArticleAudio = async <TStorageId = string>({
   article,
   albumTitle,
   baseUrl,
+  requestedTtsMetadata,
   getCachedSectionAudioUrls,
   saveSectionAudio,
   saveCombinedAudio,
   onProgress,
-}: AssembleArticleAudioArgs<TStorageId>): Promise<AssembleArticleAudioResult<TStorageId>> => {
+}: AssembleArticleAudioArgs<TStorageId>): Promise<
+  AssembleArticleAudioResult<TStorageId>
+> => {
   const sections = getArticleAudioSections(article);
   if (sections.length === 0) {
     throw new Error("Article does not contain any narratable source tracks.");
   }
 
-  const assembleWithProvider = async (
-    forcedProvider?: TtsProvider,
+  const assembleWithProfile = async (
+    passMetadata: TtsMetadata,
+    allowProviderFallback: boolean,
   ): Promise<AssembleArticleAudioResult<TStorageId>> => {
-    const passMetadata = getTtsMetadata(getTtsProfile(forcedProvider));
     const cachedUrls = await getCachedSectionAudioUrls({
       ttsCacheKey: passMetadata.ttsCacheKey,
       sourceHashes: sections.map(({ sectionKey, sourceHash }) => ({
@@ -268,7 +277,12 @@ export const assembleArticleAudio = async <TStorageId = string>({
         let metadata: TtsMetadata;
         try {
           const generatedAudio = await generateTtsAudioWithMetadata(
-            { text: section.text, provider: passMetadata.provider },
+            {
+              text: section.text,
+              provider: passMetadata.provider,
+              voiceId: passMetadata.voiceId,
+              expectedTtsCacheKey: passMetadata.ttsCacheKey,
+            },
             { apiBaseUrl: baseUrl, headers: getTtsQuotaBypassHeaders() },
           );
           blob = generatedAudio.blob;
@@ -279,8 +293,16 @@ export const assembleArticleAudio = async <TStorageId = string>({
           );
         }
 
-        if (!forcedProvider && metadata.provider !== passMetadata.provider) {
-          return assembleWithProvider(metadata.provider);
+        if (!doesTtsMetadataMatch(metadata, passMetadata)) {
+          if (
+            allowProviderFallback &&
+            metadata.provider !== passMetadata.provider
+          ) {
+            return assembleWithProfile(metadata, false);
+          }
+          throw new Error(
+            `TTS profile mismatch for ${section.sectionKey}: expected ${passMetadata.ttsCacheKey}, received ${metadata.ttsCacheKey}.`,
+          );
         }
 
         producedMetadata = metadata;
@@ -340,7 +362,9 @@ export const assembleArticleAudio = async <TStorageId = string>({
         contentType: "audio/mpeg",
       });
     } catch (error) {
-      throw new Error(`Packaging combined audio failed: ${getErrorMessage(error)}`);
+      throw new Error(
+        `Packaging combined audio failed: ${getErrorMessage(error)}`,
+      );
     }
 
     return {
@@ -357,5 +381,8 @@ export const assembleArticleAudio = async <TStorageId = string>({
     };
   };
 
-  return assembleWithProvider();
+  return assembleWithProfile(
+    requestedTtsMetadata ?? getTtsMetadata(getTtsProfile()),
+    true,
+  );
 };

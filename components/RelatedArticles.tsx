@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useData } from "@/lib/data-context";
+import { useData, type WikipediaRevisionIdentity } from "@/lib/data-context";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
+import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 
 type LinkedArticle = {
   wikiPageId: string;
@@ -11,45 +12,56 @@ type LinkedArticle = {
   description?: string;
 };
 
+type RelatedArticlesState = {
+  key: string;
+  articles: LinkedArticle[];
+  loading: boolean;
+};
+
+const loadingState = (key: string): RelatedArticlesState => ({
+  key,
+  articles: [],
+  loading: true,
+});
+
 export const RelatedArticles = ({
-  wikiPageId,
-  currentTitle,
+  identity,
 }: {
-  wikiPageId: string;
-  currentTitle: string;
+  identity: WikipediaRevisionIdentity;
 }) => {
   const { getSectionLinks } = useData();
-  const [articles, setArticles] = useState<LinkedArticle[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [prevWikiPageId, setPrevWikiPageId] = useState(wikiPageId);
-  if (wikiPageId !== prevWikiPageId) {
-    setPrevWikiPageId(wikiPageId);
-    setLoading(true);
-    setArticles([]);
-  }
+  const { wikiPageId, revisionId, title, language } = identity;
+  const identityKey = wikipediaRevisionKey(identity);
+  const [state, setState] = useState<RelatedArticlesState>(() =>
+    loadingState(identityKey),
+  );
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const requestIdentity = { wikiPageId, revisionId, title, language };
 
-    getSectionLinks({ wikiPageId, sectionTitle: null })
+    getSectionLinks({
+      identity: requestIdentity,
+      sectionTitle: null,
+      signal: controller.signal,
+    })
       .then((links) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         const filtered = links
-          .filter((l) => l.title !== currentTitle)
+          .filter((link) => link.title !== title)
           .slice(0, 5);
-        setArticles(filtered);
+        setState({ key: identityKey, articles: filtered, loading: false });
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setState({ key: identityKey, articles: [], loading: false });
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [wikiPageId, currentTitle, getSectionLinks]);
+    return () => controller.abort();
+  }, [getSectionLinks, identityKey, language, revisionId, title, wikiPageId]);
 
+  const { articles, loading } =
+    state.key === identityKey ? state : loadingState(identityKey);
   if (loading || articles.length === 0) return null;
 
   return (
@@ -79,10 +91,7 @@ export const RelatedArticles = ({
         </svg>
         Listen next
       </h2>
-      <ul
-        className="list-none p-0 m-0 grid gap-2"
-        role="list"
-      >
+      <ul className="list-none p-0 m-0 grid gap-2" role="list">
         {articles.map((article) => {
           const slug = encodeURIComponent(article.title.replace(/ /g, "_"));
           return (

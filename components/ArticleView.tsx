@@ -54,11 +54,7 @@ const AuthenticatedArticleView = ({ slug }: { slug: string }) => {
 export const ArticleView = ({ slug }: { slug: string }) => {
   if (isLocal) {
     return (
-      <ArticleViewContent
-        key={slug}
-        slug={slug}
-        badgeTrackingEnabled={false}
-      />
+      <ArticleViewContent key={slug} slug={slug} badgeTrackingEnabled={false} />
     );
   }
 
@@ -245,7 +241,6 @@ const ArticleViewContent = ({
   if (!displayArticle) return null;
 
   const sections = displayArticle.sections ?? [];
-  const wikiPageId = displayArticle.wikiPageId;
 
   const handleResume = () => {
     if (!savedProgressState?.sectionKey) return;
@@ -292,8 +287,8 @@ const ArticleViewContent = ({
         <ResumeBanner
           sectionLabel={
             savedProgressState.sectionIndex != null
-              ? sections[savedProgressState.sectionIndex]?.title ??
-                "previous section"
+              ? (sections[savedProgressState.sectionIndex]?.title ??
+                "previous section")
               : "summary"
           }
           onResume={handleResume}
@@ -317,13 +312,9 @@ const ArticleViewContent = ({
         />
       )}
 
-      <div
-        ref={warmRegionRef}
-        className="animate-fade-in-up-delay-2 mb-6"
-      >
+      <div ref={warmRegionRef} className="animate-fade-in-up-delay-2 mb-6">
         <TableOfContents
-          articleTitle={displayArticle.title}
-          wikiPageId={wikiPageId}
+          identity={displayArticle}
           summaryText={displayArticle.summary}
           sections={sections}
           sectionDurations={audioState.sectionDurations}
@@ -359,15 +350,12 @@ const ArticleViewContent = ({
       />
 
       <div className="animate-fade-in-up-delay-2 mb-6">
-        <ArticleGallery wikiPageId={wikiPageId} />
+        <ArticleGallery identity={displayArticle} />
       </div>
 
       {audioState.finishedPlaying && (
         <div className="animate-fade-in-up mb-6">
-          <RelatedArticles
-            wikiPageId={wikiPageId}
-            currentTitle={displayArticle.title}
-          />
+          <RelatedArticles identity={displayArticle} />
         </div>
       )}
 

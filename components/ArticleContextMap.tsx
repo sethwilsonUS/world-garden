@@ -4,20 +4,28 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import type { Feature } from "geojson";
+import type { Feature, Geometry } from "geojson";
 import { useTheme } from "./ThemeProvider";
 import type {
   ContextCoordinate,
+  ContextMapArea,
   ContextMapBlock,
+  ContextMapFeature,
+  ContextMapGeometry,
+  ContextMapPlace,
+  ContextMapRoute,
 } from "@/lib/article-context-types";
 import {
   StructuredDataDisclosure,
+  VisualLoadStatus,
   countLabel,
   isReducedMotion,
   useNearViewport,
+  type VisualLoadPhase,
 } from "./ArticleContextVisualShared";
 
 const CUSTOM_MAP_STYLE_URL = process.env.NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL;
@@ -46,30 +54,257 @@ const MAP_FEATURE_FIT_PADDING = 40;
 const MAP_FEATURE_FIT_MAX_ZOOM = 10;
 const EXACT_MAP_DATA_NOTE =
   "Exact place, route, and area information is available in the expandable map data below.";
-const PARTIAL_MAP_STATUS =
-  `Some map details could not load. ${EXACT_MAP_DATA_NOTE}`;
+const PARTIAL_MAP_STATUS = `Some map details could not load. ${EXACT_MAP_DATA_NOTE}`;
 
 type MapInstance = import("maplibre-gl").Map;
 type MapOverlayColors =
   (typeof MAP_OVERLAY_COLORS)[keyof typeof MAP_OVERLAY_COLORS];
 
-const mapFeatureCoordinates = (block: ContextMapBlock): ContextCoordinate[] => [
-  ...block.map.places,
-  ...block.map.routes.flatMap((route) => route.points),
-  ...block.map.areas.flatMap((area) => area.rings.flat()),
+type ContextMapGeometryLeaf = Exclude<
+  ContextMapGeometry,
+  { type: "GeometryCollection" }
+>;
+
+type ContextMapGeometryLeafEntry = {
+  id: string;
+  name: string;
+  description?: string;
+  geometry: ContextMapGeometryLeaf;
+};
+
+type ContextMapPresentation = {
+  places: ContextMapPlace[];
+  routes: ContextMapRoute[];
+  areas: ContextMapArea[];
+};
+
+const flattenMapGeometry = (
+  geometry: ContextMapGeometry,
+): ContextMapGeometryLeaf[] =>
+  geometry.type === "GeometryCollection"
+    ? geometry.geometries.flatMap(flattenMapGeometry)
+    : [geometry];
+
+const legacyMapFeatures = (block: ContextMapBlock): ContextMapFeature[] => [
+  ...block.map.areas.map((area) => ({
+    id: area.id,
+    name: area.name,
+    ...(area.description ? { description: area.description } : {}),
+    geometry: { type: "Polygon" as const, coordinates: area.rings },
+  })),
+  ...block.map.routes.map((route) => ({
+    id: route.id,
+    name: route.name,
+    ...(route.description ? { description: route.description } : {}),
+    geometry: { type: "LineString" as const, coordinates: route.points },
+  })),
+  ...block.map.places.map((place) => ({
+    id: place.id,
+    name: place.name,
+    ...(place.description ? { description: place.description } : {}),
+    geometry: {
+      type: "Point" as const,
+      coordinates: {
+        latitude: place.latitude,
+        longitude: place.longitude,
+      },
+    },
+  })),
 ];
+
+const mapGeometryLeaves = (
+  block: ContextMapBlock,
+): ContextMapGeometryLeafEntry[] => {
+  const sourceFeatures =
+    block.map.features !== undefined
+      ? block.map.features
+      : legacyMapFeatures(block);
+
+  return sourceFeatures.flatMap((feature) => {
+    const geometries = flattenMapGeometry(feature.geometry);
+    return geometries.map((geometry, index) => ({
+      id:
+        geometries.length === 1
+          ? feature.id
+          : `${feature.id}-geometry-${index}`,
+      name:
+        geometries.length === 1 ? feature.name : `${feature.name} ${index + 1}`,
+      ...(feature.description ? { description: feature.description } : {}),
+      geometry,
+    }));
+  });
+};
+
+const coordinatesFromGeometry = (
+  geometry: ContextMapGeometry,
+): ContextCoordinate[] => {
+  if (geometry.type === "Point") return [geometry.coordinates];
+  if (geometry.type === "MultiPoint" || geometry.type === "LineString") {
+    return geometry.coordinates;
+  }
+  if (geometry.type === "MultiLineString" || geometry.type === "Polygon") {
+    return geometry.coordinates.flat();
+  }
+  if (geometry.type === "MultiPolygon") return geometry.coordinates.flat(2);
+  return geometry.geometries.flatMap(coordinatesFromGeometry);
+};
+
+const mapFeatureCoordinates = (block: ContextMapBlock): ContextCoordinate[] =>
+  mapGeometryLeaves(block).flatMap((feature) =>
+    coordinatesFromGeometry(feature.geometry),
+  );
 
 const uniqueMapFeatureCoordinates = (
   block: ContextMapBlock,
-): ContextCoordinate[] =>
-  mapFeatureCoordinates(block).filter(
-    (coordinate, index, all) =>
-      all.findIndex(
-        (candidate) =>
-          candidate.latitude === coordinate.latitude &&
-          candidate.longitude === coordinate.longitude,
-      ) === index,
-  );
+): ContextCoordinate[] => {
+  const seen = new Set<string>();
+  return mapFeatureCoordinates(block).filter((coordinate) => {
+    const key = `${coordinate.latitude}:${coordinate.longitude}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const presentationItemIdentity = (
+  feature: ContextMapGeometryLeafEntry,
+  count: number,
+  index: number,
+): { id: string; name: string } =>
+  count === 1
+    ? { id: feature.id, name: feature.name }
+    : {
+        id: `${feature.id}-${index}`,
+        name: `${feature.name} ${index + 1}`,
+      };
+
+const createMapPresentation = (
+  block: ContextMapBlock,
+): ContextMapPresentation => {
+  const places: ContextMapPlace[] = [];
+  const routes: ContextMapRoute[] = [];
+  const areas: ContextMapArea[] = [];
+
+  for (const feature of mapGeometryLeaves(block)) {
+    const details = feature.description
+      ? { description: feature.description }
+      : {};
+    const { geometry } = feature;
+    if (geometry.type === "Point") {
+      places.push({
+        id: feature.id,
+        name: feature.name,
+        ...geometry.coordinates,
+        ...details,
+      });
+    } else if (geometry.type === "MultiPoint") {
+      geometry.coordinates.forEach((coordinate, index) => {
+        const identity = presentationItemIdentity(
+          feature,
+          geometry.coordinates.length,
+          index,
+        );
+        places.push({ ...identity, ...coordinate, ...details });
+      });
+    } else if (geometry.type === "LineString") {
+      routes.push({
+        id: feature.id,
+        name: feature.name,
+        points: geometry.coordinates,
+        ...details,
+      });
+    } else if (geometry.type === "MultiLineString") {
+      geometry.coordinates.forEach((points, index) => {
+        const identity = presentationItemIdentity(
+          feature,
+          geometry.coordinates.length,
+          index,
+        );
+        routes.push({ ...identity, points, ...details });
+      });
+    } else if (geometry.type === "Polygon") {
+      areas.push({
+        id: feature.id,
+        name: feature.name,
+        rings: geometry.coordinates,
+        ...details,
+      });
+    } else {
+      geometry.coordinates.forEach((rings, index) => {
+        const identity = presentationItemIdentity(
+          feature,
+          geometry.coordinates.length,
+          index,
+        );
+        areas.push({ ...identity, rings, ...details });
+      });
+    }
+  }
+
+  return { places, routes, areas };
+};
+
+const coordinatePosition = (
+  coordinate: ContextCoordinate,
+): [longitude: number, latitude: number] => [
+  coordinate.longitude,
+  coordinate.latitude,
+];
+
+const toGeoJsonGeometry = (geometry: ContextMapGeometryLeaf): Geometry => {
+  if (geometry.type === "Point") {
+    return {
+      type: "Point",
+      coordinates: coordinatePosition(geometry.coordinates),
+    };
+  }
+  if (geometry.type === "MultiPoint" || geometry.type === "LineString") {
+    return {
+      type: geometry.type,
+      coordinates: geometry.coordinates.map(coordinatePosition),
+    };
+  }
+  if (geometry.type === "MultiLineString" || geometry.type === "Polygon") {
+    return {
+      type: geometry.type,
+      coordinates: geometry.coordinates.map((line) =>
+        line.map(coordinatePosition),
+      ),
+    };
+  }
+  return {
+    type: "MultiPolygon",
+    coordinates: geometry.coordinates.map((polygon) =>
+      polygon.map((ring) => ring.map(coordinatePosition)),
+    ),
+  };
+};
+
+const mapGeometryKind = (
+  geometry: ContextMapGeometryLeaf,
+): "place" | "route" | "area" => {
+  if (geometry.type === "Point" || geometry.type === "MultiPoint") {
+    return "place";
+  }
+  if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
+    return "route";
+  }
+  return "area";
+};
+
+/** Complete feature-first GeoJSON used by MapLibre, with collections split only
+ * at geometry boundaries so each child can receive the correct visual layer. */
+export const createMapGeoJsonFeatures = (block: ContextMapBlock): Feature[] =>
+  mapGeometryLeaves(block).map((feature) => ({
+    type: "Feature",
+    properties: {
+      kind: mapGeometryKind(feature.geometry),
+      id: feature.id,
+      name: feature.name,
+      ...(feature.description ? { description: feature.description } : {}),
+    },
+    geometry: toGeoJsonGeometry(feature.geometry),
+  }));
 
 export type ContextMapFeatureBounds = [
   southwest: [longitude: number, latitude: number],
@@ -106,7 +341,10 @@ const getCoordinateExtent = (
   const south = Math.min(...latitudes);
   const north = Math.max(...latitudes);
 
-  return [[west, south], [east, north]];
+  return [
+    [west, south],
+    [east, north],
+  ];
 };
 
 /**
@@ -182,6 +420,7 @@ export const MapSchematic = ({
   captionId?: string;
   descriptionId?: string;
 }) => {
+  const presentation = createMapPresentation(block);
   const coordinates = uniqueMapFeatureCoordinates(block);
   const extent = getCoordinateExtent(
     coordinates.length > 0 ? coordinates : [block.map.center],
@@ -190,7 +429,8 @@ export const MapSchematic = ({
   const longitudeSpan = east - west;
   const latitudeSpan = north - south;
   const project = (point: ContextCoordinate) => {
-    const longitude = point.longitude < west ? point.longitude + 360 : point.longitude;
+    const longitude =
+      point.longitude < west ? point.longitude + 360 : point.longitude;
     return {
       x:
         longitudeSpan === 0
@@ -202,13 +442,27 @@ export const MapSchematic = ({
           : 24 + ((north - point.latitude) / latitudeSpan) * 252,
     };
   };
+  const areaPath = (area: ContextMapArea): string =>
+    area.rings
+      .map(
+        (ring) =>
+          `${ring
+            .map((point, index) => {
+              const projected = project(point);
+              return `${index === 0 ? "M" : "L"} ${projected.x} ${projected.y}`;
+            })
+            .join(" ")} Z`,
+      )
+      .join(" ");
 
   return (
     <figure
       className="context-visual context-map-schematic"
       role="img"
       aria-label={`Coordinate overview for ${block.title}`}
-      aria-describedby={[captionId, descriptionId].filter(Boolean).join(" ") || undefined}
+      aria-describedby={
+        [captionId, descriptionId].filter(Boolean).join(" ") || undefined
+      }
     >
       <svg
         viewBox="0 0 640 300"
@@ -217,35 +471,47 @@ export const MapSchematic = ({
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
-          <pattern id={`context-map-grid-${block.id}`} width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" className="context-map-grid-line" />
+          <pattern
+            id={`context-map-grid-${block.id}`}
+            width="40"
+            height="40"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 40 0 L 0 0 0 40"
+              fill="none"
+              className="context-map-grid-line"
+            />
           </pattern>
         </defs>
         <rect width="640" height="300" rx="14" className="context-map-paper" />
-        <rect width="640" height="300" rx="14" fill={`url(#context-map-grid-${block.id})`} />
-        {block.map.areas.map((area) =>
-          area.rings.map((ring, ringIndex) => (
-            <polygon
-              key={`${area.id}-${ringIndex}`}
-              points={ring.map((point) => {
-                const projected = project(point);
-                return `${projected.x},${projected.y}`;
-              }).join(" ")}
-              className="context-map-area"
-            />
-          )),
-        )}
-        {block.map.routes.map((route) => (
+        <rect
+          width="640"
+          height="300"
+          rx="14"
+          fill={`url(#context-map-grid-${block.id})`}
+        />
+        {presentation.areas.map((area) => (
+          <path
+            key={area.id}
+            d={areaPath(area)}
+            fillRule="evenodd"
+            className="context-map-area"
+          />
+        ))}
+        {presentation.routes.map((route) => (
           <polyline
             key={route.id}
-            points={route.points.map((point) => {
-              const projected = project(point);
-              return `${projected.x},${projected.y}`;
-            }).join(" ")}
+            points={route.points
+              .map((point) => {
+                const projected = project(point);
+                return `${projected.x},${projected.y}`;
+              })
+              .join(" ")}
             className="context-map-route"
           />
         ))}
-        {block.map.places.map((place, index) => {
+        {presentation.places.map((place, index) => {
           const point = project(place);
           return (
             <g key={place.id} transform={`translate(${point.x} ${point.y})`}>
@@ -278,22 +544,54 @@ const MapControls = ({
   return (
     <fieldset className="context-map-controls">
       <legend className="sr-only">Map controls</legend>
-      <button type="button" onClick={() => act("Zoomed in", (instance) => instance.zoomIn())} disabled={!map}>
+      <button
+        type="button"
+        onClick={() => act("Zoomed in", (instance) => instance.zoomIn())}
+        disabled={!map}
+      >
         Zoom in
       </button>
-      <button type="button" onClick={() => act("Zoomed out", (instance) => instance.zoomOut())} disabled={!map}>
+      <button
+        type="button"
+        onClick={() => act("Zoomed out", (instance) => instance.zoomOut())}
+        disabled={!map}
+      >
         Zoom out
       </button>
-      <button type="button" onClick={() => act("Panned north", (instance) => instance.panBy([0, 100]))} disabled={!map}>
+      <button
+        type="button"
+        onClick={() =>
+          act("Panned north", (instance) => instance.panBy([0, 100]))
+        }
+        disabled={!map}
+      >
         Pan north
       </button>
-      <button type="button" onClick={() => act("Panned south", (instance) => instance.panBy([0, -100]))} disabled={!map}>
+      <button
+        type="button"
+        onClick={() =>
+          act("Panned south", (instance) => instance.panBy([0, -100]))
+        }
+        disabled={!map}
+      >
         Pan south
       </button>
-      <button type="button" onClick={() => act("Panned west", (instance) => instance.panBy([100, 0]))} disabled={!map}>
+      <button
+        type="button"
+        onClick={() =>
+          act("Panned west", (instance) => instance.panBy([100, 0]))
+        }
+        disabled={!map}
+      >
         Pan west
       </button>
-      <button type="button" onClick={() => act("Panned east", (instance) => instance.panBy([-100, 0]))} disabled={!map}>
+      <button
+        type="button"
+        onClick={() =>
+          act("Panned east", (instance) => instance.panBy([-100, 0]))
+        }
+        disabled={!map}
+      >
         Pan east
       </button>
     </fieldset>
@@ -319,9 +617,26 @@ const InteractiveMap = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const nearViewport = useNearViewport(containerRef);
+  const presentation = useMemo(() => createMapPresentation(block), [block]);
   const mapRef = useRef<MapInstance | null>(null);
-  const [map, setMap] = useState<MapInstance | null>(null);
-  const [status, setStatus] = useState("Interactive map waiting to load");
+  const [renderedMap, setRenderedMap] = useState<{
+    key: string;
+    instance: MapInstance;
+  } | null>(null);
+  const [actionStatus, setActionStatus] = useState("");
+  const [attemptState, setAttemptState] = useState<{
+    key: string;
+    phase: "loading" | "ready" | "error";
+  } | null>(null);
+  const phase: VisualLoadPhase = !nearViewport
+    ? "deferred"
+    : attemptState?.key === attemptKey
+      ? attemptState.phase
+      : "loading";
+  const map =
+    renderedMap?.key === attemptKey && (phase === "ready" || phase === "error")
+      ? renderedMap.instance
+      : null;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -338,159 +653,148 @@ const InteractiveMap = ({
       onUnavailable(attemptKey);
     };
 
-    setMap(null);
-    setStatus("Loading interactive map");
+    setRenderedMap(null);
+    setActionStatus("");
+    setAttemptState({ key: attemptKey, phase: "loading" });
     loadTimeout = setTimeout(reportUnavailable, MAP_LOAD_TIMEOUT_MS);
 
     import("maplibre-gl")
-        .then((maplibre) => {
+      .then((maplibre) => {
+        if (cancelled || failureReported) return;
+        const instance = new maplibre.Map({
+          container,
+          style: styleUrl,
+          center: [block.map.center.longitude, block.map.center.latitude],
+          zoom: block.map.suggestedZoom ?? 5,
+          attributionControl: false,
+          cooperativeGestures: true,
+        });
+        const canvas = instance.getCanvas();
+        canvas.setAttribute(
+          "aria-label",
+          `Interactive street map for ${block.title}`,
+        );
+        canvas.setAttribute(
+          "aria-describedby",
+          `${captionId} ${descriptionId}`,
+        );
+        canvas.setAttribute("aria-disabled", "true");
+        canvas.tabIndex = -1;
+        mapRef.current = instance;
+
+        instance.once("load", () => {
           if (cancelled || failureReported) return;
-          const instance = new maplibre.Map({
-            container,
-            style: styleUrl,
-            center: [block.map.center.longitude, block.map.center.latitude],
-            zoom: block.map.suggestedZoom ?? 5,
-            attributionControl: false,
-            cooperativeGestures: true,
-          });
-          const canvas = instance.getCanvas();
-          canvas.setAttribute("aria-label", `Interactive street map for ${block.title}`);
-          canvas.setAttribute("aria-describedby", `${captionId} ${descriptionId}`);
-          mapRef.current = instance;
+          try {
+            const features = createMapGeoJsonFeatures(block);
 
-          instance.once("load", () => {
+            instance.addSource("article-context", {
+              type: "geojson",
+              data: { type: "FeatureCollection", features },
+            });
+            instance.addLayer({
+              id: "context-areas",
+              type: "fill",
+              source: "article-context",
+              filter: ["==", ["get", "kind"], "area"],
+              paint: { "fill-color": overlayColors.area, "fill-opacity": 0.22 },
+            });
+            instance.addLayer({
+              id: "context-areas-casing",
+              type: "line",
+              source: "article-context",
+              filter: ["==", ["get", "kind"], "area"],
+              paint: {
+                "line-color": overlayColors.casing,
+                "line-width": 7,
+                "line-opacity": 0.9,
+              },
+            });
+            instance.addLayer({
+              id: "context-areas-outline",
+              type: "line",
+              source: "article-context",
+              filter: ["==", ["get", "kind"], "area"],
+              paint: { "line-color": overlayColors.area, "line-width": 3 },
+            });
+            instance.addLayer({
+              id: "context-routes-casing",
+              type: "line",
+              source: "article-context",
+              filter: ["==", ["get", "kind"], "route"],
+              paint: {
+                "line-color": overlayColors.casing,
+                "line-width": 8,
+                "line-opacity": 0.9,
+              },
+            });
+            instance.addLayer({
+              id: "context-routes",
+              type: "line",
+              source: "article-context",
+              filter: ["==", ["get", "kind"], "route"],
+              paint: {
+                "line-color": overlayColors.route,
+                "line-width": 4,
+                "line-dasharray": [2, 1],
+              },
+            });
+            instance.addLayer({
+              id: "context-places",
+              type: "circle",
+              source: "article-context",
+              filter: ["==", ["get", "kind"], "place"],
+              paint: {
+                "circle-color": overlayColors.marker,
+                "circle-radius": 7,
+                "circle-stroke-color": overlayColors.markerStroke,
+                "circle-stroke-width": 3,
+              },
+            });
+            fitMapToFeatures(instance, block);
+          } catch {
+            reportUnavailable();
+            return;
+          }
+          instance.once("render", () => {
             if (cancelled || failureReported) return;
-            try {
-              const features: Feature[] = [
-                ...block.map.areas.flatMap((area) =>
-                  area.rings.map((ring) => ({
-                    type: "Feature" as const,
-                    properties: { kind: "area", name: area.name },
-                    geometry: {
-                      type: "Polygon" as const,
-                      coordinates: [ring.map((point) => [point.longitude, point.latitude])],
-                    },
-                  })),
-                ),
-                ...block.map.routes.map((route) => ({
-                  type: "Feature" as const,
-                  properties: { kind: "route", name: route.name },
-                  geometry: {
-                    type: "LineString" as const,
-                    coordinates: route.points.map((point) => [point.longitude, point.latitude]),
-                  },
-                })),
-                ...block.map.places.map((place) => ({
-                  type: "Feature" as const,
-                  properties: { kind: "place", id: place.id, name: place.name },
-                  geometry: {
-                    type: "Point" as const,
-                    coordinates: [place.longitude, place.latitude],
-                  },
-                })),
-              ];
-
-              instance.addSource("article-context", {
-                type: "geojson",
-                data: { type: "FeatureCollection", features },
-              });
-              instance.addLayer({
-                id: "context-areas",
-                type: "fill",
-                source: "article-context",
-                filter: ["==", ["get", "kind"], "area"],
-                paint: { "fill-color": overlayColors.area, "fill-opacity": 0.22 },
-              });
-              instance.addLayer({
-                id: "context-areas-casing",
-                type: "line",
-                source: "article-context",
-                filter: ["==", ["get", "kind"], "area"],
-                paint: {
-                  "line-color": overlayColors.casing,
-                  "line-width": 7,
-                  "line-opacity": 0.9,
-                },
-              });
-              instance.addLayer({
-                id: "context-areas-outline",
-                type: "line",
-                source: "article-context",
-                filter: ["==", ["get", "kind"], "area"],
-                paint: { "line-color": overlayColors.area, "line-width": 3 },
-              });
-              instance.addLayer({
-                id: "context-routes-casing",
-                type: "line",
-                source: "article-context",
-                filter: ["==", ["get", "kind"], "route"],
-                paint: {
-                  "line-color": overlayColors.casing,
-                  "line-width": 8,
-                  "line-opacity": 0.9,
-                },
-              });
-              instance.addLayer({
-                id: "context-routes",
-                type: "line",
-                source: "article-context",
-                filter: ["==", ["get", "kind"], "route"],
-                paint: {
-                  "line-color": overlayColors.route,
-                  "line-width": 4,
-                  "line-dasharray": [2, 1],
-                },
-              });
-              instance.addLayer({
-                id: "context-places",
-                type: "circle",
-                source: "article-context",
-                filter: ["==", ["get", "kind"], "place"],
-                paint: {
-                  "circle-color": overlayColors.marker,
-                  "circle-radius": 7,
-                  "circle-stroke-color": overlayColors.markerStroke,
-                  "circle-stroke-width": 3,
-                },
-              });
-              fitMapToFeatures(instance, block);
-            } catch {
-              reportUnavailable();
-              return;
-            }
             ready = true;
             if (loadTimeout) clearTimeout(loadTimeout);
-            setMap(instance);
-            setStatus(partialFailure ? PARTIAL_MAP_STATUS : "Interactive map ready");
+            canvas.removeAttribute("aria-disabled");
+            canvas.tabIndex = 0;
+            setRenderedMap({ key: attemptKey, instance });
+            setAttemptState({
+              key: attemptKey,
+              phase: partialFailure ? "error" : "ready",
+            });
           });
+          instance.triggerRepaint();
+        });
 
-          instance.on("error", (event) => {
-            if (cancelled || failureReported) return;
-            // MapLibre attaches these resource fields at runtime even though
-            // ErrorEvent does not publicly type them. They let us distinguish
-            // fatal pre-load failures from recoverable tile errors.
-            const mapError = event as typeof event & {
-              sourceId?: string;
-              tile?: unknown;
-            };
-            const resourceError = event.error as Error & { url?: string };
-            const fatalBeforeLoad =
-              !ready &&
-              (resourceError.url === styleUrl ||
-                Boolean(mapError.sourceId && !mapError.tile));
-            if (fatalBeforeLoad) {
-              reportUnavailable();
-              return;
-            }
-            partialFailure = true;
-            setStatus(
-              ready
-                ? PARTIAL_MAP_STATUS
-                : `The interactive map is still loading. Some visual details may be unavailable. ${EXACT_MAP_DATA_NOTE}`,
-            );
-          });
-        })
-        .catch(reportUnavailable);
+        instance.on("error", (event) => {
+          if (cancelled || failureReported) return;
+          // MapLibre attaches these resource fields at runtime even though
+          // ErrorEvent does not publicly type them. They let us distinguish
+          // fatal pre-load failures from recoverable tile errors.
+          const mapError = event as typeof event & {
+            sourceId?: string;
+            tile?: unknown;
+          };
+          const resourceError = event.error as Error & { url?: string };
+          const fatalBeforeLoad =
+            !ready &&
+            (resourceError.url === styleUrl ||
+              Boolean(mapError.sourceId && !mapError.tile));
+          if (fatalBeforeLoad) {
+            reportUnavailable();
+            return;
+          }
+          partialFailure = true;
+          if (ready) {
+            setAttemptState({ key: attemptKey, phase: "error" });
+          }
+        });
+      })
+      .catch(reportUnavailable);
 
     return () => {
       cancelled = true;
@@ -498,25 +802,48 @@ const InteractiveMap = ({
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [attemptKey, block, captionId, descriptionId, nearViewport, onUnavailable, overlayColors, styleUrl]);
+  }, [
+    attemptKey,
+    block,
+    captionId,
+    descriptionId,
+    nearViewport,
+    onUnavailable,
+    overlayColors,
+    styleUrl,
+  ]);
 
   const centerOnPlace = (name: string, longitude: number, latitude: number) => {
     if (!map) return;
-    const camera = { center: [longitude, latitude] as [number, number], zoom: Math.max(map.getZoom(), 8) };
+    const camera = {
+      center: [longitude, latitude] as [number, number],
+      zoom: Math.max(map.getZoom(), 8),
+    };
     if (isReducedMotion()) map.jumpTo(camera);
     else map.flyTo({ ...camera, essential: false });
-    setStatus(`Centered map on ${name}`);
+    setActionStatus(`Centered map on ${name}`);
   };
 
   const reset = () => {
     if (!map) return;
     const cameraSource = fitMapToFeatures(map, block);
-    setStatus(
+    setActionStatus(
       cameraSource === "features"
         ? "Map view reset to show all mapped features"
         : "Map view reset",
     );
   };
+
+  const visualStatus =
+    phase === "deferred"
+      ? "Street map will load as it approaches the viewport."
+      : phase === "loading"
+        ? "Loading interactive street map."
+        : phase === "error"
+          ? actionStatus
+            ? `${PARTIAL_MAP_STATUS} ${actionStatus}.`
+            : PARTIAL_MAP_STATUS
+          : actionStatus || "Interactive map ready.";
 
   return (
     <div className="context-interactive-map">
@@ -525,33 +852,47 @@ const InteractiveMap = ({
         role="region"
         aria-label={`Interactive street map for ${block.title}`}
         aria-describedby={`${captionId} ${descriptionId}`}
-        aria-busy={!map}
       >
-        <div ref={containerRef} className="context-map-canvas" />
-        {!map ? (
-          <p className="context-rich-media-placeholder">
-            {nearViewport
-              ? "Loading interactive street map."
-              : "Street map will load as it approaches the viewport."}
-          </p>
-        ) : null}
+        <div
+          ref={containerRef}
+          className="context-map-canvas"
+          aria-busy={phase === "loading"}
+        />
+        <VisualLoadStatus
+          phase={phase}
+          className={
+            phase === "deferred" || phase === "loading"
+              ? "context-rich-media-placeholder"
+              : undefined
+          }
+          visuallyHidden={phase === "ready" && !actionStatus}
+        >
+          {visualStatus}
+        </VisualLoadStatus>
       </div>
       <div className="context-map-toolbar">
-        <MapControls map={map} onAction={setStatus} />
-        <button type="button" onClick={reset} disabled={!map} className="context-map-reset">
+        <MapControls map={map} onAction={setActionStatus} />
+        <button
+          type="button"
+          onClick={reset}
+          disabled={!map}
+          className="context-map-reset"
+        >
           Reset map
         </button>
       </div>
-      {block.map.places.length > 0 ? (
+      {presentation.places.length > 0 ? (
         <div className="context-map-place-controls">
           <p>Center the visual map on a place:</p>
           <ul>
-            {block.map.places.map((place) => (
+            {presentation.places.map((place) => (
               <li key={place.id}>
                 <button
                   type="button"
                   disabled={!map}
-                  onClick={() => centerOnPlace(place.name, place.longitude, place.latitude)}
+                  onClick={() =>
+                    centerOnPlace(place.name, place.longitude, place.latitude)
+                  }
                 >
                   {place.name}
                 </button>
@@ -560,15 +901,23 @@ const InteractiveMap = ({
           </ul>
         </div>
       ) : null}
-      <p className="context-status" role="status" aria-live="polite">{status}</p>
       <p className="context-attribution">
         Map tiles by{" "}
-        <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">
+        <a
+          href="https://openfreemap.org/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           OpenFreeMap<span className="sr-only"> (opens in a new tab)</span>
         </a>{" "}
         · Data ©{" "}
-        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
-          OpenStreetMap contributors<span className="sr-only"> (opens in a new tab)</span>
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          OpenStreetMap contributors
+          <span className="sr-only"> (opens in a new tab)</span>
         </a>
       </p>
     </div>
@@ -587,6 +936,7 @@ export const ContextMapView = ({
   descriptionId: string;
 }) => {
   const { theme } = useTheme();
+  const presentation = useMemo(() => createMapPresentation(block), [block]);
   const [view, setView] = useState<"interactive" | "schematic" | "unavailable">(
     "interactive",
   );
@@ -606,9 +956,11 @@ export const ContextMapView = ({
   }, [mapAttemptKey]);
   const showUnavailable = useCallback((failedAttemptKey: string) => {
     if (activeMapAttemptRef.current !== failedAttemptKey) return;
-    const restoreFocus = mapViewRef.current?.contains(document.activeElement) ?? false;
+    const restoreFocus =
+      mapViewRef.current?.contains(document.activeElement) ?? false;
     setView((current) =>
-      activeMapAttemptRef.current === failedAttemptKey && current === "interactive"
+      activeMapAttemptRef.current === failedAttemptKey &&
+      current === "interactive"
         ? "unavailable"
         : current,
     );
@@ -618,7 +970,8 @@ export const ContextMapView = ({
         const activeElement = document.activeElement;
         if (
           activeElement === document.body ||
-          (activeElement instanceof Node && mapViewRef.current?.contains(activeElement))
+          (activeElement instanceof Node &&
+            mapViewRef.current?.contains(activeElement))
         ) {
           toggleRef.current?.focus();
         }
@@ -656,11 +1009,20 @@ export const ContextMapView = ({
             descriptionId={descriptionId}
           />
         ) : (
-          <MapSchematic
-            block={block}
-            captionId={captionId}
-            descriptionId={descriptionId}
-          />
+          <div className="context-map-fallback">
+            <MapSchematic
+              block={block}
+              captionId={captionId}
+              descriptionId={descriptionId}
+            />
+            <VisualLoadStatus
+              phase={view === "unavailable" ? "fallback" : "ready"}
+            >
+              {view === "unavailable"
+                ? `Interactive street map unavailable. ${EXACT_MAP_DATA_NOTE}`
+                : "Coordinate overview ready."}
+            </VisualLoadStatus>
+          </div>
         )}
       </div>
       <p id={captionId} className="context-visual-caption">
@@ -683,20 +1045,15 @@ export const ContextMapView = ({
           {buttonLabel}
         </button>
       </div>
-      <p
-        className="sr-only context-map-failure-status"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {view === "unavailable"
-          ? `Street map unavailable. ${promptDescription}`
-          : ""}
-      </p>
-
       <div className="context-map-actions">
-        <a href={centerUrl} target="_blank" rel="noopener noreferrer" className="context-text-link">
-          Open area in OpenStreetMap<span className="sr-only"> (opens in a new tab)</span>
+        <a
+          href={centerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="context-text-link"
+        >
+          Open area in OpenStreetMap
+          <span className="sr-only"> (opens in a new tab)</span>
         </a>
       </div>
 
@@ -704,29 +1061,30 @@ export const ContextMapView = ({
         label="Exact map data"
         title={block.title}
         meta={[
-          block.map.places.length
-            ? countLabel(block.map.places.length, "place")
+          presentation.places.length
+            ? countLabel(presentation.places.length, "place")
             : null,
-          block.map.routes.length
-            ? countLabel(block.map.routes.length, "route")
+          presentation.routes.length
+            ? countLabel(presentation.routes.length, "route")
             : null,
-          block.map.areas.length
-            ? countLabel(block.map.areas.length, "area")
+          presentation.areas.length
+            ? countLabel(presentation.areas.length, "area")
             : null,
         ]
           .filter((value): value is string => Boolean(value))
           .join(", ")}
       >
-        {block.map.places.length > 0 ? (
+        {presentation.places.length > 0 ? (
           <section aria-labelledby={`${block.id}-places-heading`}>
             <h4 id={`${block.id}-places-heading`}>Places</h4>
             <ol className="context-place-list">
-              {block.map.places.map((place) => (
+              {presentation.places.map((place) => (
                 <li key={place.id}>
                   <strong>{place.name}</strong>
                   {place.description ? <span>{place.description}</span> : null}
                   <span className="context-coordinates">
-                    Latitude {place.latitude.toFixed(4)}, longitude {place.longitude.toFixed(4)}
+                    Latitude {place.latitude.toFixed(4)}, longitude{" "}
+                    {place.longitude.toFixed(4)}
                   </span>
                 </li>
               ))}
@@ -734,11 +1092,11 @@ export const ContextMapView = ({
           </section>
         ) : null}
 
-        {block.map.routes.length > 0 ? (
+        {presentation.routes.length > 0 ? (
           <section aria-labelledby={`${block.id}-routes-heading`}>
             <h4 id={`${block.id}-routes-heading`}>Routes</h4>
             <ul className="context-route-list">
-              {block.map.routes.map((route) => (
+              {presentation.routes.map((route) => (
                 <li key={route.id}>
                   <strong>{route.name}</strong>
                   {route.description ? <span>{route.description}</span> : null}
@@ -749,15 +1107,18 @@ export const ContextMapView = ({
           </section>
         ) : null}
 
-        {block.map.areas.length > 0 ? (
+        {presentation.areas.length > 0 ? (
           <section aria-labelledby={`${block.id}-areas-heading`}>
             <h4 id={`${block.id}-areas-heading`}>Areas</h4>
             <ul className="context-route-list">
-              {block.map.areas.map((area) => (
+              {presentation.areas.map((area) => (
                 <li key={area.id}>
                   <strong>{area.name}</strong>
                   {area.description ? <span>{area.description}</span> : null}
-                  <span>{area.rings.length} boundary {area.rings.length === 1 ? "ring" : "rings"}</span>
+                  <span>
+                    {area.rings.length} boundary{" "}
+                    {area.rings.length === 1 ? "ring" : "rings"}
+                  </span>
                 </li>
               ))}
             </ul>

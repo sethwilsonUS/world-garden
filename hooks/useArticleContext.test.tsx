@@ -55,7 +55,7 @@ const manifest = (
   id: string,
   overrides: Partial<ContextManifest> = {},
 ): ContextManifest => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   wikiPageId: id,
   title: `Article ${id}`,
   revisionId: `${id}00`,
@@ -111,7 +111,7 @@ const Probe = ({ value }: { value: ArticleContextRequest | null }) => {
           ? `${state.manifest.title}:${state.manifest.blocks
               .map((block) => block.id)
               .join(",")}`
-          : state.error ?? ""}
+          : (state.error ?? "")}
       </output>
       <button type="button" onClick={state.retry}>
         Retry
@@ -214,7 +214,9 @@ describe("useArticleContext", () => {
     expect(signal?.aborted).toBe(true);
 
     await act(async () => {
-      pending.resolve(response({ context: manifest("1"), cacheStatus: "miss" }));
+      pending.resolve(
+        response({ context: manifest("1"), cacheStatus: "miss" }),
+      );
     });
     expect(errorSpy).not.toHaveBeenCalled();
   });

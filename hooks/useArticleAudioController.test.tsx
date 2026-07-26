@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Article } from "@/lib/data-context";
 import type { TtsAudioUrlResult } from "@/lib/tts-client";
 import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
+import { buildArticleNarrationHash } from "@/lib/section-narration";
 import { createTestSection } from "@/lib/test-section-narration";
 import { useArticleAudioController } from "./useArticleAudioController";
 
 const mocks = vi.hoisted(() => ({
   audioStartup: vi.fn(),
   downloadAll: vi.fn(),
+  exportJobs: [] as Array<Record<string, unknown>>,
   generateTts: vi.fn(),
   listenSection: vi.fn(),
   mutation: vi.fn(),
@@ -33,7 +35,7 @@ vi.mock("convex/react", () => ({
 
 vi.mock("@/components/ArticleAudioExportProvider", () => ({
   useArticleAudioExports: () => ({
-    jobs: [],
+    jobs: mocks.exportJobs,
     queueExport: mocks.queueExport,
     isStartingArticle: () => false,
   }),
@@ -204,9 +206,13 @@ describe("useArticleAudioController", () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.resetAllMocks();
+    mocks.exportJobs.length = 0;
     mocks.mutation.mockResolvedValue(undefined);
     mocks.query.mockResolvedValue({ badges: [] });
-    mocks.queueExport.mockResolvedValue({ exportId: "export-1", status: "queued" });
+    mocks.queueExport.mockResolvedValue({
+      exportId: "export-1",
+      status: "queued",
+    });
     mocks.warmSummary.mockResolvedValue(null);
 
     playSpy = vi
@@ -240,6 +246,34 @@ describe("useArticleAudioController", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("ignores a ready combined export generated with another TTS profile", async () => {
+    const articleWithId = { ...article, _id: "article-1" };
+    const narrationHash = buildArticleNarrationHash(articleWithId);
+    mocks.exportJobs.push({
+      _id: "stale-export",
+      articleId: "article-1",
+      title: articleWithId.title,
+      status: "ready",
+      sectionCount: 4,
+      completedSectionCount: 4,
+      narrationHash,
+      ttsCacheKey: "previous-profile",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    await act(async () => {
+      root.render(
+        <Harness onChange={captureController} articleValue={articleWithId} />,
+      );
+    });
+
+    await waitForExpectation(() => {
+      expect(controller().state.download.href).toBeUndefined();
+      expect(controller().state.download.status).toBeNull();
+    });
   });
 
   it("ignores a stale section completion after a newer request wins", async () => {
@@ -401,7 +435,8 @@ describe("useArticleAudioController", () => {
         createTestSection({
           title: "Riddles in the Dark",
           level: 3,
-          content: "Bilbo and Gollum exchange riddles beside an underground lake.",
+          content:
+            "Bilbo and Gollum exchange riddles beside an underground lake.",
         }),
       ],
     };
@@ -493,9 +528,7 @@ describe("useArticleAudioController", () => {
       }
       return Promise.resolve(
         audioResult(
-          text.includes("hobbit leaves")
-            ? "blob:summary"
-            : "blob:section-1",
+          text.includes("hobbit leaves") ? "blob:summary" : "blob:section-1",
         ),
       );
     });
@@ -561,7 +594,9 @@ describe("useArticleAudioController", () => {
   });
 
   it("falls back to the summary when saved progress points outside the article", async () => {
-    mocks.generateTts.mockResolvedValueOnce(audioResult("blob:summary-fallback"));
+    mocks.generateTts.mockResolvedValueOnce(
+      audioResult("blob:summary-fallback"),
+    );
 
     act(() => {
       controller().actions.resume("section-99", 99);

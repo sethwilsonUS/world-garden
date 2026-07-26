@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "articles": [
+    {
+      "wikiPageId": "384816",
+      "title": "Walter Savage Landor",
+      "revisionId": "1342291773",
+      "language": "en",
+      "expects": ["short-prose", "numeric-prose", "sections"],
+      "narrationExpectations": {
+        "playableBodySections": 11,
+        "sections": [
+          {
+            "index": "3",
+            "title": "Early life",
+            "mode": "verbatim",
+            "adapted": false,
+            "sourceFormat": "prose",
+            "containsNumericProse": true
+          },
+          {
+            "index": "9",
+            "title": "Final tragedies and return to Italy",
+            "mode": "verbatim",
+            "adapted": false,
+            "sourceFormat": "prose",
+            "containsNumericProse": true
+          },
+          {
+            "index": "11",
+            "title": "Artistic recognition",
+            "mode": "verbatim",
+            "adapted": false,
+            "sourceFormat": "prose",
+            "proseWordCount": 17
+          }
+        ]
+      }
+    },
+    {
+      "wikiPageId": "21244",
+      "title": "Nile",
+      "revisionId": "1366063778",
+      "language": "en",
+      "expects": ["tables", "complex-tables", "charts"]
+    },
+    {
+      "wikiPageId": "6886",
+      "title": "Chicago",
+      "revisionId": "1365531196",
+      "language": "en",
+      "expects": ["tables", "external-data-declined", "figures", "video"]
+    },
+    {
+      "wikiPageId": "34340",
+      "title": "Yellowstone National Park",
+      "revisionId": "1363518705",
+      "language": "en",
+      "expects": ["external-data-declined", "figures"]
+    },
+    {
+      "wikiPageId": "17742072",
+      "title": "2022 FIFA World Cup",
+      "revisionId": "1365646471",
+      "language": "en",
+      "expects": ["osm-location-map", "tables", "maps"]
+    },
+    {
+      "wikiPageId": "76850406",
+      "title": "2024 Summer Olympics medal table",
+      "revisionId": "1341989215",
+      "language": "en",
+      "expects": ["rowspans", "colspans", "ranking-chart"]
+    },
+    {
+      "wikiPageId": "23053",
+      "title": "Periodic table",
+      "revisionId": "1365558106",
+      "language": "en",
+      "expects": ["complex-tables", "unsupported-fallback"]
+    },
+    {
+      "wikiPageId": "26903",
+      "title": "Solar System",
+      "revisionId": "1365257682",
+      "language": "en",
+      "expects": ["imagemap", "diagrams", "figures"]
+    },
+    {
+      "wikiPageId": "42886381",
+      "title": "New York City Subway map",
+      "revisionId": "1364325660",
+      "language": "en",
+      "expects": ["easy-timeline", "diagrams"]
+    },
+    {
+      "wikiPageId": "5193",
+      "title": "Demographics of Canada",
+      "revisionId": "1365913924",
+      "language": "en",
+      "expects": ["wiki-chart", "tables", "charts"]
+    },
+    {
+      "wikiPageId": "3768",
+      "title": "Bundestag",
+      "revisionId": "1365999373",
+      "language": "en",
+      "expects": ["wiki-chart", "tables", "diagrams"]
+    },
+    {
+      "wikiPageId": "1094",
+      "title": "Economy of Armenia",
+      "revisionId": "1364955490",
+      "language": "en",
+      "expects": ["wiki-chart", "tables", "charts"]
+    }
+  ]
+}

@@ -1,31 +1,39 @@
 "use client";
 
 import { ReactNode, useMemo } from "react";
+import { DataContext, type DataContextValue } from "./data-context";
+import { requestLocalWikipedia } from "@/lib/local-wikipedia-client";
+import type {
+  WikipediaParsedPageData,
+  WikipediaRevisionIdentity,
+} from "@/lib/wikipedia-contracts";
 import {
-  DataContext,
-  type DataContextValue,
-  type Article,
-} from "./data-context";
-import {
-  searchWikipedia,
-  fetchArticleByTitle,
-  fetchArticleBadgeKeys,
-  slugToTitle,
-  fetchParsedPageData,
-  fetchSectionLinksByIndex,
-  type ParsedPageData,
-} from "@/convex/lib/wikipedia";
+  findWikipediaSectionMetadata,
+  wikipediaRevisionKey,
+} from "@/lib/wikipedia-utils";
 
-const parsedCache = new Map<string, ParsedPageData>();
+const parsedCache = new Map<string, WikipediaParsedPageData>();
+const MAX_PARSED_CACHE_ENTRIES = 32;
+
+const cacheParsedPage = (key: string, data: WikipediaParsedPageData): void => {
+  parsedCache.set(key, data);
+  if (parsedCache.size <= MAX_PARSED_CACHE_ENTRIES) return;
+  const oldestKey = parsedCache.keys().next().value as string | undefined;
+  if (oldestKey && oldestKey !== key) parsedCache.delete(oldestKey);
+};
 
 const getOrFetchParsed = async (
-  wikiPageId: string,
+  identity: WikipediaRevisionIdentity,
   signal?: AbortSignal,
-): Promise<ParsedPageData> => {
-  const cached = parsedCache.get(wikiPageId);
+): Promise<WikipediaParsedPageData> => {
+  const key = wikipediaRevisionKey(identity);
+  const cached = parsedCache.get(key);
   if (cached) return cached;
-  const data = await fetchParsedPageData(wikiPageId, signal);
-  parsedCache.set(wikiPageId, data);
+  const data = await requestLocalWikipedia(
+    { operation: "metadata", identity },
+    signal,
+  );
+  cacheParsedPage(key, data);
   return data;
 };
 
@@ -34,78 +42,50 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
     () => ({
       search: async ({ term }) => {
         if (!term.trim()) return [];
-        return searchWikipedia(term.trim());
+        return requestLocalWikipedia({
+          operation: "search",
+          term: term.trim(),
+        });
       },
 
-      fetchArticle: async ({ slug }) => {
-        const title = slugToTitle(slug);
-        const data = await fetchArticleByTitle(title);
-        let badgeKeys: Article["badgeKeys"];
+      fetchArticle: ({ slug }) =>
+        requestLocalWikipedia({ operation: "article", slug }),
 
-        try {
-          badgeKeys = await fetchArticleBadgeKeys(data.wikiPageId);
-        } catch {
-          badgeKeys = undefined;
-        }
-
-        const article: Article = {
-          wikiPageId: data.wikiPageId,
-          title: data.title,
-          language: data.language,
-          revisionId: data.revisionId,
-          narrationVersion: data.narrationVersion,
-          lastEdited: data.lastEdited,
-          summary: data.summary,
-          thumbnailUrl: data.thumbnailUrl,
-          thumbnailWidth: data.thumbnailWidth,
-          thumbnailHeight: data.thumbnailHeight,
-          thumbnailAttribution: data.thumbnailAttribution,
-          sections: data.sections,
-          badgeKeys,
-        };
-        return article;
-      },
-
-      getSectionLinkCounts: async ({ wikiPageId, signal }) => {
-        const data = await getOrFetchParsed(wikiPageId, signal);
+      getSectionLinkCounts: async ({ identity, signal }) => {
+        const data = await getOrFetchParsed(identity, signal);
         return data.linkCounts;
       },
 
-      getCitationCounts: async ({ wikiPageId, signal }) => {
-        const data = await getOrFetchParsed(wikiPageId, signal);
-        return data.sectionCitations.map(({ title, count }) => ({
+      getCitationCounts: async ({ identity, signal }) => {
+        const data = await getOrFetchParsed(identity, signal);
+        return data.sectionCitations.map(({ index, title, count }) => ({
+          ...(index !== undefined ? { index } : {}),
           title,
           count,
         }));
       },
 
-      getSectionLinks: async ({ wikiPageId, sectionTitle, signal }) => {
-        let sectionIndex = "0";
+      getSectionLinks: ({ identity, sectionTitle, sectionIndex, signal }) =>
+        requestLocalWikipedia(
+          {
+            operation: "section-links",
+            identity,
+            sectionTitle,
+            sectionIndex,
+          },
+          signal,
+        ),
 
-        if (sectionTitle !== null) {
-          const parseData = await getOrFetchParsed(wikiPageId, signal);
-          const normalise = (s: string) =>
-            s.replace(/<[^>]+>/g, "").trim().toLowerCase();
-          const target = normalise(sectionTitle);
-          const match = parseData.sectionIndexMap.find(
-            (s) => normalise(s.title) === target,
-          );
-          if (!match) return [];
-          sectionIndex = match.index;
-        }
-
-        return fetchSectionLinksByIndex(wikiPageId, sectionIndex, signal);
-      },
-
-      getSectionCitations: async ({ wikiPageId, sectionTitle, signal }) => {
-        const data = await getOrFetchParsed(wikiPageId, signal);
-        const key = sectionTitle ?? "__summary__";
-        const normalise = (s: string) =>
-          s.replace(/<[^>]+>/g, "").trim().toLowerCase();
-        const target = normalise(key);
-
-        const sectionInfo = data.sectionCitations.find(
-          (s) => normalise(s.title) === target,
+      getSectionCitations: async ({
+        identity,
+        sectionTitle,
+        sectionIndex,
+        signal,
+      }) => {
+        const data = await getOrFetchParsed(identity, signal);
+        const sectionInfo = findWikipediaSectionMetadata(
+          data.sectionCitations,
+          { sectionTitle, sectionIndex },
         );
         if (!sectionInfo) return [];
 
@@ -113,8 +93,8 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
         return data.citations.filter((c) => idSet.has(c.id));
       },
 
-      getArticleImages: async ({ wikiPageId }) => {
-        const data = await getOrFetchParsed(wikiPageId);
+      getArticleImages: async ({ identity, signal }) => {
+        const data = await getOrFetchParsed(identity, signal);
         return data.images;
       },
     }),

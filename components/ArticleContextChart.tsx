@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,13 +30,16 @@ import type { ECharts, EChartsOption } from "echarts";
 import { useTheme } from "./ThemeProvider";
 import {
   StructuredDataDisclosure,
+  VisualLoadStatus,
   countLabel,
   isReducedMotion,
   useMediaQuery,
   useNearViewport,
+  type VisualLoadPhase,
 } from "./ArticleContextVisualShared";
 
 const MOBILE_CHART_MEDIA_QUERY = "(max-width: 640px)";
+const CHART_LOAD_TIMEOUT_MS = 15_000;
 
 const numericValue = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -45,8 +50,7 @@ const FALLBACK_CHART_HEIGHT = 190;
 const fallbackChartY = (value: number, min: number, max: number): number => {
   const span = max - min || 1;
   return (
-    FALLBACK_CHART_TOP +
-    (1 - (value - min) / span) * FALLBACK_CHART_HEIGHT
+    FALLBACK_CHART_TOP + (1 - (value - min) / span) * FALLBACK_CHART_HEIGHT
   );
 };
 
@@ -61,7 +65,8 @@ const buildLinePath = (
     if (value === null) return path;
     const x = 54 + (index / Math.max(rows.length - 1, 1)) * 550;
     const y = fallbackChartY(value, min, max);
-    const previousValue = index > 0 ? numericValue(rows[index - 1][series.yColumn]) : null;
+    const previousValue =
+      index > 0 ? numericValue(rows[index - 1][series.yColumn]) : null;
     return `${path}${path ? " " : ""}${previousValue === null ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
   }, "");
 };
@@ -71,7 +76,14 @@ const CHART_COLORS = {
   dark: ["#34d399", "#f2ad5d", "#75a7e8", "#c99ae0", "#fb7185", "#a3e635"],
 } as const;
 const CHART_LINE_STYLES = ["solid", "dashed", "dotted"] as const;
-const CHART_SYMBOLS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"] as const;
+const CHART_SYMBOLS = [
+  "circle",
+  "rect",
+  "triangle",
+  "diamond",
+  "pin",
+  "arrow",
+] as const;
 export const getFallbackBarGeometry = (
   value: number,
   min: number,
@@ -102,7 +114,9 @@ const ChartGraphic = ({
   const { theme } = useTheme();
   const chartColors = CHART_COLORS[theme];
   const values = selectedSeries.flatMap((series) =>
-    rows.map((row) => numericValue(row[series.yColumn])).filter((value): value is number => value !== null),
+    rows
+      .map((row) => numericValue(row[series.yColumn]))
+      .filter((value): value is number => value !== null),
   );
   const dataMin = values.length > 0 ? Math.min(...values) : 0;
   const dataMax = values.length > 0 ? Math.max(...values) : 0;
@@ -111,79 +125,117 @@ const ChartGraphic = ({
   const zeroY = fallbackChartY(0, min, max);
 
   return (
-      <svg viewBox="0 0 640 260" aria-hidden="true" focusable="false" preserveAspectRatio="xMidYMid meet">
-        <defs>
-          {selectedSeries.map((series, seriesIndex) => {
-            const color = chartColors[seriesIndex % chartColors.length];
-            return (
-              <pattern
-                key={series.id}
-                id={`context-chart-pattern-${block.id}-${series.id}`}
-                width="8"
-                height="8"
-                patternUnits="userSpaceOnUse"
-                patternTransform={`rotate(${seriesIndex * 45})`}
-              >
-                <rect width="8" height="8" fill={color} />
-                {seriesIndex > 0 ? (
-                  <path
-                    d="M 0 0 L 0 8"
-                    stroke={theme === "dark" ? "#111827" : "#ffffff"}
-                    strokeOpacity="0.62"
-                    strokeWidth={Math.min(3, seriesIndex + 1)}
-                  />
-                ) : null}
-              </pattern>
-            );
-          })}
-        </defs>
-        <rect width="640" height="260" rx="14" className="context-chart-paper" />
-        {[0, 1, 2, 3, 4].map((line) => (
-          <line key={line} x1="54" x2="604" y1={24 + line * 47.5} y2={24 + line * 47.5} className="context-chart-grid" />
-        ))}
-        <line x1="54" x2="54" y1="24" y2="214" className="context-chart-axis" />
-        <line x1="54" x2="604" y1={zeroY} y2={zeroY} className="context-chart-axis" />
+    <svg
+      viewBox="0 0 640 260"
+      aria-hidden="true"
+      focusable="false"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      <defs>
         {selectedSeries.map((series, seriesIndex) => {
           const color = chartColors[seriesIndex % chartColors.length];
-          if (renderKind === "bar" || renderKind === "pie") {
-            const slotWidth = 550 / Math.max(rows.length, 1);
-            const barWidth = Math.max(2, (slotWidth * 0.72) / Math.max(selectedSeries.length, 1));
-            return rows.map((row, rowIndex) => {
-              const value = numericValue(row[series.yColumn]);
-              if (value === null) return null;
-              const geometry = getFallbackBarGeometry(value, min, max);
-              return (
-                <rect
-                  key={`${series.id}-${rowIndex}`}
-                  x={54 + rowIndex * slotWidth + seriesIndex * barWidth + slotWidth * 0.14}
-                  y={geometry.y}
-                  width={barWidth}
-                  height={geometry.height}
-                  fill={`url(#context-chart-pattern-${block.id}-${series.id})`}
-                  className={renderKind === "pie" ? "context-chart-pie-bar" : undefined}
-                />
-              );
-            });
-          }
-          const path = buildLinePath(rows, series, min, max);
           return (
-            <g key={series.id}>
-              {series.type === "area" && renderKind === "line" ? (
-                <path d={`${path} L604 ${zeroY} L54 ${zeroY} Z`} fill={color} opacity="0.18" />
+            <pattern
+              key={series.id}
+              id={`context-chart-pattern-${block.id}-${series.id}`}
+              width="8"
+              height="8"
+              patternUnits="userSpaceOnUse"
+              patternTransform={`rotate(${seriesIndex * 45})`}
+            >
+              <rect width="8" height="8" fill={color} />
+              {seriesIndex > 0 ? (
+                <path
+                  d="M 0 0 L 0 8"
+                  stroke={theme === "dark" ? "#111827" : "#ffffff"}
+                  strokeOpacity="0.62"
+                  strokeWidth={Math.min(3, seriesIndex + 1)}
+                />
               ) : null}
-              <path
-                d={path}
-                fill="none"
-                stroke={color}
-                strokeWidth="4"
-                strokeDasharray={seriesIndex === 0 ? undefined : seriesIndex % 2 === 0 ? "3 5" : "10 6"}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            </g>
+            </pattern>
           );
         })}
-      </svg>
+      </defs>
+      <rect width="640" height="260" rx="14" className="context-chart-paper" />
+      {[0, 1, 2, 3, 4].map((line) => (
+        <line
+          key={line}
+          x1="54"
+          x2="604"
+          y1={24 + line * 47.5}
+          y2={24 + line * 47.5}
+          className="context-chart-grid"
+        />
+      ))}
+      <line x1="54" x2="54" y1="24" y2="214" className="context-chart-axis" />
+      <line
+        x1="54"
+        x2="604"
+        y1={zeroY}
+        y2={zeroY}
+        className="context-chart-axis"
+      />
+      {selectedSeries.map((series, seriesIndex) => {
+        const color = chartColors[seriesIndex % chartColors.length];
+        if (renderKind === "bar" || renderKind === "pie") {
+          const slotWidth = 550 / Math.max(rows.length, 1);
+          const barWidth = Math.max(
+            2,
+            (slotWidth * 0.72) / Math.max(selectedSeries.length, 1),
+          );
+          return rows.map((row, rowIndex) => {
+            const value = numericValue(row[series.yColumn]);
+            if (value === null) return null;
+            const geometry = getFallbackBarGeometry(value, min, max);
+            return (
+              <rect
+                key={`${series.id}-${rowIndex}`}
+                x={
+                  54 +
+                  rowIndex * slotWidth +
+                  seriesIndex * barWidth +
+                  slotWidth * 0.14
+                }
+                y={geometry.y}
+                width={barWidth}
+                height={geometry.height}
+                fill={`url(#context-chart-pattern-${block.id}-${series.id})`}
+                className={
+                  renderKind === "pie" ? "context-chart-pie-bar" : undefined
+                }
+              />
+            );
+          });
+        }
+        const path = buildLinePath(rows, series, min, max);
+        return (
+          <g key={series.id}>
+            {series.type === "area" && renderKind === "line" ? (
+              <path
+                d={`${path} L604 ${zeroY} L54 ${zeroY} Z`}
+                fill={color}
+                opacity="0.18"
+              />
+            ) : null}
+            <path
+              d={path}
+              fill="none"
+              stroke={color}
+              strokeWidth="4"
+              strokeDasharray={
+                seriesIndex === 0
+                  ? undefined
+                  : seriesIndex % 2 === 0
+                    ? "3 5"
+                    : "10 6"
+              }
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          </g>
+        );
+      })}
+    </svg>
   );
 };
 
@@ -193,23 +245,30 @@ const EChartsGraphic = ({
   renderKind,
   selectedSeries,
   zeroBaseline,
+  readinessKey,
+  onPhaseChange,
 }: {
   block: ContextChartBlock;
   rows: ContextChartBlock["chart"]["rows"];
   renderKind: Exclude<StandardChartRenderKind, "exact-only">;
   selectedSeries: ContextChartSeries[];
   zeroBaseline: boolean;
+  readinessKey?: string;
+  onPhaseChange?: (key: string, phase: VisualLoadPhase) => void;
 }) => {
   const { theme } = useTheme();
+  const viewportRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const nearViewport = useNearViewport(containerRef);
-  const {
-    matches: narrowViewport,
-    revision: viewportRevision,
-  } = useMediaQuery(MOBILE_CHART_MEDIA_QUERY);
-  const [failed, setFailed] = useState(false);
-  const [readyAttempt, setReadyAttempt] = useState<string | null>(null);
-  const xColumn = selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key ?? "";
+  const nearViewport = useNearViewport(viewportRef);
+  const { matches: narrowViewport, revision: viewportRevision } = useMediaQuery(
+    MOBILE_CHART_MEDIA_QUERY,
+  );
+  const [attemptState, setAttemptState] = useState<{
+    key: string;
+    phase: "loading" | "ready" | "fallback";
+  } | null>(null);
+  const xColumn =
+    selectedSeries[0]?.xColumn ?? block.chart.columns[0]?.key ?? "";
   const xLabels = useMemo(
     () => rows.map((row) => String(row[xColumn] ?? "Not available")),
     [rows, xColumn],
@@ -219,30 +278,66 @@ const EChartsGraphic = ({
     renderKind === "bar" &&
     (rows.length > 8 || xLabels.some((label) => label.length > 16));
   const chartHeight = horizontalBars
-    ? Math.min(560, Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)))
+    ? Math.min(
+        560,
+        Math.max(320, rows.length * 34 + (selectedSeries.length > 1 ? 66 : 48)),
+      )
     : 300;
   const chartPayloadKey = useMemo(
     () => getContextChartPayloadKey(rows, selectedSeries),
     [rows, selectedSeries],
   );
   const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${chartPayloadKey}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
-  const ready = readyAttempt === chartAttempt;
+  const useMobileBarLayout = horizontalBars && narrowViewport;
+  const phase: VisualLoadPhase = !nearViewport
+    ? "deferred"
+    : useMobileBarLayout
+      ? "ready"
+      : attemptState?.key === chartAttempt
+        ? attemptState.phase
+        : "loading";
+
+  useLayoutEffect(() => {
+    if (readinessKey) onPhaseChange?.(readinessKey, phase);
+  }, [onPhaseChange, phase, readinessKey]);
 
   useEffect(() => {
     const container = containerRef.current;
-    const useMobileBarLayout = horizontalBars && narrowViewport;
     if (!container || !nearViewport || useMobileBarLayout) return;
     let chart: ECharts | null = null;
     let cancelled = false;
+    let fallbackShown = false;
+    let loadTimeout: ReturnType<typeof setTimeout> | null = null;
+    const finishHandler = () => {
+      if (cancelled || fallbackShown) return;
+      if (loadTimeout) clearTimeout(loadTimeout);
+      chart?.off("finished", finishHandler);
+      setAttemptState({ key: chartAttempt, phase: "ready" });
+    };
+    const showFallback = () => {
+      if (cancelled || fallbackShown) return;
+      fallbackShown = true;
+      if (loadTimeout) clearTimeout(loadTimeout);
+      chart?.off("finished", finishHandler);
+      chart?.dispose();
+      chart = null;
+      setAttemptState({ key: chartAttempt, phase: "fallback" });
+    };
+
+    setAttemptState({ key: chartAttempt, phase: "loading" });
+    loadTimeout = setTimeout(showFallback, CHART_LOAD_TIMEOUT_MS);
 
     import("echarts")
       .then((echarts) => {
-        if (cancelled) return;
+        if (cancelled || fallbackShown) return;
         chart = echarts.init(container, undefined, { renderer: "svg" });
+        chart.on("finished", finishHandler);
         const styles = getComputedStyle(container);
-        const textColor = styles.getPropertyValue("--color-foreground-2").trim() ||
+        const textColor =
+          styles.getPropertyValue("--color-foreground-2").trim() ||
           (theme === "dark" ? "#d1d5db" : "#374151");
-        const borderColor = styles.getPropertyValue("--color-border").trim() ||
+        const borderColor =
+          styles.getPropertyValue("--color-border").trim() ||
           (theme === "dark" ? "#374151" : "#d1d5db");
         const valueAxis = {
           type: "value" as const,
@@ -265,16 +360,29 @@ const EChartsGraphic = ({
           backgroundColor: "transparent",
           textStyle: { color: textColor },
           grid: horizontalBars
-            ? { left: 24, right: 34, top: selectedSeries.length > 1 ? 48 : 18, bottom: 24, containLabel: true }
-            : { left: 54, right: 22, top: selectedSeries.length > 1 ? 54 : 28, bottom: 54, containLabel: true },
-          legend: selectedSeries.length > 1
             ? {
-                show: true,
-                top: 4,
-                type: "scroll",
-                textStyle: { color: textColor },
+                left: 24,
+                right: 34,
+                top: selectedSeries.length > 1 ? 48 : 18,
+                bottom: 24,
+                containLabel: true,
               }
-            : { show: false },
+            : {
+                left: 54,
+                right: 22,
+                top: selectedSeries.length > 1 ? 54 : 28,
+                bottom: 54,
+                containLabel: true,
+              },
+          legend:
+            selectedSeries.length > 1
+              ? {
+                  show: true,
+                  top: 4,
+                  type: "scroll",
+                  textStyle: { color: textColor },
+                }
+              : { show: false },
           tooltip: { show: false },
           xAxis: horizontalBars ? valueAxis : categoryAxis,
           yAxis: horizontalBars
@@ -284,9 +392,10 @@ const EChartsGraphic = ({
             const decal = {
               symbol: CHART_SYMBOLS[seriesIndex % CHART_SYMBOLS.length],
               symbolSize: 0.65,
-              color: theme === "dark"
-                ? "rgba(17, 24, 39, 0.55)"
-                : "rgba(255, 255, 255, 0.62)",
+              color:
+                theme === "dark"
+                  ? "rgba(17, 24, 39, 0.55)"
+                  : "rgba(255, 255, 255, 0.62)",
               dashArrayX: [1, 0],
               dashArrayY: [3 + (seriesIndex % 3), 3],
               rotation: (seriesIndex * Math.PI) / 4,
@@ -302,9 +411,14 @@ const EChartsGraphic = ({
                 data: rows
                   .map((row, index): { name: string; value: number } | null => {
                     const value = numericValue(row[series.yColumn]);
-                    return value === null ? null : { name: xLabels[index], value };
+                    return value === null
+                      ? null
+                      : { name: xLabels[index], value };
                   })
-                  .filter((item): item is { name: string; value: number } => item !== null),
+                  .filter(
+                    (item): item is { name: string; value: number } =>
+                      item !== null,
+                  ),
                 label: { show: true, formatter: "{b}", color: textColor },
                 itemStyle: { decal },
               };
@@ -314,7 +428,7 @@ const EChartsGraphic = ({
               name: series.label,
               cursor: "default",
               silent: true,
-              type: renderKind === "bar" ? "bar" as const : "line" as const,
+              type: renderKind === "bar" ? ("bar" as const) : ("line" as const),
               data: rows.map((row) => numericValue(row[series.yColumn])),
               connectNulls: false,
               showSymbol: rows.length <= 30,
@@ -323,63 +437,97 @@ const EChartsGraphic = ({
                 type: CHART_LINE_STYLES[seriesIndex % CHART_LINE_STYLES.length],
               },
               itemStyle: renderKind === "bar" ? { decal } : undefined,
-              areaStyle: renderKind === "line" && series.type === "area"
-                ? { opacity: 0.18 }
-                : undefined,
+              areaStyle:
+                renderKind === "line" && series.type === "area"
+                  ? { opacity: 0.18 }
+                  : undefined,
               emphasis: { disabled: true },
             };
           }),
         };
         chart.setOption(option);
-        if (!cancelled) setReadyAttempt(chartAttempt);
       })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
+      .catch(showFallback);
 
     const resize = () => chart?.resize();
     window.addEventListener("resize", resize);
-    const resizeObserver = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(resize)
-      : null;
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
     resizeObserver?.observe(container);
 
     return () => {
       cancelled = true;
+      if (loadTimeout) clearTimeout(loadTimeout);
       window.removeEventListener("resize", resize);
       resizeObserver?.disconnect();
+      chart?.off("finished", finishHandler);
       chart?.dispose();
     };
-  }, [block, chartAttempt, horizontalBars, narrowViewport, nearViewport, renderKind, rows, selectedSeries, theme, xLabels, zeroBaseline]);
+  }, [
+    block,
+    chartAttempt,
+    horizontalBars,
+    nearViewport,
+    renderKind,
+    rows,
+    selectedSeries,
+    theme,
+    useMobileBarLayout,
+    xLabels,
+    zeroBaseline,
+  ]);
+
+  const statusLabel =
+    phase === "deferred"
+      ? "Chart will load as it approaches the viewport."
+      : phase === "loading"
+        ? "Loading chart."
+        : phase === "fallback"
+          ? "Interactive chart unavailable. A simplified chart is shown; exact data remains available below."
+          : "Chart ready.";
 
   return (
-    <div className={horizontalBars ? "context-responsive-horizontal-bars" : undefined}>
+    <div
+      ref={viewportRef}
+      className={
+        horizontalBars ? "context-responsive-horizontal-bars" : undefined
+      }
+    >
       <div className="context-desktop-chart">
-        {failed ? (
-          <ChartGraphic
-            block={block}
-            rows={rows}
-            renderKind={renderKind}
-            selectedSeries={selectedSeries}
-            zeroBaseline={zeroBaseline}
+        <div
+          className="context-echarts-surface"
+          style={{ minHeight: chartHeight }}
+        >
+          <div
+            ref={containerRef}
+            className="context-echarts"
+            aria-hidden="true"
+            aria-busy={phase === "loading"}
+            hidden={phase === "fallback"}
+            style={{ minHeight: chartHeight }}
           />
-        ) : (
-          <div className="context-echarts-surface" aria-busy={!ready}>
-            <div
-              ref={containerRef}
-              className="context-echarts"
-              aria-hidden="true"
-              style={{ minHeight: chartHeight }}
-            />
-            {!ready ? (
-              <p className="context-rich-media-placeholder">
-                {nearViewport
-                  ? "Loading chart."
-                  : "Chart will load as it approaches the viewport."}
-              </p>
-            ) : null}
-          </div>
-        )}
+          {phase === "fallback" ? (
+            <div className="context-echarts-fallback" aria-hidden="true">
+              <ChartGraphic
+                block={block}
+                rows={rows}
+                renderKind={renderKind}
+                selectedSeries={selectedSeries}
+                zeroBaseline={zeroBaseline}
+              />
+            </div>
+          ) : null}
+          <VisualLoadStatus
+            phase={phase}
+            className={
+              phase === "deferred" || phase === "loading"
+                ? "context-rich-media-placeholder"
+                : undefined
+            }
+          >
+            {statusLabel}
+          </VisualLoadStatus>
+        </div>
       </div>
       {horizontalBars ? (
         <MobileCategoryBars
@@ -437,13 +585,20 @@ const MobileCategoryBars = ({
                 <span
                   className="context-mobile-bar-measure"
                   key={series.id}
-                  style={{
-                    "--context-mobile-bar-color": CHART_COLORS[theme][seriesIndex % CHART_COLORS[theme].length],
-                  } as CSSProperties}
+                  style={
+                    {
+                      "--context-mobile-bar-color":
+                        CHART_COLORS[theme][
+                          seriesIndex % CHART_COLORS[theme].length
+                        ],
+                    } as CSSProperties
+                  }
                 >
                   <span className="context-mobile-bar-value">
                     {showSeriesLabels ? <span>{series.label}</span> : null}
-                    <strong>{formatContextChartCell(value, measureColumn)}</strong>
+                    <strong>
+                      {formatContextChartCell(value, measureColumn)}
+                    </strong>
                     {unit && geometry ? <span> {unit}</span> : null}
                   </span>
                   <span className="context-mobile-bar-track" aria-hidden="true">
@@ -492,14 +647,22 @@ const ChartDataDisclosure = ({
     title={block.title}
     meta={`${countLabel(block.chart.rows.length, "row")}, ${countLabel(block.chart.columns.length, "column")}`}
   >
-    <div className="context-table-wrap" role="region" aria-labelledby={`${block.id}-table-caption`} tabIndex={0}>
+    <div
+      className="context-table-wrap"
+      role="region"
+      aria-labelledby={`${block.id}-table-caption`}
+      tabIndex={0}
+    >
       <table className="context-data-table">
-        <caption id={`${block.id}-table-caption`}>Exact data for {block.title}</caption>
+        <caption id={`${block.id}-table-caption`}>
+          Exact data for {block.title}
+        </caption>
         <thead>
           <tr>
             {block.chart.columns.map((column) => (
               <th key={column.key} scope="col">
-                {column.label}{column.unit ? <span> ({column.unit})</span> : null}
+                {column.label}
+                {column.unit ? <span> ({column.unit})</span> : null}
               </th>
             ))}
           </tr>
@@ -507,13 +670,17 @@ const ChartDataDisclosure = ({
         <tbody>
           {block.chart.rows.map((row, rowIndex) => (
             <tr key={rowIndex}>
-              {block.chart.columns.map((column) => (
+              {block.chart.columns.map((column) =>
                 column.key === rowHeaderKey ? (
-                  <th key={column.key} scope="row">{formatContextChartCell(row[column.key], column)}</th>
+                  <th key={column.key} scope="row">
+                    {formatContextChartCell(row[column.key], column)}
+                  </th>
                 ) : (
-                  <td key={column.key}>{formatContextChartCell(row[column.key], column)}</td>
-                )
-              ))}
+                  <td key={column.key}>
+                    {formatContextChartCell(row[column.key], column)}
+                  </td>
+                ),
+              )}
             </tr>
           ))}
         </tbody>
@@ -534,9 +701,7 @@ const useToggleableSelection = (
   selectedIds: Set<string>;
   toggleSelection: (id: string) => void;
 } => {
-  const [selectedIds, setSelectedIds] = useState(
-    () => new Set(initialIds),
-  );
+  const [selectedIds, setSelectedIds] = useState(() => new Set(initialIds));
 
   const toggleSelection = (id: string) => {
     setSelectedIds((current) => {
@@ -558,9 +723,8 @@ const getSeriesUnit = (
   block: ContextChartBlock,
   series: ContextChartSeries,
 ): string | undefined =>
-  series.unit ?? block.chart.columns.find(
-    (column) => column.key === series.yColumn,
-  )?.unit;
+  series.unit ??
+  block.chart.columns.find((column) => column.key === series.yColumn)?.unit;
 
 const formatSeriesLabel = (
   block: ContextChartBlock,
@@ -568,11 +732,15 @@ const formatSeriesLabel = (
 ): string => {
   const unit = getSeriesUnit(block, series);
   if (!unit) return series.label;
-  const normalizedLabel = series.label.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  const normalizedLabel = series.label
+    .toLocaleLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
   const normalizedUnit = unit.toLocaleLowerCase().replace(/\s+/g, " ").trim();
   if (
     normalizedLabel.endsWith(`(${normalizedUnit})`) ||
-    (normalizedUnit === "%" && /(?:%|percent|percentage)(?:\W|$)/i.test(series.label))
+    (normalizedUnit === "%" &&
+      /(?:%|percent|percentage)(?:\W|$)/i.test(series.label))
   ) {
     return series.label;
   }
@@ -615,21 +783,32 @@ const RankingMetricPanel = ({
           const value = row[series.yColumn];
           const geometry = getRankedBarGeometry(values, value);
           return (
-            <li key={`${String(row[presentation.rankColumn.key] ?? rowIndex)}-${String(row[presentation.entityColumn.key])}`}>
+            <li
+              key={`${String(row[presentation.rankColumn.key] ?? rowIndex)}-${String(row[presentation.entityColumn.key])}`}
+            >
               <span className="context-ranked-bar-identity">
                 <span className="context-ranking-position">
-                  <span className="sr-only">{presentation.rankColumn.label}: </span>
+                  <span className="sr-only">
+                    {presentation.rankColumn.label}:{" "}
+                  </span>
                   {formatContextChartCell(row[presentation.rankColumn.key])}
                 </span>
                 <span className="context-ranking-entry">
                   <strong>
-                    <span className="sr-only">{presentation.entityColumn.label}: </span>
+                    <span className="sr-only">
+                      {presentation.entityColumn.label}:{" "}
+                    </span>
                     {formatContextChartCell(row[presentation.entityColumn.key])}
                   </strong>
-                  {presentation.outcomeColumn && row[presentation.outcomeColumn.key] ? (
+                  {presentation.outcomeColumn &&
+                  row[presentation.outcomeColumn.key] ? (
                     <span>
-                      <span className="sr-only">{presentation.outcomeColumn.label}: </span>
-                      {formatContextChartCell(row[presentation.outcomeColumn.key])}
+                      <span className="sr-only">
+                        {presentation.outcomeColumn.label}:{" "}
+                      </span>
+                      {formatContextChartCell(
+                        row[presentation.outcomeColumn.key],
+                      )}
                     </span>
                   ) : null}
                 </span>
@@ -685,9 +864,9 @@ const RankingOverview = ({
   captionId: string;
 }) => {
   const { theme } = useTheme();
-  const { selectedIds, toggleSelection } = useToggleableSelection(
-    [presentation.measureSeries.id],
-  );
+  const { selectedIds, toggleSelection } = useToggleableSelection([
+    presentation.measureSeries.id,
+  ]);
   const selectedSeries = presentation.availableSeries.filter((series) =>
     selectedIds.has(series.id),
   );
@@ -705,9 +884,11 @@ const RankingOverview = ({
             <legend>Metrics shown in the ranking overview</legend>
             {presentation.availableSeries.map((series) => {
               const checked = selectedIds.has(series.id);
-              const unit = series.unit ?? block.chart.columns.find(
-                (column) => column.key === series.yColumn,
-              )?.unit;
+              const unit =
+                series.unit ??
+                block.chart.columns.find(
+                  (column) => column.key === series.yColumn,
+                )?.unit;
               return (
                 <label key={series.id}>
                   <input
@@ -716,18 +897,23 @@ const RankingOverview = ({
                     disabled={checked && selectedIds.size === 1}
                     onChange={() => toggleSelection(series.id)}
                   />
-                  <span>{series.label}{unit ? ` (${unit})` : ""}</span>
+                  <span>
+                    {series.label}
+                    {unit ? ` (${unit})` : ""}
+                  </span>
                 </label>
               );
             })}
           </fieldset>
           <p id={controlHelpId} className="context-ranking-control-help">
-            The primary metric is selected first. Add another metric to compare it on a separate scale; at least one metric remains shown.
+            The primary metric is selected first. Add another metric to compare
+            it on a separate scale; at least one metric remains shown.
           </p>
         </>
       ) : null}
       <p className="context-ranking-selection-status" role="status">
-        {formatSeriesList(selectionLabels)} shown. Each metric uses its own scale with a visible zero baseline.
+        {formatSeriesList(selectionLabels)} shown. Each metric uses its own
+        scale with a visible zero baseline.
       </p>
       <figure className="context-visual context-ranking-overview">
         <div className="context-ranking-panels">
@@ -737,9 +923,12 @@ const RankingOverview = ({
               block={block}
               presentation={presentation}
               series={series}
-              color={CHART_COLORS[theme][
-                presentation.availableSeries.indexOf(series) % CHART_COLORS[theme].length
-              ]}
+              color={
+                CHART_COLORS[theme][
+                  presentation.availableSeries.indexOf(series) %
+                    CHART_COLORS[theme].length
+                ]
+              }
             />
           ))}
         </div>
@@ -749,7 +938,8 @@ const RankingOverview = ({
             : `The overview pictures all ${presentation.rows.length} published entries in source ranking order.`}
         </p>
         <figcaption id={captionId} className="context-visual-caption">
-          {caption} Bar lengths provide supporting metric context and do not determine the published rank.
+          {caption} Bar lengths provide supporting metric context and do not
+          determine the published rank.
         </figcaption>
       </figure>
       <ChartDataDisclosure
@@ -813,13 +1003,17 @@ const OrdinalPositionOverview = ({
             })}
           </dl>
           <p className="context-ordinal-position-summary">
-            Showing {presentation.visibleRows.length === presentation.rows.length
+            Showing{" "}
+            {presentation.visibleRows.length === presentation.rows.length
               ? `all ${presentation.rows.length}`
-              : `the first ${presentation.visibleRows.length} of ${presentation.rows.length}`} usable positions in source order{omittedDetails.length > 0 ? `; ${omittedDetails.join("; ")}` : ""}.
+              : `the first ${presentation.visibleRows.length} of ${presentation.rows.length}`}{" "}
+            usable positions in source order
+            {omittedDetails.length > 0 ? `; ${omittedDetails.join("; ")}` : ""}.
           </p>
         </section>
         <figcaption id={captionId} className="context-visual-caption">
-          {caption} Positions are ordinal results, so they are shown as exact numbers rather than proportional bars.
+          {caption} Positions are ordinal results, so they are shown as exact
+          numbers rather than proportional bars.
         </figcaption>
       </figure>
       <ChartDataDisclosure
@@ -850,26 +1044,70 @@ const StandardChartView = ({
     initialSeries.map((series) => series.id),
   );
   const selectedSeries = useMemo(
-    () => (presentation?.availableSeries ?? block.chart.series).filter(
-      (series) => selectedIds.has(series.id),
-    ),
+    () =>
+      (presentation?.availableSeries ?? block.chart.series).filter((series) =>
+        selectedIds.has(series.id),
+      ),
     [block.chart.series, presentation, selectedIds],
   );
   const selectedFamilyViews = useMemo(
-    () => presentation?.families.flatMap((family) => {
-      const familySeries = family.series.filter((series) => selectedIds.has(series.id));
-      if (familySeries.length === 0) return [];
-      const view = getStandardChartFamilyView(block, family, familySeries);
-      return view ? [{ family, view }] : [];
-    }) ?? [],
+    () =>
+      presentation?.families.flatMap((family) => {
+        const familySeries = family.series.filter((series) =>
+          selectedIds.has(series.id),
+        );
+        if (familySeries.length === 0) return [];
+        const view = getStandardChartFamilyView(block, family, familySeries);
+        return view ? [{ family, view }] : [];
+      }) ?? [],
     [block, presentation, selectedIds],
   );
   const controlHelpId = `${block.id}-standard-chart-help`;
+  const [visualPhases, setVisualPhases] = useState<
+    Record<string, VisualLoadPhase>
+  >({});
+  const visualPanelKeys = useMemo(
+    () =>
+      selectedFamilyViews.flatMap(({ family, view }) =>
+        view.renderKind === "exact-only"
+          ? []
+          : [
+              `${block.provenance.sourceHash}:${family.id}:${view.selectedSeries
+                .map((series) => series.id)
+                .join(",")}`,
+            ],
+      ),
+    [block.provenance.sourceHash, selectedFamilyViews],
+  );
+  const readinessScope = `${block.provenance.sourceHash}:${block.id}:controls`;
+  const reportVisualPhase = useCallback(
+    (key: string, phase: VisualLoadPhase) => {
+      setVisualPhases((current) => {
+        const next =
+          current[key] === phase ? current : { ...current, [key]: phase };
+        const selectedPanelsReady = visualPanelKeys.every(
+          (panelKey) =>
+            next[panelKey] === "ready" || next[panelKey] === "fallback",
+        );
+        if (!selectedPanelsReady || next[readinessScope] === "ready") {
+          return next;
+        }
+        return { ...next, [readinessScope]: "ready" };
+      });
+    },
+    [readinessScope, visualPanelKeys],
+  );
+  const selectedPanelsReady = visualPanelKeys.every(
+    (key) => visualPhases[key] === "ready" || visualPhases[key] === "fallback",
+  );
+  const visualControlsReady =
+    visualPhases[readinessScope] === "ready" || selectedPanelsReady;
 
   if (!presentation) {
-    const fallbackSeries = selectedSeries.length > 0
-      ? selectedSeries
-      : block.chart.series.slice(0, 1);
+    const fallbackSeries =
+      selectedSeries.length > 0
+        ? selectedSeries
+        : block.chart.series.slice(0, 1);
     const fallbackRenderKind: Exclude<StandardChartRenderKind, "exact-only"> =
       fallbackSeries.every((series) => series.type === "pie")
         ? "pie"
@@ -898,9 +1136,7 @@ const StandardChartView = ({
         <ChartDataDisclosure
           block={block}
           rowHeaderKey={
-            block.chart.series[0]?.xColumn ??
-            block.chart.columns[0]?.key ??
-            ""
+            block.chart.series[0]?.xColumn ?? block.chart.columns[0]?.key ?? ""
           }
         />
       </div>
@@ -911,29 +1147,33 @@ const StandardChartView = ({
     <div className="context-kind-view context-standard-chart-view">
       {availableSeries.length > 1 ? (
         <>
-        <fieldset
-          className="context-series-controls context-standard-chart-controls"
-          aria-describedby={controlHelpId}
-        >
-          <legend>Series shown in the visual overview</legend>
-          {availableSeries.map((series) => {
-            const checked = selectedIds.has(series.id);
-            return (
-              <label key={series.id}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={checked && selectedIds.size === 1}
-                  onChange={() => toggleSelection(series.id)}
-                />
-                <span>{formatSeriesLabel(block, series)}</span>
-              </label>
-            );
-          })}
-        </fieldset>
-        <p id={controlHelpId} className="context-standard-chart-control-help">
-          {presentation.selectionSummary} Series with different units appear in separate panels; at least one series remains shown.
-        </p>
+          <fieldset
+            className="context-series-controls context-standard-chart-controls"
+            aria-describedby={controlHelpId}
+          >
+            <legend>Series shown in the visual overview</legend>
+            {availableSeries.map((series) => {
+              const checked = selectedIds.has(series.id);
+              return (
+                <label key={series.id}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={
+                      !visualControlsReady ||
+                      (checked && selectedIds.size === 1)
+                    }
+                    onChange={() => toggleSelection(series.id)}
+                  />
+                  <span>{formatSeriesLabel(block, series)}</span>
+                </label>
+              );
+            })}
+          </fieldset>
+          <p id={controlHelpId} className="context-standard-chart-control-help">
+            {presentation.selectionSummary} Series with different units appear
+            in separate panels; at least one series remains shown.
+          </p>
         </>
       ) : null}
       <p className="context-standard-chart-selection-status" role="status">
@@ -946,9 +1186,15 @@ const StandardChartView = ({
         <div className="context-standard-chart-panels">
           {selectedFamilyViews.map(({ family, view }) => {
             const headingId = `${block.id}-${family.id}-chart-heading`;
-            const heading = family.scaleKind === "unspecified"
-              ? formatSeriesList(view.selectedSeries.map((candidate) => candidate.label))
-              : family.label;
+            const readinessKey = `${block.provenance.sourceHash}:${family.id}:${view.selectedSeries
+              .map((series) => series.id)
+              .join(",")}`;
+            const heading =
+              family.scaleKind === "unspecified"
+                ? formatSeriesList(
+                    view.selectedSeries.map((candidate) => candidate.label),
+                  )
+                : family.label;
             return (
               <section
                 key={family.id}
@@ -968,6 +1214,8 @@ const StandardChartView = ({
                       renderKind={view.renderKind}
                       selectedSeries={view.selectedSeries}
                       zeroBaseline={view.zeroBaseline}
+                      readinessKey={readinessKey}
+                      onPhaseChange={reportVisualPhase}
                     />
                     <p className="context-standard-chart-summary">
                       {view.rowSummary}
@@ -980,13 +1228,18 @@ const StandardChartView = ({
         </div>
         {presentation.hiddenSeriesCount > 0 ? (
           <p className="context-standard-chart-summary">
-            {presentation.hiddenSeriesCount} additional {presentation.hiddenSeriesCount === 1 ? "series remains" : "series remain"} available in Exact chart data.
+            {presentation.hiddenSeriesCount} additional{" "}
+            {presentation.hiddenSeriesCount === 1
+              ? "series remains"
+              : "series remain"}{" "}
+            available in Exact chart data.
           </p>
         ) : null}
         <figcaption id={captionId} className="context-visual-caption">
           {caption}
           {selectedFamilyViews.some(
-            ({ view }) => view.hiddenRowCount > 0 || view.renderKind === "exact-only",
+            ({ view }) =>
+              view.hiddenRowCount > 0 || view.renderKind === "exact-only",
           )
             ? " This caption summarizes the complete source table; the overview subset is described above."
             : ""}
@@ -1010,7 +1263,9 @@ export const ContextChartView = ({
   captionId: string;
 }) => {
   const ranking = getRankedChartPresentation(block);
-  const ordinalPosition = ranking ? null : getOrdinalPositionPresentation(block);
+  const ordinalPosition = ranking
+    ? null
+    : getOrdinalPositionPresentation(block);
   return ranking ? (
     <RankingOverview
       key={`${block.id}:ranking:${ranking.availableSeries.map((series) => series.id).join(",")}`}

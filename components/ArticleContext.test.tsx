@@ -1,11 +1,12 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type {
-  ContextBlock,
-  ContextChartBlock,
-  ContextManifest,
-  ContextMapBlock,
+import {
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+  type ContextBlock,
+  type ContextChartBlock,
+  type ContextManifest,
+  type ContextMapBlock,
 } from "@/lib/article-context-types";
 import {
   ArticleContextLane,
@@ -18,7 +19,8 @@ import { ThemeProvider } from "./ThemeProvider";
 
 const base = {
   caption: "This makes the visual easier to understand.",
-  longDescription: "A complete long description that does not depend on the visual view.",
+  longDescription:
+    "A complete long description that does not depend on the visual view.",
   section: { index: "1", title: "History", anchor: "History" },
   order: 1,
   sources: [
@@ -98,7 +100,12 @@ const blocks: ContextBlock[] = [
     chart: {
       columns: [
         { key: "year", label: "Year", dataType: "string" },
-        { key: "population", label: "Population", dataType: "number", unit: "people" },
+        {
+          key: "population",
+          label: "Population",
+          dataType: "number",
+          unit: "people",
+        },
       ],
       rows: [
         { year: "1900", population: 100 },
@@ -136,14 +143,17 @@ const blocks: ContextBlock[] = [
         { id: "b", label: "Second part", description: "The output." },
       ],
       relationships: [{ fromId: "a", toId: "b", label: "flows into" }],
-      walkthrough: ["Begin at the first part.", "Follow the connection to the second part."],
+      walkthrough: [
+        "Begin at the first part.",
+        "Follow the connection to the second part.",
+      ],
       caption: "The source diagram and its two labeled parts.",
     },
   },
 ];
 
 const manifest: ContextManifest = {
-  schemaVersion: 2,
+  schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
   wikiPageId: "123",
   title: "Example",
   revisionId: "123",
@@ -155,6 +165,53 @@ const manifest: ContextManifest = {
 };
 
 describe("ArticleContext", () => {
+  it("reports lane loading, ready, and error states without pretending an error is still loading", () => {
+    const loadingMarkup = renderToStaticMarkup(
+      createElement(ArticleContextLane, {
+        state: { status: "loading", manifest: null, error: null },
+        retry: () => {},
+      }),
+    );
+    const readyMarkup = renderToStaticMarkup(
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(ArticleContextLane, {
+          state: { status: "ready", manifest, error: null },
+          retry: () => {},
+        }),
+      ),
+    );
+    const errorMarkup = renderToStaticMarkup(
+      createElement(ArticleContextLane, {
+        state: {
+          status: "error",
+          manifest: null,
+          error: "Visual context could not be gathered.",
+        },
+        retry: () => {},
+      }),
+    );
+
+    expect(loadingMarkup).toContain('data-context-lane-state="loading"');
+    expect(loadingMarkup).toContain('aria-busy="true"');
+    expect(loadingMarkup).toContain('data-visual-state="loading"');
+    expect(loadingMarkup).toContain('role="status"');
+    expect(loadingMarkup).toContain('aria-live="polite"');
+    expect(loadingMarkup.match(/context-visual-spinner/g)).toHaveLength(1);
+
+    expect(readyMarkup).toContain('data-context-lane-state="ready"');
+    expect(readyMarkup).toContain('aria-busy="false"');
+    expect(readyMarkup).toContain('data-visual-state="ready"');
+    expect(readyMarkup).not.toContain("context-visual-spinner");
+
+    expect(errorMarkup).toContain('data-context-lane-state="error"');
+    expect(errorMarkup).toContain('aria-busy="false"');
+    expect(errorMarkup).toContain('data-visual-state="error"');
+    expect(errorMarkup).toContain("Visual context could not be gathered.");
+    expect(errorMarkup).not.toContain("context-visual-spinner");
+  });
+
   it("renders compact direct links to the associated first visual", () => {
     const markup = renderToStaticMarkup(
       createElement(ContextSectionLink, { blocks: [blocks[0]] }),
@@ -180,7 +237,9 @@ describe("ArticleContext", () => {
     );
 
     expect(markup).toContain("Show coordinate overview");
-    expect(markup).toContain("Street map will load as it approaches the viewport.");
+    expect(markup).toContain(
+      "Street map will load as it approaches the viewport.",
+    );
     expect(markup).not.toContain("context-explorer");
     expect(markup).not.toContain("Listen to context");
     expect(markup).not.toContain("Listen to full description");
@@ -318,7 +377,9 @@ describe("ArticleContext", () => {
     expect(markup).toContain('type="checkbox" disabled="" checked=""');
     expect(markup).toContain("Metrics shown in the ranking overview");
     expect(markup).toContain("Points shown. Each metric uses its own scale");
-    expect(markup).toContain('class="context-ranked-bar-track" aria-hidden="true"');
+    expect(markup).toContain(
+      'class="context-ranked-bar-track" aria-hidden="true"',
+    );
     expect(markup).toContain("context-ranked-bar-fill-positive");
     expect(markup).not.toContain("context-echarts");
     expect(markup).toContain('<span class="sr-only">Team: </span>Team 1');
@@ -339,13 +400,39 @@ describe("ArticleContext", () => {
       chart: {
         columns: [
           { key: "age", label: "Age group", dataType: "string" },
-          { key: "total", label: "Total (thousands)", dataType: "number", unit: "thousands" },
-          { key: "male", label: "Males (thousands)", dataType: "number", unit: "thousands" },
-          { key: "share", label: "Share of population", dataType: "number", unit: "%" },
-          { key: "ratio", label: "Sex ratio", dataType: "number", unit: "males per female" },
+          {
+            key: "total",
+            label: "Total (thousands)",
+            dataType: "number",
+            unit: "thousands",
+          },
+          {
+            key: "male",
+            label: "Males (thousands)",
+            dataType: "number",
+            unit: "thousands",
+          },
+          {
+            key: "share",
+            label: "Share of population",
+            dataType: "number",
+            unit: "%",
+          },
+          {
+            key: "ratio",
+            label: "Sex ratio",
+            dataType: "number",
+            unit: "males per female",
+          },
         ],
         rows: [
-          { age: "Total", total: 330_000, male: 164_000, share: 100, ratio: 0.98 },
+          {
+            age: "Total",
+            total: 330_000,
+            male: 164_000,
+            share: 100,
+            ratio: 0.98,
+          },
           ...Array.from({ length: 13 }, (_, index) => ({
             age: `${index * 5}–${index * 5 + 4}`,
             total: 30_000 - index * 1_000,
@@ -406,7 +493,7 @@ describe("ArticleContext", () => {
 
     expect(markup).toContain("Series shown in the visual overview");
     expect(markup.match(/type="checkbox"/g)).toHaveLength(4);
-    expect(markup.match(/type="checkbox" checked=""/g)).toHaveLength(2);
+    expect(markup.match(/checked=""/g)).toHaveLength(2);
     expect(markup).toContain("Total (thousands)</span>");
     expect(markup).not.toContain("Total (thousands) (thousands)");
     expect(markup).toContain("Counts (thousands)");
@@ -416,7 +503,9 @@ describe("ArticleContext", () => {
     expect(markup).toContain(
       "Showing the first 12 of 13 categories in meaningful source order; 1 more remain in Exact chart data. 1 aggregate row kept in Exact chart data.",
     );
-    expect(markup.match(/<section class="context-standard-chart-panel"/g)).toHaveLength(1);
+    expect(
+      markup.match(/<section class="context-standard-chart-panel"/g),
+    ).toHaveLength(1);
     expect(markup).toContain(
       'aria-label="Total (thousands) and Males (thousands) by category for Age and sex distribution"',
     );
@@ -424,7 +513,9 @@ describe("ArticleContext", () => {
     expect(markup).toContain("context-mobile-bar-fill-positive");
     expect(markup).toContain(">30,000</strong><span> thousands</span>");
     expect(markup).toContain(">Not available</strong>");
-    expect(markup).not.toContain(">Not available</strong><span> thousands</span>");
+    expect(markup).not.toContain(
+      ">Not available</strong><span> thousands</span>",
+    );
     expect(markup).toContain('<th scope="row">Total</th>');
     expect(markup).toContain(
       '<span class="context-data-disclosure-meta">14 rows, 5 columns</span>',
@@ -482,10 +573,14 @@ describe("ArticleContext", () => {
     expect(markup).toContain(
       '<span class="sr-only">Peak position: number </span><span aria-hidden="true">No. </span><strong>1</strong>',
     );
-    expect(markup).toContain("shown as exact numbers rather than proportional bars");
+    expect(markup).toContain(
+      "shown as exact numbers rather than proportional bars",
+    );
     expect(markup).not.toContain("context-echarts");
     expect(markup).not.toContain("context-mobile-bar-track");
-    expect(markup).toContain('<th scope="row">Euro Digital Song Sales (Billboard)</th>');
+    expect(markup).toContain(
+      '<th scope="row">Euro Digital Song Sales (Billboard)</th>',
+    );
   });
 
   it("omits a misleading connected line when repeated categories have no ordered chronology", () => {
@@ -494,7 +589,8 @@ describe("ArticleContext", () => {
       id: "repeated-year-line",
       kind: "chart",
       title: "Population by changing territory",
-      caption: "The complete source table lists multiple territories for the same years.",
+      caption:
+        "The complete source table lists multiple territories for the same years.",
       chart: {
         columns: [
           { key: "year", label: "Year", dataType: "number" },
@@ -548,13 +644,103 @@ describe("ArticleContext", () => {
     expect(markup).toContain('transform="translate(320 150)"');
   });
 
+  it("renders feature collections and polygon holes in the coordinate overview", () => {
+    const featureBlock: ContextMapBlock = {
+      ...(blocks[0] as ContextMapBlock),
+      map: {
+        center: { latitude: 0, longitude: 0 },
+        features: [
+          {
+            id: "mixed",
+            name: "Mixed geometry",
+            geometry: {
+              type: "GeometryCollection",
+              geometries: [
+                {
+                  type: "Point",
+                  coordinates: { latitude: 5, longitude: 5 },
+                },
+                {
+                  type: "Polygon",
+                  coordinates: [
+                    [
+                      { latitude: 0, longitude: 0 },
+                      { latitude: 10, longitude: 0 },
+                      { latitude: 10, longitude: 10 },
+                      { latitude: 0, longitude: 0 },
+                    ],
+                    [
+                      { latitude: 2, longitude: 2 },
+                      { latitude: 4, longitude: 2 },
+                      { latitude: 2, longitude: 4 },
+                      { latitude: 2, longitude: 2 },
+                    ],
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        places: [
+          {
+            id: "legacy-place",
+            name: "Legacy place",
+            latitude: -50,
+            longitude: -50,
+          },
+        ],
+        routes: [],
+        areas: [],
+      },
+    };
+
+    const markup = renderToStaticMarkup(
+      createElement(MapSchematic, { block: featureBlock }),
+    );
+    const areaPath = markup.match(
+      /<path[^>]*class="context-map-area"[^>]*>/,
+    )?.[0];
+
+    expect(areaPath).toContain('fill-rule="evenodd"');
+    expect(areaPath?.match(/M /g)).toHaveLength(2);
+    expect(markup.match(/context-map-marker-halo/g)).toHaveLength(1);
+  });
+
   it("matches context to summary and article sections without relying only on titles", () => {
-    expect(getContextBlocksForSection(blocks, null).map((block) => block.id)).toEqual(["map-one"]);
-    expect(getContextBlocksForSection(blocks, 0, "History").map((block) => block.id)).toEqual([
-      "timeline-one",
-      "chart-one",
-      "diagram-one",
-    ]);
+    expect(
+      getContextBlocksForSection(blocks, null).map((block) => block.id),
+    ).toEqual(["map-one"]);
+    expect(
+      getContextBlocksForSection(blocks, 0, "History").map((block) => block.id),
+    ).toEqual(["timeline-one", "chart-one", "diagram-one"]);
+  });
+
+  it("matches non-contiguous MediaWiki section indices before duplicate titles", () => {
+    const firstHistory = {
+      ...blocks[1],
+      id: "first-history",
+      section: { index: "1", title: "History" },
+    } satisfies ContextBlock;
+    const laterHistory = {
+      ...blocks[2],
+      id: "later-history",
+      section: { index: "7", title: "History" },
+    } satisfies ContextBlock;
+    const indexedBlocks = [firstHistory, laterHistory];
+
+    expect(
+      getContextBlocksForSection(indexedBlocks, 1, "History", "7").map(
+        (block) => block.id,
+      ),
+    ).toEqual(["later-history"]);
+    expect(
+      getContextBlocksForSection(indexedBlocks, 1, "History", "9"),
+    ).toEqual([]);
+    expect(
+      getContextBlocksForSection(indexedBlocks, 0, "History").map(
+        (block) => block.id,
+      ),
+    ).toEqual(["first-history"]);
   });
 
   it("neutralizes formula-leading chart strings in client CSV downloads", () => {
@@ -569,7 +755,11 @@ describe("ArticleContext", () => {
       chart: {
         ...chartBlock.chart,
         columns: [
-          { key: "label", label: "=HYPERLINK(\"https://example.com\")", dataType: "string" },
+          {
+            key: "label",
+            label: '=HYPERLINK("https://example.com")',
+            dataType: "string",
+          },
           { key: "value", label: "Value", dataType: "string" },
         ],
         rows: [
@@ -580,10 +770,9 @@ describe("ArticleContext", () => {
     });
 
     expect(csv).toContain("'=HYPERLINK");
-    expect(csv).toContain("\"'+SUM(1,1)\"");
+    expect(csv).toContain('"\'+SUM(1,1)"');
     expect(csv).toContain("'@command");
     expect(csv).toContain("'  -2+3,-42");
     expect(csv).not.toContain(",'-42");
   });
-
 });

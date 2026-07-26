@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { ArticleImage } from "@/lib/data-context";
+import type {
+  ArticleImage,
+  WikipediaRevisionIdentity,
+} from "@/lib/data-context";
 import { useArticleGalleryImages } from "@/hooks/useArticleGalleryImages";
+import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 import { AdaptiveImageFrame } from "./AdaptiveImageFrame";
-import {
-  GalleryLightbox,
-  type LightboxState,
-} from "./GalleryLightbox";
+import { GalleryLightbox, type LightboxState } from "./GalleryLightbox";
 import { MediaAttribution } from "./MediaAttribution";
 
 const ImageCard = ({
@@ -101,25 +102,30 @@ const ImageCard = ({
   );
 };
 
-export const ArticleGallery = ({ wikiPageId }: { wikiPageId: string }) => {
-  const { images, loading } = useArticleGalleryImages(wikiPageId);
+export const ArticleGallery = ({
+  identity,
+}: {
+  identity: WikipediaRevisionIdentity;
+}) => {
+  const { images, loading } = useArticleGalleryImages(identity);
+  const revisionKey = wikipediaRevisionKey(identity);
   const [keyedLightbox, setKeyedLightbox] = useState<{
     key: string;
     state: LightboxState;
-  }>(() => ({ key: wikiPageId, state: null }));
+  }>(() => ({ key: revisionKey, state: null }));
   const lightbox =
-    keyedLightbox.key === wikiPageId ? keyedLightbox.state : null;
+    keyedLightbox.key === revisionKey ? keyedLightbox.state : null;
 
   const openLightbox = useCallback(
     (index: number, opener: HTMLButtonElement) => {
-      setKeyedLightbox({ key: wikiPageId, state: { index, opener } });
+      setKeyedLightbox({ key: revisionKey, state: { index, opener } });
     },
-    [wikiPageId],
+    [revisionKey],
   );
 
   const closeLightbox = useCallback(() => {
-    setKeyedLightbox({ key: wikiPageId, state: null });
-  }, [wikiPageId]);
+    setKeyedLightbox({ key: revisionKey, state: null });
+  }, [revisionKey]);
 
   if (loading || images.length === 0) return null;
 
@@ -163,7 +169,7 @@ export const ArticleGallery = ({ wikiPageId }: { wikiPageId: string }) => {
       </ul>
 
       <GalleryLightbox
-        key={`${wikiPageId}:${lightbox?.index ?? "closed"}`}
+        key={`${revisionKey}:${lightbox?.index ?? "closed"}`}
         images={images}
         state={lightbox}
         onClose={closeLightbox}

@@ -38,8 +38,7 @@ describe("tts-client", () => {
         const request = JSON.parse(String(init?.body)) as { text: string };
         return {
           ok: true,
-          blob: async () =>
-            new Blob([request.text], { type: "audio/mpeg" }),
+          blob: async () => new Blob([request.text], { type: "audio/mpeg" }),
         };
       }),
     );
@@ -48,7 +47,8 @@ describe("tts-client", () => {
   });
 
   it("uses a single request when text is under the limit", async () => {
-    const text = "This article summary is comfortably under the configured request limit.";
+    const text =
+      "This article summary is comfortably under the configured request limit.";
 
     const blob = await generateTtsAudio({ text });
 
@@ -58,6 +58,27 @@ describe("tts-client", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(await blob.text()).toBe(text);
+  });
+
+  it("forwards the requested voice and optimistic profile key", async () => {
+    const text = "A profile-pinned narration request.";
+    const expectedTtsCacheKey =
+      "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v1:ttsNorm:2";
+
+    await generateTtsAudio({
+      text,
+      provider: "openai",
+      voiceId: "cedar",
+      expectedTtsCacheKey,
+    });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      text,
+      voiceId: "cedar",
+      provider: "openai",
+      expectedTtsCacheKey,
+    });
   });
 
   it("returns a single chunk directly without invoking blob concatenation", async () => {
@@ -90,8 +111,8 @@ describe("tts-client", () => {
 
     expect(calls).toHaveLength(3);
 
-    const requestBodies = calls.map(([, init]) =>
-      JSON.parse(String(init?.body)) as { text: string },
+    const requestBodies = calls.map(
+      ([, init]) => JSON.parse(String(init?.body)) as { text: string },
     );
 
     for (const body of requestBodies) {
@@ -100,7 +121,9 @@ describe("tts-client", () => {
       );
     }
 
-    expect(await blob.text()).toBe(requestBodies.map((body) => body.text).join(""));
+    expect(await blob.text()).toBe(
+      requestBodies.map((body) => body.text).join(""),
+    );
   });
 
   it("fetches chunks with concurrency 2 while preserving output order", async () => {
@@ -258,22 +281,23 @@ describe("tts-client", () => {
   it("parses fallback reason response headers", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response("audio", {
-          status: 200,
-          headers: {
-            "Content-Type": "audio/mpeg",
-            "X-Curio-TTS-Provider": "edge",
-            "X-Curio-TTS-Model": "edge-tts",
-            "X-Curio-TTS-Voice": "en-US-AriaNeural",
-            "X-Curio-TTS-Prompt-Version": "edge-default",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
-            "X-Curio-TTS-Cache-Key":
-              "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
-            "X-Curio-TTS-Fallback": "true",
-            "X-Curio-TTS-Fallback-Reason": "openai_quota",
-          },
-        }),
+      vi.fn(
+        async () =>
+          new Response("audio", {
+            status: 200,
+            headers: {
+              "Content-Type": "audio/mpeg",
+              "X-Curio-TTS-Provider": "edge",
+              "X-Curio-TTS-Model": "edge-tts",
+              "X-Curio-TTS-Voice": "en-US-AriaNeural",
+              "X-Curio-TTS-Prompt-Version": "edge-default",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Cache-Key":
+                "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+              "X-Curio-TTS-Fallback": "true",
+              "X-Curio-TTS-Fallback-Reason": "openai_quota",
+            },
+          }),
       ),
     );
 
@@ -325,7 +349,9 @@ describe("tts-client", () => {
         const signal = init?.signal as AbortSignal | undefined;
         return new Promise<Response>((resolve, reject) => {
           signal?.addEventListener("abort", () => {
-            reject(new DOMException("The operation was aborted.", "AbortError"));
+            reject(
+              new DOMException("The operation was aborted.", "AbortError"),
+            );
           });
           setTimeout(() => {
             resolve(
@@ -442,8 +468,20 @@ describe("tts-client", () => {
     expect(calls).toEqual([
       { text: "one two three" },
       { text: "four five six" },
-      { text: "one two three", provider: "edge" },
-      { text: "four five six", provider: "edge" },
+      {
+        text: "one two three",
+        provider: "edge",
+        voiceId: "en-US-AriaNeural",
+        expectedTtsCacheKey:
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+      },
+      {
+        text: "four five six",
+        provider: "edge",
+        voiceId: "en-US-AriaNeural",
+        expectedTtsCacheKey:
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+      },
     ]);
     expect(result.metadata.provider).toBe("edge");
     expect(result.fallbackReason).toBe("openai_quota");
@@ -510,8 +548,20 @@ describe("tts-client", () => {
     expect(calls).toEqual([
       { text: "one two three", provider: "openai" },
       { text: "four five six", provider: "openai" },
-      { text: "one two three", provider: "edge" },
-      { text: "four five six", provider: "edge" },
+      {
+        text: "one two three",
+        provider: "edge",
+        voiceId: "en-US-AriaNeural",
+        expectedTtsCacheKey:
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+      },
+      {
+        text: "four five six",
+        provider: "edge",
+        voiceId: "en-US-AriaNeural",
+        expectedTtsCacheKey:
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+      },
     ]);
     expect(result.metadata.provider).toBe("edge");
   });
@@ -519,20 +569,21 @@ describe("tts-client", () => {
   it("creates an object URL with metadata", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response("audio", {
-          status: 200,
-          headers: {
-            "Content-Type": "audio/mpeg",
-            "X-Curio-TTS-Provider": "openai",
-            "X-Curio-TTS-Model": "gpt-4o-mini-tts",
-            "X-Curio-TTS-Voice": "marin",
-            "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
-            "X-Curio-TTS-Norm-Version": "ttsNorm:2",
-            "X-Curio-TTS-Cache-Key":
-              "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
-          },
-        }),
+      vi.fn(
+        async () =>
+          new Response("audio", {
+            status: 200,
+            headers: {
+              "Content-Type": "audio/mpeg",
+              "X-Curio-TTS-Provider": "openai",
+              "X-Curio-TTS-Model": "gpt-4o-mini-tts",
+              "X-Curio-TTS-Voice": "marin",
+              "X-Curio-TTS-Prompt-Version": "curio-warm-narrator-v1",
+              "X-Curio-TTS-Norm-Version": "ttsNorm:2",
+              "X-Curio-TTS-Cache-Key":
+                "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+            },
+          }),
       ),
     );
 

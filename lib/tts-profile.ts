@@ -15,6 +15,12 @@ export type TtsProfile = {
 
 export type TtsMetadata = Omit<TtsProfile, "instructions">;
 
+declare global {
+  interface Window {
+    __CURIO_ACTIVE_TTS_METADATA__?: TtsMetadata;
+  }
+}
+
 export const DEFAULT_OPENAI_TTS_MODEL = "gpt-4o-mini-tts";
 export const DEFAULT_OPENAI_TTS_VOICE = "marin";
 export const DEFAULT_OPENAI_TTS_PROMPT_VERSION = "curio-warm-narrator-v1";
@@ -44,19 +50,23 @@ const OPENAI_TTS_VOICES = new Set([
 const EDGE_VOICE_RE =
   /^[a-z]{2,3}-[A-Z]{2}(?:-[A-Za-z]+)+(?:Neural|:DragonHD(?:Omni)?(?:Latest)?Neural)$/;
 
-const readEnv = (...names: string[]): string | undefined => {
-  for (const name of names) {
-    const value = process.env[name]?.trim();
+const firstConfiguredValue = (
+  ...values: Array<string | undefined>
+): string | undefined => {
+  for (const candidate of values) {
+    const value = candidate?.trim();
     if (value) return value;
   }
   return undefined;
 };
 
-export const isOpenAiTtsVoice = (voiceId: string | undefined): voiceId is string =>
-  Boolean(voiceId && OPENAI_TTS_VOICES.has(voiceId));
+export const isOpenAiTtsVoice = (
+  voiceId: string | undefined,
+): voiceId is string => Boolean(voiceId && OPENAI_TTS_VOICES.has(voiceId));
 
-export const isEdgeTtsVoice = (voiceId: string | undefined): voiceId is string =>
-  Boolean(voiceId && EDGE_VOICE_RE.test(voiceId));
+export const isEdgeTtsVoice = (
+  voiceId: string | undefined,
+): voiceId is string => Boolean(voiceId && EDGE_VOICE_RE.test(voiceId));
 
 export const normalizeTtsProvider = (
   provider: string | undefined,
@@ -86,9 +96,9 @@ const profileWithCacheKey = (
 });
 
 export const getOpenAiTtsProfile = (voiceId?: string): TtsProfile => {
-  const configuredVoice = readEnv(
-    "OPENAI_TTS_VOICE",
-    "NEXT_PUBLIC_OPENAI_TTS_VOICE",
+  const configuredVoice = firstConfiguredValue(
+    process.env.OPENAI_TTS_VOICE,
+    process.env.NEXT_PUBLIC_OPENAI_TTS_VOICE,
   );
   const resolvedVoice = isOpenAiTtsVoice(voiceId)
     ? voiceId
@@ -99,27 +109,29 @@ export const getOpenAiTtsProfile = (voiceId?: string): TtsProfile => {
   return profileWithCacheKey({
     provider: "openai",
     model:
-      readEnv("OPENAI_TTS_MODEL", "NEXT_PUBLIC_OPENAI_TTS_MODEL") ??
-      DEFAULT_OPENAI_TTS_MODEL,
+      firstConfiguredValue(
+        process.env.OPENAI_TTS_MODEL,
+        process.env.NEXT_PUBLIC_OPENAI_TTS_MODEL,
+      ) ?? DEFAULT_OPENAI_TTS_MODEL,
     voiceId: resolvedVoice,
     promptVersion:
-      readEnv(
-        "OPENAI_TTS_PROMPT_VERSION",
-        "NEXT_PUBLIC_OPENAI_TTS_PROMPT_VERSION",
+      firstConfiguredValue(
+        process.env.OPENAI_TTS_PROMPT_VERSION,
+        process.env.NEXT_PUBLIC_OPENAI_TTS_PROMPT_VERSION,
       ) ?? DEFAULT_OPENAI_TTS_PROMPT_VERSION,
     instructions:
-      readEnv(
-        "OPENAI_TTS_INSTRUCTIONS",
-        "NEXT_PUBLIC_OPENAI_TTS_INSTRUCTIONS",
+      firstConfiguredValue(
+        process.env.OPENAI_TTS_INSTRUCTIONS,
+        process.env.NEXT_PUBLIC_OPENAI_TTS_INSTRUCTIONS,
       ) ?? DEFAULT_OPENAI_TTS_INSTRUCTIONS,
     ttsNormVersion: TTS_NORM_VERSION,
   });
 };
 
 export const getEdgeTtsProfile = (voiceId?: string): TtsProfile => {
-  const configuredVoice = readEnv(
-    "EDGE_TTS_VOICE_ID",
-    "NEXT_PUBLIC_EDGE_TTS_VOICE_ID",
+  const configuredVoice = firstConfiguredValue(
+    process.env.EDGE_TTS_VOICE_ID,
+    process.env.NEXT_PUBLIC_EDGE_TTS_VOICE_ID,
   );
   const resolvedVoice = isEdgeTtsVoice(voiceId)
     ? voiceId
@@ -138,22 +150,50 @@ export const getEdgeTtsProfile = (voiceId?: string): TtsProfile => {
 
 export const getConfiguredPrimaryTtsProvider = (): TtsProvider =>
   normalizeTtsProvider(
-    readEnv("TTS_PRIMARY_PROVIDER", "NEXT_PUBLIC_TTS_PRIMARY_PROVIDER"),
+    firstConfiguredValue(
+      process.env.TTS_PRIMARY_PROVIDER,
+      process.env.NEXT_PUBLIC_TTS_PRIMARY_PROVIDER,
+    ),
   ) ?? "openai";
 
-export const getTtsProfile = (
-  provider: TtsProvider = getConfiguredPrimaryTtsProvider(),
-  voiceId?: string,
-): TtsProfile =>
-  provider === "edge" ? getEdgeTtsProfile(voiceId) : getOpenAiTtsProfile(voiceId);
+const getInjectedActiveTtsMetadata = (): TtsMetadata | null => {
+  if (typeof window === "undefined") return null;
+  const metadata = window.__CURIO_ACTIVE_TTS_METADATA__;
+  if (
+    !metadata ||
+    normalizeTtsProvider(metadata.provider) == null ||
+    !metadata.model?.trim() ||
+    !metadata.voiceId?.trim() ||
+    !metadata.promptVersion?.trim() ||
+    !metadata.ttsNormVersion?.trim() ||
+    metadata.ttsCacheKey !== buildTtsCacheKey(metadata)
+  ) {
+    return null;
+  }
+  return metadata;
+};
 
-export const getActiveTtsProfile = (): TtsProfile =>
-  getTtsProfile(getConfiguredPrimaryTtsProvider());
+export const getTtsProfile = (
+  provider?: TtsProvider,
+  voiceId?: string,
+): TtsProfile => {
+  if (provider == null && voiceId == null) {
+    const injected = getInjectedActiveTtsMetadata();
+    if (injected) return { ...injected };
+  }
+  const resolvedProvider = provider ?? getConfiguredPrimaryTtsProvider();
+  return resolvedProvider === "edge"
+    ? getEdgeTtsProfile(voiceId)
+    : getOpenAiTtsProfile(voiceId);
+};
+
+export const getActiveTtsProfile = (): TtsProfile => getTtsProfile();
 
 export const getActiveTtsNormVersion = (): string =>
   getActiveTtsProfile().ttsNormVersion;
 
-export const getActiveTtsCacheKey = (): string => getActiveTtsProfile().ttsCacheKey;
+export const getActiveTtsCacheKey = (): string =>
+  getActiveTtsProfile().ttsCacheKey;
 
 export const getTtsMetadata = (profile: TtsProfile): TtsMetadata => ({
   provider: profile.provider,
@@ -164,21 +204,77 @@ export const getTtsMetadata = (profile: TtsProfile): TtsMetadata => ({
   ttsCacheKey: profile.ttsCacheKey,
 });
 
+export const doesTtsMetadataMatch = (
+  actual: Partial<TtsMetadata> | null | undefined,
+  expected: TtsMetadata,
+): boolean =>
+  actual?.provider === expected.provider &&
+  actual.model === expected.model &&
+  actual.voiceId === expected.voiceId &&
+  actual.promptVersion === expected.promptVersion &&
+  actual.ttsNormVersion === expected.ttsNormVersion &&
+  actual.ttsCacheKey === expected.ttsCacheKey;
+
+export const isTtsMetadataValid = (metadata: TtsMetadata): boolean => {
+  const model = metadata.model.trim();
+  const promptVersion = metadata.promptVersion.trim();
+  const voiceIsValid =
+    metadata.provider === "openai"
+      ? isOpenAiTtsVoice(metadata.voiceId)
+      : isEdgeTtsVoice(metadata.voiceId);
+
+  return (
+    metadata.ttsNormVersion === TTS_NORM_VERSION &&
+    model.length > 0 &&
+    model.length <= 200 &&
+    promptVersion.length > 0 &&
+    promptVersion.length <= 200 &&
+    metadata.voiceId.length <= 200 &&
+    voiceIsValid &&
+    metadata.ttsCacheKey === buildTtsCacheKey(metadata)
+  );
+};
+
+export const serializeTtsMetadataForInlineScript = (
+  metadata: TtsMetadata,
+): string =>
+  JSON.stringify(metadata).replace(
+    /[<>&\u2028\u2029]/g,
+    (character) =>
+      `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+
 export const parseTtsMetadataFromHeaders = (
   headers: Pick<Headers, "get">,
 ): TtsMetadata | null => {
-  const provider = normalizeTtsProvider(headers.get("X-Curio-TTS-Provider") ?? undefined);
+  const provider = normalizeTtsProvider(
+    headers.get("X-Curio-TTS-Provider") ?? undefined,
+  );
   const model = headers.get("X-Curio-TTS-Model")?.trim();
   const voiceId = headers.get("X-Curio-TTS-Voice")?.trim();
   const promptVersion = headers.get("X-Curio-TTS-Prompt-Version")?.trim();
   const ttsNormVersion = headers.get("X-Curio-TTS-Norm-Version")?.trim();
   const ttsCacheKey = headers.get("X-Curio-TTS-Cache-Key")?.trim();
 
-  if (!provider || !model || !voiceId || !promptVersion || !ttsNormVersion || !ttsCacheKey) {
+  if (
+    !provider ||
+    !model ||
+    !voiceId ||
+    !promptVersion ||
+    !ttsNormVersion ||
+    !ttsCacheKey
+  ) {
     return null;
   }
 
-  return { provider, model, voiceId, promptVersion, ttsNormVersion, ttsCacheKey };
+  return {
+    provider,
+    model,
+    voiceId,
+    promptVersion,
+    ttsNormVersion,
+    ttsCacheKey,
+  };
 };
 
 export const buildTtsMetadataHeaders = (
@@ -198,5 +294,7 @@ export const buildTtsMetadataHeaders = (
 });
 
 export const isTtsFallbackEnabled = (): boolean =>
-  (readEnv("TTS_EDGE_FALLBACK", "NEXT_PUBLIC_TTS_EDGE_FALLBACK") ?? "true") !==
-  "false";
+  (firstConfiguredValue(
+    process.env.TTS_EDGE_FALLBACK,
+    process.env.NEXT_PUBLIC_TTS_EDGE_FALLBACK,
+  ) ?? "true") !== "false";

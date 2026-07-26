@@ -1,6 +1,9 @@
+import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
+
+export { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
+
 export const MAX_ARTICLE_CONTEXT_MANIFEST_BYTES = 400_000;
 export const MAX_ARTICLE_CONTEXT_BLOCKS = 6;
-export const ARTICLE_CONTEXT_SCHEMA_VERSION = 2;
 
 export type ArticleContextCacheKey = {
   wikiPageId: string;
@@ -200,7 +203,7 @@ export const validateAndNormalizeManifestJson = (
       !block.longDescription.trim()
     ) {
       throw new Error(
-        `Context block ${block.id} is missing schema-v2 accessibility copy`,
+        `Context block ${block.id} is missing schema-v${ARTICLE_CONTEXT_SCHEMA_VERSION} accessibility copy`,
       );
     }
     if ("takeaway" in block || "spokenSummary" in block) {
@@ -259,11 +262,7 @@ export const validateTextOverride = (
 
   const normalized: ArticleContextTextOverride = {
     title: normalizeOptionalText("override.title", override.title, 500),
-    caption: normalizeOptionalText(
-      "override.caption",
-      override.caption,
-      4_000,
-    ),
+    caption: normalizeOptionalText("override.caption", override.caption, 4_000),
     longDescription: normalizeOptionalText(
       "override.longDescription",
       override.longDescription,

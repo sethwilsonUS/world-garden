@@ -7,6 +7,7 @@ import {
   isPodcastDownloadRequest,
   PODCAST_MEDIA_CACHE_CONTROL,
 } from "@/lib/podcast-media-response";
+import { getActiveTtsCacheKey } from "@/lib/tts-profile";
 
 type ArticleAudioExport = Doc<"articleAudioExports"> & {
   audioUrl: string | null;
@@ -23,6 +24,7 @@ export const GET = async (
       anyApi.articleExports.getArticleAudioExportById,
       {
         exportId: exportId as Id<"articleAudioExports">,
+        ttsCacheKey: getActiveTtsCacheKey(),
       },
     )) as ArticleAudioExport | null;
 

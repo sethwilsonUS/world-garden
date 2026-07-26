@@ -5,14 +5,12 @@ import {
   getContextDescriptionModel,
   isArticleContextAIEnabled,
 } from "@/lib/article-context-ai";
-import {
-  getEnhancedArticleContext,
-} from "@/lib/article-context";
+import { getEnhancedArticleContext } from "@/lib/article-context";
 import {
   normalizeArticleContextRequest,
-  validateContextManifest,
   type ArticleContextExtractorOptions,
 } from "@/lib/article-context-extractor";
+import { validateContextManifest } from "@/lib/article-context-validation";
 import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   ARTICLE_CONTEXT_SCHEMA_VERSION,
@@ -89,8 +87,7 @@ const parseCachedManifest = (
     return aiBlocks.every(
       (block) =>
         block.provenance.model === model &&
-        block.provenance.promptVersion ===
-          CONTEXT_DESCRIPTION_PROMPT_VERSION,
+        block.provenance.promptVersion === CONTEXT_DESCRIPTION_PROMPT_VERSION,
     )
       ? manifest
       : null;
@@ -126,7 +123,9 @@ const readPersistentContext = async (
   }
 };
 
-const savePersistentContext = async (manifest: ContextManifest): Promise<void> => {
+const savePersistentContext = async (
+  manifest: ContextManifest,
+): Promise<void> => {
   const adminSecret = getArticleContextWriteSecret();
   if (
     !hasConvex() ||
@@ -161,13 +160,14 @@ const applyModeration = async (
   let moderation: Array<ContextModeration | null>;
   try {
     moderation = await Promise.all(
-      manifest.blocks.map((block) =>
-        fetchQuery(anyApi.articleContexts.getArticleContextModeration, {
-          wikiPageId: manifest.wikiPageId,
-          revisionId: manifest.revisionId,
-          blockId: block.id,
-          sourceHash: manifest.sourceHash,
-        }) as Promise<ContextModeration | null>,
+      manifest.blocks.map(
+        (block) =>
+          fetchQuery(anyApi.articleContexts.getArticleContextModeration, {
+            wikiPageId: manifest.wikiPageId,
+            revisionId: manifest.revisionId,
+            blockId: block.id,
+            sourceHash: manifest.sourceHash,
+          }) as Promise<ContextModeration | null>,
       ),
     );
   } catch (error) {

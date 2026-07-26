@@ -6,8 +6,8 @@
  * Wikipedia HTML, SVG, GeoJSON, or chart-library options.
  */
 
-export const ARTICLE_CONTEXT_SCHEMA_VERSION = 2 as const;
-export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "2.0.8";
+export const ARTICLE_CONTEXT_SCHEMA_VERSION = 3 as const;
+export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "3.0.0";
 
 export type ContextBlockKind = "map" | "timeline" | "chart" | "diagram";
 
@@ -86,11 +86,29 @@ export type ContextMapArea = {
   rings: ContextCoordinate[][];
 };
 
+export type ContextMapGeometry =
+  | { type: "Point"; coordinates: ContextCoordinate }
+  | { type: "MultiPoint"; coordinates: ContextCoordinate[] }
+  | { type: "LineString"; coordinates: ContextCoordinate[] }
+  | { type: "MultiLineString"; coordinates: ContextCoordinate[][] }
+  | { type: "Polygon"; coordinates: ContextCoordinate[][] }
+  | { type: "MultiPolygon"; coordinates: ContextCoordinate[][][] }
+  | { type: "GeometryCollection"; geometries: ContextMapGeometry[] };
+
+export type ContextMapFeature = {
+  id: string;
+  name: string;
+  description?: string;
+  geometry: ContextMapGeometry;
+};
+
 export type ContextMapBlock = ContextBlockBase & {
   kind: "map";
   map: {
     center: ContextCoordinate;
     suggestedZoom?: number;
+    /** Complete source geometry; legacy projections remain for current views. */
+    features?: ContextMapFeature[];
     places: ContextMapPlace[];
     routes: ContextMapRoute[];
     areas: ContextMapArea[];
@@ -129,6 +147,8 @@ export type ContextChartCell = string | number | null;
 export type ContextChartColumn = {
   key: string;
   label: string;
+  /** Ordered source headers from broadest group to the leaf column. */
+  headerPath?: string[];
   dataType: "string" | "number";
   unit?: string;
 };

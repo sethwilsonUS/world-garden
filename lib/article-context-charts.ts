@@ -11,34 +11,18 @@ import {
   buildBaseBlock,
   finiteNumber,
   isRecord,
-  parseAttributes,
-  sanitizeContextCaption,
   sanitizeContextText,
-  sectionAtOffset,
-  sha256,
   uniqueId,
   type BlockCandidate,
   type JsonRecord,
-  type MediaWikiParsedSource,
-  type SectionBoundary,
 } from "./article-context-foundations";
 import {
-  MAX_CHART_ATTRIBUTE_BYTES,
   MAX_TABLE_CELLS,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
 } from "./article-context-limits";
-import {
-  parseWikitables,
-  type ParsedHtmlTable,
-} from "./article-context-html-tables";
-import {
-  createTimelineCandidate,
-  extractTimelineFromTable,
-  parseContextDateRange,
-} from "./article-context-timelines";
-
-const utf8Encoder = new TextEncoder();
+import type { ArticleContextTable } from "./article-context-table";
+import { parseContextDateRange } from "./article-context-timelines";
 
 const firstAxisRecord = (value: unknown): JsonRecord | null => {
   if (isRecord(value)) return value;
@@ -51,7 +35,8 @@ const firstAxisRecord = (value: unknown): JsonRecord | null => {
 
 const safeChartScalar = (value: unknown): ContextChartCell | undefined => {
   if (value == null) return null;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? value : undefined;
   if (typeof value === "string") {
     const clean = sanitizeContextText(value, 240);
     return clean || null;
@@ -110,7 +95,10 @@ const axisName = (axis: JsonRecord | null, fallback: string): string => {
   return name ? sanitizeContextText(name, 160) || fallback : fallback;
 };
 
-const inferUnit = (label: string, values: string[] = []): string | undefined => {
+const inferUnit = (
+  label: string,
+  values: string[] = [],
+): string | undefined => {
   const labelCurrency = label.trim().match(/^([$£€¥])/u)?.[1];
   if (labelCurrency) return labelCurrency;
   const numericValues = values.filter(
@@ -207,10 +195,12 @@ const isBenchmarkMetricHeader = (value: string): boolean =>
 
 const isNamedRankingEntity = (value: string): boolean => {
   const normalized = sanitizeContextText(value, 300).trim();
-  return Boolean(normalized) &&
+  return (
+    Boolean(normalized) &&
     !/^(?:[-–—]|n\/?a|none|not available|tbd|to be determined|unknown)$/i.test(
       normalized,
-    );
+    )
+  );
 };
 
 const isRankingMetadataMetric = (value: string): boolean =>
@@ -225,7 +215,7 @@ const isTemporalMetadataMetric = (value: string): boolean =>
 
 const contextMetricPriority = (
   rawHeader: string,
-  table: ParsedHtmlTable,
+  table: ArticleContextTable,
 ): number => {
   const header = normalizeTableHeader(
     rawHeader.replace(/\s*\([^()]*\)\s*$/, ""),
@@ -247,7 +237,10 @@ const contextMetricPriority = (
       /\bpopulat(?:ion|ed|ing)\b(?!\s+density)/,
     ],
     [/^(?:revenue|sales|gross)(?: \d{4})?$/, /\b(?:revenue|sales|gross)\b/],
-    [/^(?:gdp|gross domestic product)(?: \d{4})?$/, /\b(?:gdp|gross domestic product)\b/],
+    [
+      /^(?:gdp|gross domestic product)(?: \d{4})?$/,
+      /\b(?:gdp|gross domestic product)\b/,
+    ],
     [/^(?:area|land area)(?: \d{4})?$/, /\b(?:land\s+)?area\b/],
     [/^(?:capacity|attendance)(?: \d{4})?$/, /\b(?:capacity|attendance)\b/],
     [/^(?:income|median income)(?: \d{4})?$/, /\bincome\b/],
@@ -258,7 +251,10 @@ const contextMetricPriority = (
   const alias = aliases.find(([metricPattern]) => metricPattern.test(header));
   const meaningfulTokens = header
     .split(" ")
-    .filter((token) => token.length >= 4 && !/^(?:total|overall|average)$/.test(token));
+    .filter(
+      (token) =>
+        token.length >= 4 && !/^(?:total|overall|average)$/.test(token),
+    );
 
   return contexts.reduce((score, context) => {
     if (!context.text) return score;
@@ -267,11 +263,13 @@ const contextMetricPriority = (
         ? score + context.weight * (alias[2] ?? 1)
         : score;
     }
+    const contextTokens = new Set(context.text.split(" ").filter(Boolean));
     if (
-      meaningfulTokens.some((token) =>
-        new RegExp(`(?:^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}s?(?:$|\\s)`).test(
-          context.text,
-        ),
+      meaningfulTokens.some(
+        (token) =>
+          contextTokens.has(token) ||
+          contextTokens.has(`${token}s`) ||
+          (token.endsWith("s") && contextTokens.has(token.slice(0, -1))),
       )
     ) {
       return score + context.weight;
@@ -281,7 +279,7 @@ const contextMetricPriority = (
 };
 
 const rankingMetricPriority = (
-  table: ParsedHtmlTable,
+  table: ArticleContextTable,
   index: number,
 ): number => {
   const headers = table.headers;
@@ -297,42 +295,82 @@ const rankingMetricPriority = (
     hasHeader(/^silver(?: medals?)?$/) &&
     hasHeader(/^bronze(?: medals?)?$/);
   if (isMedalTable) {
-    if (/^gold(?: medals?)?$/.test(header)) return 140 + contextMetricPriority(header, table);
-    if (/^silver(?: medals?)?$/.test(header)) return 130 + contextMetricPriority(header, table);
-    if (/^bronze(?: medals?)?$/.test(header)) return 120 + contextMetricPriority(header, table);
-    if (/^(?:total|totals|overall)$/.test(header)) return 110 + contextMetricPriority(header, table);
+    if (/^gold(?: medals?)?$/.test(header))
+      return 140 + contextMetricPriority(header, table);
+    if (/^silver(?: medals?)?$/.test(header))
+      return 130 + contextMetricPriority(header, table);
+    if (/^bronze(?: medals?)?$/.test(header))
+      return 120 + contextMetricPriority(header, table);
+    if (/^(?:total|totals|overall)$/.test(header))
+      return 110 + contextMetricPriority(header, table);
   }
 
   const isLeagueTable =
     hasHeader(/^(?:points?|pts)$/) &&
     hasHeader(/^(?:wins?|won|victories|goal difference|goals? for|gf)$/);
   if (isLeagueTable) {
-    if (/^(?:points?|pts)$/.test(header)) return 140 + contextMetricPriority(header, table);
-    if (/^(?:goal difference|goals? difference|gd|difference|net)$/.test(header)) return 130 + contextMetricPriority(header, table);
-    if (/^(?:wins?|won|victories)$/.test(header)) return 120 + contextMetricPriority(header, table);
-    if (/^(?:goals? for|gf|goals? scored)$/.test(header)) return 110 + contextMetricPriority(header, table);
-    if (/^(?:played|pld|games played|appearances)$/.test(header)) return 70 + contextMetricPriority(header, table);
-    if (/^(?:draws?|drawn)$/.test(header)) return 60 + contextMetricPriority(header, table);
-    if (/^(?:losses|lost)$/.test(header)) return 50 + contextMetricPriority(header, table);
-    if (/^(?:goals? against|ga)$/.test(header)) return 40 + contextMetricPriority(header, table);
+    if (/^(?:points?|pts)$/.test(header))
+      return 140 + contextMetricPriority(header, table);
+    if (
+      /^(?:goal difference|goals? difference|gd|difference|net)$/.test(header)
+    )
+      return 130 + contextMetricPriority(header, table);
+    if (/^(?:wins?|won|victories)$/.test(header))
+      return 120 + contextMetricPriority(header, table);
+    if (/^(?:goals? for|gf|goals? scored)$/.test(header))
+      return 110 + contextMetricPriority(header, table);
+    if (/^(?:played|pld|games played|appearances)$/.test(header))
+      return 70 + contextMetricPriority(header, table);
+    if (/^(?:draws?|drawn)$/.test(header))
+      return 60 + contextMetricPriority(header, table);
+    if (/^(?:losses|lost)$/.test(header))
+      return 50 + contextMetricPriority(header, table);
+    if (/^(?:goals? against|ga)$/.test(header))
+      return 40 + contextMetricPriority(header, table);
   }
 
   const isScoringTable =
     hasHeader(/^player$/) && hasHeader(/^(?:goals?|scores?|points?)$/);
   if (isScoringTable) {
-    if (/^(?:goals?|scores?|points?)$/.test(header)) return 140 + contextMetricPriority(header, table);
-    if (/^assists?$/.test(header)) return 130 + contextMetricPriority(header, table);
-    if (/^(?:appearances|games played|played)$/.test(header)) return 110 + contextMetricPriority(header, table);
+    if (/^(?:goals?|scores?|points?)$/.test(header))
+      return 140 + contextMetricPriority(header, table);
+    if (/^assists?$/.test(header))
+      return 130 + contextMetricPriority(header, table);
+    if (/^(?:appearances|games played|played)$/.test(header))
+      return 110 + contextMetricPriority(header, table);
   }
 
   const contextualPriority = contextMetricPriority(header, table);
-  if (/^(?:points?|pts|score|scores|rating|ratings|index|coefficient)$/.test(header)) return 140 + contextualPriority;
-  if (/^(?:votes?|vote share|percentage|percent|pct)$/.test(header)) return 130 + contextualPriority;
-  if (/^(?:revenue|gross|sales|value|population|density|population density|area|capacity|attendance|gdp|gross domestic product|income|median income)$/.test(header)) return 120 + contextualPriority;
-  if (/^(?:difference|margin|net|goal difference|goals? difference|gd)$/.test(header)) return 110 + contextualPriority;
-  if (/^(?:wins?|won|victories|goals?|medals?|podiums?|gold|silver|bronze)$/.test(header)) return 100 + contextualPriority;
-  if (/^(?:total|totals|overall|average|avg)$/.test(header)) return 90 + contextualPriority;
-  if (/^(?:assists?|appearances|played|pld)$/.test(header)) return 80 + contextualPriority;
+  if (
+    /^(?:points?|pts|score|scores|rating|ratings|index|coefficient)$/.test(
+      header,
+    )
+  )
+    return 140 + contextualPriority;
+  if (/^(?:votes?|vote share|percentage|percent|pct)$/.test(header))
+    return 130 + contextualPriority;
+  if (
+    /^(?:revenue|gross|sales|value|population|density|population density|area|capacity|attendance|gdp|gross domestic product|income|median income)$/.test(
+      header,
+    )
+  )
+    return 120 + contextualPriority;
+  if (
+    /^(?:difference|margin|net|goal difference|goals? difference|gd)$/.test(
+      header,
+    )
+  )
+    return 110 + contextualPriority;
+  if (
+    /^(?:wins?|won|victories|goals?|medals?|podiums?|gold|silver|bronze)$/.test(
+      header,
+    )
+  )
+    return 100 + contextualPriority;
+  if (/^(?:total|totals|overall|average|avg)$/.test(header))
+    return 90 + contextualPriority;
+  if (/^(?:assists?|appearances|played|pld)$/.test(header))
+    return 80 + contextualPriority;
   return 10 + contextualPriority;
 };
 
@@ -348,7 +386,11 @@ const contextualUnitsFromText = (
   );
   for (const match of scaleMatches) units.add(`${match[1].toLowerCase()}s`);
 
-  if (/\(\s*years?\s*\)|\b(?:in|measured in|expressed in)\s+years?\b/i.test(context)) {
+  if (
+    /\(\s*years?\s*\)|\b(?:in|measured in|expressed in)\s+years?\b/i.test(
+      context,
+    )
+  ) {
     units.add("years");
   }
   if (options.includeSemantic !== false) {
@@ -362,22 +404,20 @@ const contextualUnitsFromText = (
   return [...units];
 };
 
-const contextualTableUnits = (table: ParsedHtmlTable): string[] =>
+const contextualTableUnits = (table: ArticleContextTable): string[] =>
   contextualUnitsFromText(
     `${table.caption} ${table.section.title} ${table.context}`,
   );
 
 const inferContextualTableUnit = (
-  table: ParsedHtmlTable,
+  table: ArticleContextTable,
   seriesIndex: number,
   selectedSeriesIndexes: number[],
 ): string | undefined => {
   const units = contextualTableUnits(table);
   if (units.length !== 1) return undefined;
-  const hasMetricContext = contextMetricPriority(
-    table.headers[seriesIndex],
-    table,
-  ) > 0;
+  const hasMetricContext =
+    contextMetricPriority(table.headers[seriesIndex], table) > 0;
   const allSeriesAreComponents = selectedSeriesIndexes.every((index) =>
     /^(?:total|overall|male|males|men|female|females|women|both sexes)$/i.test(
       normalizeTableHeader(table.headers[index]),
@@ -390,12 +430,10 @@ const inferContextualTableUnit = (
   );
   const semanticUnitAppliesToPeriods =
     allSeriesArePeriods &&
-    /\bdecadal growth rate\b/i.test(
-      `${table.caption} ${table.section.title}`,
-    );
+    /\bdecadal growth rate\b/i.test(`${table.caption} ${table.section.title}`);
   const hasTableScopedUnit =
-    contextualUnitsFromText(table.context, { includeSemantic: false }).length ===
-      1 && /\b(?:following|this)\s+table\b/i.test(table.context);
+    contextualUnitsFromText(table.context, { includeSemantic: false })
+      .length === 1 && /\b(?:following|this)\s+table\b/i.test(table.context);
   return hasMetricContext ||
     selectedSeriesIndexes.length === 1 ||
     allSeriesAreComponents ||
@@ -412,7 +450,8 @@ const chartSeriesDescription = (
     isRankingPositionHeader(column.label),
   );
   const ranked = Boolean(
-    rankColumn && chart.series.some((series) => series.xColumn !== rankColumn.key),
+    rankColumn &&
+    chart.series.some((series) => series.xColumn !== rankColumn.key),
   );
   const descriptions: string[] = [];
   for (const series of chart.series) {
@@ -450,7 +489,7 @@ const chartSeriesDescription = (
   };
 };
 
-const createChartCandidate = ({
+export const createChartCandidate = ({
   chart,
   request,
   sourceHash,
@@ -483,7 +522,8 @@ const createChartCandidate = ({
   }
   const description = chartSeriesDescription(chart);
   if (!description) return null;
-  const subject = section.index === "__summary__" ? request.title : section.title;
+  const subject =
+    section.index === "__summary__" ? request.title : section.title;
   const base = buildBaseBlock({
     request,
     sourceHash,
@@ -497,20 +537,6 @@ const createChartCandidate = ({
   });
   const block: ContextChartBlock = { ...base, kind: "chart", chart };
   return { block, position, priority };
-};
-
-const enclosingTableCaption = (html: string, position: number): string => {
-  const prefix = html.slice(0, position);
-  const lowerPrefix = prefix.toLocaleLowerCase();
-  const tableStart = lowerPrefix.lastIndexOf("<table");
-  const previousTableEnd = lowerPrefix.lastIndexOf("</table>");
-  if (tableStart < 0 || tableStart < previousTableEnd) return "";
-  const boundedTablePrefix = prefix.slice(Math.max(tableStart, position - 50_000));
-  const captions = [
-    ...boundedTablePrefix.matchAll(/<caption\b[^>]*>([\s\S]*?)<\/caption>/gi),
-  ];
-  const caption = captions.at(-1)?.[1];
-  return caption ? sanitizeContextCaption(caption, 400) : "";
 };
 
 const isUnambiguousYearCategory = (value: ContextChartCell): boolean => {
@@ -541,7 +567,8 @@ const normalizeChartExtension = (
   const inheritedUnits = contextualUnitsFromText(context, {
     includeSemantic: false,
   });
-  const inheritedUnit = inheritedUnits.length === 1 ? inheritedUnits[0] : undefined;
+  const inheritedUnit =
+    inheritedUnits.length === 1 ? inheritedUnits[0] : undefined;
   const categoryValues = Array.isArray(xAxis?.data)
     ? xAxis.data.map(safeChartScalar)
     : [];
@@ -559,8 +586,8 @@ const normalizeChartExtension = (
     if (!Array.isArray(seriesValue.data)) continue;
     const data = seriesValue.data.map(safeSeriesDatum);
     if (data.some((datum) => !datum)) continue;
-    const safeData = data.filter(
-      (datum): datum is NonNullable<typeof datum> => Boolean(datum),
+    const safeData = data.filter((datum): datum is NonNullable<typeof datum> =>
+      Boolean(datum),
     );
     if (safeData.length < 3) continue;
     const rawName = asString(seriesValue.name);
@@ -585,7 +612,8 @@ const normalizeChartExtension = (
 
   for (const [seriesIndex, normalized] of normalizedSeries.entries()) {
     const yKey = uniqueColumnKey(normalized.label, usedKeys);
-    const unit = inferUnit(normalized.label) ?? inferUnit(yLabel) ?? inheritedUnit;
+    const unit =
+      inferUnit(normalized.label) ?? inferUnit(yLabel) ?? inheritedUnit;
     columns.push({
       key: yKey,
       label: normalized.label,
@@ -654,55 +682,38 @@ const normalizeChartExtension = (
   };
 };
 
-export const extractChartExtensionCandidates = ({
-  source,
+export const createChartCandidateFromSpec = ({
+  spec,
+  context,
   request,
   sourceHash,
   generatedAt,
-  boundaries,
+  section,
+  position,
+  sourceIdentity,
 }: {
-  source: MediaWikiParsedSource;
+  spec: unknown;
+  context?: string;
   request: ArticleContextRequest;
   sourceHash: string;
   generatedAt: string;
-  boundaries: SectionBoundary[];
-}): BlockCandidate[] => {
-  const candidates: BlockCandidate[] = [];
-  let chartIndex = 0;
-  for (const match of source.html.matchAll(/<wiki-chart\b([^>]*)>/gi)) {
-    const attrs = parseAttributes(match[1]);
-    const raw = attrs["data-mw-chart"];
-    if (!raw || utf8Encoder.encode(raw).byteLength > MAX_CHART_ATTRIBUTE_BYTES) {
-      continue;
-    }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-    const position = match.index ?? 0;
-    const normalized = normalizeChartExtension(
-      payload,
-      enclosingTableCaption(source.html, position),
-    );
-    if (!normalized) continue;
-    const section = sectionAtOffset(boundaries, position);
-    const candidate = createChartCandidate({
-      chart: normalized.chart,
-      request,
-      sourceHash,
-      generatedAt,
-      section,
-      position,
-      priority: 100,
-      sourceIdentity: `chart-extension:${chartIndex}:${sha256(raw)}`,
-      title: normalized.title,
-    });
-    if (candidate) candidates.push(candidate);
-    chartIndex += 1;
-  }
-  return candidates;
+  section: ContextSection;
+  position: number;
+  sourceIdentity: string;
+}): BlockCandidate | null => {
+  const normalized = normalizeChartExtension({ spec }, context);
+  if (!normalized) return null;
+  return createChartCandidate({
+    chart: normalized.chart,
+    request,
+    sourceHash,
+    generatedAt,
+    section,
+    position,
+    priority: 100,
+    sourceIdentity,
+    title: normalized.title,
+  });
 };
 
 const parseTableNumber = (value: string): number | null => {
@@ -713,7 +724,8 @@ const parseTableNumber = (value: string): number | null => {
 
   const plainNumber = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
   const commaGroupedNumber = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
-  const spaceGroupedNumber = /^[+-]?\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:\.\d+)?$/;
+  const spaceGroupedNumber =
+    /^[+-]?\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:\.\d+)?$/;
   if (
     !plainNumber.test(normalized) &&
     !commaGroupedNumber.test(normalized) &&
@@ -733,17 +745,22 @@ const isExplicitlyMissingTableNumber = (value: string): boolean =>
 
 const isSafeTableMetricLabel = (value: string): boolean => {
   const label = sanitizeContextText(value, 160).trim();
-  return Boolean(label) &&
-    !/^(?:[-–—?]|n\/?a|none|unknown|unnamed)$/i.test(label);
+  return (
+    Boolean(label) && !/^(?:[-–—?]|n\/?a|none|unknown|unnamed)$/i.test(label)
+  );
 };
 
 const isChronologicalTableColumn = (
-  table: ParsedHtmlTable,
+  table: ArticleContextTable,
   rows: string[][],
   columnIndex: number,
 ): boolean => {
   const header = normalizeTableHeader(table.headers[columnIndex]);
-  if (!/^(?:(?:(?:calendar|census|fiscal|reporting) )?years?(?: ended)?|dates?|months?|quarters?|periods?|time|weeks?|days?)$/i.test(header)) {
+  if (
+    !/^(?:(?:(?:calendar|census|fiscal|reporting) )?years?(?: ended)?|dates?|months?|quarters?|periods?|time|weeks?|days?)$/i.test(
+      header,
+    )
+  ) {
     return false;
   }
   const nonempty = rows
@@ -755,11 +772,13 @@ const isChronologicalTableColumn = (
         value.trim(),
       ),
   );
-  return nonempty.length >= 3 &&
+  return (
+    nonempty.length >= 3 &&
     unambiguous.length === nonempty.length &&
     nonempty.filter((value) => parseContextDateRange(value)).length /
       nonempty.length >=
-      0.8;
+      0.8
+  );
 };
 
 const isSecondaryCategoricalDimensionHeader = (value: string): boolean =>
@@ -769,7 +788,7 @@ const isSecondaryCategoricalDimensionHeader = (value: string): boolean =>
   );
 
 const hasVaryingSecondaryCategoricalDimension = (
-  table: ParsedHtmlTable,
+  table: ArticleContextTable,
   rows: string[][],
   numericColumns: boolean[],
   xColumnIndex: number,
@@ -799,7 +818,7 @@ const seriesHeaderYear = (value: string): number | null => {
 
 const prioritizeTableSeries = (
   indexes: number[],
-  table: ParsedHtmlTable,
+  table: ArticleContextTable,
 ): number[] => {
   const datedSeriesCount = indexes.filter(
     (index) => seriesHeaderYear(table.headers[index]) != null,
@@ -814,19 +833,29 @@ const prioritizeTableSeries = (
         return rightYear - leftYear;
       }
     }
-    return contextMetricPriority(table.headers[right], table) -
-      contextMetricPriority(table.headers[left], table) || left - right;
+    return (
+      contextMetricPriority(table.headers[right], table) -
+        contextMetricPriority(table.headers[left], table) || left - right
+    );
   });
 };
 
-const extractChartFromTable = (
-  table: ParsedHtmlTable,
+export const extractChartFromTable = (
+  table: ArticleContextTable,
 ): ContextChartBlock["chart"] | null => {
   const rankingPositionIndex = table.headers.findIndex(isRankingPositionHeader);
   const rankingEntityIndex = table.headers.findIndex(isRankingEntityHeader);
   const isRankingTable = rankingPositionIndex >= 0 && rankingEntityIndex >= 0;
   const sourceRows = isRankingTable
-    ? table.rows.filter((row) => isNamedRankingEntity(row[rankingEntityIndex]))
+    ? table.rows.filter((row) => {
+        const rank = parseTableNumber(row[rankingPositionIndex]);
+        return (
+          isNamedRankingEntity(row[rankingEntityIndex]) &&
+          rank != null &&
+          Number.isSafeInteger(rank) &&
+          rank >= 1
+        );
+      })
     : table.rows;
   if (sourceRows.length < 3) return null;
 
@@ -837,16 +866,20 @@ const extractChartFromTable = (
       .map((row) => row[columnIndex])
       .filter((value) => value.trim() !== "");
     const numeric = nonempty.filter((value) => parseTableNumber(value) != null);
-    return nonempty.length >= 3 &&
+    return (
+      nonempty.length >= 3 &&
       numeric.length / nonempty.length >= 0.8 &&
       nonempty.every(
         (value) =>
-          parseTableNumber(value) != null || isExplicitlyMissingTableNumber(value),
-      );
+          parseTableNumber(value) != null ||
+          isExplicitlyMissingTableNumber(value),
+      )
+    );
   });
   if (
     numericColumns.some(
-      (numeric, index) => numeric && !isSafeTableMetricLabel(table.headers[index]),
+      (numeric, index) =>
+        numeric && !isSafeTableMetricLabel(table.headers[index]),
     )
   ) {
     return null;
@@ -857,9 +890,7 @@ const extractChartFromTable = (
   const serialEntityIndex = isSerialNumberHeader(table.headers[0] ?? "")
     ? table.headers.findIndex(
         (header, index) =>
-          index > 0 &&
-          isRankingEntityHeader(header) &&
-          !numericColumns[index],
+          index > 0 && isRankingEntityHeader(header) && !numericColumns[index],
       )
     : -1;
   const xColumnIndex = isRankingTable
@@ -889,12 +920,12 @@ const extractChartFromTable = (
     .filter((index) => !isTemporalMetadataMetric(table.headers[index]))
     .filter((index) => isSafeTableMetricLabel(table.headers[index]));
   const varyingSeriesIndexes = plottableSeriesIndexes.filter((index) => {
-      const values = sourceRows.flatMap((row) => {
-        const value = parseTableNumber(row[index]);
-        return value == null ? [] : [value];
-      });
-      return new Set(values).size >= 2;
+    const values = sourceRows.flatMap((row) => {
+      const value = parseTableNumber(row[index]);
+      return value == null ? [] : [value];
     });
+    return new Set(values).size >= 2;
+  });
   const seriesIndexes = isRankingTable
     ? varyingSeriesIndexes
         .filter((index) => !isRankingMetadataMetric(table.headers[index]))
@@ -907,12 +938,14 @@ const extractChartFromTable = (
           const vector = sourceRows
             .map((row) => parseTableNumber(row[index]))
             .join("\u0000");
-          return sortedIndexes.findIndex(
-            (candidateIndex) =>
-              sourceRows
-                .map((row) => parseTableNumber(row[candidateIndex]))
-                .join("\u0000") === vector,
-          ) === position;
+          return (
+            sortedIndexes.findIndex(
+              (candidateIndex) =>
+                sourceRows
+                  .map((row) => parseTableNumber(row[candidateIndex]))
+                  .join("\u0000") === vector,
+            ) === position
+          );
         })
         .slice(0, 4)
     : varyingSeriesIndexes.length > 0
@@ -927,12 +960,11 @@ const extractChartFromTable = (
       : [];
   if (seriesIndexes.length === 0) return null;
   const columns: ContextChartColumn[] = table.headers.map((header, index) => {
-    const unit = inferUnit(
-      header,
-      sourceRows.map((row) => row[index]).filter(Boolean),
-    ) ?? (seriesIndexes.includes(index)
-      ? inferContextualTableUnit(table, index, seriesIndexes)
-      : undefined);
+    const unit =
+      inferUnit(header, sourceRows.map((row) => row[index]).filter(Boolean)) ??
+      (seriesIndexes.includes(index)
+        ? inferContextualTableUnit(table, index, seriesIndexes)
+        : undefined);
     return {
       key: keys[index],
       label: header,
@@ -950,7 +982,9 @@ const extractChartFromTable = (
           : raw
         : null;
     }
-    return seriesIndexes.some((index) => typeof normalized[keys[index]] === "number")
+    return seriesIndexes.some(
+      (index) => typeof normalized[keys[index]] === "number",
+    )
       ? [normalized]
       : [];
   });
@@ -961,72 +995,26 @@ const extractChartFromTable = (
     xColumnIndex,
   );
   const chronologicalPointCount = xLooksChronological
-    ? sourceRows.filter((row) => parseContextDateRange(row[xColumnIndex])).length
+    ? sourceRows.filter((row) => parseContextDateRange(row[xColumnIndex]))
+        .length
     : 0;
-  const series: ContextChartSeries[] = seriesIndexes.map((index, seriesIndex) => ({
-    id: uniqueId("series", table.headers[index], seriesIndex),
-    label: table.headers[index],
-    type:
-      isRankingTable || !xLooksChronological || chronologicalPointCount < 4
-        ? "bar"
-        : "line",
-    xColumn: keys[xColumnIndex],
-    yColumn: keys[index],
-    ...(columns[index].unit ? { unit: columns[index].unit } : {}),
-  }));
+  const series: ContextChartSeries[] = seriesIndexes.map(
+    (index, seriesIndex) => ({
+      id: uniqueId("series", table.headers[index], seriesIndex),
+      label: table.headers[index],
+      type:
+        isRankingTable || !xLooksChronological || chronologicalPointCount < 4
+          ? "bar"
+          : "line",
+      xColumn: keys[xColumnIndex],
+      yColumn: keys[index],
+      ...(columns[index].unit ? { unit: columns[index].unit } : {}),
+    }),
+  );
   return {
     columns,
     rows,
     series,
     sourceChartType: "wikitable",
   };
-};
-
-export const extractTableCandidates = ({
-  source,
-  request,
-  sourceHash,
-  generatedAt,
-  boundaries,
-}: {
-  source: MediaWikiParsedSource;
-  request: ArticleContextRequest;
-  sourceHash: string;
-  generatedAt: string;
-  boundaries: SectionBoundary[];
-}): BlockCandidate[] => {
-  const candidates: BlockCandidate[] = [];
-  parseWikitables(source.html, boundaries).forEach((table, tableIndex) => {
-    const timeline = extractTimelineFromTable(table);
-    if (timeline) {
-      const candidate = createTimelineCandidate({
-        events: timeline,
-        request,
-        sourceHash,
-        generatedAt,
-        section: table.section,
-        position: table.position,
-        priority: 86,
-        sourceIdentity: `date-table:${tableIndex}:${sha256(JSON.stringify(table.rows))}`,
-      });
-      if (candidate) candidates.push(candidate);
-      return;
-    }
-    const chart = extractChartFromTable(table);
-    if (!chart) return;
-    const subject = table.section.index === "__summary__" ? request.title : table.section.title;
-    const candidate = createChartCandidate({
-      chart,
-      request,
-      sourceHash,
-      generatedAt,
-      section: table.section,
-      position: table.position,
-      priority: 72,
-      sourceIdentity: `wikitable:${tableIndex}:${sha256(JSON.stringify(table.rows))}`,
-      title: table.caption || `${subject} data`,
-    });
-    if (candidate) candidates.push(candidate);
-  });
-  return candidates;
 };

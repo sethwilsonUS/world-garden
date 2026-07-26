@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Id } from "./_generated/dataModel";
+import { type TtsMetadata } from "../lib/tts-profile";
 import {
   listViewerPlaylistEpisodesForCtx,
   moveViewerPlaylistEpisodeForCtx,
@@ -44,12 +45,14 @@ type EpisodeDoc = {
   storageId?: Id<"_storage">;
   durationSeconds?: number;
   byteLength?: number;
+  narrationHash?: string;
   ttsCacheKey?: string;
   provider?: string;
   model?: string;
   voiceId?: string;
   promptVersion?: string;
   ttsNormVersion?: string;
+  requestedTtsMetadata?: TtsMetadata;
   audioVariants?: unknown;
   lastError?: string;
   leaseOwner?: string;
@@ -59,7 +62,8 @@ type EpisodeDoc = {
 };
 
 const buildEpisode = (
-  overrides: Partial<EpisodeDoc> & Pick<EpisodeDoc, "_id" | "articleId" | "slug" | "title">,
+  overrides: Partial<EpisodeDoc> &
+    Pick<EpisodeDoc, "_id" | "articleId" | "slug" | "title">,
 ): EpisodeDoc => ({
   viewerTokenIdentifier: "user-1",
   wikiPageId: `wiki-${overrides.slug}`,
@@ -71,10 +75,7 @@ const buildEpisode = (
   ...overrides,
 });
 
-const createCtx = (seed?: {
-  feeds?: FeedDoc[];
-  episodes?: EpisodeDoc[];
-}) => {
+const createCtx = (seed?: { feeds?: FeedDoc[]; episodes?: EpisodeDoc[] }) => {
   let feeds = [...(seed?.feeds ?? [])];
   let episodes = [...(seed?.episodes ?? [])];
   let idCounter = feeds.length + episodes.length;
@@ -82,66 +83,71 @@ const createCtx = (seed?: {
   const matchesFilters = (
     doc: Record<string, unknown>,
     filters: Array<[string, unknown]>,
-  ) =>
-    filters.every(([field, value]) => doc[field] === value);
+  ) => filters.every(([field, value]) => doc[field] === value);
 
   const ctx = {
-      db: {
-        query: (tableName: "personalPodcastFeeds" | "personalPlaylistEpisodes") => ({
-          withIndex: (
-            _indexName: string,
-            apply: (builder: { eq: (field: string, value: unknown) => unknown }) => unknown,
-          ) => {
-            const filters: Array<[string, unknown]> = [];
-            const builder = {
-              eq: (field: string, value: unknown) => {
-                filters.push([field, value]);
-                return builder;
-              },
-            };
-            apply(builder);
-            const docs = tableName === "personalPodcastFeeds" ? feeds : episodes;
-            const filtered = docs.filter((doc) =>
-              matchesFilters(doc as Record<string, unknown>, filters),
-            );
-            return {
-              first: async () => filtered[0] ?? null,
-              collect: async () => filtered,
-            };
-          },
-        }),
-        insert: async (
-          tableName: "personalPodcastFeeds" | "personalPlaylistEpisodes",
-          value: Omit<FeedDoc, "_id"> | Omit<EpisodeDoc, "_id">,
+    db: {
+      query: (
+        tableName: "personalPodcastFeeds" | "personalPlaylistEpisodes",
+      ) => ({
+        withIndex: (
+          _indexName: string,
+          apply: (builder: {
+            eq: (field: string, value: unknown) => unknown;
+          }) => unknown,
         ) => {
-          idCounter += 1;
-          const id = `${tableName}-${idCounter}` as never;
-          if (tableName === "personalPodcastFeeds") {
-            feeds.push({ _id: id, ...(value as Omit<FeedDoc, "_id">) });
-          } else {
-            episodes.push({ _id: id, ...(value as Omit<EpisodeDoc, "_id">) });
-          }
-          return id;
-        },
-        patch: async (id: string, value: Partial<FeedDoc & EpisodeDoc>) => {
-          feeds = feeds.map((doc) => (doc._id === id ? { ...doc, ...value } : doc));
-          episodes = episodes.map((doc) =>
-            doc._id === id ? { ...doc, ...value } : doc,
+          const filters: Array<[string, unknown]> = [];
+          const builder = {
+            eq: (field: string, value: unknown) => {
+              filters.push([field, value]);
+              return builder;
+            },
+          };
+          apply(builder);
+          const docs = tableName === "personalPodcastFeeds" ? feeds : episodes;
+          const filtered = docs.filter((doc) =>
+            matchesFilters(doc as Record<string, unknown>, filters),
           );
+          return {
+            first: async () => filtered[0] ?? null,
+            collect: async () => filtered,
+          };
         },
-        get: async (id: string) => {
-          return (
-            episodes.find((doc) => doc._id === id) ??
-            feeds.find((doc) => doc._id === id) ??
-            null
-          );
-        },
+      }),
+      insert: async (
+        tableName: "personalPodcastFeeds" | "personalPlaylistEpisodes",
+        value: Omit<FeedDoc, "_id"> | Omit<EpisodeDoc, "_id">,
+      ) => {
+        idCounter += 1;
+        const id = `${tableName}-${idCounter}` as never;
+        if (tableName === "personalPodcastFeeds") {
+          feeds.push({ _id: id, ...(value as Omit<FeedDoc, "_id">) });
+        } else {
+          episodes.push({ _id: id, ...(value as Omit<EpisodeDoc, "_id">) });
+        }
+        return id;
       },
-      storage: {
-        getUrl: async (storageId: Id<"_storage">) =>
-          `https://cdn.example.com/${storageId}.mp3`,
+      patch: async (id: string, value: Partial<FeedDoc & EpisodeDoc>) => {
+        feeds = feeds.map((doc) =>
+          doc._id === id ? { ...doc, ...value } : doc,
+        );
+        episodes = episodes.map((doc) =>
+          doc._id === id ? { ...doc, ...value } : doc,
+        );
       },
-    } as unknown as PersonalPlaylistMutationCtx;
+      get: async (id: string) => {
+        return (
+          episodes.find((doc) => doc._id === id) ??
+          feeds.find((doc) => doc._id === id) ??
+          null
+        );
+      },
+    },
+    storage: {
+      getUrl: async (storageId: Id<"_storage">) =>
+        `https://cdn.example.com/${storageId}.mp3`,
+    },
+  } as unknown as PersonalPlaylistMutationCtx;
 
   return {
     ctx,
@@ -152,6 +158,23 @@ const createCtx = (seed?: {
 
 describe("personal playlist data helpers", () => {
   const narrationHash = "article-narration-current";
+  const requestedTtsMetadata = {
+    provider: "edge" as const,
+    model: "edge-tts",
+    voiceId: "en-US-AriaNeural",
+    promptVersion: "edge-default",
+    ttsNormVersion: "ttsNorm:2",
+    ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+  } satisfies TtsMetadata;
+  const refreshedTtsMetadata = {
+    provider: "openai" as const,
+    model: "gpt-4o-mini-tts",
+    voiceId: "cedar",
+    promptVersion: "curio-warm-narrator-v2",
+    ttsNormVersion: "ttsNorm:2",
+    ttsCacheKey:
+      "tts:openai:gpt-4o-mini-tts:cedar:curio-warm-narrator-v2:ttsNorm:2",
+  } satisfies TtsMetadata;
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-16T18:00:00Z"));
@@ -174,6 +197,7 @@ describe("personal playlist data helpers", () => {
       imageUrl: "https://images.example.com/mars.jpg",
       sectionCount: 4,
       narrationHash,
+      requestedTtsMetadata,
     });
 
     expect(result.added).toBe(true);
@@ -189,6 +213,7 @@ describe("personal playlist data helpers", () => {
         position: 0,
         publishedAt: Date.now(),
         status: "queued",
+        requestedTtsMetadata,
       }),
     ]);
   });
@@ -215,6 +240,45 @@ describe("personal playlist data helpers", () => {
     expect(getEpisodes()).toHaveLength(1);
   });
 
+  it("does not backfill an unchanged ready episode after the active profile changes", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-ready" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getEpisodes } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "ready",
+          narrationHash,
+          requestedTtsMetadata,
+          storageId: "storage-ready" as Id<"_storage">,
+        }),
+      ],
+    });
+
+    const result = await upsertViewerPlaylistEpisodeForCtx(ctx, {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-mars",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash,
+      requestedTtsMetadata: refreshedTtsMetadata,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      shouldSchedule: false,
+    });
+    expect(getEpisodes()[0]).toMatchObject({
+      storageId: "storage-ready",
+      requestedTtsMetadata,
+    });
+  });
+
   it("requeues an active episode when its article narration changes", async () => {
     const { ctx, getEpisodes } = createCtx();
     const args = {
@@ -225,12 +289,14 @@ describe("personal playlist data helpers", () => {
       title: "Mars",
       sectionCount: 4,
       narrationHash: "narration-v1",
+      requestedTtsMetadata,
     };
     await upsertViewerPlaylistEpisodeForCtx(ctx, args);
 
     const refreshed = await upsertViewerPlaylistEpisodeForCtx(ctx, {
       ...args,
       narrationHash: "narration-v2",
+      requestedTtsMetadata: refreshedTtsMetadata,
     });
 
     expect(refreshed).toMatchObject({
@@ -242,6 +308,7 @@ describe("personal playlist data helpers", () => {
       narrationHash: "narration-v2",
       status: "queued",
       completedSectionCount: 0,
+      requestedTtsMetadata: refreshedTtsMetadata,
     });
   });
 
@@ -268,7 +335,10 @@ describe("personal playlist data helpers", () => {
     let visible = await listViewerPlaylistEpisodesForCtx(ctx, "user-1");
     expect(visible).toEqual([]);
 
-    const restored = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
+    const restored = await upsertViewerPlaylistEpisodeForCtx(ctx, {
+      ...args,
+      requestedTtsMetadata: refreshedTtsMetadata,
+    });
     visible = await listViewerPlaylistEpisodesForCtx(ctx, "user-1");
 
     expect(restored.episodeId).toBe(first.episodeId);
@@ -278,6 +348,39 @@ describe("personal playlist data helpers", () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]._id).toBe(first.episodeId);
     expect(visible[0].status).toBe("queued");
+    expect(visible[0].requestedTtsMetadata).toEqual(refreshedTtsMetadata);
+  });
+
+  it("preserves a pinned profile when a legacy restore omits metadata", async () => {
+    const { ctx, getEpisodes } = createCtx();
+    const args = {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-1",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash,
+      requestedTtsMetadata,
+    };
+    const first = await upsertViewerPlaylistEpisodeForCtx(ctx, args);
+    await removeViewerPlaylistEpisodeForCtx(ctx, {
+      viewerTokenIdentifier: "user-1",
+      episodeId: first.episodeId,
+    });
+    const legacyArgs = {
+      viewerTokenIdentifier: args.viewerTokenIdentifier,
+      articleId: args.articleId,
+      wikiPageId: args.wikiPageId,
+      slug: args.slug,
+      title: args.title,
+      sectionCount: args.sectionCount,
+      narrationHash: args.narrationHash,
+    };
+
+    await upsertViewerPlaylistEpisodeForCtx(ctx, legacyArgs);
+
+    expect(getEpisodes()[0].requestedTtsMetadata).toEqual(requestedTtsMetadata);
   });
 
   it("rewrites queue position and synthetic publishedAt when moved", async () => {
@@ -309,7 +412,9 @@ describe("personal playlist data helpers", () => {
       direction: "up",
     });
 
-    const ordered = getEpisodes().sort((left, right) => left.position - right.position);
+    const ordered = getEpisodes().sort(
+      (left, right) => left.position - right.position,
+    );
     expect(ordered.map((episode) => episode.slug)).toEqual(["venus", "mars"]);
     expect(ordered[0].publishedAt).toBeGreaterThan(ordered[1].publishedAt);
   });
@@ -367,7 +472,8 @@ describe("personal playlist data helpers", () => {
   });
 
   it("honors another worker's active lease and claims after it expires", async () => {
-    const targetId = "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">;
+    const targetId =
+      "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">;
     const { ctx, getEpisodes } = createCtx({
       episodes: [
         buildEpisode({
@@ -404,7 +510,9 @@ describe("personal playlist data helpers", () => {
       }),
     ).resolves.toEqual({ claimed: true, viewerTokenIdentifier: "user-1" });
 
-    expect(getEpisodes().find((episode) => episode._id === targetId)).toMatchObject({
+    expect(
+      getEpisodes().find((episode) => episode._id === targetId),
+    ).toMatchObject({
       status: "running",
       stage: "rendering_audio",
       leaseOwner: "worker-b",
@@ -413,7 +521,8 @@ describe("personal playlist data helpers", () => {
   });
 
   it("reclaims an expired running episode and rejects the stale owner", async () => {
-    const episodeId = "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
     const { ctx, getEpisodes } = createCtx({
       episodes: [
         buildEpisode({
@@ -493,7 +602,8 @@ describe("personal playlist data helpers", () => {
   });
 
   it("requires lease ownership for progress and failure, then permits retry", async () => {
-    const episodeId = "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
     const { ctx, getEpisodes } = createCtx({
       episodes: [
         buildEpisode({
@@ -560,6 +670,7 @@ describe("personal playlist data helpers", () => {
       retryViewerPlaylistEpisodeForCtx(ctx, {
         viewerTokenIdentifier: "user-1",
         episodeId,
+        requestedTtsMetadata: refreshedTtsMetadata,
       }),
     ).resolves.toEqual({ queued: true });
     expect(getEpisodes()[0]).toMatchObject({
@@ -567,11 +678,13 @@ describe("personal playlist data helpers", () => {
       stage: "queued",
       completedSectionCount: 0,
       lastError: undefined,
+      requestedTtsMetadata: refreshedTtsMetadata,
     });
   });
 
   it("completes only for the lease owner and records the generated audio variant", async () => {
-    const episodeId = "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
     const { ctx, getEpisodes } = createCtx({
       episodes: [
         buildEpisode({
@@ -624,13 +737,18 @@ describe("personal playlist data helpers", () => {
       leaseOwner: undefined,
     });
     expect(getEpisodes()[0].audioVariants).toEqual([
-      expect.objectContaining({ storageId: "storage-1", ttsCacheKey: "tts-key" }),
+      expect.objectContaining({
+        storageId: "storage-1",
+        ttsCacheKey: "tts-key",
+      }),
     ]);
   });
 
   it("selects the next queued episode in queue order while honoring exclusions", async () => {
-    const firstId = "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
-    const secondId = "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">;
+    const firstId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const secondId =
+      "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">;
     const { ctx } = createCtx({
       episodes: [
         buildEpisode({

@@ -37,8 +37,7 @@ const manifest: ContextManifest = {
       ],
       provenance: {
         articleUrl: "https://en.wikipedia.org/wiki/Formula_safety",
-        articleRevisionUrl:
-          "https://en.wikipedia.org/w/index.php?oldid=100",
+        articleRevisionUrl: "https://en.wikipedia.org/w/index.php?oldid=100",
         sourceHash: "abc123",
         extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
         descriptionMethod: "deterministic",
@@ -85,7 +84,7 @@ describe("article context CSV downloads", () => {
   it("serializes the schema-v2 caption contract without legacy audio copy", () => {
     const json = JSON.parse(serializeArticleContextJson(manifest));
 
-    expect(json.schemaVersion).toBe(2);
+    expect(json.schemaVersion).toBe(3);
     expect(json.blocks[0].caption).toBe("Four labels are shown.");
     expect(json.blocks[0]).not.toHaveProperty("takeaway");
     expect(json.blocks[0]).not.toHaveProperty("spokenSummary");
