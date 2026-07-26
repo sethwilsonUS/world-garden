@@ -101,10 +101,10 @@ describe("2022 FIFA World Cup chart promotion regressions", () => {
     expect(chart).toBeNull();
   });
 
-  it("declines Group A or identifies Team and Points instead of an ordinal x-axis", () => {
+  it("identifies Team and Points instead of an ordinal x-axis for Group A", () => {
     const chart = extractChartFromTable(groupA);
+    expect(chart).not.toBeNull();
     if (!chart) {
-      expect(chart).toBeNull();
       return;
     }
 

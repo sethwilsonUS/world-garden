@@ -114,6 +114,9 @@ describe("article context CSV downloads", () => {
 
     const csv = serializeArticleContextCsv(manifest);
     expect(csv).toContain(
+      "legend_description,context-diagram-formula-safety:legend-description,Legend description,,,,,,,,,Formula safety legend.",
+    );
+    expect(csv).toContain(
       "legend_entry,context-diagram-formula-safety:legend:1,Countries that won at least one gold medal.",
     );
     expect(csv).toContain("#FFD700");

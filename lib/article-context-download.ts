@@ -150,7 +150,24 @@ const blockRows = (
       label: `Legend note ${index + 1}`,
       description: note,
     })) ?? [];
-  return [...parts, ...steps, ...legendEntries, ...legendNotes];
+  const legendDescription = block.diagram.legend
+    ? [
+        {
+          ...base,
+          item_type: "legend_description",
+          item_id: `${block.id}:legend-description`,
+          label: "Legend description",
+          description: block.diagram.legend.description,
+        },
+      ]
+    : [];
+  return [
+    ...parts,
+    ...steps,
+    ...legendDescription,
+    ...legendEntries,
+    ...legendNotes,
+  ];
 };
 
 const quoteCsv = (value: CsvValue): string => {
