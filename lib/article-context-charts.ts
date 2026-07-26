@@ -170,6 +170,38 @@ const normalizeTableHeader = (value: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
+const TABLE_MAGNITUDE_SCALES = [
+  "thousand",
+  "million",
+  "billion",
+  "trillion",
+] as const;
+
+const magnitudeScalesInText = (value: string): Set<string> => {
+  const tokens = new Set(normalizeTableHeader(value).split(" "));
+  return new Set(
+    TABLE_MAGNITUDE_SCALES.filter(
+      (scale) => tokens.has(scale) || tokens.has(`${scale}s`),
+    ),
+  );
+};
+
+const hasUnrepresentedHeaderMagnitude = (
+  table: ArticleContextTable,
+  columns: ContextChartColumn[],
+  seriesIndexes: number[],
+): boolean =>
+  seriesIndexes.some((index) => {
+    const headerPath = table.headerPaths[index];
+    if (!headerPath || headerPath.length === 0) return true;
+    const sourceScales = new Set(
+      headerPath.flatMap((header) => [...magnitudeScalesInText(header)]),
+    );
+    if (sourceScales.size === 0) return false;
+    const projectedScales = magnitudeScalesInText(columns[index]?.unit ?? "");
+    return [...sourceScales].some((scale) => !projectedScales.has(scale));
+  });
+
 export const isRankingPositionHeader = (value: string): boolean =>
   /^(?:pos|position|rank|ranks|ranking|place|seed)$/i.test(
     normalizeTableHeader(value),
@@ -751,6 +783,19 @@ const parseRankingPosition = (value: string): number | null => {
   return rank != null && Number.isSafeInteger(rank) && rank >= 1 ? rank : null;
 };
 
+const hasUnresolvedLeadingRankingAxis = (
+  table: ArticleContextTable,
+  rankingPositionIndex: number,
+  rankingEntityIndex: number,
+): boolean =>
+  rankingEntityIndex < 0 &&
+  rankingPositionIndex === 0 &&
+  /^(?:pos|rank|ranks|ranking|place|seed)$/i.test(
+    normalizeTableHeader(table.headers[0] ?? ""),
+  ) &&
+  table.rows.length >= 3 &&
+  table.rows.every((row) => parseRankingPosition(row[0] ?? "") != null);
+
 const isAggregateRankingEntity = (value: string): boolean =>
   /^(?:(?:grand )?totals?|overall|combined)(?:\s|\(|$)|^all (?:entries|nations|participants|teams)(?:\s|\(|$)/i.test(
     sanitizeContextText(value, 300).trim(),
@@ -887,8 +932,22 @@ const prioritizeTableSeries = (
 export const extractChartFromTable = (
   table: ArticleContextTable,
 ): ContextChartBlock["chart"] | null => {
+  if (table.headerPaths.length !== table.headers.length) return null;
   const rankingPositionIndex = table.headers.findIndex(isRankingPositionHeader);
   const rankingEntityIndex = table.headers.findIndex(isRankingEntityHeader);
+  // A leading ordinal rank is presentation metadata, not a meaningful
+  // category axis. If its named entity column was not resolved semantically,
+  // decline instead of plotting anonymous ranks such as 1, 2, 3, 4. Keep the
+  // ambiguous scientific measure “Position” out of this safety net.
+  if (
+    hasUnresolvedLeadingRankingAxis(
+      table,
+      rankingPositionIndex,
+      rankingEntityIndex,
+    )
+  ) {
+    return null;
+  }
   const isRankingTable = rankingPositionIndex >= 0 && rankingEntityIndex >= 0;
   const sourceRows = isRankingTable
     ? resolveRankingRows(table, rankingPositionIndex, rankingEntityIndex)
@@ -1008,6 +1067,9 @@ export const extractChartFromTable = (
       ...(unit ? { unit } : {}),
     };
   });
+  if (hasUnrepresentedHeaderMagnitude(table, columns, seriesIndexes)) {
+    return null;
+  }
   const rows: Record<string, ContextChartCell>[] = sourceRows.flatMap((row) => {
     const normalized: Record<string, ContextChartCell> = {};
     for (let index = 0; index < columns.length; index += 1) {

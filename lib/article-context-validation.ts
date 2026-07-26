@@ -5,11 +5,29 @@ import {
   type ContextMapGeometry,
   type ContextManifest,
 } from "./article-context-types";
+import { isValidContextDiagramLegend } from "./article-context-legend";
 import {
   MAX_BLOCKS_PER_ARTICLE,
   MAX_TABLE_CELLS,
   MAX_TABLE_ROWS,
 } from "./article-context-limits";
+
+const legendTextFields = (block: ContextBlock): string[] => {
+  if (
+    block.kind !== "diagram" ||
+    !isValidContextDiagramLegend(block.diagram.legend)
+  ) {
+    return [];
+  }
+  return [
+    block.diagram.legend.description,
+    ...block.diagram.legend.entries.flatMap((entry) => [
+      entry.color,
+      entry.text,
+    ]),
+    ...block.diagram.legend.notes,
+  ];
+};
 
 const blockTextFields = (block: ContextBlock): string[] => [
   block.title,
@@ -17,6 +35,7 @@ const blockTextFields = (block: ContextBlock): string[] => [
   block.longDescription,
   block.section.title,
   ...block.sources.flatMap((source) => [source.label, source.url]),
+  ...legendTextFields(block),
 ];
 
 const isHttpsUrl = (value: string): boolean => {
@@ -177,15 +196,22 @@ export const validateContextManifest = (
       ) {
         errors.push(`Chart ${block.id} has an invalid series`);
       }
-    } else if (
-      block.kind === "diagram" &&
-      (!isSafeCommonsImage(block.diagram.image.src) ||
+    } else if (block.kind === "diagram") {
+      if (
+        !isSafeCommonsImage(block.diagram.image.src) ||
         !block.diagram.caption ||
-        block.diagram.walkthrough.length === 0)
-    ) {
-      errors.push(
-        `Diagram ${block.id} is missing its safe semantic equivalent`,
-      );
+        block.diagram.walkthrough.length === 0
+      ) {
+        errors.push(
+          `Diagram ${block.id} is missing its safe semantic equivalent`,
+        );
+      }
+      if (
+        block.diagram.legend !== undefined &&
+        !isValidContextDiagramLegend(block.diagram.legend)
+      ) {
+        errors.push(`Diagram ${block.id} contains an invalid legend`);
+      }
     }
   }
   return errors;

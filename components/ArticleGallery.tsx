@@ -104,8 +104,10 @@ const ImageCard = ({
 
 export const ArticleGallery = ({
   identity,
+  className,
 }: {
   identity: WikipediaRevisionIdentity;
+  className?: string;
 }) => {
   const { images, loading } = useArticleGalleryImages(identity);
   const revisionKey = wikipediaRevisionKey(identity);
@@ -130,7 +132,7 @@ export const ArticleGallery = ({
   if (loading || images.length === 0) return null;
 
   return (
-    <section aria-labelledby="gallery-heading">
+    <section aria-labelledby="gallery-heading" className={className}>
       <h2
         id="gallery-heading"
         className="flex items-center gap-2 font-display font-semibold text-base text-foreground mb-3"

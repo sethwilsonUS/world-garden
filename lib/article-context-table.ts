@@ -9,6 +9,7 @@ export type ArticleContextTable = {
   caption: string;
   context: string;
   headers: string[];
+  headerPaths: string[][];
   rows: string[][];
   position: number;
   section: ContextSection;

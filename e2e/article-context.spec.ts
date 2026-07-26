@@ -6,7 +6,10 @@ import {
   type Page,
   type Route,
 } from "@playwright/test";
-import type { ContextManifest } from "../lib/article-context-types";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  type ContextManifest,
+} from "../lib/article-context-types";
 
 const tinyPng = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -26,7 +29,7 @@ const provenance = {
   articleRevisionUrl:
     "https://en.wikipedia.org/w/index.php?title=Ada_Lovelace&oldid=123456789",
   sourceHash: "0123456789abcdef0123456789abcdef",
-  extractorVersion: "2.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   descriptionMethod: "ai-assisted" as const,
   model: "gpt-5.6-luna",
   promptVersion: "context-accessibility-v3",
@@ -39,7 +42,7 @@ const contextManifest = {
   revisionId: "123456789",
   language: "en",
   sourceHash: "manifest-source-hash",
-  extractorVersion: "2.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [
     {
@@ -230,6 +233,43 @@ const contextManifest = {
       },
     },
   ],
+} satisfies ContextManifest;
+
+const legendManifest = {
+  ...contextManifest,
+  blocks: contextManifest.blocks.flatMap((block) =>
+    block.kind === "diagram"
+      ? [
+          {
+            ...block,
+            title: "Olympic medal map",
+            caption: "World map showing medal achievements.",
+            longDescription:
+              "A source-derived color legend with 2 entries and 1 note follows below.",
+            diagram: {
+              ...block.diagram,
+              walkthrough: ["World map showing medal achievements."],
+              caption:
+                "World map showing medal achievements. Legend: gold medal countries and non-participants.",
+              legend: {
+                description: "World map showing medal achievements.",
+                entries: [
+                  {
+                    color: "#FFD700",
+                    text: "represents countries that won at least one gold medal.",
+                  },
+                  {
+                    color: "#ED1C24",
+                    text: "represents countries that did not participate.",
+                  },
+                ],
+                notes: ["Neutral athletes are not represented on the map."],
+              },
+            },
+          },
+        ]
+      : [],
+  ),
 } satisfies ContextManifest;
 
 const rankingManifest = {
@@ -908,6 +948,40 @@ test("visual context reports a truthful reduced-motion loading state", async ({
   await expect(lane).toHaveCount(0);
 });
 
+test("diagram legends retain textual keys and visible boundaries in forced colors", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark", forcedColors: "active" });
+  await mockArticleAndContext(page, { manifest: legendManifest });
+  await page.goto("/article/Ada_Lovelace");
+
+  const legend = page.locator(".context-diagram-legend");
+  await expect(legend).toBeVisible();
+  await expect(legend.locator(":scope > li")).toHaveCount(2);
+  await expect(legend.locator(".sr-only").nth(0)).toHaveText(
+    "Map color #FFD700:",
+  );
+  await expect(legend.locator(".sr-only").nth(1)).toHaveText(
+    "Map color #ED1C24:",
+  );
+
+  const colors = await legend
+    .locator(".context-diagram-legend-swatch")
+    .first()
+    .evaluate((swatch) => {
+      const systemColorProbe = document.createElement("span");
+      systemColorProbe.style.color = "CanvasText";
+      document.body.append(systemColorProbe);
+      const canvasText = getComputedStyle(systemColorProbe).color;
+      systemColorProbe.remove();
+      return {
+        border: getComputedStyle(swatch).borderTopColor,
+        canvasText,
+      };
+    });
+  expect(colors.border).toBe(colors.canvasText);
+});
+
 test("article context exposes equivalent semantics, provenance, and reporting", async ({
   page,
 }) => {
@@ -1202,6 +1276,18 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   expect(
     Math.abs((contextBox?.width ?? 0) - (galleryBox?.width ?? 0)),
   ).toBeLessThanOrEqual(1);
+  expect(
+    (galleryBox?.y ?? 0) - ((contextBox?.y ?? 0) + (contextBox?.height ?? 0)),
+  ).toBeGreaterThanOrEqual(32);
+  const galleryBoundary = await gallery.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      borderTopWidth: Number.parseFloat(style.borderTopWidth),
+      paddingTop: Number.parseFloat(style.paddingTop),
+    };
+  });
+  expect(galleryBoundary.borderTopWidth).toBeGreaterThanOrEqual(1);
+  expect(galleryBoundary.paddingTop).toBeGreaterThanOrEqual(24);
   expect(
     await page.evaluate(() => {
       const lane = document.querySelector("section.context-lane");

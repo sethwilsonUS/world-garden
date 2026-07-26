@@ -1048,4 +1048,114 @@ describe("article context rich visual loading", () => {
     expect(container.textContent).toContain("flows into");
     expect(container.textContent).toContain("Begin at the first part");
   });
+
+  it("renders the 2024 Olympics medal-map legend as compact color-keyed rows instead of a walkthrough", async () => {
+    const legendEntries = [
+      {
+        color: "#FFD700",
+        text: "represents countries that won at least one gold medal.",
+      },
+      {
+        color: "#C0C0C0",
+        text: "represents countries that won at least one silver medal but no gold medals.",
+      },
+      {
+        color: "#CC9966",
+        text: "represents countries that won at least one bronze medal but no gold or silver medals.",
+      },
+      {
+        color: "#99D9EA",
+        text: "represents countries that did not win any medals.",
+      },
+      {
+        color: "#ED1C24",
+        text: "represents countries that did not participate in the 2024 Summer Olympics.",
+      },
+    ];
+    const note =
+      "The Refugee Olympic Team (best medal bronze) and Individual Neutral Athletes (best medal gold) are not represented on the map.";
+    const summary =
+      "World map showing the medal achievements of each country during the 2024 Summer Olympics.";
+    const olympicsMedalMapBlock = {
+      ...diagramBlock,
+      id: "2024-summer-olympics-medal-map",
+      title: "2024 Summer Olympics medal map",
+      caption: summary,
+      diagram: {
+        ...diagramBlock.diagram,
+        image: {
+          ...diagramBlock.diagram.image,
+          alt: "Map displaying countries that won medals during the 2024 Summer Olympics",
+        },
+        parts: [],
+        relationships: [],
+        caption: [
+          summary,
+          "Legend:",
+          ...legendEntries.map((entry) => entry.text),
+          `Notes: ${note}`,
+        ].join(" "),
+        walkthrough: [
+          summary,
+          "Legend:",
+          ...legendEntries.map((entry) => entry.text),
+          `Notes: ${note}`,
+        ],
+        legend: {
+          description: summary,
+          entries: legendEntries,
+          notes: [note],
+        },
+      },
+    } as unknown as ContextDiagramBlock;
+
+    await act(async () => {
+      root.render(
+        <ContextDiagramView
+          block={olympicsMedalMapBlock}
+          caption={olympicsMedalMapBlock.caption}
+          captionId="olympics-medal-map-caption"
+          descriptionId="olympics-medal-map-description"
+        />,
+      );
+    });
+
+    const legend = container.querySelector(".context-diagram-legend");
+    const rows = Array.from(legend?.querySelectorAll(":scope > li") ?? []);
+    const swatches = Array.from(
+      legend?.querySelectorAll<HTMLElement>("[data-context-legend-swatch]") ??
+        [],
+    );
+    const swatchFills = Array.from(
+      legend?.querySelectorAll<HTMLElement>(
+        ".context-diagram-legend-swatch-fill",
+      ) ?? [],
+    );
+
+    expect(legend).not.toBeNull();
+    expect(rows.map((row) => row.textContent?.trim())).toEqual(
+      legendEntries.map((entry) => `Map color ${entry.color}: ${entry.text}`),
+    );
+    expect(swatchFills.map((swatch) => swatch.style.backgroundColor)).toEqual([
+      "rgb(255, 215, 0)",
+      "rgb(192, 192, 192)",
+      "rgb(204, 153, 102)",
+      "rgb(153, 217, 234)",
+      "rgb(237, 28, 36)",
+    ]);
+    expect(
+      swatches.every((swatch, index) => rows[index]?.contains(swatch)),
+    ).toBe(true);
+    expect(
+      swatches.every((swatch) => swatch.getAttribute("aria-hidden") === "true"),
+    ).toBe(true);
+    expect(
+      rows.map((row) => row.querySelector(".sr-only")?.textContent),
+    ).toEqual(legendEntries.map((entry) => `Map color ${entry.color}: `));
+    expect(legend?.querySelector("p, br")).toBeNull();
+    expect(container.querySelector(".context-walkthrough")).toBeNull();
+    expect(
+      container.querySelector(".context-diagram-legend-note")?.textContent,
+    ).toBe(note);
+  });
 });

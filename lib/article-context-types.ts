@@ -7,7 +7,7 @@
  */
 
 export const ARTICLE_CONTEXT_SCHEMA_VERSION = 3 as const;
-export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "3.0.0";
+export const ARTICLE_CONTEXT_EXTRACTOR_VERSION = "3.1.0";
 
 export type ContextBlockKind = "map" | "timeline" | "chart" | "diagram";
 
@@ -184,6 +184,15 @@ export type ContextDiagramRelationship = {
   label: string;
 };
 
+export type ContextDiagramLegend = {
+  description: string;
+  entries: readonly {
+    color: string;
+    text: string;
+  }[];
+  notes: readonly string[];
+};
+
 export type ContextDiagramBlock = ContextBlockBase & {
   kind: "diagram";
   diagram: {
@@ -197,6 +206,7 @@ export type ContextDiagramBlock = ContextBlockBase & {
     parts: ContextDiagramPart[];
     relationships: ContextDiagramRelationship[];
     walkthrough: string[];
+    legend?: ContextDiagramLegend;
     caption: string;
   };
 };

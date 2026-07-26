@@ -21,15 +21,9 @@ import {
   getArticleContextCacheForCtx as getArticleContextCacheForCtxFromCache,
   removeArticleContextCacheForCtx as removeArticleContextCacheForCtxFromCache,
 } from "./articleContextCache";
-import {
-  getArticleContextModerationForCtx as getArticleContextModerationForCtxFromModeration,
-} from "./articleContextModeration";
-import {
-  listArticleContextReportsForCtx as listArticleContextReportsForCtxFromReports,
-} from "./articleContextReports";
-import {
-  validateAndNormalizeManifestJson as validateAndNormalizeManifestJsonFromValidation,
-} from "./articleContextValidation";
+import { getArticleContextModerationForCtx as getArticleContextModerationForCtxFromModeration } from "./articleContextModeration";
+import { listArticleContextReportsForCtx as listArticleContextReportsForCtxFromReports } from "./articleContextReports";
+import { validateAndNormalizeManifestJson as validateAndNormalizeManifestJsonFromValidation } from "./articleContextValidation";
 
 type TableName =
   | "articleContextCaches"
@@ -301,6 +295,56 @@ describe("article context cache validation", () => {
       validateAndNormalizeManifestJson(JSON.stringify(parsed), cacheKey),
     ).toThrow("legacy audio copy");
   });
+
+  it("preserves bounded diagram legends and rejects unsafe color values", () => {
+    const diagram = {
+      id: "olympics-medal-map",
+      kind: "diagram",
+      title: "2024 Olympics medal map",
+      caption: "World map showing medal achievements.",
+      longDescription: "The source map and its complete legend.",
+      diagram: {
+        legend: {
+          description: "World map showing medal achievements.",
+          entries: [
+            {
+              color: "#FFD700",
+              text: "Countries that won at least one gold medal.",
+            },
+            {
+              color: "#C0C0C0",
+              text: "Countries that won silver medals but no gold medals.",
+            },
+          ],
+          notes: ["The Refugee Olympic Team is not represented on the map."],
+        },
+      },
+      provenance: {
+        sourceHash: cacheKey.sourceHash,
+        extractorVersion: cacheKey.extractorVersion,
+      },
+    };
+    const normalized = validateAndNormalizeManifestJson(
+      manifestJson(cacheKey, [diagram]),
+      cacheKey,
+    );
+    expect(
+      (
+        JSON.parse(normalized.manifestJson).blocks[0] as {
+          diagram: { legend: unknown };
+        }
+      ).diagram.legend,
+    ).toEqual(diagram.diagram.legend);
+
+    diagram.diagram.legend.entries[0]!.color =
+      "url(https://example.com/tracker)";
+    expect(() =>
+      validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, [diagram]),
+        cacheKey,
+      ),
+    ).toThrow("invalid legend");
+  });
 });
 
 describe("article context cache persistence", () => {
@@ -368,7 +412,9 @@ describe("article context cache persistence", () => {
     await expect(removeArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBe(
       true,
     );
-    await expect(getArticleContextCacheForCtx(ctx, cacheKey)).resolves.toBeNull();
+    await expect(
+      getArticleContextCacheForCtx(ctx, cacheKey),
+    ).resolves.toBeNull();
     await expect(
       getArticleContextCacheForCtx(ctx, otherKey),
     ).resolves.toMatchObject({ sourceHash: otherKey.sourceHash });
@@ -546,9 +592,9 @@ describe("article context reports and moderation", () => {
       note: "Source data needs review.",
       now: 100,
     });
-    expect(await getArticleContextModerationForCtx(ctx, blockKey)).toMatchObject(
-      { mode: "suppress", updatedAt: 100 },
-    );
+    expect(
+      await getArticleContextModerationForCtx(ctx, blockKey),
+    ).toMatchObject({ mode: "suppress", updatedAt: 100 });
 
     await setArticleContextModerationForCtx(ctx, {
       ...blockKey,

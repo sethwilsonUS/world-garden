@@ -8,6 +8,7 @@ import type {
   ContextBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
+import { ARTICLE_CONTEXT_EXTRACTOR_VERSION } from "@/lib/article-context-types";
 import { useArticleContext } from "./useArticleContext";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -61,13 +62,17 @@ const manifest = (
   revisionId: `${id}00`,
   language: "en",
   sourceHash: `hash-${id}`,
-  extractorVersion: "2.0.0",
+  extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   generatedAt: "2026-07-13T00:00:00.000Z",
   blocks: [],
   ...overrides,
 });
 
-const block = (id: string, title: string, order: number): ContextBlock => ({
+const block = (
+  id: string,
+  title: string,
+  order: number,
+): Extract<ContextBlock, { kind: "diagram" }> => ({
   id,
   kind: "diagram",
   title,
@@ -87,7 +92,7 @@ const block = (id: string, title: string, order: number): ContextBlock => ({
     articleRevisionUrl:
       "https://en.wikipedia.org/w/index.php?title=Example&oldid=100",
     sourceHash: "hash-example",
-    extractorVersion: "2.0.0",
+    extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
     descriptionMethod: "deterministic",
   },
   diagram: {
@@ -338,6 +343,31 @@ describe("useArticleContext", () => {
           }),
           cacheStatus: "miss",
         }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          context: manifest("malformed-legend", {
+            blocks: [
+              {
+                ...block("broken-legend", "Broken legend", 1),
+                diagram: {
+                  ...block("broken-legend", "Broken legend", 1).diagram,
+                  legend: {
+                    description: "A source diagram with an unsafe legend.",
+                    entries: [
+                      {
+                        color: "url(https://example.com/tracker)",
+                        text: "Unsafe color",
+                      },
+                    ],
+                    notes: [],
+                  },
+                },
+              } as ContextBlock,
+            ],
+          }),
+          cacheStatus: "miss",
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -356,7 +386,12 @@ describe("useArticleContext", () => {
       );
     });
 
-    for (const id of ["incomplete", "cache-status", "malformed-block"]) {
+    for (const id of [
+      "incomplete",
+      "cache-status",
+      "malformed-block",
+      "malformed-legend",
+    ]) {
       await act(async () => root.render(<Probe value={request(id)} />));
       await waitForExpectation(() => {
         expect(output.dataset.status).toBe("error");

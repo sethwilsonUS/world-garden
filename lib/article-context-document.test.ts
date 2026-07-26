@@ -748,6 +748,86 @@ describe("extractArticleContextFromDocument", () => {
     });
   });
 
+  it("preserves a typed source legend without expanding it into a walkthrough", () => {
+    const document = documentWithTable();
+    const description =
+      "World map showing the medal achievements of each country during the 2024 Summer Olympics. The accompanying key distinguishes every participation and medal outcome.";
+    const caption = `${description} Legend: represents countries that won at least one gold medal. represents countries that won at least one silver medal but no gold medals. represents countries that won at least one bronze medal but no gold or silver medals. represents countries that did not win any medals. represents countries that did not participate in the 2024 Summer Olympics. Notes: the Refugee Olympic Team (best medal bronze) and Individual Neutral Athletes (best medal gold) are not represented on the map.`;
+    const legend = {
+      description,
+      entries: [
+        {
+          color: "#FFD700",
+          text: "represents countries that won at least one gold medal.",
+        },
+        {
+          color: "#C0C0C0",
+          text: "represents countries that won at least one silver medal but no gold medals.",
+        },
+        {
+          color: "#CC9966",
+          text: "represents countries that won at least one bronze medal but no gold or silver medals.",
+        },
+        {
+          color: "#99D9EA",
+          text: "represents countries that did not win any medals.",
+        },
+        {
+          color: "#ED1C24",
+          text: "represents countries that did not participate in the 2024 Summer Olympics.",
+        },
+      ],
+      notes: [
+        "the Refugee Olympic Team (best medal bronze) and Individual Neutral Athletes (best medal gold) are not represented on the map.",
+      ],
+    };
+    const sections = document.sections.map((section) =>
+      section.key === "1"
+        ? {
+            ...section,
+            blocks: [
+              {
+                kind: "figure" as const,
+                id: "olympics-medal-map",
+                sourceOrder: 12,
+                contentHash: "olympics-medal-map",
+                caption,
+                media: [
+                  {
+                    kind: "image" as const,
+                    src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/2024_Summer_Olympics_medal_map.png",
+                    resourceTitle: "File:2024 Summer Olympics medal map.png",
+                    alt: "World map of medal achievements",
+                    width: 1_425,
+                    height: 625,
+                  },
+                ],
+                regions: [],
+                legend,
+              },
+            ],
+          }
+        : section,
+    );
+
+    const [diagram] = extractArticleContextFromDocument({
+      ...document,
+      sections,
+    }).blocks;
+
+    expect(diagram).toMatchObject({
+      kind: "diagram",
+      caption: description,
+      longDescription:
+        "A source-derived color legend with 5 entries and 1 note follows below.",
+      diagram: {
+        caption,
+        legend,
+        walkthrough: [description],
+      },
+    });
+  });
+
   it("keeps a semantic imagemap with named regions despite a terse caption", () => {
     const document = documentWithTable();
     const sections = document.sections.map((section) =>

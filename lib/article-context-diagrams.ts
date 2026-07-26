@@ -1,7 +1,9 @@
 import {
   type ArticleContextRequest,
+  type ContextDiagramLegend,
   type ContextSource,
 } from "./article-context-types";
+import { isValidContextDiagramLegend } from "./article-context-legend";
 import {
   buildBaseBlock,
   sanitizeContextCaption,
@@ -105,6 +107,7 @@ const captionWalkthrough = (caption: string): string[] => {
 
 export const createDiagramCandidateFromFigure = ({
   caption: rawCaption,
+  legend: rawLegend,
   media,
   regions,
   request,
@@ -115,6 +118,7 @@ export const createDiagramCandidateFromFigure = ({
   sourceIdentity,
 }: {
   caption: string;
+  legend?: ContextDiagramLegend;
   media: readonly {
     kind: "image" | "video";
     src: string;
@@ -173,9 +177,29 @@ export const createDiagramCandidateFromFigure = ({
     sourceCaption ||
     sanitizeContextCaption(image.alt, 2_500) ||
     `${section.index === "__summary__" ? request.title : section.title} image map`;
-  const walkthrough = captionWalkthrough(caption);
+  const normalizedLegend: ContextDiagramLegend | undefined = rawLegend
+    ? {
+        description: sanitizeContextCaption(rawLegend.description, 800),
+        entries: rawLegend.entries.map((entry) => ({
+          color: entry.color.trim(),
+          text: sanitizeContextText(entry.text, 500),
+        })),
+        notes: rawLegend.notes.map((note) => sanitizeContextText(note, 2_000)),
+      }
+    : undefined;
+  const legend =
+    normalizedLegend && isValidContextDiagramLegend(normalizedLegend)
+      ? normalizedLegend
+      : undefined;
+  const captionSentences = captionWalkthrough(caption);
   const subject =
     section.index === "__summary__" ? request.title : section.title;
+  const visibleCaption = legend
+    ? legend.description ||
+      sanitizeContextCaption(image.alt, 800) ||
+      `${subject} source legend.`
+    : caption;
+  const walkthrough = legend ? [visibleCaption] : captionSentences;
   const sourceTitle = image.resourceTitle?.replace(/^(?:File|Image):/i, "");
   const extraSources: ContextSource[] = sourceTitle
     ? [
@@ -195,8 +219,12 @@ export const createDiagramCandidateFromFigure = ({
     kind: "diagram",
     section,
     title: `${subject} diagram`,
-    caption: sanitizeContextText(walkthrough[0] || caption, 800),
-    longDescription: `${caption}${
+    caption: sanitizeContextText(visibleCaption, 800),
+    longDescription: `${
+      legend
+        ? `A source-derived color legend with ${legend.entries.length} ${legend.entries.length === 1 ? "entry" : "entries"}${legend.notes.length > 0 ? ` and ${legend.notes.length} ${legend.notes.length === 1 ? "note" : "notes"}` : ""} follows below.`
+        : caption
+    }${
       parts.length > 0
         ? ` Named regions in the source image are ${parts
             .map((part) => part.label)
@@ -220,6 +248,7 @@ export const createDiagramCandidateFromFigure = ({
         parts,
         relationships: [],
         walkthrough,
+        ...(legend ? { legend } : {}),
         caption,
       },
     },

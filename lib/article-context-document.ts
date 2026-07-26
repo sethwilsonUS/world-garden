@@ -64,7 +64,6 @@ const projectTable = (
   block: MediaWikiTableBlock,
 ): {
   table: ArticleContextTable;
-  headerPaths: string[][];
 } | null => {
   const cells = tableCellMap(block);
   const resolvedRows = block.table.grid.map((row) =>
@@ -168,11 +167,11 @@ const projectTable = (
       caption: block.table.caption,
       context: proseBefore(section, block.sourceOrder),
       headers: headerPaths.map((path) => path.at(-1) ?? path.join(" — ")),
+      headerPaths,
       rows: dataRows.map((row) => row.map((cell) => cell.text)),
       position: block.sourceOrder,
       section: contextSection(section),
     },
-    headerPaths,
   };
 };
 
@@ -210,7 +209,7 @@ const tableCandidate = ({
     ...chart,
     columns: chart.columns.map((column, index) => ({
       ...column,
-      headerPath: projected.headerPaths[index] ?? [column.label],
+      headerPath: projected.table.headerPaths[index] ?? [column.label],
     })),
   };
   return createChartCandidate({
@@ -299,6 +298,7 @@ const candidateFromBlock = ({
   if (block.kind === "figure") {
     return createDiagramCandidateFromFigure({
       caption: block.caption,
+      legend: block.legend,
       media: block.media,
       regions: block.regions,
       request,

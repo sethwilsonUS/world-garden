@@ -1,4 +1,5 @@
 import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
+import { isValidContextDiagramLegend } from "../lib/article-context-legend";
 
 export { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
 
@@ -208,6 +209,17 @@ export const validateAndNormalizeManifestJson = (
     }
     if ("takeaway" in block || "spokenSummary" in block) {
       throw new Error(`Context block ${block.id} contains legacy audio copy`);
+    }
+    if (block.kind === "diagram") {
+      if (!isRecord(block.diagram)) {
+        throw new Error(`Context diagram ${block.id} is missing diagram data`);
+      }
+      if (
+        block.diagram.legend !== undefined &&
+        !isValidContextDiagramLegend(block.diagram.legend)
+      ) {
+        throw new Error(`Context diagram ${block.id} has an invalid legend`);
+      }
     }
 
     if (!isRecord(block.provenance)) {

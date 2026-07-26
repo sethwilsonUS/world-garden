@@ -349,9 +349,10 @@ const ArticleViewContent = ({
         retry={articleContext.retry}
       />
 
-      <div className="animate-fade-in-up-delay-2 mb-6">
-        <ArticleGallery identity={displayArticle} />
-      </div>
+      <ArticleGallery
+        identity={displayArticle}
+        className="animate-fade-in-up-delay-2 mb-6 mt-10 border-t border-border pt-8"
+      />
 
       {audioState.finishedPlaying && (
         <div className="animate-fade-in-up mb-6">

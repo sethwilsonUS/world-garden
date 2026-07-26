@@ -15,6 +15,7 @@ const table = (
   caption: "",
   context,
   headers,
+  headerPaths: headers.map((header) => [header]),
   rows,
   position: 1,
   section: { index: "1", title: "Data" },

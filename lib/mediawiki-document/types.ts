@@ -204,10 +204,20 @@ export type MediaWikiMediaResource = Readonly<{
   height?: number;
 }>;
 
+export type MediaWikiFigureLegend = Readonly<{
+  description: string;
+  entries: readonly Readonly<{
+    color: string;
+    text: string;
+  }>[];
+  notes: readonly string[];
+}>;
+
 export type MediaWikiFigureBlock = MediaWikiBlockBase &
   Readonly<{
     kind: "figure";
     caption: string;
+    legend?: MediaWikiFigureLegend;
     media: readonly MediaWikiMediaResource[];
     regions: readonly Readonly<{
       label: string;

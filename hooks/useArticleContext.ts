@@ -7,7 +7,11 @@ import type {
   ContextBlock,
   ContextManifest,
 } from "@/lib/article-context-types";
-import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "@/lib/article-context-types";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+} from "@/lib/article-context-types";
+import { isValidContextDiagramLegend } from "@/lib/article-context-legend";
 
 export type ArticleContextLoadState =
   | { status: "idle" | "loading"; manifest: null; error: null }
@@ -279,6 +283,7 @@ const isDiagramBlock = (value: UnknownRecord): boolean =>
   ) &&
   Array.isArray(value.diagram.walkthrough) &&
   value.diagram.walkthrough.every(isString) &&
+  isOptional(value.diagram.legend, isValidContextDiagramLegend) &&
   isString(value.diagram.caption);
 
 const isContextBlock = (value: unknown): value is ContextBlock => {
@@ -298,7 +303,7 @@ const isContextManifest = (value: unknown): value is ContextManifest =>
   isString(value.revisionId) &&
   isString(value.language) &&
   isString(value.sourceHash) &&
-  isString(value.extractorVersion) &&
+  value.extractorVersion === ARTICLE_CONTEXT_EXTRACTOR_VERSION &&
   isString(value.generatedAt) &&
   Array.isArray(value.blocks) &&
   value.blocks.every(isContextBlock);

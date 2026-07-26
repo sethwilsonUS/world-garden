@@ -386,7 +386,42 @@ export const ContextDiagramView = ({
         </section>
       ) : null}
 
-      {block.diagram.walkthrough.length > 0 ? (
+      {block.diagram.legend && block.diagram.legend.entries.length > 0 ? (
+        <section
+          className="context-diagram-legend-section"
+          aria-labelledby={`${block.id}-legend-heading`}
+        >
+          <h4 id={`${block.id}-legend-heading`}>Legend</h4>
+          <ul className="context-diagram-legend">
+            {block.diagram.legend.entries.map((entry, index) => (
+              <li key={`${entry.color}-${entry.text}-${index}`}>
+                <span
+                  className="context-diagram-legend-swatch"
+                  data-context-legend-swatch=""
+                  aria-hidden="true"
+                >
+                  <span
+                    className="context-diagram-legend-swatch-fill"
+                    style={{ backgroundColor: entry.color }}
+                  />
+                </span>
+                <span>
+                  <span className="sr-only">Map color {entry.color}: </span>
+                  {entry.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {block.diagram.legend.notes.map((note, index) => (
+            <p className="context-diagram-legend-note" key={`${note}-${index}`}>
+              {note}
+            </p>
+          ))}
+        </section>
+      ) : null}
+
+      {block.diagram.walkthrough.length > 0 &&
+      !block.diagram.legend?.entries.length ? (
         <section aria-labelledby={`${block.id}-walkthrough-heading`}>
           <h4 id={`${block.id}-walkthrough-heading`}>Walkthrough</h4>
           <ol className="context-walkthrough">

@@ -7,6 +7,7 @@ import {
 import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   ARTICLE_CONTEXT_SCHEMA_VERSION,
+  type ContextDiagramBlock,
   type ContextManifest,
 } from "./article-context-types";
 
@@ -25,7 +26,8 @@ const manifest: ContextManifest = {
       kind: "timeline",
       title: "A short chronology",
       caption: "Two dated events are shown.",
-      longDescription: "In chronological order: launch in 1969, then return in 1972.",
+      longDescription:
+        "In chronological order: launch in 1969, then return in 1972.",
       section: { index: "1", title: "History" },
       order: 0,
       sources: [
@@ -78,7 +80,8 @@ const originalEnabled = process.env.ARTICLE_CONTEXT_AI_ENABLED;
 afterEach(() => {
   if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = originalApiKey;
-  if (originalEnabled === undefined) delete process.env.ARTICLE_CONTEXT_AI_ENABLED;
+  if (originalEnabled === undefined)
+    delete process.env.ARTICLE_CONTEXT_AI_ENABLED;
   else process.env.ARTICLE_CONTEXT_AI_ENABLED = originalEnabled;
   vi.restoreAllMocks();
 });
@@ -94,7 +97,9 @@ describe("article context AI descriptions", () => {
   it("keeps deterministic copy when OpenAI is not configured", async () => {
     delete process.env.OPENAI_API_KEY;
     expect(isArticleContextAIEnabled()).toBe(false);
-    await expect(enhanceArticleContextManifest(manifest)).resolves.toBe(manifest);
+    await expect(enhanceArticleContextManifest(manifest)).resolves.toBe(
+      manifest,
+    );
   });
 
   it("requires an explicit production opt-in", () => {
@@ -134,10 +139,9 @@ describe("article context AI descriptions", () => {
       model: "gpt-5.6-luna",
     });
 
-    expect(client.responses.parse).toHaveBeenCalledWith(
-      expect.anything(),
-      { timeout: 20_000 },
-    );
+    expect(client.responses.parse).toHaveBeenCalledWith(expect.anything(), {
+      timeout: 20_000,
+    });
 
     expect(enhanced.blocks[0]?.caption).toContain("1969");
     expect(enhanced.blocks[0]).not.toHaveProperty("spokenSummary");
@@ -146,6 +150,68 @@ describe("article context AI descriptions", () => {
       model: "gpt-5.6-luna",
       promptVersion: "context-accessibility-v3",
     });
+  });
+
+  it("keeps a source-derived diagram legend unchanged during copy enhancement", async () => {
+    const diagram: ContextDiagramBlock = {
+      id: "olympics-medal-map",
+      kind: "diagram",
+      title: "2024 Olympics medal map",
+      caption: "World map showing medal achievements.",
+      longDescription:
+        "World map showing medal achievements. The complete source legend follows.",
+      section: { index: "1", title: "Medal table" },
+      order: 0,
+      sources: manifest.blocks[0]!.sources,
+      provenance: manifest.blocks[0]!.provenance,
+      diagram: {
+        image: {
+          src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Medal_map.png",
+          alt: "World map showing medal achievements",
+        },
+        parts: [],
+        relationships: [],
+        walkthrough: ["World map showing medal achievements."],
+        caption:
+          "World map showing medal achievements. Legend: gold and silver.",
+        legend: {
+          description: "World map showing medal achievements.",
+          entries: [
+            {
+              color: "#FFD700",
+              text: "represents countries that won at least one gold medal.",
+            },
+            {
+              color: "#C0C0C0",
+              text: "represents countries that won silver but no gold.",
+            },
+          ],
+          notes: ["Neutral athletes are not represented on the map."],
+        },
+      },
+    };
+    const source = { ...manifest, blocks: [diagram] };
+    const client = clientWith({
+      blocks: [
+        {
+          id: diagram.id,
+          caption: "A world medal map.",
+          longDescription:
+            "World map showing medal achievements. The complete source legend follows.",
+        },
+      ],
+    });
+
+    const enhanced = await enhanceArticleContextManifest(source, { client });
+
+    expect(
+      enhanced.blocks[0]?.kind === "diagram"
+        ? enhanced.blocks[0].diagram.legend
+        : undefined,
+    ).toEqual(diagram.diagram.legend);
+    expect(
+      JSON.stringify(vi.mocked(client.responses.parse).mock.calls),
+    ).toContain("#FFD700");
   });
 
   it("rejects an invented number", async () => {
@@ -184,7 +250,8 @@ describe("article context AI descriptions", () => {
     const secondBlock = structuredClone(manifest.blocks[0]!);
     secondBlock.id = "timeline-2";
     secondBlock.title = "A separate chronology";
-    if (secondBlock.kind !== "timeline") throw new Error("Expected timeline fixture");
+    if (secondBlock.kind !== "timeline")
+      throw new Error("Expected timeline fixture");
     secondBlock.caption = "One milestone is shown in 1984.";
     secondBlock.longDescription = "This chronology contains an event in 1984.";
     secondBlock.timeline.events = [

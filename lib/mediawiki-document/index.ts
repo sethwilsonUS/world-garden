@@ -1,5 +1,6 @@
 import { parse, parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createMediaWikiSpecialSectionKey } from "../mediawiki-section-key";
+import { normalizeSafeCssColor } from "../safe-css-color";
 import {
   MEDIAWIKI_DOCUMENT_SCHEMA_VERSION,
   MediaWikiSourceError,
@@ -15,6 +16,7 @@ import {
   type MediaWikiDocumentIssueCode,
   type MediaWikiDocumentSection,
   type MediaWikiExtensionSource,
+  type MediaWikiFigureLegend,
   type MediaWikiList,
   type MediaWikiListItem,
   type MediaWikiListItemPart,
@@ -44,6 +46,13 @@ const MAX_MAP_JSON_DEPTH = 8;
 const MAX_DOM_NODES = 500_000;
 const MAX_DOM_DEPTH = 128;
 const MIN_NESTED_MEDIA_DIMENSION = 100;
+const MAX_FIGURE_LEGEND_ENTRIES = 32;
+const MAX_FIGURE_LEGEND_COLOR_LENGTH = 128;
+const MAX_FIGURE_LEGEND_DESCRIPTION_TEXT_LENGTH = 800;
+const MAX_FIGURE_LEGEND_ENTRY_TEXT_LENGTH = 500;
+const MAX_FIGURE_LEGEND_NOTES = 8;
+const MAX_FIGURE_LEGEND_NOTE_TEXT_LENGTH = 2_000;
+const MAX_FIGURE_LEGEND_TOTAL_TEXT_LENGTH = 12_000;
 
 const HEADING_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
 const ARTICLE_SECTION_HEADING_TAGS = new Set(["h2", "h3", "h4", "h5", "h6"]);
@@ -161,6 +170,8 @@ const shouldSkipText = (element: Element): boolean => {
     classes.has("mw-editsection") ||
     classes.has("reference") ||
     classes.has("mw-cite-backlink") ||
+    classes.has("navbar") ||
+    classes.has("navigation-not-searchable") ||
     hasTypeToken(element, "mw:Extension/ref")
   );
 };
@@ -808,6 +819,202 @@ const positiveDimension = (value: string | undefined): number | undefined => {
   return Number.isSafeInteger(number) && number > 0 ? number : undefined;
 };
 
+const safeCssColor = (value: string): string | null => {
+  return normalizeSafeCssColor(value, {
+    maxLength: MAX_FIGURE_LEGEND_COLOR_LENGTH,
+    allowImportant: true,
+  });
+};
+
+const inlineBackgroundColor = (element: Element): string | null => {
+  const style = attribute(element, "style");
+  if (!style) return null;
+  type CascadedValue<T> = { value: T; important: boolean };
+  const cascade = <T>(
+    current: CascadedValue<T> | undefined,
+    value: T,
+    important: boolean,
+  ): CascadedValue<T> =>
+    current?.important && !important ? current : { value, important };
+  let effectiveColor: CascadedValue<string> | undefined;
+  let effectiveImage: CascadedValue<boolean> | undefined;
+  for (const declaration of style.split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator < 0) continue;
+    const property = declaration.slice(0, separator).trim().toLocaleLowerCase();
+    const value = declaration.slice(separator + 1).trim();
+    const important = /\s*!important\s*$/i.test(value);
+    if (property === "background") {
+      const color = safeCssColor(value);
+      effectiveColor = cascade(effectiveColor, value, important);
+      effectiveImage = cascade(effectiveImage, color == null, important);
+    } else if (property === "background-color") {
+      effectiveColor = cascade(effectiveColor, value, important);
+    } else if (property === "background-image") {
+      const image = value.replace(/\s*!important\s*$/i, "").trim();
+      effectiveImage = cascade(
+        effectiveImage,
+        image.toLocaleLowerCase() !== "none",
+        important,
+      );
+    }
+  }
+  if (effectiveImage?.value) return null;
+  return safeCssColor(effectiveColor?.value ?? "");
+};
+
+type FigureLegendLine = {
+  colors: (string | null)[];
+  textBeforeColor: string[];
+  textAfterColor: string[];
+};
+
+const FIGURE_CAPTION_BREAK_ELEMENTS = new Set([
+  "br",
+  "dd",
+  "div",
+  "dt",
+  "li",
+  "p",
+]);
+
+const figureLegend = (
+  captionElement: Element,
+): MediaWikiFigureLegend | undefined => {
+  const emptyLine = (): FigureLegendLine => ({
+    colors: [],
+    textBeforeColor: [],
+    textAfterColor: [],
+  });
+  const lines: FigureLegendLine[] = [emptyLine()];
+  let sawSwatch = false;
+  const currentLine = () => lines[lines.length - 1]!;
+  const breakLine = () => {
+    const current = currentLine();
+    if (
+      current.colors.length > 0 ||
+      normalizeText(
+        [...current.textBeforeColor, ...current.textAfterColor].join(" "),
+      )
+    ) {
+      lines.push(emptyLine());
+    }
+  };
+  const visit = (node: Node) => {
+    if (node.nodeName === "#text" && "value" in node) {
+      const line = currentLine();
+      (line.colors.length > 0
+        ? line.textAfterColor
+        : line.textBeforeColor
+      ).push(node.value);
+      return;
+    }
+    if (!isElement(node)) {
+      childNodes(node).forEach(visit);
+      return;
+    }
+    if (classTokens(node).has("legend-color")) {
+      sawSwatch = true;
+      const nestedSwatch = allElements(node).some((candidate) =>
+        classTokens(candidate).has("legend-color"),
+      );
+      currentLine().colors.push(
+        nestedSwatch ? null : inlineBackgroundColor(node),
+      );
+      return;
+    }
+    if (shouldSkipText(node)) return;
+    if (node.tagName === "br") {
+      breakLine();
+      return;
+    }
+    const isBlockBoundary = FIGURE_CAPTION_BREAK_ELEMENTS.has(node.tagName);
+    if (isBlockBoundary) breakLine();
+    childNodes(node).forEach(visit);
+    if (isBlockBoundary) breakLine();
+  };
+  childNodes(captionElement).forEach(visit);
+  if (!sawSwatch) return undefined;
+
+  const entries: { color: string; text: string }[] = [];
+  const notes: string[] = [];
+  const descriptionParts: string[] = [];
+  let totalTextLength = 0;
+  let sawEntry = false;
+  let sawLegendLabel = false;
+  for (const line of lines) {
+    const textBeforeColor = normalizeText(line.textBeforeColor.join(" "));
+    const textAfterColor = normalizeText(line.textAfterColor.join(" "));
+    if (line.colors.length > 0) {
+      if (
+        notes.length > 0 ||
+        line.colors.length !== 1 ||
+        !line.colors[0] ||
+        entries.length >= MAX_FIGURE_LEGEND_ENTRIES
+      ) {
+        return undefined;
+      }
+      const hasLegendPrefix = /^legend\s*:\s*$/i.test(textBeforeColor);
+      if (textBeforeColor && textAfterColor && !hasLegendPrefix) {
+        return undefined;
+      }
+      const text =
+        textAfterColor || textBeforeColor.replace(/^legend\s*:\s*/i, "");
+      if (!text || text.length > MAX_FIGURE_LEGEND_ENTRY_TEXT_LENGTH) {
+        return undefined;
+      }
+      totalTextLength += text.length;
+      if (totalTextLength > MAX_FIGURE_LEGEND_TOTAL_TEXT_LENGTH) {
+        return undefined;
+      }
+      entries.push({ color: line.colors[0], text });
+      sawEntry = true;
+      continue;
+    }
+    const text = normalizeText(
+      [...line.textBeforeColor, ...line.textAfterColor].join(" "),
+    );
+    if (!text) continue;
+    if (!sawEntry) {
+      if (/^legend\s*:\s*$/i.test(text)) {
+        sawLegendLabel = true;
+        continue;
+      }
+      if (sawLegendLabel) return undefined;
+      totalTextLength += text.length;
+      if (totalTextLength > MAX_FIGURE_LEGEND_TOTAL_TEXT_LENGTH) {
+        return undefined;
+      }
+      descriptionParts.push(text);
+      continue;
+    }
+    const note = /^notes?\s*:\s*(.+)$/i.exec(text)?.[1]?.trim();
+    if (!note) return undefined;
+    if (
+      notes.length >= MAX_FIGURE_LEGEND_NOTES ||
+      note.length > MAX_FIGURE_LEGEND_NOTE_TEXT_LENGTH
+    ) {
+      return undefined;
+    }
+    totalTextLength += note.length;
+    if (totalTextLength > MAX_FIGURE_LEGEND_TOTAL_TEXT_LENGTH) {
+      return undefined;
+    }
+    notes.push(note);
+  }
+  const description = normalizeText(descriptionParts.join(" "));
+  if (description.length > MAX_FIGURE_LEGEND_DESCRIPTION_TEXT_LENGTH) {
+    return undefined;
+  }
+  return entries.length > 0
+    ? {
+        description,
+        entries,
+        notes,
+      }
+    : undefined;
+};
+
 const figureBlock = (
   element: Element,
   sectionKey: string,
@@ -898,8 +1105,10 @@ const figureBlock = (
           ]
         : [];
     });
+  const legend = captionElement ? figureLegend(captionElement) : undefined;
   const content = {
     caption: captionElement ? textContent(captionElement) : "",
+    ...(legend ? { legend } : {}),
     media,
     regions,
   };
@@ -1806,6 +2015,7 @@ const canonicalBlock = (block: MediaWikiBlock): unknown => {
       return {
         kind: block.kind,
         caption: block.caption,
+        ...(block.legend ? { legend: block.legend } : {}),
         media: block.media,
         regions: block.regions,
       };
