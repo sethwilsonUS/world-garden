@@ -978,6 +978,29 @@ describe("article context deterministic extraction", () => {
     ]);
   });
 
+  it("accepts space variants as numeric thousands separators", () => {
+    const source: MediaWikiParsedSource = {
+      ...richSource(),
+      html: `<table class="wikitable">
+        <tr><th>Project</th><th>Capacity (MW)</th></tr>
+        <tr><td>Alpha</td><td>1 250</td></tr>
+        <tr><td>Beta</td><td>1&nbsp;500</td></tr>
+        <tr><td>Gamma</td><td>1&#8239;750</td></tr>
+      </table>`,
+      wikitext: "",
+      sections: [],
+    };
+
+    const chart = extractArticleContextFromSource(source, request).blocks[0];
+    expect(chart?.kind).toBe("chart");
+    if (chart?.kind !== "chart") return;
+    expect(chart.chart.rows.map((row) => row["capacity-mw"])).toEqual([
+      1_250,
+      1_500,
+      1_750,
+    ]);
+  });
+
   it("strips table navigation helpers with single-quoted class attributes", () => {
     const [table] = parseWikitables(
       `<table class='wikitable'>

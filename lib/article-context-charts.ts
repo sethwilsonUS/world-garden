@@ -713,7 +713,7 @@ const parseTableNumber = (value: string): number | null => {
 
   const plainNumber = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
   const commaGroupedNumber = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
-  const spaceGroupedNumber = /^[+-]?\d{1,3}(?: \d{3})+(?:\.\d+)?$/;
+  const spaceGroupedNumber = /^[+-]?\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:\.\d+)?$/;
   if (
     !plainNumber.test(normalized) &&
     !commaGroupedNumber.test(normalized) &&
@@ -722,7 +722,7 @@ const parseTableNumber = (value: string): number | null => {
     return null;
   }
 
-  const parsed = Number(normalized.replace(/[, ]/g, ""));
+  const parsed = Number(normalized.replace(/[, \u00a0\u202f]/g, ""));
   return Number.isFinite(parsed) ? parsed : null;
 };
 
