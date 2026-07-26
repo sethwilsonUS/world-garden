@@ -56,6 +56,7 @@ type EpisodeDoc = {
   promptVersion?: string;
   ttsNormVersion?: string;
   requestedTtsMetadata?: TtsMetadata;
+  generationRetryCount?: number;
   audioVariants?: unknown;
   lastError?: string;
   leaseOwner?: string;
@@ -1012,7 +1013,7 @@ describe("personal playlist data helpers", () => {
     });
   });
 
-  it("applies the active cap to retries without charging the daily allowance again", async () => {
+  it("applies the active cap while preserving one unmetered retry", async () => {
     vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_ACTIVE_LIMIT", "1");
     vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "1");
     const failedId =
@@ -1061,7 +1062,7 @@ describe("personal playlist data helpers", () => {
       getBlockedEpisodes().find((episode) => episode._id === failedId),
     ).toMatchObject({ status: "failed" });
 
-    const { ctx, getQuotas } = createCtx({
+    const { ctx, getEpisodes, getQuotas } = createCtx({
       episodes: [failedEpisode],
       quotas: [quota],
     });
@@ -1072,6 +1073,191 @@ describe("personal playlist data helpers", () => {
       }),
     ).resolves.toEqual({ queued: true });
     expect(getQuotas()[0]).toMatchObject({ count: 1 });
+    expect(getEpisodes()[0]).toMatchObject({ generationRetryCount: 1 });
+  });
+
+  it("charges retries after the first rerun against the daily allowance", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "2");
+    const episodeId =
+      "personalPlaylistEpisodes-failed" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getEpisodes, getQuotas } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "failed",
+          sectionCount: 4,
+          lastError: "transient failure",
+        }),
+      ],
+      quotas: [
+        {
+          _id: "routeQuotas-user-1" as Id<"routeQuotas">,
+          key: "personal-playlist:openai:daily:user-1",
+          count: 1,
+          windowStart: Date.now(),
+          expiresAt: Date.now() + 60_000,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ],
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()[0]).toMatchObject({ count: 1 });
+
+    await expect(
+      markViewerPlaylistEpisodeRunningForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+      }),
+    ).resolves.toMatchObject({ claimed: true });
+    await expect(
+      failViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        lastError: "failed again",
+      }),
+    ).resolves.toEqual({ failed: true });
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()[0]).toMatchObject({ count: 2 });
+    expect(getEpisodes()[0]).toMatchObject({ generationRetryCount: 2 });
+
+    await markViewerPlaylistEpisodeRunningForCtx(ctx, {
+      episodeId,
+      owner: "worker-b",
+    });
+    await failViewerPlaylistEpisodeForCtx(ctx, {
+      episodeId,
+      owner: "worker-b",
+      lastError: "failed a third time",
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).rejects.toThrow("Personal Playlist generation limit reached.");
+    expect(getQuotas()[0]).toMatchObject({ count: 2 });
+    expect(getEpisodes()[0]).toMatchObject({
+      status: "failed",
+      generationRetryCount: 2,
+      lastError: "failed a third time",
+    });
+  });
+
+  it("does not meter repeated retries for an episode with no narratable tracks", async () => {
+    vi.stubEnv("PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT", "1");
+
+    const exerciseRetries = async (seedQuotaCount?: number) => {
+      const episodeId =
+        `personalPlaylistEpisodes-empty-${seedQuotaCount ?? "none"}` as Id<"personalPlaylistEpisodes">;
+      const { ctx, getEpisodes, getQuotas } = createCtx({
+        episodes: [
+          buildEpisode({
+            _id: episodeId,
+            articleId: "article-empty" as Id<"articles">,
+            slug: "empty",
+            title: "Empty article",
+            status: "failed",
+            sectionCount: 0,
+            lastError: "Article does not contain any narratable source tracks.",
+          }),
+        ],
+        quotas:
+          seedQuotaCount == null
+            ? []
+            : [
+                {
+                  _id: `routeQuotas-${seedQuotaCount}` as Id<"routeQuotas">,
+                  key: "personal-playlist:openai:daily:user-1",
+                  count: seedQuotaCount,
+                  windowStart: Date.now(),
+                  expiresAt: Date.now() + 60_000,
+                  createdAt: Date.now(),
+                  updatedAt: Date.now(),
+                },
+              ],
+      });
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await expect(
+          retryViewerPlaylistEpisodeForCtx(ctx, {
+            viewerTokenIdentifier: "user-1",
+            episodeId,
+          }),
+        ).resolves.toEqual({ queued: true });
+        await expect(
+          markViewerPlaylistEpisodeRunningForCtx(ctx, {
+            episodeId,
+            owner: `worker-${attempt}`,
+          }),
+        ).resolves.toMatchObject({ claimed: true });
+        await expect(
+          failViewerPlaylistEpisodeForCtx(ctx, {
+            episodeId,
+            owner: `worker-${attempt}`,
+            lastError: "Still no narratable tracks.",
+          }),
+        ).resolves.toEqual({ failed: true });
+      }
+
+      expect(getEpisodes()[0]).toMatchObject({
+        status: "failed",
+        sectionCount: 0,
+        generationRetryCount: 3,
+      });
+      return getQuotas();
+    };
+
+    await expect(exerciseRetries()).resolves.toEqual([]);
+    await expect(exerciseRetries(1)).resolves.toEqual([
+      expect.objectContaining({ count: 1 }),
+    ]);
+  });
+
+  it("meters later retries when a legacy episode has no section count", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-legacy" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getQuotas } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-legacy" as Id<"articles">,
+          slug: "legacy",
+          title: "Legacy article",
+          status: "failed",
+          generationRetryCount: 1,
+          lastError: "Legacy generation failed.",
+        }),
+      ],
+    });
+
+    await expect(
+      retryViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        episodeId,
+      }),
+    ).resolves.toEqual({ queued: true });
+    expect(getQuotas()).toEqual([
+      expect.objectContaining({
+        key: "personal-playlist:openai:daily:user-1",
+        count: 1,
+      }),
+    ]);
   });
 
   it("completes only for the lease owner and records the generated audio variant", async () => {

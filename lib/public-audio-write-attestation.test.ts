@@ -61,15 +61,19 @@ describe("public audio write attestations", () => {
       buildPublicAudioWriteAttestationPayload({
         pipeline: "picture-of-day",
         operation: "save-record",
-        args: { z: 1, optional: undefined, nested: { b: 2, a: 1 } },
+        args: {
+          "äpfel": 4,
+          z: 3,
+          optional: undefined,
+          nested: { "éclair": 3, beta: 2, Alpha: 1 },
+          Zeta: 1,
+        },
       }),
-    ).toEqual(
-      buildPublicAudioWriteAttestationPayload({
-        pipeline: "picture-of-day",
-        operation: "save-record",
-        args: { nested: { a: 1, b: 2 }, z: 1 },
-      }),
-    );
+    ).toEqual([
+      "picture-of-day",
+      "save-record",
+      '{"Zeta":1,"nested":{"Alpha":1,"beta":2,"éclair":3},"z":3,"äpfel":4}',
+    ]);
   });
 
   it("fails closed without the shared server secret", async () => {

@@ -58,6 +58,7 @@ describe("createPodcastAttachmentResponse", () => {
       audioUrl: "https://example.com/audio.mp3",
       title: "Featured Article",
       fallbackFilename: "fallback.mp3",
+      request: new NextRequest("https://example.com/download?download=1"),
     });
 
     expect(response.status).toBe(200);
@@ -66,6 +67,7 @@ describe("createPodcastAttachmentResponse", () => {
     );
     expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
     expect(response.headers.get("Content-Length")).toBe("10");
+    expect(response.headers.get("Vary")).toBe("Range");
     expect(await response.text()).toBe("audio-data");
   });
 
@@ -81,6 +83,7 @@ describe("createPodcastAttachmentResponse", () => {
       title: "Private Article",
       fallbackFilename: "fallback.mp3",
       cacheControl: "private, no-store",
+      request: new NextRequest("https://example.com/download?download=1"),
     });
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   getAudioGenerationBaseUrl,
   getRequestAudioGenerationBaseUrl,
@@ -8,6 +8,10 @@ import {
 const originalBaseUrl = process.env.AUDIO_GENERATION_BASE_URL;
 const originalVercelUrl = process.env.VERCEL_URL;
 const originalVercelEnv = process.env.VERCEL_ENV;
+
+beforeEach(() => {
+  delete process.env.VERCEL_ENV;
+});
 
 afterEach(() => {
   if (originalBaseUrl == null) {

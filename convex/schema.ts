@@ -216,6 +216,7 @@ export default defineSchema({
     sectionCount: v.optional(v.number()),
     narrationHash: v.optional(v.string()),
     requestedTtsMetadata: v.optional(ttsMetadata),
+    generationRetryCount: v.optional(v.number()),
     completedSectionCount: v.optional(v.number()),
     storageId: v.optional(v.id("_storage")),
     durationSeconds: v.optional(v.number()),

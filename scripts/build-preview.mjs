@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 
 const VERCEL_HOSTNAME_PATTERN =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.vercel\.app$/;
-const PREVIEW_DEPLOY_KEY_PATTERN = /^preview:[^:|\s]+:[^:|\s]+\|\S+$/;
+const PREVIEW_DEPLOY_KEY_PATTERN = /^preview:seth-wilson:world-garden\|\S+$/;
 
 const assertSecretValue = (value, name, { required }) => {
   if (!value) {
@@ -33,7 +33,7 @@ export const resolvePreviewBuildConfig = (env = process.env) => {
 
   if (!PREVIEW_DEPLOY_KEY_PATTERN.test(env.CONVEX_DEPLOY_KEY ?? "")) {
     throw new Error(
-      "A Convex Preview deploy key is required; refusing to select another deployment type.",
+      "A Convex Preview deploy key for seth-wilson/world-garden is required; refusing to select another deployment target.",
     );
   }
 
@@ -83,6 +83,9 @@ export const runPreviewBuild = ({
   const nextCli = path.join(root, "node_modules/next/dist/bin/next");
   const commandOptions = { env, stdio: "inherit" };
 
+  const buildResult = run(process.execPath, [nextCli, "build"], commandOptions);
+  assertCommandSucceeded(buildResult, "Building the Next.js Preview");
+
   const setConvexSecret = (name, value, description) => {
     const result = run(
       process.execPath,
@@ -95,6 +98,20 @@ export const runPreviewBuild = ({
     );
     assertCommandSucceeded(result, description);
   };
+
+  setConvexSecret(
+    "TTS_QUOTA_BYPASS_SECRET",
+    env.TTS_QUOTA_BYPASS_SECRET,
+    "Configuring the Convex Preview TTS attestation secret",
+  );
+
+  if (env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    setConvexSecret(
+      "VERCEL_AUTOMATION_BYPASS_SECRET",
+      env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      "Configuring the Convex Preview Vercel protection secret",
+    );
+  }
 
   const configureResult = run(
     process.execPath,
@@ -113,23 +130,21 @@ export const runPreviewBuild = ({
     configureResult,
     "Configuring the Convex Preview audio origin",
   );
+};
 
-  setConvexSecret(
-    "TTS_QUOTA_BYPASS_SECRET",
-    env.TTS_QUOTA_BYPASS_SECRET,
-    "Configuring the Convex Preview TTS attestation secret",
-  );
-
-  if (env.VERCEL_AUTOMATION_BYPASS_SECRET) {
-    setConvexSecret(
-      "VERCEL_AUTOMATION_BYPASS_SECRET",
-      env.VERCEL_AUTOMATION_BYPASS_SECRET,
-      "Configuring the Convex Preview Vercel protection secret",
-    );
+export const runPreviewBuildCli = ({
+  args = process.argv.slice(2),
+  env = process.env,
+  build = runPreviewBuild,
+} = {}) => {
+  if (args.length === 1 && args[0] === "--check-only") {
+    resolvePreviewBuildConfig(env);
+    return;
   }
-
-  const buildResult = run(process.execPath, [nextCli, "build"], commandOptions);
-  assertCommandSucceeded(buildResult, "Building the Next.js Preview");
+  if (args.length > 0) {
+    throw new Error(`Unknown Preview build argument: ${args.join(" ")}`);
+  }
+  build({ env });
 };
 
 const isMainModule =
@@ -138,7 +153,7 @@ const isMainModule =
 
 if (isMainModule) {
   try {
-    runPreviewBuild();
+    runPreviewBuildCli();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

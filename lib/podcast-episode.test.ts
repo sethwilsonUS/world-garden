@@ -237,7 +237,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
     ["voiceId", "alloy"],
     ["promptVersion", "curio-warm-narrator-v1"],
   ] as const)(
-    "does not reuse an Edge-keyed episode with spoofed $field metadata",
+    "does not reuse an Edge-keyed episode with spoofed %s metadata",
     (field, spoofedValue) => {
       expect(
         shouldReuseExistingFeaturedEpisode({

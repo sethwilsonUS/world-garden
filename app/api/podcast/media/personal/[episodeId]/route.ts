@@ -44,6 +44,7 @@ export const GET = async (
         audioUrl: episode.audioUrl,
         title: episode.title,
         fallbackFilename: "personal-playlist-episode.mp3",
+        request: req,
       });
     }
 

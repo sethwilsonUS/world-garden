@@ -31,12 +31,12 @@ const createPodcastMediaProxyResponse = async ({
 }: {
   audioUrl: string;
   cacheControl: string;
-  request?: NextRequest;
+  request: NextRequest;
   contentDisposition?: string;
 }): Promise<NextResponse> => {
-  const method = request?.method === "HEAD" ? "HEAD" : "GET";
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
   const upstreamRequestHeaders = new Headers();
-  const requestedRange = request?.headers.get("Range");
+  const requestedRange = request.headers.get("Range");
   if (requestedRange) upstreamRequestHeaders.set("Range", requestedRange);
 
   const upstream = await fetch(audioUrl, {
@@ -58,8 +58,8 @@ const createPodcastMediaProxyResponse = async ({
       ? "private, no-store"
       : cacheControl,
     "Content-Type": upstream.headers.get("Content-Type") ?? "audio/mpeg",
+    Vary: "Range",
   });
-  if (requestedRange) headers.set("Vary", "Range");
   if (contentDisposition) {
     headers.set("Content-Disposition", contentDisposition);
   }
@@ -96,7 +96,7 @@ export const createPodcastAttachmentResponse = async ({
   title: string;
   fallbackFilename: string;
   cacheControl?: string;
-  request?: NextRequest;
+  request: NextRequest;
 }): Promise<NextResponse> => {
   return await createPodcastMediaProxyResponse({
     audioUrl,

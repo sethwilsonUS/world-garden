@@ -341,6 +341,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
               : {}),
             status: "queued" as const,
             stage: "queued" as const,
+            ...(reactivatesGeneration ? { generationRetryCount: 0 } : {}),
             completedSectionCount: 0,
             storageId: undefined,
             durationSeconds: undefined,
@@ -381,6 +382,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       position: activeEpisodes.length,
       status: "queued",
       stage: "queued",
+      generationRetryCount: 0,
       sectionCount: args.sectionCount,
       narrationHash: args.narrationHash,
       ...(args.requestedTtsMetadata
@@ -406,6 +408,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
         position: activeEpisodes.length,
         status: "queued" as const,
         stage: "queued" as const,
+        generationRetryCount: 0,
         sectionCount: args.sectionCount,
         completedSectionCount: 0,
         storageId: undefined,
@@ -446,6 +449,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     publishedAt: buildPublishedAt(now, activeEpisodes.length),
     status: "queued",
     stage: "queued",
+    generationRetryCount: 0,
     sectionCount: args.sectionCount,
     narrationHash: args.narrationHash,
     requestedTtsMetadata: args.requestedTtsMetadata,
@@ -601,6 +605,8 @@ export const retryViewerPlaylistEpisodeForCtx = async (
     return { queued: false };
   }
 
+  const generationRetryCount = episode.generationRetryCount ?? 0;
+
   await reservePersonalPlaylistOpenAiGeneration(ctx, {
     viewerTokenIdentifier: args.viewerTokenIdentifier,
     activeEpisodes: await getActiveViewerEpisodes(
@@ -608,12 +614,16 @@ export const retryViewerPlaylistEpisodeForCtx = async (
       args.viewerTokenIdentifier,
     ),
     increasesActiveCount: true,
-    countsTowardDailyLimit: false,
+    // Preserve one unmetered retry per generation. Later retries consume
+    // allowance unless the episode is known to have no narratable tracks.
+    countsTowardDailyLimit:
+      generationRetryCount > 0 && episode.sectionCount !== 0,
   });
 
   await ctx.db.patch(args.episodeId, {
     status: "queued",
     stage: "queued",
+    generationRetryCount: generationRetryCount + 1,
     completedSectionCount: 0,
     ...(args.requestedTtsMetadata
       ? { requestedTtsMetadata: args.requestedTtsMetadata }

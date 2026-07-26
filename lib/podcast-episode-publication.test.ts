@@ -558,7 +558,7 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
     ],
     ["missing audio", { audioUrl: null }],
   ] as const)(
-    "marks a ready episode with $condition failed when Edge repair fails",
+    "marks a ready episode with %s failed when Edge repair fails",
     async (_condition, incompatibleFields) => {
       const existingEpisode = {
         _id: "episode-1",
