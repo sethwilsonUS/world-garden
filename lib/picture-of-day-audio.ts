@@ -12,7 +12,7 @@ import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
-import { getActiveTtsCacheKey } from "@/lib/tts-profile";
+import { getTtsProfile } from "@/lib/tts-profile";
 
 const PICTURE_OF_DAY_ALBUM = "Curio Garden Picture of the Day";
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -148,8 +148,8 @@ const shouldReuseExistingPictureAudio = (
 ): record is PictureOfDayAudioRecord =>
   Boolean(
     record?.status === "ready" &&
-      record.audioUrl &&
-      record.ttsCacheKey === getActiveTtsCacheKey(),
+    record.audioUrl &&
+    record.ttsCacheKey === getTtsProfile("edge").ttsCacheKey,
   );
 
 const getPictureOfDayAudio = async ({
@@ -185,6 +185,8 @@ const generatePictureOfDayAudioRecord = async ({
     feedDate: feedDateIso,
     pictureKey: picture.pictureKey,
   });
+  const previousReadyAudio =
+    existing?.status === "ready" && existing.audioUrl ? existing : null;
 
   if (shouldReuseExistingPictureAudio(existing)) {
     return {
@@ -195,13 +197,16 @@ const generatePictureOfDayAudioRecord = async ({
     };
   }
 
-  const claim = await fetchMutation(anyApi.pictureOfDay.claimPictureOfDayAudioJob, {
-    feedDate: feedDateIso,
-    pictureKey: picture.pictureKey,
-    scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-    owner,
-    leaseMs: JOB_LEASE_MS,
-  });
+  const claim = await fetchMutation(
+    anyApi.pictureOfDay.claimPictureOfDayAudioJob,
+    {
+      feedDate: feedDateIso,
+      pictureKey: picture.pictureKey,
+      scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+      owner,
+      leaseMs: JOB_LEASE_MS,
+    },
+  );
 
   if (!claim.claimed) {
     const latest = await getPictureOfDayAudio({
@@ -233,15 +238,17 @@ const generatePictureOfDayAudioRecord = async ({
       picture,
     });
 
-    stage = "saving_pending";
-    await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
-      feedDate: feedDateIso,
-      pictureKey: picture.pictureKey,
-      scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
-      status: "pending",
-      title,
-      spokenText,
-    });
+    if (!previousReadyAudio) {
+      stage = "saving_pending";
+      await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
+        feedDate: feedDateIso,
+        pictureKey: picture.pictureKey,
+        scriptVersion: PICTURE_OF_DAY_AUDIO_SCRIPT_VERSION,
+        status: "pending",
+        title,
+        spokenText,
+      });
+    }
 
     console.info(
       `[picture-of-day ${feedDateIso} run=${runId}] generating audio for ${picture.pictureKey}`,
@@ -249,7 +256,7 @@ const generatePictureOfDayAudioRecord = async ({
 
     stage = "generating_tts_audio";
     const generatedAudio = await generateTtsAudioWithMetadata(
-      { text: spokenText },
+      { text: spokenText, provider: "edge" },
       {
         apiBaseUrl: getPodcastSiteUrl(baseUrl),
         headers: getTtsQuotaBypassHeaders(),
@@ -266,7 +273,10 @@ const generatePictureOfDayAudioRecord = async ({
     });
 
     stage = "requesting_upload_url";
-    const uploadUrl = await fetchMutation(anyApi.pictureOfDay.generateUploadUrl, {});
+    const uploadUrl = await fetchMutation(
+      anyApi.pictureOfDay.generateUploadUrl,
+      {},
+    );
 
     stage = "uploading_audio";
     const storageId: Id<"_storage"> = await uploadBlobToConvexStorage(
@@ -301,7 +311,9 @@ const generatePictureOfDayAudioRecord = async ({
     });
 
     if (!saved || saved.status !== "ready" || !saved.audioUrl) {
-      throw new Error("Picture of the Day audio was saved but could not be reloaded");
+      throw new Error(
+        "Picture of the Day audio was saved but could not be reloaded",
+      );
     }
 
     stage = "finalizing_job";
@@ -341,7 +353,7 @@ const generatePictureOfDayAudioRecord = async ({
       lastError: detailedMessage,
     });
 
-    if (!committedReady) {
+    if (!previousReadyAudio && !committedReady) {
       await fetchMutation(anyApi.pictureOfDay.savePictureOfDayAudio, {
         feedDate: feedDateIso,
         pictureKey: picture.pictureKey,

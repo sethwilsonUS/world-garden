@@ -4,7 +4,7 @@ import {
   TTS_API_ROUTE,
   TTS_MIN_TEXT_LENGTH,
   getClientTtsMaxWordsPerRequest,
-  type TtsRequest,
+  type TtsGenerationRequest,
 } from "./tts-contract";
 import {
   getTtsMetadata,
@@ -72,7 +72,11 @@ const resolveTtsApiRoute = (apiBaseUrl?: string): string =>
 const parseFallbackReason = (
   value: string | null,
 ): TtsFallbackReason | undefined =>
-  value === "openai_quota" || value === "openai_error" ? value : undefined;
+  value === "openai_auth" ||
+  value === "openai_quota" ||
+  value === "openai_error"
+    ? value
+    : undefined;
 
 const splitIntoParagraphs = (text: string): string[] =>
   text
@@ -175,7 +179,7 @@ export const splitTtsTextIntoChunks = (
 };
 
 const fetchSingleTtsAudioWithMetadata = async (
-  { text, voiceId, provider, expectedTtsCacheKey }: TtsRequest,
+  { text, voiceId, provider, expectedTtsCacheKey }: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<SingleTtsAudioResult> => {
   const requestHeaders = new Headers(options?.headers);
@@ -276,7 +280,7 @@ const generateTtsAudioForChunks = async ({
 }: {
   chunks: string[];
   voiceId?: string;
-  provider?: TtsProvider;
+  provider: TtsProvider;
   expectedTtsCacheKey?: string;
   options?: TtsClientOptions;
   fallbackReason?: TtsFallbackReason;
@@ -360,7 +364,7 @@ const generateTtsAudioForChunks = async ({
 };
 
 export const generateTtsAudio = async (
-  { text, voiceId, provider, expectedTtsCacheKey }: TtsRequest,
+  { text, voiceId, provider, expectedTtsCacheKey }: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<Blob> => {
   const result = await generateTtsAudioWithMetadata(
@@ -371,7 +375,7 @@ export const generateTtsAudio = async (
 };
 
 export const generateTtsAudioWithMetadata = async (
-  { text, voiceId, provider, expectedTtsCacheKey }: TtsRequest,
+  { text, voiceId, provider, expectedTtsCacheKey }: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<TtsAudioResult> => {
   const chunks = splitTtsTextIntoChunks(text);
@@ -393,13 +397,13 @@ export const generateTtsAudioWithMetadata = async (
 };
 
 export const generateTtsAudioUrl = async (
-  request: TtsRequest,
+  request: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<string> =>
   URL.createObjectURL(await generateTtsAudio(request, options));
 
 export const generateTtsAudioUrlWithMetadata = async (
-  request: TtsRequest,
+  request: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<TtsAudioUrlResult> => {
   const result = await generateTtsAudioWithMetadata(request, options);

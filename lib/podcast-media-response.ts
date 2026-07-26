@@ -27,10 +27,12 @@ export const createPodcastAttachmentResponse = async ({
   audioUrl,
   title,
   fallbackFilename,
+  cacheControl = PODCAST_MEDIA_CACHE_CONTROL,
 }: {
   audioUrl: string;
   title: string;
   fallbackFilename: string;
+  cacheControl?: string;
 }): Promise<NextResponse> => {
   const upstream = await fetch(audioUrl, { cache: "no-store" });
 
@@ -39,7 +41,7 @@ export const createPodcastAttachmentResponse = async ({
   }
 
   const headers = new Headers({
-    "Cache-Control": PODCAST_MEDIA_CACHE_CONTROL,
+    "Cache-Control": cacheControl,
     "Content-Disposition": `attachment; filename="${buildPodcastDownloadFilename(title, fallbackFilename)}"`,
     "Content-Type": upstream.headers.get("Content-Type") ?? "audio/mpeg",
   });

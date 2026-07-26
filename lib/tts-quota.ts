@@ -1,9 +1,7 @@
 import { anyApi } from "convex/server";
 import { fetchMutation } from "convex/nextjs";
-import {
-  buildRouteQuotaKey,
-  getRequestIpAddress,
-} from "./route-rate-limit";
+import { buildRouteQuotaKey, getRequestIpAddress } from "./route-rate-limit";
+import { createAttestedRouteQuotaArgs } from "./route-quota-attestation";
 import { TTS_QUOTA_BYPASS_HEADER } from "./tts-quota-headers";
 import type { TtsFallbackReason, TtsProvider } from "./tts-profile";
 
@@ -38,10 +36,7 @@ const DEFAULT_BURST_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_DAILY_LIMIT = 800;
 const DEFAULT_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-const readPositiveInteger = (
-  name: string,
-  fallback: number,
-): number => {
+const readPositiveInteger = (name: string, fallback: number): number => {
   const parsed = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
@@ -79,12 +74,14 @@ const consumeQuotaViaConvex: ConsumeTtsQuota = async ({
   ipAddress,
   limit,
   windowMs,
-}) =>
-  await fetchMutation(anyApi.rateLimits.consumeRouteQuota, {
+}) => {
+  const quotaArgs = await createAttestedRouteQuotaArgs({
     key: buildRouteQuotaKey({ scope, ipAddress }),
     limit,
     windowMs,
   });
+  return await fetchMutation(anyApi.rateLimits.consumeRouteQuota, quotaArgs);
+};
 
 export const resolveOpenAiTtsQuota = async ({
   headers,

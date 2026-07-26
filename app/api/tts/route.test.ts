@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fetchMutation = vi.hoisted(() => vi.fn());
 const track = vi.hoisted(() => vi.fn(async () => {}));
 const after = vi.hoisted(() => vi.fn((task: () => void) => task()));
+const auth = vi.hoisted(() => vi.fn());
+
+vi.mock("@clerk/nextjs/server", () => ({
+  auth,
+}));
 
 vi.mock("convex/nextjs", () => ({
   fetchMutation,
@@ -29,18 +34,210 @@ describe("POST /api/tts", () => {
     vi.resetModules();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "quota-attestation-secret");
     fetchMutation.mockResolvedValue({
       allowed: true,
       remaining: 119,
       resetAt: Date.now() + 60_000,
     });
+    auth.mockResolvedValue({ userId: "user_test" });
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("generates OpenAI speech by default and returns provider metadata headers", async () => {
+  it("uses Edge by default for signed-out requests", async () => {
+    auth.mockResolvedValue({ userId: null });
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://curiogarden.org/api/tts/edge");
+      return new Response(new Uint8Array([0xff, 0xfb, 0x89]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("false");
+    expect(response.headers.get("X-Curio-TTS-Quota-Mode")).toBe(
+      "edge_requested",
+    );
+    expect(auth).toHaveBeenCalledOnce();
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("coerces a signed-out OpenAI request to Edge with an auth fallback reason", async () => {
+    auth.mockResolvedValue({ userId: null });
+    vi.stubEnv("TTS_EDGE_FALLBACK", "false");
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://curiogarden.org/api/tts/edge");
+      return new Response(new Uint8Array([0xff, 0xfb, 0x88]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "openai",
+          voiceId: "marin",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Voice")).toBe("en-US-AriaNeural");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
+      "openai_auth",
+    );
+    expect(response.headers.get("X-Curio-TTS-Quota-Mode")).toBe(
+      "edge_requested",
+    );
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(track).toHaveBeenCalledWith(
+      "TTS Route",
+      expect.objectContaining({
+        requestedProvider: "openai",
+        provider: "edge",
+        fallback: true,
+        fallbackReason: "openai_auth",
+      }),
+    );
+  });
+
+  it("allows a trusted internal request to explicitly select OpenAI without Clerk or quota", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    auth.mockRejectedValue(new Error("Clerk should not be consulted"));
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://api.openai.com/v1/audio/speech");
+      return new Response(new Uint8Array([0xff, 0xfb, 0x87]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers: {
+          "x-curio-tts-quota-bypass": "internal-secret",
+        },
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "openai",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("openai");
+    expect(response.headers.get("X-Curio-TTS-Quota-Mode")).toBe("bypass");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("false");
+    expect(auth).not.toHaveBeenCalled();
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed to Edge when Clerk authentication cannot be resolved", async () => {
+    auth.mockRejectedValue(new Error("Clerk unavailable"));
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://curiogarden.org/api/tts/edge");
+      return new Response(new Uint8Array([0xff, 0xfb, 0x86]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "openai",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
+      "openai_auth",
+    );
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    consoleWarn.mockRestore();
+  });
+
+  it("uses Edge in local mode without consulting Clerk", async () => {
+    vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "true");
+    vi.stubEnv("TTS_EDGE_FALLBACK", "false");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    auth.mockResolvedValue({ userId: "user_local" });
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://curiogarden.org/api/tts/edge");
+      return new Response(new Uint8Array([0xff, 0xfb, 0x85]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers: {
+          "x-curio-tts-quota-bypass": "internal-secret",
+        },
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "openai",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
+      "openai_auth",
+    );
+    expect(auth).not.toHaveBeenCalled();
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("generates OpenAI speech by default for signed-in requests and returns provider metadata headers", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubGlobal(
       "fetch",
@@ -307,6 +504,7 @@ describe("POST /api/tts", () => {
       }),
     );
 
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     await vi.advanceTimersByTimeAsync(100);
     const response = await responsePromise;
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -372,6 +570,7 @@ describe("POST /api/tts", () => {
       }),
     );
 
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     await vi.advanceTimersByTimeAsync(25);
     const sentinel = Symbol("pending");
     const resultPromise = Promise.race([
@@ -452,6 +651,7 @@ describe("POST /api/tts", () => {
       }),
     );
 
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     await vi.advanceTimersByTimeAsync(25);
     const response = await responsePromise;
 
@@ -525,6 +725,7 @@ describe("POST /api/tts", () => {
       }),
     );
 
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
     await vi.advanceTimersByTimeAsync(200);
     const response = await responsePromise;
 
@@ -598,7 +799,7 @@ describe("POST /api/tts", () => {
     consoleError.mockRestore();
   });
 
-  it("uses Edge instead of OpenAI when the public burst quota is exceeded", async () => {
+  it("uses Edge when an authenticated request exceeds the OpenAI burst quota", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     fetchMutation.mockResolvedValueOnce({
       allowed: false,
@@ -644,7 +845,7 @@ describe("POST /api/tts", () => {
     expect(fetchMutation).toHaveBeenCalledTimes(1);
   });
 
-  it("uses Edge instead of OpenAI when the public daily quota is exceeded", async () => {
+  it("uses Edge when an authenticated request exceeds the OpenAI daily quota", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     fetchMutation
       .mockResolvedValueOnce({
@@ -693,7 +894,7 @@ describe("POST /api/tts", () => {
     expect(fetchMutation).toHaveBeenCalledTimes(2);
   });
 
-  it("uses Edge instead of OpenAI when the quota check fails", async () => {
+  it("uses Edge when an authenticated OpenAI quota check fails", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     fetchMutation.mockRejectedValueOnce(new Error("Convex unavailable"));
     const fetchCalls: string[] = [];
@@ -737,7 +938,7 @@ describe("POST /api/tts", () => {
     expect(response.headers.get("X-Curio-TTS-Quota-Exceeded")).toBe("true");
   });
 
-  it("skips public quota when the trusted bypass header matches", async () => {
+  it("keeps an omitted trusted request on Edge without consuming quota", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
     vi.stubGlobal(
@@ -766,12 +967,15 @@ describe("POST /api/tts", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("openai");
-    expect(response.headers.get("X-Curio-TTS-Quota-Mode")).toBe("bypass");
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Quota-Mode")).toBe(
+      "edge_requested",
+    );
+    expect(auth).not.toHaveBeenCalled();
     expect(fetchMutation).not.toHaveBeenCalled();
   });
 
-  it("does not bypass public quota with an incorrect bypass header", async () => {
+  it("does not bypass authenticated OpenAI quota with an incorrect header", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
     fetchMutation.mockResolvedValueOnce({

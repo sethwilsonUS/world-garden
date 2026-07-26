@@ -3,10 +3,48 @@ import {
   buildTtsCacheKey,
   doesTtsMetadataMatch,
   getActiveTtsProfile,
+  getTtsProfile,
+  getTtsProviderForAudience,
   isTtsMetadataValid,
   serializeTtsMetadataForInlineScript,
   type TtsMetadata,
 } from "./tts-profile";
+
+describe("TTS provider policy", () => {
+  it("defaults no-argument and active profiles to Edge", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+    vi.stubEnv("NEXT_PUBLIC_TTS_PRIMARY_PROVIDER", "openai");
+
+    expect(getTtsProfile().provider).toBe("edge");
+    expect(getActiveTtsProfile().provider).toBe("edge");
+  });
+
+  it("maps public listeners to Edge and authenticated listeners to OpenAI", () => {
+    expect(getTtsProviderForAudience("public")).toBe("edge");
+    expect(getTtsProviderForAudience("authenticated")).toBe("openai");
+  });
+
+  it("uses statically exposed profile mirrors for provider-qualified browser caches", () => {
+    vi.stubEnv("NEXT_PUBLIC_OPENAI_TTS_MODEL", "public-openai-model");
+    vi.stubEnv("NEXT_PUBLIC_OPENAI_TTS_VOICE", "cedar");
+    vi.stubEnv("NEXT_PUBLIC_OPENAI_TTS_PROMPT_VERSION", "public-prompt-v2");
+    vi.stubEnv("NEXT_PUBLIC_EDGE_TTS_VOICE_ID", "en-US-GuyNeural");
+
+    expect(getTtsProfile("openai")).toMatchObject({
+      model: "public-openai-model",
+      voiceId: "cedar",
+      promptVersion: "public-prompt-v2",
+    });
+    expect(getTtsProfile("edge").voiceId).toBe("en-US-GuyNeural");
+  });
+
+  it("prefers server-only profile configuration when both forms exist", () => {
+    vi.stubEnv("OPENAI_TTS_MODEL", "server-model");
+    vi.stubEnv("NEXT_PUBLIC_OPENAI_TTS_MODEL", "public-model");
+
+    expect(getTtsProfile("openai").model).toBe("server-model");
+  });
+});
 
 const edgeMetadata = (): TtsMetadata => {
   const metadata = {
@@ -42,7 +80,7 @@ describe("active TTS profile identity", () => {
       },
     });
 
-    expect(getActiveTtsProfile().provider).toBe("openai");
+    expect(getActiveTtsProfile().provider).toBe("edge");
   });
 
   it("rejects injected metadata that fails the complete profile validator", () => {
@@ -59,7 +97,7 @@ describe("active TTS profile identity", () => {
         }),
       },
     });
-    expect(getActiveTtsProfile().provider).toBe("openai");
+    expect(getActiveTtsProfile().provider).toBe("edge");
 
     vi.stubGlobal("window", {
       __CURIO_ACTIVE_TTS_METADATA__: {
@@ -71,7 +109,7 @@ describe("active TTS profile identity", () => {
         }),
       },
     });
-    expect(getActiveTtsProfile().provider).toBe("openai");
+    expect(getActiveTtsProfile().provider).toBe("edge");
 
     vi.stubGlobal("window", {
       __CURIO_ACTIVE_TTS_METADATA__: {
@@ -80,7 +118,7 @@ describe("active TTS profile identity", () => {
       } as never,
     });
     expect(() => getActiveTtsProfile()).not.toThrow();
-    expect(getActiveTtsProfile().provider).toBe("openai");
+    expect(getActiveTtsProfile().provider).toBe("edge");
   });
 
   it("compares the complete profile and safely serializes bootstrap data", () => {

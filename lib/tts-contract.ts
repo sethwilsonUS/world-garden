@@ -16,6 +16,10 @@ export type TtsRequest = {
   expectedTtsCacheKey?: string;
 };
 
+export type TtsGenerationRequest = Omit<TtsRequest, "provider"> & {
+  provider: TtsProvider;
+};
+
 const parsePositiveInt = (value: string | undefined): number | null => {
   if (!value) return null;
   const parsed = Number.parseInt(value, 10);

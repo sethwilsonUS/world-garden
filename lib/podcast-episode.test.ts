@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FetchAndCacheResult } from "@/convex/articles";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
@@ -12,12 +12,7 @@ import {
   hasCurrentFeaturedArtworkVersion,
   shouldReuseExistingFeaturedEpisode,
 } from "./podcast-episode";
-import {
-  getActiveTtsCacheKey,
-  getActiveTtsNormVersion,
-  getTtsMetadata,
-  getTtsProfile,
-} from "./tts-profile";
+import { getTtsMetadata, getTtsProfile } from "./tts-profile";
 
 describe("getPodcastSectionSources", () => {
   it("uses every narrated section for the featured podcast", () => {
@@ -70,6 +65,8 @@ describe("getPodcastSectionSources", () => {
 });
 
 describe("shouldReuseExistingFeaturedEpisode", () => {
+  const edge = getTtsMetadata(getTtsProfile("edge"));
+  afterEach(() => vi.unstubAllEnvs());
   const article = {
     _id: "article-1" as never,
     wikiPageId: "123",
@@ -95,8 +92,31 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Example article",
           artworkVersion: 2,
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
+        } as Parameters<
+          typeof shouldReuseExistingFeaturedEpisode
+        >[0]["existingEpisode"],
+        article,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses the public Edge cache identity even when a legacy primary is configured", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+
+    expect(
+      shouldReuseExistingFeaturedEpisode({
+        force: false,
+        regenArt: false,
+        existingEpisode: {
+          status: "ready",
+          wikiPageId: "123",
+          title: "Example article",
+          artworkVersion: 2,
+          narrationHash,
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -116,8 +136,8 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Older featured article",
           artworkVersion: 2,
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -137,8 +157,8 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Example article",
           artworkVersion: 2,
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -158,8 +178,8 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Example article",
           artworkVersion: 1,
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -179,8 +199,8 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Example article",
           artworkVersion: 2,
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -200,9 +220,8 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Example article",
           artworkVersion: 2,
           narrationHash,
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey:
-            "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: getTtsProfile("openai").ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -223,7 +242,7 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           artworkVersion: 2,
           narrationHash,
           ttsNormVersion: "ttsNorm:1",
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],
@@ -243,8 +262,8 @@ describe("shouldReuseExistingFeaturedEpisode", () => {
           title: "Example article",
           artworkVersion: 2,
           narrationHash: "older-narration",
-          ttsNormVersion: getActiveTtsNormVersion(),
-          ttsCacheKey: getActiveTtsCacheKey(),
+          ttsNormVersion: edge.ttsNormVersion,
+          ttsCacheKey: edge.ttsCacheKey,
         } as Parameters<
           typeof shouldReuseExistingFeaturedEpisode
         >[0]["existingEpisode"],

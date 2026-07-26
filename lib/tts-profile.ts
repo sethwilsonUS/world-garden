@@ -1,7 +1,8 @@
 import { TTS_NORM_VERSION } from "./tts-normalize";
 
 export type TtsProvider = "openai" | "edge";
-export type TtsFallbackReason = "openai_quota" | "openai_error";
+export type TtsAudience = "public" | "authenticated";
+export type TtsFallbackReason = "openai_auth" | "openai_quota" | "openai_error";
 
 export type TtsProfile = {
   provider: TtsProvider;
@@ -148,14 +149,6 @@ export const getEdgeTtsProfile = (voiceId?: string): TtsProfile => {
   });
 };
 
-export const getConfiguredPrimaryTtsProvider = (): TtsProvider =>
-  normalizeTtsProvider(
-    firstConfiguredValue(
-      process.env.TTS_PRIMARY_PROVIDER,
-      process.env.NEXT_PUBLIC_TTS_PRIMARY_PROVIDER,
-    ),
-  ) ?? "openai";
-
 export function isTtsMetadataValid(
   metadata: Partial<TtsMetadata> | null | undefined,
 ): metadata is TtsMetadata {
@@ -213,12 +206,15 @@ export const getTtsProfile = (
     const injected = getInjectedActiveTtsMetadata();
     if (injected) return { ...injected };
   }
-  const resolvedProvider = provider ?? getConfiguredPrimaryTtsProvider();
+  const resolvedProvider = provider ?? "edge";
   return resolvedProvider === "edge"
     ? getEdgeTtsProfile(voiceId)
     : getOpenAiTtsProfile(voiceId);
 };
 
+export const getTtsProviderForAudience = (
+  audience: TtsAudience,
+): TtsProvider => (audience === "authenticated" ? "openai" : "edge");
 export const getActiveTtsProfile = (): TtsProfile => getTtsProfile();
 
 export const getActiveTtsNormVersion = (): string =>

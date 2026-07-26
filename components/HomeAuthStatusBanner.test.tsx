@@ -64,9 +64,14 @@ describe("HomeAuthStatusBanner", () => {
 
     const markup = renderToStaticMarkup(createElement(HomeAuthStatusBanner));
 
-    expect(markup).toContain("Curio Garden stays public without an account");
-    expect(markup).toContain("your own curated playlist");
+    expect(markup).toContain(
+      "Curio Garden stays public without an account. Sign in for a more natural AI voice, synced bookmarks, your dashboard, and a personal playlist.",
+    );
+    expect(markup).toContain(
+      "Sign in for a more natural voice, bookmarks, and your playlist.",
+    );
     expect(markup).toContain("Sign in");
+    expect(markup).not.toContain("Sign in when you want");
     expect(markup).not.toContain("Clerk-to-Convex");
   });
 
@@ -78,6 +83,7 @@ describe("HomeAuthStatusBanner", () => {
     expect(markup).toContain("Welcome back, Seth");
     expect(markup).toContain("Dashboard");
     expect(markup).toContain("Library");
+    expect(markup).not.toContain("more natural AI voice");
   });
 
   it("shows a quiet loading state while auth is resolving", () => {
@@ -87,6 +93,7 @@ describe("HomeAuthStatusBanner", () => {
 
     expect(markup).toContain("Checking session");
     expect(markup).toContain("Account shortcuts will appear here");
+    expect(markup).not.toContain("more natural AI voice");
   });
 
   it("does not use live-region or alert semantics", () => {

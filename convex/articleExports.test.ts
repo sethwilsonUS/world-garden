@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  evaluateArticleAudioExportAllowance,
+  canAccessArticleAudioExport,
   findReusableArticleAudioExport,
   getArticleAudioExportDownloadIdentity,
   getRecentArticleAudioExports,
-  getArticleExportSections,
   isArticleAudioExportCompatible,
   isArticleAudioExportReusable,
   isRequestedTtsMetadataValid,
   MAX_RECENT_EXPORT_CANDIDATES,
   normalizeRecentArticleAudioExportLimit,
   resolveRequestedArticleExportTtsMetadata,
+  getArticleAudioExportQueueKey,
+  getArticleAudioExportQuotaConfig,
+  getArticleAudioExportProvider,
+  getArticleExportSections,
+  resolveArticleAudioExportBaseUrl,
+  selectAccessibleArticleAudioExportCandidates,
 } from "./articleExports";
 import { buildTtsCacheKey, type TtsMetadata } from "../lib/tts-profile";
 import { TTS_NORM_VERSION } from "../lib/tts-normalize";
@@ -391,6 +398,11 @@ describe("getRecentArticleAudioExports", () => {
     const result = await handler(
       {
         db: { query, get },
+        auth: {
+          getUserIdentity: vi.fn(async () => ({
+            tokenIdentifier: "https://clerk.example|user-a",
+          })),
+        },
         storage: { getUrl: vi.fn() },
       },
       { clientId: "client-1", limit: 1.5, ttsCacheKey: "current-tts" },
@@ -426,5 +438,235 @@ describe("getArticleAudioExportDownloadIdentity", () => {
       "definitely-not-a-convex-id",
     );
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("article audio export voice entitlement", () => {
+  it("selects Edge for guests and OpenAI for authenticated viewers", () => {
+    expect(getArticleAudioExportProvider(false)).toBe("edge");
+    expect(getArticleAudioExportProvider(true)).toBe("openai");
+  });
+
+  it("keeps guest Edge exports public", () => {
+    expect(
+      canAccessArticleAudioExport(
+        { ttsProvider: "edge", ttsCacheKey: "tts:edge:profile" },
+        null,
+      ),
+    ).toBe(true);
+  });
+
+  it("requires the owning identity for new OpenAI exports", () => {
+    const record = {
+      ttsProvider: "openai",
+      ttsCacheKey: "tts:openai:profile",
+      ownerTokenIdentifier: "https://clerk.example|user-a",
+    };
+
+    expect(canAccessArticleAudioExport(record, null)).toBe(false);
+    expect(
+      canAccessArticleAudioExport(record, "https://clerk.example|user-b"),
+    ).toBe(false);
+    expect(
+      canAccessArticleAudioExport(record, "https://clerk.example|user-a"),
+    ).toBe(true);
+  });
+
+  it("keeps legacy exports available only to signed-in viewers", () => {
+    const legacyRecord = {
+      ttsCacheKey:
+        "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:2",
+    };
+
+    expect(canAccessArticleAudioExport(legacyRecord, null)).toBe(false);
+    expect(
+      canAccessArticleAudioExport(
+        legacyRecord,
+        "https://clerk.example|signed-in-user",
+      ),
+    ).toBe(true);
+  });
+
+  it("filters ownership before capping recent jobs after an account switch", () => {
+    const previousAccountJobs = Array.from({ length: 50 }, (_, index) => ({
+      _id: `previous-${index}`,
+      ttsProvider: "openai",
+      ownerTokenIdentifier: "https://clerk.example|previous-user",
+      updatedAt: 1_000 - index,
+    }));
+    const currentAccountJob = {
+      _id: "current-user-job",
+      ttsProvider: "openai",
+      ownerTokenIdentifier: "https://clerk.example|current-user",
+      updatedAt: 1,
+    };
+
+    expect(
+      selectAccessibleArticleAudioExportCandidates(
+        [...previousAccountJobs, currentAccountJob],
+        "https://clerk.example|current-user",
+        50,
+      ).map((record) => record._id),
+    ).toEqual(["current-user-job"]);
+  });
+});
+
+describe("article audio export queue isolation", () => {
+  it("serializes authenticated OpenAI exports by owner across client IDs", () => {
+    expect(
+      getArticleAudioExportQueueKey({
+        clientId: "browser-a",
+        ttsProvider: "openai",
+        ownerTokenIdentifier: "https://clerk.example|user-a",
+      }),
+    ).toBe("owner:https://clerk.example|user-a");
+    expect(
+      getArticleAudioExportQueueKey({
+        clientId: "browser-b",
+        ttsProvider: "openai",
+        ownerTokenIdentifier: "https://clerk.example|user-a",
+      }),
+    ).toBe("owner:https://clerk.example|user-a");
+  });
+
+  it("keeps guest and legacy exports isolated by client ID", () => {
+    expect(
+      getArticleAudioExportQueueKey({
+        clientId: "guest-a",
+        ttsProvider: "edge",
+      }),
+    ).toBe("client:guest-a");
+    expect(
+      getArticleAudioExportQueueKey({
+        clientId: "legacy-a",
+      }),
+    ).toBe("client:legacy-a");
+  });
+
+  it("does not treat an ownerless OpenAI legacy row as a shared owner queue", () => {
+    expect(
+      getArticleAudioExportQueueKey({
+        clientId: "legacy-openai",
+        ttsProvider: "openai",
+      }),
+    ).toBe("client:legacy-openai");
+  });
+
+  it("ignores a legacy caller-provided generation origin", () => {
+    expect(
+      resolveArticleAudioExportBaseUrl(
+        "https://trusted.example",
+        "https://attacker.example",
+      ),
+    ).toBe("https://trusted.example");
+  });
+});
+
+describe("article audio export OpenAI allowance", () => {
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  it("starts a fresh 24-hour allowance window", () => {
+    expect(
+      evaluateArticleAudioExportAllowance({
+        existing: null,
+        now: 1_000,
+        limit: 5,
+        windowMs: dayMs,
+      }),
+    ).toEqual({
+      allowed: true,
+      nextCount: 1,
+      windowStart: 1_000,
+      expiresAt: 1_000 + dayMs,
+      remaining: 4,
+    });
+  });
+
+  it("allows work below the limit without shifting the existing window", () => {
+    expect(
+      evaluateArticleAudioExportAllowance({
+        existing: {
+          count: 3,
+          windowStart: 500,
+          expiresAt: 500 + dayMs,
+        },
+        now: 2_000,
+        limit: 5,
+        windowMs: dayMs,
+      }),
+    ).toEqual({
+      allowed: true,
+      nextCount: 4,
+      windowStart: 500,
+      expiresAt: 500 + dayMs,
+      remaining: 1,
+    });
+  });
+
+  it("rejects work at the limit without incrementing it", () => {
+    expect(
+      evaluateArticleAudioExportAllowance({
+        existing: {
+          count: 5,
+          windowStart: 500,
+          expiresAt: 500 + dayMs,
+        },
+        now: 2_000,
+        limit: 5,
+        windowMs: dayMs,
+      }),
+    ).toEqual({
+      allowed: false,
+      nextCount: 5,
+      windowStart: 500,
+      expiresAt: 500 + dayMs,
+      remaining: 0,
+    });
+  });
+
+  it("resets an expired allowance window", () => {
+    expect(
+      evaluateArticleAudioExportAllowance({
+        existing: {
+          count: 5,
+          windowStart: 500,
+          expiresAt: 1_500,
+        },
+        now: 2_000,
+        limit: 5,
+        windowMs: dayMs,
+      }),
+    ).toEqual({
+      allowed: true,
+      nextCount: 1,
+      windowStart: 2_000,
+      expiresAt: 2_000 + dayMs,
+      remaining: 4,
+    });
+  });
+
+  it("uses conservative defaults and accepts positive configuration", () => {
+    expect(getArticleAudioExportQuotaConfig({})).toEqual({
+      dailyLimit: 5,
+      dailyWindowMs: dayMs,
+    });
+    expect(
+      getArticleAudioExportQuotaConfig({
+        ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_LIMIT: "9",
+        ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_WINDOW_MS: "7200000",
+      }),
+    ).toEqual({
+      dailyLimit: 9,
+      dailyWindowMs: 7_200_000,
+    });
+    expect(
+      getArticleAudioExportQuotaConfig({
+        ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_LIMIT: "0",
+        ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_WINDOW_MS: "not-a-number",
+      }),
+    ).toEqual({
+      dailyLimit: 5,
+      dailyWindowMs: dayMs,
+    });
   });
 });

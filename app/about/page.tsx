@@ -14,7 +14,7 @@ const engineeringHighlights = [
   },
   {
     title: "Resilient audio delivery",
-    text: "Section-level synthesis, provider-aware caching, resumable playback, downloadable articles, and an Edge TTS fallback keep listening useful when one service is under pressure.",
+    text: "Section-level synthesis, provider-aware caching, resumable playback, downloadable articles, and whole-session voice fallback keep listening useful when one service is under pressure.",
   },
   {
     title: "Web and podcast, one pipeline",
@@ -41,7 +41,10 @@ export default function AboutPage() {
         </nav>
 
         <header className="relative overflow-hidden rounded-[2rem] border border-accent-border bg-surface-2 px-6 py-10 sm:px-10 sm:py-14">
-          <div className="pattern-leaves absolute inset-0 opacity-70" aria-hidden="true" />
+          <div
+            className="pattern-leaves absolute inset-0 opacity-70"
+            aria-hidden="true"
+          />
           <div className="relative max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
               About this project
@@ -58,11 +61,17 @@ export default function AboutPage() {
           </div>
         </header>
 
-        <section aria-labelledby="why-heading" className="mx-auto mt-14 max-w-3xl">
+        <section
+          aria-labelledby="why-heading"
+          className="mx-auto mt-14 max-w-3xl"
+        >
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
             The idea
           </p>
-          <h2 id="why-heading" className="mt-2 font-display text-3xl font-semibold text-foreground">
+          <h2
+            id="why-heading"
+            className="mt-2 font-display text-3xl font-semibold text-foreground"
+          >
             Curiosity should not depend on a screen.
           </h2>
           <div className="mt-5 space-y-4 text-base leading-[1.8] text-foreground-2">
@@ -85,14 +94,26 @@ export default function AboutPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
               Under the garden bed
             </p>
-            <h2 id="engineering-heading" className="mt-2 font-display text-3xl font-semibold text-foreground">
+            <h2
+              id="engineering-heading"
+              className="mt-2 font-display text-3xl font-semibold text-foreground"
+            >
               A product, not a prototype shell.
             </h2>
           </div>
-          <ol className="mt-7 grid list-none gap-4 p-0 sm:grid-cols-2" role="list">
+          <ol
+            className="mt-7 grid list-none gap-4 p-0 sm:grid-cols-2"
+            role="list"
+          >
             {engineeringHighlights.map((highlight, index) => (
-              <li key={highlight.title} className="garden-bed relative overflow-hidden p-6">
-                <span className="font-mono text-xs text-accent" aria-hidden="true">
+              <li
+                key={highlight.title}
+                className="garden-bed relative overflow-hidden p-6"
+              >
+                <span
+                  className="font-mono text-xs text-accent"
+                  aria-hidden="true"
+                >
                   0{index + 1}
                 </span>
                 <h3 className="mt-3 font-display text-xl font-semibold text-foreground">
@@ -106,11 +127,17 @@ export default function AboutPage() {
           </ol>
         </section>
 
-        <section aria-labelledby="ai-transparency-heading" className="mx-auto mt-16 max-w-3xl">
+        <section
+          aria-labelledby="ai-transparency-heading"
+          className="mx-auto mt-16 max-w-3xl"
+        >
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
             Plain-language provenance
           </p>
-          <h2 id="ai-transparency-heading" className="mt-2 font-display text-3xl font-semibold text-foreground">
+          <h2
+            id="ai-transparency-heading"
+            className="mt-2 font-display text-3xl font-semibold text-foreground"
+          >
             Wikipedia text and generated context stay distinct.
           </h2>
           <div className="mt-5 space-y-4 text-base leading-[1.8] text-foreground-2">
@@ -125,21 +152,28 @@ export default function AboutPage() {
               Rich context notes start from deterministic source extraction.
               When AI helps make a description clearer, that assistance and the
               model are disclosed beside the source revision. Generated material
-              may contain errors, and readers can report a problem from each note.
+              may contain errors, and readers can report a problem from each
+              note.
             </p>
           </div>
         </section>
 
-        <section aria-labelledby="modes-heading" className="mx-auto mt-16 max-w-3xl">
-          <h2 id="modes-heading" className="font-display text-3xl font-semibold text-foreground">
+        <section
+          aria-labelledby="modes-heading"
+          className="mx-auto mt-16 max-w-3xl"
+        >
+          <h2
+            id="modes-heading"
+            className="font-display text-3xl font-semibold text-foreground"
+          >
             Built to be explored and inspected.
           </h2>
           <p className="mt-5 text-base leading-[1.8] text-foreground-2">
-            Local mode works without accounts or a database for quick inspection.
-            The full deployment adds Convex caching and storage, Clerk-backed
-            accounts, synced libraries, private podcast feeds, analytics, and
-            scheduled publishing. The source, tests, setup notes, and tradeoffs
-            are available in the public repository.
+            Local mode works without accounts or a database for quick
+            inspection. The full deployment adds Convex caching and storage,
+            Clerk-backed accounts, synced libraries, private podcast feeds,
+            analytics, and scheduled publishing. The source, tests, setup notes,
+            and tradeoffs are available in the public repository.
           </p>
           <a
             href="https://github.com/sethwilsonUS/world-garden"

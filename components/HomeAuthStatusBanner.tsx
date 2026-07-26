@@ -124,9 +124,8 @@ const getAuthenticatedBannerContent = ({
 const SignedOutBannerContent = (): BannerContent => ({
   eyebrow: "Guest mode",
   title: "Browse now, sync later",
-  body:
-    "Curio Garden stays public without an account. Sign in when you want synced bookmarks, a dashboard, and your own curated playlist.",
-  mobileBody: "Sign in for bookmarks, Dashboard, and your playlist.",
+  body: "Curio Garden stays public without an account. Sign in for a more natural AI voice, synced bookmarks, your dashboard, and a personal playlist.",
+  mobileBody: "Sign in for a more natural voice, bookmarks, and your playlist.",
   actions: (
     <>
       <SignInButton>
@@ -137,7 +136,10 @@ const SignedOutBannerContent = (): BannerContent => ({
           Sign in
         </button>
       </SignInButton>
-      <Link href="/library" className={`${bannerLinkClass} ${secondaryActionClass}`}>
+      <Link
+        href="/library"
+        className={`${bannerLinkClass} ${secondaryActionClass}`}
+      >
         Library
       </Link>
     </>

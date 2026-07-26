@@ -41,7 +41,11 @@ URL, pushes functions, and keeps generated types current. Run
 Secrets used by both Next.js and Convex—such as
 `ARTICLE_CONTEXT_WRITE_SECRET`, `TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and
 `ANALYTICS_REPORT_SECRET`—must match across the two environments where their
-corresponding features are enabled.
+corresponding features are enabled. Deployed audio requires
+`TTS_QUOTA_BYPASS_SECRET`: only short-lived, domain-separated attestations are
+sent through public quota/cache mutations. Convex audio workers use
+`AUDIO_GENERATION_BASE_URL` as their trusted HTTPS app origin (production by
+default); set it explicitly for Preview workers that must call Preview code.
 
 ## Validation and deployment
 

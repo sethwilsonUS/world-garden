@@ -14,11 +14,13 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { type Id } from "@/convex/_generated/dataModel";
+import { useTtsProfile } from "@/lib/tts-audience";
+import type { TtsProvider } from "@/lib/tts-profile";
 import {
   ArticleAudioExportTray,
   type TrayJob,
 } from "@/components/ArticleAudioExportTray";
-import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
+import { getTtsMetadata } from "@/lib/tts-profile";
 
 const CLIENT_ID_STORAGE_KEY = "cg-article-audio-export-client-id";
 
@@ -32,6 +34,7 @@ type ArticleAudioExportJob = {
   completedSectionCount: number;
   narrationHash?: string;
   ttsCacheKey?: string;
+  ttsProvider?: TtsProvider;
   lastError?: string;
   audioUrl?: string | null;
   createdAt: number;
@@ -41,6 +44,7 @@ type ArticleAudioExportJob = {
 type StartingJob = {
   articleId: string;
   title: string;
+  ttsProvider: TtsProvider;
   startedAt: number;
 };
 
@@ -59,7 +63,7 @@ type ArticleAudioExportContextValue = {
     title: string;
   }) => Promise<{ exportId: string; status: ArticleAudioExportJob["status"] }>;
   dismissExport: (exportId: string) => Promise<void>;
-  isStartingArticle: (articleId: string) => boolean;
+  isStartingArticle: (articleId: string, ttsProvider: TtsProvider) => boolean;
   registerDirectDownload: (args: { title: string; href: string }) => void;
 };
 
@@ -68,7 +72,6 @@ const ArticleAudioExportContext =
 
 const emptySubscribe = () => () => {};
 
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 let fallbackClientId: string | null = null;
 
 const createClientId = (): string => {
@@ -108,36 +111,12 @@ const ensureClientId = (): string => {
   return created;
 };
 
-const resolveArticleExportBaseUrl = (origin: string): string => {
-  try {
-    const url = new URL(origin);
-    if (!LOCAL_HOSTNAMES.has(url.hostname)) {
-      return url.origin;
-    }
-  } catch {
-    return origin;
-  }
-
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (configuredSiteUrl) {
-    try {
-      const configuredUrl = new URL(configuredSiteUrl);
-      if (!LOCAL_HOSTNAMES.has(configuredUrl.hostname)) {
-        return configuredUrl.origin;
-      }
-    } catch {
-      // Ignore invalid configuration and fall back to the public site origin.
-    }
-  }
-
-  return "https://curiogarden.org";
-};
-
 export const ArticleAudioExportProvider = ({
   children,
 }: {
   children: ReactNode;
 }) => {
+  const ttsProfile = useTtsProfile();
   const hasMounted = useSyncExternalStore(
     emptySubscribe,
     () => true,
@@ -154,8 +133,8 @@ export const ArticleAudioExportProvider = ({
   });
   const previousStatusesRef = useRef<Record<string, string>>({});
   const activeTtsMetadata = useMemo(
-    () => getTtsMetadata(getActiveTtsProfile()),
-    [],
+    () => getTtsMetadata(ttsProfile),
+    [ttsProfile],
   );
   const activeTtsCacheKey = activeTtsMetadata.ttsCacheKey;
 
@@ -178,16 +157,24 @@ export const ArticleAudioExportProvider = ({
   const jobs = useMemo(
     () =>
       (queriedJobs ?? []).filter(
-        (job) => job.ttsCacheKey === activeTtsCacheKey,
+        (job) =>
+          job.ttsCacheKey === activeTtsCacheKey &&
+          job.ttsProvider === ttsProfile.provider,
       ),
-    [activeTtsCacheKey, queriedJobs],
+    [activeTtsCacheKey, queriedJobs, ttsProfile.provider],
   );
   const mergedJobs = useMemo(() => {
-    const activeArticleIds = new Set<string>(
-      jobs.map((job) => job.articleId as string),
+    const activeJobKeys = new Set<string>(
+      jobs.map(
+        (job) => `${job.articleId as string}::${job.ttsProvider ?? "legacy"}`,
+      ),
     );
     const optimisticJobs = startingJobs
-      .filter((job) => !activeArticleIds.has(job.articleId))
+      .filter(
+        (job) =>
+          job.ttsProvider === ttsProfile.provider &&
+          !activeJobKeys.has(`${job.articleId}::${job.ttsProvider}`),
+      )
       .map(
         (job) =>
           ({
@@ -199,6 +186,7 @@ export const ArticleAudioExportProvider = ({
             sectionCount: 0,
             completedSectionCount: 0,
             ttsCacheKey: activeTtsCacheKey,
+            ttsProvider: job.ttsProvider,
             createdAt: job.startedAt,
             updatedAt: job.startedAt,
           }) satisfies ArticleAudioExportJob,
@@ -207,7 +195,7 @@ export const ArticleAudioExportProvider = ({
     return [...optimisticJobs, ...(jobs as ArticleAudioExportJob[])]
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 4);
-  }, [activeTtsCacheKey, jobs, startingJobs]);
+  }, [activeTtsCacheKey, jobs, startingJobs, ttsProfile.provider]);
   const trayJobs = useMemo<TrayJob[]>(() => {
     const exportJobs = mergedJobs.map(
       (job) =>
@@ -301,6 +289,7 @@ export const ArticleAudioExportProvider = ({
 
   const queueExport = useCallback(
     async ({ articleId, title }: { articleId: string; title: string }) => {
+      const requestedTtsProvider = ttsProfile.provider;
       const resolvedClientId =
         clientId ?? (typeof window === "undefined" ? "" : ensureClientId());
 
@@ -313,17 +302,27 @@ export const ArticleAudioExportProvider = ({
       }
 
       setStartingJobs((current) =>
-        current.some((job) => job.articleId === articleId)
+        current.some(
+          (job) =>
+            job.articleId === articleId &&
+            job.ttsProvider === requestedTtsProvider,
+        )
           ? current
-          : [...current, { articleId, title, startedAt: Date.now() }],
+          : [
+              ...current,
+              {
+                articleId,
+                title,
+                ttsProvider: requestedTtsProvider,
+                startedAt: Date.now(),
+              },
+            ],
       );
 
       try {
         const result = await startExport({
           clientId: resolvedClientId,
           articleId: articleId as Id<"articles">,
-          baseUrl: resolveArticleExportBaseUrl(window.location.origin),
-          ttsMetadata: activeTtsMetadata,
         });
         return {
           exportId: result.exportId as string,
@@ -331,11 +330,15 @@ export const ArticleAudioExportProvider = ({
         };
       } finally {
         setStartingJobs((current) =>
-          current.filter((job) => job.articleId !== articleId),
+          current.filter(
+            (job) =>
+              job.articleId !== articleId ||
+              job.ttsProvider !== requestedTtsProvider,
+          ),
         );
       }
     },
-    [activeTtsMetadata, clientId, startExport],
+    [clientId, startExport, ttsProfile.provider],
   );
 
   const dismissExport = useCallback(
@@ -350,8 +353,10 @@ export const ArticleAudioExportProvider = ({
   );
 
   const isStartingArticle = useCallback(
-    (articleId: string) =>
-      startingJobs.some((job) => job.articleId === articleId),
+    (articleId: string, ttsProvider: TtsProvider) =>
+      startingJobs.some(
+        (job) => job.articleId === articleId && job.ttsProvider === ttsProvider,
+      ),
     [startingJobs],
   );
 
@@ -407,7 +412,11 @@ export const ArticleAudioExportProvider = ({
             if (exportId.startsWith("pending-")) {
               const articleId = exportId.slice("pending-".length);
               setStartingJobs((current) =>
-                current.filter((job) => job.articleId !== articleId),
+                current.filter(
+                  (job) =>
+                    job.articleId !== articleId ||
+                    job.ttsProvider !== ttsProfile.provider,
+                ),
               );
               return;
             }
@@ -415,7 +424,9 @@ export const ArticleAudioExportProvider = ({
           }}
           onRetry={(articleId) => {
             const matchingJob = mergedJobs.find(
-              (job) => job.articleId === articleId,
+              (job) =>
+                job.articleId === articleId &&
+                job.ttsProvider === ttsProfile.provider,
             );
             void queueExport({
               articleId,

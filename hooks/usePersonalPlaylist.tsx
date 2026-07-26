@@ -13,10 +13,9 @@ import {
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { type Id } from "@/convex/_generated/dataModel";
-import { getActiveTtsProfile, getTtsMetadata } from "@/lib/tts-profile";
+import { getTtsMetadata, getTtsProfile } from "@/lib/tts-profile";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
 type PlaylistEntry = {
   _id: string;
@@ -54,31 +53,6 @@ type PersonalPlaylistContextValue = {
 const PersonalPlaylistContext =
   createContext<PersonalPlaylistContextValue | null>(null);
 
-const resolveServerBaseUrl = (origin: string): string => {
-  try {
-    const url = new URL(origin);
-    if (!LOCAL_HOSTNAMES.has(url.hostname)) {
-      return url.origin;
-    }
-  } catch {
-    return origin;
-  }
-
-  const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (configuredSiteUrl) {
-    try {
-      const configuredUrl = new URL(configuredSiteUrl);
-      if (!LOCAL_HOSTNAMES.has(configuredUrl.hostname)) {
-        return configuredUrl.origin;
-      }
-    } catch {
-      // Ignore invalid configuration.
-    }
-  }
-
-  return "https://curiogarden.org";
-};
-
 const buildFeedUrl = (feedToken: string | null): string | null => {
   if (!feedToken || typeof window === "undefined") {
     return null;
@@ -101,8 +75,8 @@ export const PersonalPlaylistProvider = ({
   const [addingSlugs, setAddingSlugs] = useState<Set<string>>(new Set());
   const [politeMessage, setPoliteMessage] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
-  const activeTtsMetadata = useMemo(
-    () => getTtsMetadata(getActiveTtsProfile()),
+  const personalPlaylistTtsMetadata = useMemo(
+    () => getTtsMetadata(getTtsProfile("openai")),
     [],
   );
 
@@ -152,8 +126,7 @@ export const PersonalPlaylistProvider = ({
       try {
         const result = await addEpisodeBySlug({
           slug,
-          baseUrl: resolveServerBaseUrl(window.location.origin),
-          ttsMetadata: activeTtsMetadata,
+          ttsMetadata: personalPlaylistTtsMetadata,
         });
 
         setPoliteMessage(
@@ -176,7 +149,12 @@ export const PersonalPlaylistProvider = ({
         });
       }
     },
-    [activeTtsMetadata, addEpisodeBySlug, canUseAccountApi, isSignedIn],
+    [
+      addEpisodeBySlug,
+      canUseAccountApi,
+      isSignedIn,
+      personalPlaylistTtsMetadata,
+    ],
   );
 
   const remove = useCallback(
@@ -219,8 +197,7 @@ export const PersonalPlaylistProvider = ({
     async (episodeId: string, title: string) => {
       const result = await retryEpisode({
         episodeId: episodeId as Id<"personalPlaylistEpisodes">,
-        baseUrl: resolveServerBaseUrl(window.location.origin),
-        ttsMetadata: activeTtsMetadata,
+        ttsMetadata: personalPlaylistTtsMetadata,
       });
 
       if (result.queued) {
@@ -230,7 +207,7 @@ export const PersonalPlaylistProvider = ({
 
       setAlertMessage(`Could not retry ${title} right now.`);
     },
-    [activeTtsMetadata, retryEpisode],
+    [personalPlaylistTtsMetadata, retryEpisode],
   );
 
   const value = useMemo<PersonalPlaylistContextValue>(

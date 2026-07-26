@@ -18,9 +18,9 @@ export default function PrivacyPage() {
     >
       <LegalSection id="privacy-overview" title="Overview">
         <p>
-          Curio Garden is an informational reading and listening experience built
-          around Wikipedia content. You can browse without an account, or you
-          can sign in to sync bookmarks across devices.
+          Curio Garden is an informational reading and listening experience
+          built around Wikipedia content. You can browse without an account, or
+          you can sign in to sync bookmarks across devices.
         </p>
         <p>
           The service is designed to keep some convenience features on your
@@ -29,7 +29,10 @@ export default function PrivacyPage() {
         </p>
       </LegalSection>
 
-      <LegalSection id="privacy-collect" title="Information Curio Garden may handle">
+      <LegalSection
+        id="privacy-collect"
+        title="Information Curio Garden may handle"
+      >
         <ul className="list-disc pl-5 space-y-2">
           <li>
             Account information from Clerk, such as a stable account identifier
@@ -57,9 +60,16 @@ export default function PrivacyPage() {
         <ul className="list-disc pl-5 space-y-2">
           <li>To sign you in and keep your session working securely.</li>
           <li>To sync signed-in bookmarks across devices.</li>
-          <li>To remember signed-out preferences and local convenience data.</li>
-          <li>To deliver audio features, improve reliability, and understand service performance.</li>
-          <li>To prevent abuse, protect the service, and troubleshoot issues.</li>
+          <li>
+            To remember signed-out preferences and local convenience data.
+          </li>
+          <li>
+            To deliver audio features, improve reliability, and understand
+            service performance.
+          </li>
+          <li>
+            To prevent abuse, protect the service, and troubleshoot issues.
+          </li>
         </ul>
       </LegalSection>
 
@@ -97,9 +107,9 @@ export default function PrivacyPage() {
             Wikipedia content is displayed under its own licenses and policies.
           </li>
           <li>
-            Audio generation may rely on OpenAI synthetic speech services and
-            Microsoft Edge TTS fallback infrastructure when audio features are
-            used.
+            Audio generation may use Microsoft Edge TTS or OpenAI synthetic
+            speech services. OpenAI speech is reserved for signed-in listening
+            and trusted personal audio generation.
           </li>
         </ul>
       </LegalSection>

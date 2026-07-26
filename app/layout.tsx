@@ -7,6 +7,10 @@ import { AccessibleLayout } from "@/components/AccessibleLayout";
 import { AuthNavControls } from "@/components/AuthNavControls";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { TrendingBriefWarmup } from "@/components/TrendingBriefWarmup";
+import {
+  AuthAwareTtsProfileProvider,
+  PublicTtsProfileProvider,
+} from "@/lib/tts-audience";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import {
@@ -153,7 +157,7 @@ export default function RootLayout({
         style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
       >
         {isLocal ? (
-          shell
+          <PublicTtsProfileProvider>{shell}</PublicTtsProfileProvider>
         ) : (
           <ClerkProvider
             dynamic
@@ -162,7 +166,7 @@ export default function RootLayout({
             signInFallbackRedirectUrl="/"
             signUpFallbackRedirectUrl="/"
           >
-            {shell}
+            <AuthAwareTtsProfileProvider>{shell}</AuthAwareTtsProfileProvider>
           </ClerkProvider>
         )}
       </body>

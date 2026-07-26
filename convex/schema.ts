@@ -697,6 +697,9 @@ export default defineSchema({
     requestedTtsMetadata: v.optional(ttsMetadata),
     producedTtsCacheKey: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
+    ttsProvider: v.optional(v.string()),
+    ownerTokenIdentifier: v.optional(v.string()),
+    queueKey: v.optional(v.string()),
     lastError: v.optional(v.string()),
     dismissedAt: v.optional(v.number()),
     createdAt: v.number(),
@@ -705,7 +708,8 @@ export default defineSchema({
     .index("by_clientId", ["clientId"])
     .index("by_clientId_updatedAt", ["clientId", "updatedAt"])
     .index("by_articleId", ["articleId"])
-    .index("by_clientId_articleId", ["clientId", "articleId"]),
+    .index("by_clientId_articleId", ["clientId", "articleId"])
+    .index("by_queueKey", ["queueKey"]),
 
   viewerArticleListenProgress: defineTable({
     viewerTokenIdentifier: v.string(),

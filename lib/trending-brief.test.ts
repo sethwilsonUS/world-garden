@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import {
   buildTrendingBriefPrompt,
   extractTrendingBriefSources,
@@ -13,7 +14,10 @@ import {
   normalizeTrendingBrief,
   selectTrendingArtworkItems,
   shouldReuseExistingTrendingBrief,
+  syncDailyTrendingBrief,
 } from "./trending-brief";
+import { getTtsProfile } from "./tts-profile";
+import { renderTrendingPodcastArtworkPng } from "./trending-podcast-artwork";
 
 vi.mock("convex/nextjs", () => ({
   fetchMutation: vi.fn(),
@@ -35,6 +39,17 @@ vi.mock("@/lib/today-snapshot", () => ({
     trendingIsStale: false,
   })),
 }));
+
+vi.mock("@/lib/trending-podcast-artwork", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./trending-podcast-artwork")>();
+  return {
+    ...actual,
+    renderTrendingPodcastArtworkPng: vi.fn(
+      actual.renderTrendingPodcastArtworkPng,
+    ),
+  };
+});
 
 const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 const originalAiGatewayApiKey = process.env.AI_GATEWAY_API_KEY;
@@ -60,6 +75,8 @@ afterEach(async () => {
   restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
   restoreEnvValue("TRENDING_BRIEF_MODEL", originalTrendingBriefModel);
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("normalizeTrendingBrief", () => {
@@ -239,10 +256,86 @@ describe("cached trending brief reuse", () => {
         status: "ready",
         audioUrl: "https://cdn.example.com/brief.mp3",
         artworkVersion: 2,
-        ttsCacheKey: "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
+        ttsCacheKey:
+          "tts:edge:edge-tts:en-US-AriaNeural:edge-default:ttsNorm:2",
         updatedAt: Date.now(),
       } as Parameters<typeof shouldReuseExistingTrendingBrief>[0]),
     ).toBe(false);
+  });
+
+  it("keeps prior ready audio available when an Edge replacement fails", async () => {
+    process.env.OPENAI_API_KEY = "openai-key";
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(renderTrendingPodcastArtworkPng).mockResolvedValueOnce({
+      data: Uint8Array.of(1, 2, 3),
+      mimeType: "image/jpeg",
+    });
+    let persisted: Record<string, unknown> & {
+      status: string;
+      storageId: string;
+      ttsCacheKey: string;
+      audioUrl: string | null;
+    } = {
+      _id: "brief-1",
+      trendingDate: "2026-03-11",
+      status: "ready",
+      headline: "Existing headline",
+      summary: "Existing summary",
+      podcastDescription: "Existing podcast description",
+      spokenSummary: "Existing spoken summary",
+      keyPoints: ["One", "Two", "Three"],
+      articleTitles: ["Example Trend"],
+      sources: [{ title: "Example", url: "https://example.com" }],
+      audioUrl: "https://cdn.example.com/openai.mp3",
+      storageId: "openai-storage",
+      ttsCacheKey: getTtsProfile("openai").ttsCacheKey,
+      updatedAt: Date.now(),
+    };
+    const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+    vi.mocked(fetchQuery).mockImplementation(async () => persisted as never);
+    vi.mocked(fetchMutation).mockImplementation(async (...callArgs) => {
+      const [reference, args] = callArgs;
+      const functionName = getFunctionName(reference);
+      if (functionName === "trending:claimTrendingBriefJob") {
+        return { claimed: true } as never;
+      }
+      if (functionName === "trending:saveTrendingBrief") {
+        persisted = {
+          ...persisted,
+          ...((args ?? {}) as object),
+          audioUrl: (args as { storageId?: string }).storageId
+            ? "https://cdn.example.com/replacement.mp3"
+            : null,
+          updatedAt: Date.now(),
+        };
+      }
+      return undefined as never;
+    });
+    const ttsRequests: Array<{ provider?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        ttsRequests.push(
+          JSON.parse(String(init?.body)) as { provider?: string },
+        );
+        return Response.json({ error: "speech unavailable" }, { status: 503 });
+      }),
+    );
+
+    await expect(
+      syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
+    ).rejects.toThrow("speech unavailable");
+
+    expect(ttsRequests).toEqual([
+      expect.objectContaining({ provider: "edge" }),
+    ]);
+    expect(persisted).toMatchObject({
+      status: "ready",
+      audioUrl: "https://cdn.example.com/openai.mp3",
+      storageId: "openai-storage",
+      ttsCacheKey: getTtsProfile("openai").ttsCacheKey,
+    });
   });
 });
 
@@ -282,6 +375,14 @@ describe("hasCurrentTrendingArtworkVersion", () => {
 });
 
 describe("direct OpenAI trending generation", () => {
+  it("uses Edge cache identity even when a legacy primary is configured", () => {
+    vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
+
+    expect(getTrendingAudioCacheKey()).toBe(
+      `${getTtsProfile("edge").ttsCacheKey}:trending-script:ai-disclosure-v1`,
+    );
+  });
+
   it("adds an audible AI disclosure to the generated podcast script", () => {
     const script = getTrendingAudioScript("Here is today's briefing.");
 
@@ -338,7 +439,9 @@ describe("direct OpenAI trending generation", () => {
     }));
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<typeof generateTrendingBriefContent>[0]["client"];
+    } as unknown as Parameters<
+      typeof generateTrendingBriefContent
+    >[0]["client"];
 
     const brief = await generateTrendingBriefContent({
       client,
@@ -409,7 +512,9 @@ describe("direct OpenAI trending generation", () => {
     }));
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<typeof generateTrendingBriefContent>[0]["client"];
+    } as unknown as Parameters<
+      typeof generateTrendingBriefContent
+    >[0]["client"];
 
     await expect(
       generateTrendingBriefContent({
@@ -450,9 +555,7 @@ describe("direct OpenAI trending generation", () => {
           ],
         },
       ]),
-    ).toEqual([
-      { title: "Example story", url: "https://example.com/story" },
-    ]);
+    ).toEqual([{ title: "Example story", url: "https://example.com/story" }]);
   });
 
   it("enables Trending from OPENAI_API_KEY rather than AI Gateway", () => {

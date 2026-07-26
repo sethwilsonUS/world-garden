@@ -8,9 +8,9 @@ import {
 
 describe("buildPodcastDownloadFilename", () => {
   it("adds an mp3 extension when missing", () => {
-    expect(buildPodcastDownloadFilename("Featured Article", "fallback.mp3")).toBe(
-      "Featured Article.mp3",
-    );
+    expect(
+      buildPodcastDownloadFilename("Featured Article", "fallback.mp3"),
+    ).toBe("Featured Article.mp3");
   });
 
   it("removes unsafe filename characters", () => {
@@ -66,5 +66,22 @@ describe("createPodcastAttachmentResponse", () => {
     expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
     expect(response.headers.get("Content-Length")).toBe("10");
     expect(await response.text()).toBe("audio-data");
+  });
+
+  it("supports private cache policy for authenticated audio downloads", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("audio-data", {
+        headers: { "Content-Type": "audio/mpeg" },
+      }),
+    );
+
+    const response = await createPodcastAttachmentResponse({
+      audioUrl: "https://example.com/private-audio.mp3",
+      title: "Private Article",
+      fallbackFilename: "fallback.mp3",
+      cacheControl: "private, no-store",
+    });
+
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useContext } from "react";
 import { DataContext } from "@/lib/data-context";
 import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
+import { useTtsProfile } from "@/lib/tts-audience";
 
 /**
  * Returns a stable callback that pre-fetches summary audio and the hero
@@ -10,14 +11,15 @@ import { warmSummaryAudio, warmArticleImage } from "@/lib/audio-prefetch";
 export const usePrefetch = () => {
   const data = useContext(DataContext);
   const fetchArticle = data?.fetchArticle;
+  const ttsProfile = useTtsProfile();
 
   return useCallback(
     (title: string) => {
       if (!fetchArticle) return;
       const slug = title.replace(/ /g, "_");
-      void warmSummaryAudio(slug, fetchArticle);
+      warmSummaryAudio(slug, fetchArticle, ttsProfile);
       warmArticleImage(slug, fetchArticle);
     },
-    [fetchArticle],
+    [fetchArticle, ttsProfile],
   );
 };

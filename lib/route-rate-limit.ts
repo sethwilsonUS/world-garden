@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { anyApi } from "convex/server";
 import { fetchMutation } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
+import { createAttestedRouteQuotaArgs } from "./route-quota-attestation";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 
@@ -53,7 +54,7 @@ export const enforceRouteQuota = async ({
   windowMs,
   label,
 }: RouteQuotaOptions): Promise<NextResponse | null> => {
-  const quota = await fetchMutation(anyApi.rateLimits.consumeRouteQuota, {
+  const quotaArgs = await createAttestedRouteQuotaArgs({
     key: buildRouteQuotaKey({
       scope,
       ipAddress: getRequestIpAddress(req.headers),
@@ -61,6 +62,10 @@ export const enforceRouteQuota = async ({
     limit,
     windowMs,
   });
+  const quota = await fetchMutation(
+    anyApi.rateLimits.consumeRouteQuota,
+    quotaArgs,
+  );
 
   if (quota.allowed) {
     return null;

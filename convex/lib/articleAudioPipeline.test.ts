@@ -152,6 +152,7 @@ describe("assembleArticleAudio", () => {
       article,
       albumTitle: "Curio Garden Article Audio",
       baseUrl: "https://curiogarden.org",
+      preferredProvider: "edge",
       getCachedSectionAudioUrls: async () => ({
         "section-0": firstSectionUrl,
         "section-1": secondSectionUrl,
@@ -216,6 +217,7 @@ describe("assembleArticleAudio", () => {
         },
         albumTitle: "Curio Garden Article Audio",
         baseUrl: "https://curiogarden.org",
+        preferredProvider: "openai",
         getCachedSectionAudioUrls: async () => ({}),
         saveSectionAudio,
         saveCombinedAudio: async () => ({
@@ -449,6 +451,7 @@ describe("assembleArticleAudio", () => {
       article,
       albumTitle: "Curio Garden Article Audio",
       baseUrl: "https://curiogarden.org",
+      preferredProvider: "openai",
       getCachedSectionAudioUrls,
       saveSectionAudio,
       saveCombinedAudio: async ({ stream }) => {

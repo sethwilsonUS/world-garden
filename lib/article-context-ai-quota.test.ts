@@ -9,6 +9,7 @@ const originalEnv = {
   localMode: process.env.NEXT_PUBLIC_LOCAL_MODE,
   dailyLimit: process.env.ARTICLE_CONTEXT_AI_DAILY_LIMIT,
   dailyWindow: process.env.ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS,
+  attestationSecret: process.env.TTS_QUOTA_BYPASS_SECRET,
 };
 
 const restore = (key: string, value: string | undefined) => {
@@ -22,6 +23,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
   delete process.env.ARTICLE_CONTEXT_AI_DAILY_LIMIT;
   delete process.env.ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS;
+  process.env.TTS_QUOTA_BYPASS_SECRET = "article-context-test-secret";
 });
 
 afterEach(() => {
@@ -29,6 +31,7 @@ afterEach(() => {
   restore("NEXT_PUBLIC_LOCAL_MODE", originalEnv.localMode);
   restore("ARTICLE_CONTEXT_AI_DAILY_LIMIT", originalEnv.dailyLimit);
   restore("ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS", originalEnv.dailyWindow);
+  restore("TTS_QUOTA_BYPASS_SECRET", originalEnv.attestationSecret);
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -36,25 +39,29 @@ afterEach(() => {
 describe("article context AI quota", () => {
   it("uses the distributed global allowance", async () => {
     fetchMutation.mockResolvedValue({ allowed: true });
-    const { consumeArticleContextAIQuota } = await import(
-      "./article-context-ai-quota"
-    );
+    const { consumeArticleContextAIQuota } =
+      await import("./article-context-ai-quota");
 
     await expect(consumeArticleContextAIQuota()).resolves.toBe(true);
-    expect(fetchMutation).toHaveBeenCalledWith(expect.anything(), {
-      key: "article-context-ai:global",
-      limit: 250,
-      windowMs: 86_400_000,
-    });
+    expect(fetchMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        key: "article-context-ai:global",
+        limit: 250,
+        windowMs: 86_400_000,
+        attestation: expect.objectContaining({
+          signature: expect.any(String),
+        }),
+      }),
+    );
   });
 
   it("honors configured bounds", async () => {
     process.env.ARTICLE_CONTEXT_AI_DAILY_LIMIT = "40";
     process.env.ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS = "7200000";
     fetchMutation.mockResolvedValue({ allowed: false });
-    const { consumeArticleContextAIQuota } = await import(
-      "./article-context-ai-quota"
-    );
+    const { consumeArticleContextAIQuota } =
+      await import("./article-context-ai-quota");
 
     await expect(consumeArticleContextAIQuota()).resolves.toBe(false);
     expect(fetchMutation).toHaveBeenCalledWith(
@@ -66,21 +73,33 @@ describe("article context AI quota", () => {
   it("fails closed to deterministic copy when Convex is unavailable", async () => {
     fetchMutation.mockRejectedValue(new Error("offline"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const { consumeArticleContextAIQuota } = await import(
-      "./article-context-ai-quota"
-    );
+    const { consumeArticleContextAIQuota } =
+      await import("./article-context-ai-quota");
 
     await expect(consumeArticleContextAIQuota()).resolves.toBe(false);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("fails closed before contacting Convex when attestation is unavailable", async () => {
+    delete process.env.TTS_QUOTA_BYPASS_SECRET;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { consumeArticleContextAIQuota } =
+      await import("./article-context-ai-quota");
+
+    await expect(consumeArticleContextAIQuota()).resolves.toBe(false);
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("AI quota check failed"),
+      expect.stringContaining("TTS_QUOTA_BYPASS_SECRET"),
+    );
   });
 
   it("fails closed promptly when the distributed quota check stalls", async () => {
     vi.useFakeTimers();
     fetchMutation.mockImplementation(() => new Promise(() => undefined));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const { consumeArticleContextAIQuota } = await import(
-      "./article-context-ai-quota"
-    );
+    const { consumeArticleContextAIQuota } =
+      await import("./article-context-ai-quota");
 
     const result = consumeArticleContextAIQuota();
     await vi.advanceTimersByTimeAsync(5_000);
@@ -95,9 +114,8 @@ describe("article context AI quota", () => {
   it("allows local-mode development without a distributed store", async () => {
     process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
     delete process.env.NEXT_PUBLIC_CONVEX_URL;
-    const { consumeArticleContextAIQuota } = await import(
-      "./article-context-ai-quota"
-    );
+    const { consumeArticleContextAIQuota } =
+      await import("./article-context-ai-quota");
 
     await expect(consumeArticleContextAIQuota()).resolves.toBe(true);
     expect(fetchMutation).not.toHaveBeenCalled();

@@ -1,5 +1,6 @@
 import { anyApi } from "convex/server";
 import { fetchQuery } from "convex/nextjs";
+import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
@@ -10,6 +11,19 @@ import {
 
 type ArticleAudioExport = Doc<"articleAudioExports"> & {
   audioUrl: string | null;
+};
+
+const getConvexAuthOptions = async (): Promise<
+  { token: string } | Record<string, never>
+> => {
+  try {
+    const session = await auth();
+    if (!session.userId) return {};
+    const token = await session.getToken({ template: "convex" });
+    return token ? { token } : {};
+  } catch {
+    return {};
+  }
 };
 
 export const GET = async (
@@ -35,12 +49,14 @@ export const GET = async (
       );
     }
 
+    const convexAuthOptions = await getConvexAuthOptions();
     const articleExport = (await fetchQuery(
       anyApi.articleExports.getArticleAudioExportById,
       {
         exportId: storedIdentity.exportId,
         ttsCacheKey: storedIdentity.ttsCacheKey,
       },
+      convexAuthOptions,
     )) as ArticleAudioExport | null;
 
     if (
@@ -54,18 +70,24 @@ export const GET = async (
       );
     }
 
+    const cacheControl =
+      articleExport.ttsProvider === "edge"
+        ? PODCAST_MEDIA_CACHE_CONTROL
+        : "private, no-store";
+
     if (isPodcastDownloadRequest(req)) {
       return await createPodcastAttachmentResponse({
         audioUrl: articleExport.audioUrl,
         title: articleExport.title,
         fallbackFilename: "article-audio-export.mp3",
+        cacheControl,
       });
     }
 
     return NextResponse.redirect(articleExport.audioUrl, {
       status: 307,
       headers: {
-        "Cache-Control": PODCAST_MEDIA_CACHE_CONTROL,
+        "Cache-Control": cacheControl,
       },
     });
   } catch {

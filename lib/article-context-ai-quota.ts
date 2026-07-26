@@ -1,12 +1,16 @@
 import { anyApi } from "convex/server";
 import { fetchMutation } from "convex/nextjs";
+import { createAttestedRouteQuotaArgs } from "./route-quota-attestation";
 
 const DEFAULT_DAILY_LIMIT = 250;
 const DEFAULT_DAILY_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const QUOTA_CHECK_TIMEOUT_MS = 5_000;
 const GLOBAL_QUOTA_KEY = "article-context-ai:global";
 
-const positiveInteger = (value: string | undefined, fallback: number): number => {
+const positiveInteger = (
+  value: string | undefined,
+  fallback: number,
+): number => {
   const parsed = value ? Number(value) : Number.NaN;
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
@@ -41,17 +45,23 @@ export const consumeArticleContextAIQuota = async (): Promise<boolean> => {
 
   try {
     const quota = await withDeadline(
-      fetchMutation(anyApi.rateLimits.consumeRouteQuota, {
-        key: GLOBAL_QUOTA_KEY,
-        limit: positiveInteger(
-          process.env.ARTICLE_CONTEXT_AI_DAILY_LIMIT,
-          DEFAULT_DAILY_LIMIT,
-        ),
-        windowMs: positiveInteger(
-          process.env.ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS,
-          DEFAULT_DAILY_WINDOW_MS,
-        ),
-      }),
+      (async () => {
+        const quotaArgs = await createAttestedRouteQuotaArgs({
+          key: GLOBAL_QUOTA_KEY,
+          limit: positiveInteger(
+            process.env.ARTICLE_CONTEXT_AI_DAILY_LIMIT,
+            DEFAULT_DAILY_LIMIT,
+          ),
+          windowMs: positiveInteger(
+            process.env.ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS,
+            DEFAULT_DAILY_WINDOW_MS,
+          ),
+        });
+        return await fetchMutation(
+          anyApi.rateLimits.consumeRouteQuota,
+          quotaArgs,
+        );
+      })(),
     );
     return Boolean(quota.allowed);
   } catch (error) {

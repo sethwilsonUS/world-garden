@@ -14,7 +14,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Audio playback** — Listen to any Wikipedia article section by section. Play a single section, or hit Play All for the full lean-back experience with automatic progression. Adjustable speed from 0.5× to 3×, with your preference saved between sessions. Resume from where you left off when you return to an article. Download full articles as MP3 for offline listening.
 
-**Audio** — Powered by OpenAI `gpt-4o-mini-tts` with Microsoft Edge TTS fallback. Generated synthetic speech is cached in Convex by provider, model, voice, prompt version, and normalization version so narration changes can regenerate cleanly without breaking existing audio.
+**Audio** — Public and signed-out listening uses Microsoft Edge TTS, while signed-in article listening and personal playlists use OpenAI `gpt-4o-mini-tts` with Edge fallback. Generated synthetic speech is cached in Convex by provider, model, voice, prompt version, and normalization version so narration changes can regenerate cleanly without breaking existing audio.
 
 **Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
@@ -41,7 +41,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
 - **Auth:** Clerk for sign-in and account sessions, bridged into Convex auth for viewer-scoped data
-- **TTS:** OpenAI `gpt-4o-mini-tts` primary with Edge TTS fallback and Convex-backed variant caching
+- **TTS:** Edge TTS for public audio; authenticated OpenAI `gpt-4o-mini-tts` with Edge fallback and Convex-backed variant caching
 - **AI:** Direct OpenAI Responses API for daily trend brief generation, web search, and optional context-description enhancement
 - **Rich context:** MapLibre GL and Apache ECharts as progressive visual enhancements over semantic HTML views
 - **Styling:** Tailwind CSS 4 + CSS custom properties
@@ -50,8 +50,8 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 ## Product Tour
 
-| Home and daily discovery | Article listening | Wikimedia gallery |
-| --- | --- | --- |
+| Home and daily discovery                                                                                         | Article listening                                                                                                          | Wikimedia gallery                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | ![Curio Garden home page with search, daily Wikipedia features, and recent listening cards](screenshot-home.png) | ![Ada Lovelace article page with section playback controls, a table of contents, and article text](screenshot-article.png) | ![Stonehenge Wikimedia gallery showing licensed image cards and captions](gallery-full-screenshot.png) |
 
 The live product stays focused on listening. The [/about](https://curiogarden.org/about) page gives technical reviewers a shorter account of the motivation, architecture, provenance model, and major engineering tradeoffs.
@@ -61,7 +61,7 @@ The live product stays focused on listening. The [/about](https://curiogarden.or
 1. Wikipedia Action and REST APIs provide revisioned article text, section structure, citations, daily discovery data, and per-file media metadata.
 2. The app builds revision-matched narration tracks from prose, lists, and tables while preserving revision links, contributor history, and Wikimedia media licensing.
 3. Convex caches articles, parsed page data, generated audio variants, account libraries, personal queues, and podcast publication state. Local mode swaps this layer for browser storage and direct Wikipedia requests.
-4. OpenAI speech is the primary narrator, with Edge TTS as a provider-aware fallback. Section audio is cached by provider, model, voice, prompt, and normalization version.
+4. Edge TTS narrates public and signed-out audio. Signed-in article listening and personal playlists use OpenAI speech with Edge fallback. Section audio is cached by provider, model, voice, prompt, and normalization version.
 5. The same article/audio model powers accessible browser playback, downloads, public featured-article podcasts, AI-labeled trending briefings, and private playlist feeds.
 
 This design deliberately keeps the app useful without an account, distinguishes Wikipedia text from Curio Garden-generated material, and makes source revision and media provenance part of the data model rather than footer-only copy.
@@ -70,13 +70,13 @@ This design deliberately keeps the app useful without an account, distinguishes 
 
 Text is normalized before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-**OpenAI TTS** is the canonical provider for `/api/tts`, using direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. Text generation also uses OpenAI directly; the daily Trending brief defaults to `gpt-5.6-luna` through the Responses API.
+**Edge TTS** is the default public provider for `/api/tts`, using Microsoft neural voices through the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. The default voice is `en-US-AriaNeural`. Featured, Trending, Picture of the Day, homepage-warmed audio, signed-out playback, and local mode all request Edge explicitly.
 
-**Edge TTS fallback** remains available through `/api/tts/edge` using Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. Default fallback voice is `en-US-AriaNeural`. If OpenAI fails and fallback is enabled, generation retries with Edge and records the resulting Edge provider metadata.
+**OpenAI TTS** is available only to authenticated readers and trusted background work such as Personal Playlist generation. It uses direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. If OpenAI fails or reaches its quota, the entire listening pass or assembled episode restarts with Edge so voices are never mixed. The daily Trending brief still uses OpenAI text generation before its public script is narrated with Edge.
 
 Generated audio is cached per-section in Convex file storage by `tts:${provider}:${model}:${voice}:${promptVersion}:${TTS_NORM_VERSION}`. Changing normalization or narration prompt versions should change the cache key and regenerate audio on demand.
 
-Featured podcast episodes and personal playlist episodes both reuse that same section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are generated once per trending date, converted to speech, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Picture of the Day descriptions are generated once per featured-feed date and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
+Featured podcast episodes use Edge, while authenticated Personal Playlist episodes use OpenAI first and fall back as a whole to Edge. Both reuse the same provider-qualified section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are written once per trending date with OpenAI, narrated with Edge, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Picture of the Day descriptions are generated once per featured-feed date with Edge and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
 
 > **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
@@ -93,7 +93,7 @@ Open [http://localhost:3000](http://localhost:3000). You can browse, search, and
 
 Local mode skips Clerk and Convex entirely, so account-only features such as the synced dashboard, personal playlist, and personal RSS feed are intentionally unavailable there.
 
-Audio features require `OPENAI_API_KEY` for the primary provider, or the one-time Python setup for local Edge fallback testing — see [Local Audio Setup](#local-audio-setup) below.
+Local audio uses Edge TTS and needs the one-time Python setup described in [Local Audio Setup](#local-audio-setup). `OPENAI_API_KEY` is only needed for authenticated OpenAI speech and OpenAI-generated features.
 
 ## Full Setup (with Convex)
 
@@ -158,7 +158,7 @@ This starts both the Next.js frontend and the Convex backend in parallel.
 
 ## Local Audio Setup
 
-Edge fallback uses Microsoft's neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically behind `/api/tts/edge`.
+Edge speech uses Microsoft neural voices via the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. On Vercel, this runs as a serverless function automatically behind `/api/tts/edge`.
 
 For local development, you just need Python 3 installed. The venv is created automatically the first time you run `npm run dev:python` — no manual setup required. The venv lives at `.edge-tts-venv/` in the project root (gitignored) so it survives reboots.
 
@@ -168,7 +168,7 @@ If you want to run the standalone Python TTS server (useful for testing the Verc
 npm run dev:python
 ```
 
-This starts Next.js, Convex, and a dedicated Python TTS server in parallel. Edge fallback requests at `/api/tts/edge` are rewritten to the Python server on port 3001.
+This starts Next.js, Convex, and a dedicated Python TTS server in parallel. Edge speech requests at `/api/tts/edge` are rewritten to the Python server on port 3001.
 
 ### Customizing the Python path
 
@@ -180,71 +180,74 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Production | Site URL for metadata, OpenGraph images, sitemap, and robots.txt (e.g. `https://curiogarden.org`) |
-| `NEXT_PUBLIC_CONVEX_URL` | Convex mode | Convex deployment URL (auto-generated by `npx convex dev`) |
-| `CONVEX_DEPLOYMENT` | Convex mode | Convex deployment identifier |
-| `CLERK_JWT_ISSUER_DOMAIN` | Convex mode | Clerk Frontend API URL configured in the Convex dashboard for JWT verification |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | No | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot |
-| `CLERK_SECRET_KEY` | No | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments |
-| `LOCAL_MODE` | No | Server-only flag used by `npm run local` to bypass Clerk middleware outside production |
-| `NEXT_PUBLIC_LOCAL_MODE` | No | Public client/server-render flag used by `npm run local` to run without Convex or account UI |
-| `TTS_PRIMARY_PROVIDER` | No | Primary speech provider for `/api/tts`; defaults to `openai` |
-| `OPENAI_API_KEY` | Yes for OpenAI features | Direct OpenAI API key for speech, Trending generation, and optional context-description enhancement |
-| `OPENAI_TTS_MODEL` | No | OpenAI speech model; defaults to `gpt-4o-mini-tts` |
-| `OPENAI_TTS_VOICE` | No | OpenAI voice; defaults to `marin` |
-| `OPENAI_TTS_PROMPT_VERSION` | No | Cache-busting narration prompt version; defaults to `curio-warm-narrator-v1` |
-| `OPENAI_TTS_INSTRUCTIONS` | No | Optional narration instructions sent with OpenAI speech requests |
-| `TTS_EDGE_FALLBACK` | No | Set to `"false"` to disable automatic Edge fallback after OpenAI failures |
-| `EDGE_TTS_VOICE_ID` | No | Edge fallback voice; defaults to `en-US-AriaNeural` |
-| `TTS_UPSTREAM_TIMEOUT_MS` | No | Per-provider TTS request timeout; defaults to `45000` ms |
-| `TTS_OPENAI_INTERACTIVE_FALLBACK_MS` | No | Time before an interactive OpenAI request races the Edge fallback; defaults to `25000` ms |
-| `EDGE_TTS_TIMEOUT_MS` | No | Local Edge TTS subprocess timeout; defaults to `60000` ms |
-| `VERCEL_AUTOMATION_BYPASS_SECRET` | Protected previews | Vercel automation bypass secret forwarded when a password-protected preview calls its own Edge fallback route |
-| `TTS_PUBLIC_OPENAI_BURST_LIMIT` | No | Public OpenAI TTS burst quota per IP; defaults to `120` requests |
-| `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS` | No | Public OpenAI TTS burst window; defaults to `600000` ms |
-| `TTS_PUBLIC_OPENAI_DAILY_LIMIT` | No | Public OpenAI TTS daily quota per IP; defaults to `800` requests |
-| `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS` | No | Public OpenAI TTS daily window; defaults to `86400000` ms |
-| `TTS_QUOTA_BYPASS_SECRET` | No | Shared secret for trusted server TTS generation to bypass public visitor quotas; set in both Vercel and Convex |
-| `HOMEPAGE_AUDIO_WARM_ENABLED` | No | Pre-generate homepage article summary audio; defaults to enabled in production and disabled elsewhere |
-| `HOMEPAGE_AUDIO_WARM_MAX_ARTICLES` | No | Maximum homepage summaries warmed per run; defaults to and is capped at `30` |
-| `HOMEPAGE_AUDIO_WARM_CONCURRENCY` | No | Concurrent homepage summary jobs; defaults to `3` and is capped at `6` |
-| `USE_PYTHON_TTS` | No | Route `/api/tts/edge` to the standalone Python TTS server (used by `npm run dev:python`) |
-| `TTS_PORT` | No | Port for the standalone Python TTS server (default: `3001`) |
-| `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` | No | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally |
-| `TTS_MAX_WORDS_PER_REQUEST` | No | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST` |
-| `NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS` | No | Browser timeout for each TTS request; defaults to `65000` ms |
-| `NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY` | No | Maximum concurrent browser TTS chunks; defaults to `2` |
-| `CRON_SECRET` | No | Bearer token expected by the scheduled podcast cron routes and manual sync routes |
-| `ARTICLE_CONTEXT_WRITE_SECRET` | Context persistence | Dedicated production secret for context caches, reports, and moderation; use a value distinct from `CRON_SECRET` and set it identically in Vercel and Convex (development alone may fall back to `CRON_SECRET`) |
-| `ARTICLE_CONTEXT_CACHE_TTL_MS` | No | In-process article-context cache lifetime; defaults to `86400000` ms |
-| `ARTICLE_CONTEXT_RATE_LIMIT` | No | Article-context requests allowed per IP/window; defaults to `30` |
-| `ARTICLE_CONTEXT_RATE_WINDOW_MS` | No | Article-context route window; defaults to `300000` ms |
-| `VERCEL_ANALYTICS_DRAIN_SECRET` | No | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain` |
-| `ANALYTICS_REPORT_SECRET` | No | Bearer token used by the local analytics report command and server routes to read/write compact Convex rollups; set the same value in Vercel and Convex |
-| `VERCEL_PROJECT` | No | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees |
-| `VERCEL_ANALYTICS_CLI` | No | Optional command override for the Vercel CLI used by `npm run analytics:site` |
-| `TRENDING_BRIEF_MODEL` | No | Direct OpenAI model for the daily trending brief; defaults to `gpt-5.6-luna` |
-| `CONTEXT_DESCRIPTION_MODEL` | No | Direct OpenAI model for optional article-context accessibility copy; defaults to `gpt-5.6-luna` |
-| `ARTICLE_CONTEXT_AI_ENABLED` | No | Explicitly set `true` to enable OpenAI copy editing; otherwise context descriptions stay deterministic |
-| `ARTICLE_CONTEXT_AI_DAILY_LIMIT` | No | Cross-instance OpenAI context-copy allowance per window (default `250`) |
-| `ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS` | No | Context-copy allowance window in milliseconds (default 24 hours) |
-| `NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL` | No | MapLibre style URL override for article maps; without an override, light mode uses OpenFreeMap Liberty and dark mode uses OpenFreeMap Fiord |
-| `EDGE_TTS_PYTHON_PATH` | No | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`) |
+| Variable                                       | Required                | Description                                                                                                                                                                                                     |
+| ---------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SITE_URL`                         | Production              | Site URL for metadata, OpenGraph images, sitemap, and robots.txt (e.g. `https://curiogarden.org`)                                                                                                               |
+| `NEXT_PUBLIC_CONVEX_URL`                       | Convex mode             | Convex deployment URL (auto-generated by `npx convex dev`)                                                                                                                                                      |
+| `CONVEX_DEPLOYMENT`                            | Convex mode             | Convex deployment identifier                                                                                                                                                                                    |
+| `CLERK_JWT_ISSUER_DOMAIN`                      | Convex mode             | Clerk Frontend API URL configured in the Convex dashboard for JWT verification                                                                                                                                  |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`            | No                      | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot                                                                |
+| `CLERK_SECRET_KEY`                             | No                      | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments                                                                                |
+| `LOCAL_MODE`                                   | No                      | Server-only flag used by `npm run local` to bypass Clerk middleware outside production                                                                                                                          |
+| `NEXT_PUBLIC_LOCAL_MODE`                       | No                      | Public client/server-render flag used by `npm run local` to run without Convex or account UI                                                                                                                    |
+| `OPENAI_API_KEY`                               | Yes for OpenAI features | Direct OpenAI API key for speech, Trending generation, and optional context-description enhancement                                                                                                             |
+| `OPENAI_TTS_MODEL`                             | No                      | OpenAI speech model; defaults to `gpt-4o-mini-tts`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_MODEL`                                                                                           |
+| `OPENAI_TTS_VOICE`                             | No                      | OpenAI voice; defaults to `marin`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_VOICE`                                                                                                            |
+| `OPENAI_TTS_PROMPT_VERSION`                    | No                      | Cache-busting narration prompt version; defaults to `curio-warm-narrator-v1`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_PROMPT_VERSION`                                                        |
+| `OPENAI_TTS_INSTRUCTIONS`                      | No                      | Optional narration instructions sent with OpenAI speech requests                                                                                                                                                |
+| `TTS_EDGE_FALLBACK`                            | No                      | Set to `"false"` to disable automatic Edge fallback after OpenAI failures                                                                                                                                       |
+| `EDGE_TTS_VOICE_ID`                            | No                      | Public/default Edge voice; defaults to `en-US-AriaNeural`; mirror custom values in Convex and `NEXT_PUBLIC_EDGE_TTS_VOICE_ID`                                                                                   |
+| `TTS_UPSTREAM_TIMEOUT_MS`                      | No                      | Per-provider TTS request timeout; defaults to `45000` ms                                                                                                                                                        |
+| `TTS_OPENAI_INTERACTIVE_FALLBACK_MS`           | No                      | Time before an interactive OpenAI request races the Edge fallback; defaults to `25000` ms                                                                                                                       |
+| `EDGE_TTS_TIMEOUT_MS`                          | No                      | Local Edge TTS subprocess timeout; defaults to `60000` ms                                                                                                                                                       |
+| `VERCEL_AUTOMATION_BYPASS_SECRET`              | Protected previews      | Vercel automation bypass secret forwarded when a password-protected preview calls its own Edge fallback route                                                                                                   |
+| `TTS_PUBLIC_OPENAI_BURST_LIMIT`                | No                      | Authenticated OpenAI TTS burst quota per IP (legacy variable name); defaults to `120` requests                                                                                                                  |
+| `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS`            | No                      | Authenticated OpenAI TTS burst window (legacy variable name); defaults to `600000` ms                                                                                                                           |
+| `TTS_PUBLIC_OPENAI_DAILY_LIMIT`                | No                      | Authenticated OpenAI TTS daily quota per IP (legacy variable name); defaults to `800` requests                                                                                                                  |
+| `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS`            | No                      | Authenticated OpenAI TTS daily window (legacy variable name); defaults to `86400000` ms                                                                                                                         |
+| `TTS_QUOTA_BYPASS_SECRET`                      | Deployed audio          | Shared Vercel/Convex secret used for domain-separated quota/cache attestations and trusted OpenAI jobs; required and identical in both environments                                                             |
+| `AUDIO_GENERATION_BASE_URL`                    | Convex Preview workers  | Trusted HTTPS app origin used by Convex audio workers; defaults to production, so set it to the deployment URL when Preview workers must exercise Preview API code                                              |
+| `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_LIMIT`      | No                      | New signed-in OpenAI article exports allowed per account window; defaults to `5` (reused exports do not count)                                                                                                  |
+| `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_WINDOW_MS`  | No                      | Rolling account allowance window for new OpenAI article exports; defaults to `86400000` ms                                                                                                                      |
+| `HOMEPAGE_AUDIO_WARM_ENABLED`                  | No                      | Pre-generate homepage article summary audio; defaults to enabled in production and disabled elsewhere                                                                                                           |
+| `HOMEPAGE_AUDIO_WARM_MAX_ARTICLES`             | No                      | Maximum homepage summaries warmed per run; defaults to and is capped at `30`                                                                                                                                    |
+| `HOMEPAGE_AUDIO_WARM_CONCURRENCY`              | No                      | Concurrent homepage summary jobs; defaults to `3` and is capped at `6`                                                                                                                                          |
+| `USE_PYTHON_TTS`                               | No                      | Route `/api/tts/edge` to the standalone Python TTS server (used by `npm run dev:python`)                                                                                                                        |
+| `TTS_PORT`                                     | No                      | Port for the standalone Python TTS server (default: `3001`)                                                                                                                                                     |
+| `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST`        | No                      | Client-visible override for the per-request TTS chunk size limit, useful for forcing chunking locally                                                                                                           |
+| `TTS_MAX_WORDS_PER_REQUEST`                    | No                      | Server-side override for the per-request TTS chunk size limit; falls back to `NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST`                                                                                            |
+| `NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS`            | No                      | Browser timeout for each TTS request; defaults to `65000` ms                                                                                                                                                    |
+| `NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY`            | No                      | Maximum concurrent browser TTS chunks; defaults to `2`                                                                                                                                                          |
+| `NEXT_PUBLIC_ARTICLE_SECTION_AUDIO_TIMEOUT_MS` | No                      | Browser timeout for canonical cached article-section requests; defaults to `180000` ms                                                                                                                          |
+| `CRON_SECRET`                                  | No                      | Bearer token expected by the scheduled podcast cron routes and manual sync routes                                                                                                                               |
+| `ARTICLE_CONTEXT_WRITE_SECRET`                 | Context persistence     | Dedicated production secret for context caches, reports, and moderation; use a value distinct from `CRON_SECRET` and set it identically in Vercel and Convex (development alone may fall back to `CRON_SECRET`) |
+| `ARTICLE_CONTEXT_CACHE_TTL_MS`                 | No                      | In-process article-context cache lifetime; defaults to `86400000` ms                                                                                                                                            |
+| `ARTICLE_CONTEXT_RATE_LIMIT`                   | No                      | Article-context requests allowed per IP/window; defaults to `30`                                                                                                                                                |
+| `ARTICLE_CONTEXT_RATE_WINDOW_MS`               | No                      | Article-context route window; defaults to `300000` ms                                                                                                                                                           |
+| `VERCEL_ANALYTICS_DRAIN_SECRET`                | No                      | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain`                                                                                                              |
+| `ANALYTICS_REPORT_SECRET`                      | No                      | Bearer token used by the local analytics report command and server routes to read/write compact Convex rollups; set the same value in Vercel and Convex                                                         |
+| `VERCEL_PROJECT`                               | No                      | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees                                                                                                                           |
+| `VERCEL_ANALYTICS_CLI`                         | No                      | Optional command override for the Vercel CLI used by `npm run analytics:site`                                                                                                                                   |
+| `TRENDING_BRIEF_MODEL`                         | No                      | Direct OpenAI model for the daily trending brief; defaults to `gpt-5.6-luna`                                                                                                                                    |
+| `CONTEXT_DESCRIPTION_MODEL`                    | No                      | Direct OpenAI model for optional article-context accessibility copy; defaults to `gpt-5.6-luna`                                                                                                                 |
+| `ARTICLE_CONTEXT_AI_ENABLED`                   | No                      | Explicitly set `true` to enable OpenAI copy editing; otherwise context descriptions stay deterministic                                                                                                          |
+| `ARTICLE_CONTEXT_AI_DAILY_LIMIT`               | No                      | Cross-instance OpenAI context-copy allowance per window (default `250`)                                                                                                                                         |
+| `ARTICLE_CONTEXT_AI_DAILY_WINDOW_MS`           | No                      | Context-copy allowance window in milliseconds (default 24 hours)                                                                                                                                                |
+| `NEXT_PUBLIC_CONTEXT_MAP_STYLE_URL`            | No                      | MapLibre style URL override for article maps; without an override, light mode uses OpenFreeMap Liberty and dark mode uses OpenFreeMap Fiord                                                                     |
+| `EDGE_TTS_PYTHON_PATH`                         | No                      | Path to Python with `edge-tts` installed (default: `.edge-tts-venv/bin/python3`)                                                                                                                                |
 
 See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 
 ## Traffic Spike Runbook
 
-Curio Garden is designed to keep browsing cheap and cacheable; the main spike risk is first-time OpenAI TTS generation. Public OpenAI TTS requests are protected by generous per-IP quotas, and over-quota requests automatically use the Edge fallback voice so playback keeps working.
+Curio Garden keeps public browsing cheap and cacheable by using Edge TTS for guests and all public feeds. OpenAI speech is limited to authenticated article listening, authenticated exports, and trusted Personal Playlist generation; interactive requests retain per-IP quotas and fall back to Edge when exhausted.
 
 Before a boost or public post:
 
 1. Top up OpenAI credits and confirm project budget alerts.
 2. Confirm `OPENAI_API_KEY`, `TTS_EDGE_FALLBACK=true`, and `EDGE_TTS_VOICE_ID` are set in Vercel.
-3. Confirm `TTS_QUOTA_BYPASS_SECRET` is set to the same value in Vercel and Convex so trusted server generation bypasses public quotas.
-4. Confirm the quota defaults are acceptable: `120` requests per `10` minutes and `800` requests per `24` hours per IP.
+3. Confirm `TTS_QUOTA_BYPASS_SECRET` is set to the same value in Vercel and Convex so trusted Personal Playlist and export jobs can request OpenAI speech.
+4. Confirm the quota defaults are acceptable: `120` interactive requests per `10` minutes and `800` per `24` hours per IP, plus `5` new OpenAI article exports per signed-in account per `24` hours.
 
 During the spike:
 
@@ -253,12 +256,11 @@ During the spike:
 3. Watch Convex storage, egress, function calls, and quota mutation health.
 4. Check user reports for fallback-voice notices near article audio controls.
 
-Emergency switch:
+Emergency OpenAI speech cutoff:
 
-1. Set `TTS_PRIMARY_PROVIDER=edge`.
-2. Keep `TTS_EDGE_FALLBACK=true`.
-3. Redeploy or restart the environment if the platform requires it for env changes.
-4. Switch `TTS_PRIMARY_PROVIDER=openai` again when OpenAI spend and rate pressure settle.
+1. Keep `TTS_EDGE_FALLBACK=true` so authenticated speech remains available.
+2. Remove `OPENAI_API_KEY` from the serving environment and redeploy; authenticated speech will fall back to Edge.
+3. Restore the key after spend and rate pressure settle. Trending text generation and other OpenAI features also require this key, so monitor their scheduled jobs during the cutoff.
 
 ## Accessible Analytics Reports
 
@@ -342,8 +344,9 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and Convex so the homepage warmer can use the configured primary TTS provider without consuming public visitor quota.
-4. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and Convex so signed quota checks, shared Edge cache writes, and trusted Personal Playlist/export generation work.
+4. For an isolated Convex Preview, set `AUDIO_GENERATION_BASE_URL` to that Preview's HTTPS deployment URL; otherwise workers intentionally use the production origin.
+5. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
@@ -377,21 +380,21 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 
 ## Development Scripts
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start Next.js + Convex backend |
-| `npm run dev:python` | Start Next.js + Convex + Python TTS server |
-| `npm run local` | Local mode — no Convex, audio through the canonical TTS route with Edge fallback available locally |
-| `npm run analytics:site` | Generate a local accessible analytics report from Vercel logs and optional drain rollups |
-| `npm run build` | Production build (handles Vercel environments) |
-| `npm run check` | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
-| `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major |
-| `npm run typecheck` | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files |
-| `npm run test` | Run all Vitest tests once |
-| `npm run test:watch` | Watch mode tests |
-| `npm run test:e2e` | Run Chromium journeys and axe accessibility checks in local mode |
-| `npm run lint` | ESLint |
-| `npm run docs:check` | Validate repository-local Markdown links and heading anchors |
+| Command                   | Description                                                                                               |
+| ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `npm run dev`             | Start Next.js + Convex backend                                                                            |
+| `npm run dev:python`      | Start Next.js + Convex + Python TTS server                                                                |
+| `npm run local`           | Local mode — no Convex, with Edge speech through the canonical TTS route                                  |
+| `npm run analytics:site`  | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
+| `npm run build`           | Production build (handles Vercel environments)                                                            |
+| `npm run check`           | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
+| `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |
+| `npm run typecheck`       | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files             |
+| `npm run test`            | Run all Vitest tests once                                                                                 |
+| `npm run test:watch`      | Watch mode tests                                                                                          |
+| `npm run test:e2e`        | Run Chromium journeys and axe accessibility checks in local mode                                          |
+| `npm run lint`            | ESLint                                                                                                    |
+| `npm run docs:check`      | Validate repository-local Markdown links and heading anchors                                              |
 
 ## Validation
 

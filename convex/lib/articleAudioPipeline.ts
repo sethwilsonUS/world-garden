@@ -14,6 +14,7 @@ import {
   getTtsProfile,
   isTtsMetadataValid,
   type TtsMetadata,
+  type TtsProvider,
 } from "../../lib/tts-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -46,6 +47,7 @@ export type AssembleArticleAudioArgs<TStorageId = string> = {
   albumTitle: string;
   baseUrl: string;
   requestedTtsMetadata?: TtsMetadata;
+  preferredProvider?: TtsProvider;
   getCachedSectionAudioUrls: (args: {
     ttsCacheKey: string;
     sourceHashes: Array<{ sectionKey: string; sourceHash: string }>;
@@ -230,6 +232,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
   albumTitle,
   baseUrl,
   requestedTtsMetadata,
+  preferredProvider,
   getCachedSectionAudioUrls,
   saveSectionAudio,
   saveCombinedAudio,
@@ -301,9 +304,9 @@ export const assembleArticleAudio = async <TStorageId = string>({
             metadata.provider !== passMetadata.provider &&
             isTtsMetadataValid(metadata)
           ) {
-            let fallbackSectionAudioUrl: string;
+            let restartedSectionAudioUrl: string;
             try {
-              fallbackSectionAudioUrl = await saveSectionAudio({
+              restartedSectionAudioUrl = await saveSectionAudio({
                 sectionKey: section.sectionKey,
                 sourceHash: section.sourceHash,
                 blob,
@@ -316,13 +319,12 @@ export const assembleArticleAudio = async <TStorageId = string>({
               );
             }
 
-            // A combined export has one TTS profile identity. Restart the
-            // assembly under the fallback profile instead of retaining URLs
-            // generated or cached under the original profile. Seed the audio
-            // that triggered the fallback so the restart does not synthesize
-            // that section twice.
+            // A combined export has one exact TTS profile identity. Restart
+            // under the fallback provider instead of mixing cached or
+            // generated sections from different profiles. Seed the triggering
+            // section so the restart does not synthesize it twice.
             return assembleWithProfile(metadata, false, {
-              [section.sectionKey]: fallbackSectionAudioUrl,
+              [section.sectionKey]: restartedSectionAudioUrl,
             });
           } else {
             throw new Error(
@@ -406,7 +408,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
     };
   };
 
-  const currentTtsMetadata = getTtsMetadata(getTtsProfile());
+  const currentTtsMetadata = getTtsMetadata(getTtsProfile(preferredProvider));
   return assembleWithProfile(
     requestedTtsMetadata && isTtsMetadataValid(requestedTtsMetadata)
       ? requestedTtsMetadata

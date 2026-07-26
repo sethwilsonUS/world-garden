@@ -54,21 +54,14 @@ import {
   buildArticleNarrationTracks,
 } from "@/lib/section-narration";
 import { TTS_NORM_VERSION } from "@/lib/tts-normalize";
-import {
-  generateTtsAudioUrlWithMetadata,
-  type TtsAudioUrlResult,
-} from "@/lib/tts-client";
-import {
-  getActiveTtsCacheKey,
-  getActiveTtsProfile,
-  type TtsMetadata,
-} from "@/lib/tts-profile";
+import type { TtsAudioUrlResult } from "@/lib/tts-client";
+import { getTtsMetadata } from "@/lib/tts-profile";
+import { useTtsProfile } from "@/lib/tts-audience";
+import { generateArticleSectionAudioUrlWithMetadata } from "@/lib/article-section-audio-client";
 
 const PLAY_ALL_WARM_WINDOW = 2;
 const PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS = 5_000;
 const SLOW_TTS_LOADING_NUDGE_MS = 8_000;
-const AUDIO_CACHE_DOWNLOAD_TIMEOUT_MS = 5_000;
-const AUDIO_CACHE_UPLOAD_TIMEOUT_MS = 10_000;
 
 type ArticleAudioArticle = Article & {
   _id?: string;
@@ -114,20 +107,6 @@ const awaitAudioResultWithTimeout = (
   return Promise.race([promise.catch(() => null), timeout]).finally(() => {
     if (timeoutId) clearTimeout(timeoutId);
   });
-};
-
-const fetchWithTimeout = async (
-  input: RequestInfo | URL,
-  init: RequestInit | undefined,
-  timeoutMs: number,
-): Promise<Response> => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeoutId);
-  }
 };
 
 const shouldBypassAudioCacheForStress = (): boolean =>
@@ -176,9 +155,14 @@ export const useArticleAudioController = ({
     isStartingArticle,
   } = useArticleAudioExports();
   const { rate: playbackRate, setRate: setPlaybackRate } = usePlaybackRate();
+  const activeTtsProfile = useTtsProfile();
 
   const articleId = article?._id as Id<"articles"> | undefined;
-  const activeTtsCacheKey = getActiveTtsCacheKey();
+  const activeTtsCacheKey = activeTtsProfile.ttsCacheKey;
+  const activeTtsMetadata = useMemo(
+    () => getTtsMetadata(activeTtsProfile),
+    [activeTtsProfile],
+  );
   const narrationTracks = useMemo(
     () => (article ? buildArticleNarrationTracks(article) : []),
     [article],
@@ -204,8 +188,6 @@ export const useArticleAudioController = ({
         }
       : "skip",
   );
-  const getUploadUrl = useMutation(api.audio.generateUploadUrl);
-  const saveAudioRecord = useMutation(api.audio.saveSectionAudioRecord);
   const reportBadgeListenProgress = useMutation(
     api.badges.recordViewerArticleListenProgress,
   );
@@ -249,7 +231,7 @@ export const useArticleAudioController = ({
   const ttsCache = useRef<Map<string, TtsAudioUrlResult>>(new Map());
   const ttsRequestCache = useRef(createAudioRequestCache());
   const seededStartupPath = useRef<Map<string, AudioStartupPath>>(new Map());
-  const activeNarrationHashRef = useRef<string | null>(null);
+  const activeAudioIdentityRef = useRef<string | null>(null);
 
   const clearSlowLoadingTimer = useCallback(() => {
     if (!slowLoadingTimer.current) return;
@@ -284,9 +266,12 @@ export const useArticleAudioController = ({
       (job) =>
         job.articleId === articleId &&
         job.narrationHash === activeNarrationHash &&
-        job.ttsCacheKey === activeTtsCacheKey,
+        job.ttsCacheKey === activeTtsCacheKey &&
+        job.ttsProvider === activeTtsProfile.provider,
     ) ?? null;
-  const isExportStarting = articleId ? isStartingArticle(articleId) : false;
+  const isExportStarting = articleId
+    ? isStartingArticle(articleId, activeTtsProfile.provider)
+    : false;
   const isExportRunning =
     currentArticleExport?.status === "queued" ||
     currentArticleExport?.status === "running";
@@ -327,38 +312,49 @@ export const useArticleAudioController = ({
 
   const generateTtsFromApi = useCallback(
     async (
-      text: string,
-      cacheKey?: string,
+      _text: string,
+      sectionKey: string,
       options: { force?: boolean; owner?: AudioRequestOwner } = {},
     ): Promise<TtsAudioUrlResult> => {
-      if (cacheKey && !options.force && ttsCache.current.has(cacheKey)) {
-        return ttsCache.current.get(cacheKey)!;
+      if (!options.force && ttsCache.current.has(sectionKey)) {
+        return ttsCache.current.get(sectionKey)!;
+      }
+
+      const narrationTrack = narrationTracks.find(
+        (track) => track.sectionKey === sectionKey,
+      );
+      if (!narrationTrack) {
+        throw new Error("Article narration changed; refresh and try again.");
       }
 
       const generationRequestId = requestId.current;
       const requestCache = ttsRequestCache.current;
-      const result = cacheKey
-        ? await startAudioRequest(
-            requestCache,
-            cacheKey,
-            () => generateTtsAudioUrlWithMetadata({ text }),
-            {
-              force: options.force,
-              owner: options.owner,
-            },
-          )
-        : await generateTtsAudioUrlWithMetadata({ text });
+      const result = await startAudioRequest(
+        requestCache,
+        sectionKey,
+        () =>
+          generateArticleSectionAudioUrlWithMetadata({
+            slug,
+            sectionKey,
+            sourceHash: narrationTrack.sourceHash,
+            provider: activeTtsProfile.provider,
+            localText: _text,
+          }),
+        {
+          force: options.force,
+          owner: options.owner,
+        },
+      );
 
       if (
-        cacheKey &&
         requestId.current === generationRequestId &&
         ttsRequestCache.current === requestCache
       ) {
-        ttsCache.current.set(cacheKey, result);
+        ttsCache.current.set(sectionKey, result);
       }
       return result;
     },
-    [],
+    [activeTtsProfile.provider, narrationTracks, slug],
   );
 
   const getTextForSection = useCallback(
@@ -368,89 +364,16 @@ export const useArticleAudioController = ({
     [narrationTracks],
   );
 
-  const cacheAudioInConvex = useCallback(
-    async (sectionKey: string, blobUrl: string, metadata: TtsMetadata) => {
-      if (!articleId || bypassAudioCacheForStress) return;
-      const sourceHash = narrationTracks.find(
-        (track) => track.sectionKey === sectionKey,
-      )?.sourceHash;
-      if (!sourceHash) return;
-      try {
-        const [blob, durationSeconds] = await Promise.all([
-          fetchWithTimeout(
-            blobUrl,
-            undefined,
-            AUDIO_CACHE_DOWNLOAD_TIMEOUT_MS,
-          ).then((response) => response.blob()),
-          new Promise<number | undefined>((resolve) => {
-            const audio = new Audio();
-            let settled = false;
-            const finish = (duration: number | undefined) => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timeoutId);
-              audio.onloadedmetadata = null;
-              audio.onerror = null;
-              audio.src = "";
-              resolve(duration);
-            };
-
-            audio.preload = "metadata";
-            audio.onloadedmetadata = () => {
-              const duration = audio.duration;
-              finish(duration && isFinite(duration) ? duration : undefined);
-            };
-            audio.onerror = () => finish(undefined);
-            const timeoutId = setTimeout(() => finish(undefined), 5_000);
-            audio.src = blobUrl;
-          }),
-        ]);
-        const uploadUrl = await getUploadUrl();
-        const result = await fetchWithTimeout(
-          uploadUrl,
-          {
-            method: "POST",
-            headers: { "Content-Type": blob.type || "audio/mpeg" },
-            body: blob,
-          },
-          AUDIO_CACHE_UPLOAD_TIMEOUT_MS,
-        );
-        const { storageId } = await result.json();
-        await saveAudioRecord({
-          articleId,
-          sectionKey,
-          sourceHash,
-          storageId,
-          ttsNormVersion: metadata.ttsNormVersion,
-          ttsCacheKey: metadata.ttsCacheKey,
-          provider: metadata.provider,
-          model: metadata.model,
-          voiceId: metadata.voiceId,
-          promptVersion: metadata.promptVersion,
-          durationSeconds,
-        });
-      } catch (error) {
-        console.warn("[audio-cache] Failed to cache section audio:", error);
-      }
-    },
-    [
-      articleId,
-      bypassAudioCacheForStress,
-      getUploadUrl,
-      narrationTracks,
-      saveAudioRecord,
-    ],
-  );
-
   const getCachedAudioResult = useCallback(
     (sectionKey: string): TtsAudioUrlResult | null => {
       if (bypassAudioCacheForStress) return null;
       return buildCachedTtsResult(
         cachedAudio?.urls[sectionKey],
         cachedAudio?.metadata?.[sectionKey],
+        activeTtsMetadata,
       );
     },
-    [bypassAudioCacheForStress, cachedAudio],
+    [activeTtsMetadata, bypassAudioCacheForStress, cachedAudio],
   );
 
   const seedAudioResult = useCallback(
@@ -462,14 +385,14 @@ export const useArticleAudioController = ({
       ttsCache.current.set(sectionKey, result);
       primeAudioRequest(ttsRequestCache.current, sectionKey, result);
       if (sectionKey === "summary") {
-        primeSummaryAudio(slug, result, summarySourceHash, activeTtsCacheKey);
+        primeSummaryAudio(slug, result, activeTtsProfile, summarySourceHash);
       }
       preloadAudioUrl(result.url);
       if (startupPath) {
         seededStartupPath.current.set(sectionKey, startupPath);
       }
     },
-    [activeTtsCacheKey, slug, summarySourceHash],
+    [activeTtsProfile, slug, summarySourceHash],
   );
 
   const seedSummaryAudio = useCallback(
@@ -501,17 +424,16 @@ export const useArticleAudioController = ({
       result: TtsAudioUrlResult,
       startedAt: number,
     ) => {
-      const primaryProvider = getActiveTtsProfile().provider;
       analytics.audioStartup({
         scope,
         source,
         path,
         provider: result.metadata.provider,
-        fallback: result.metadata.provider !== primaryProvider,
+        fallback: result.metadata.provider !== activeTtsProfile.provider,
         timing: bucketAudioStartupMs(getStartupNow() - startedAt),
       });
     },
-    [],
+    [activeTtsProfile.provider],
   );
 
   useEffect(() => {
@@ -535,8 +457,8 @@ export const useArticleAudioController = ({
 
     const prefetchedSummary = getCachedSummaryAudio(
       slug,
+      activeTtsProfile,
       summarySourceHash,
-      activeTtsCacheKey,
     );
     if (prefetchedSummary) {
       seedSummaryAudio(prefetchedSummary);
@@ -550,8 +472,8 @@ export const useArticleAudioController = ({
     warmSummaryAudioFromText(
       slug,
       summaryText,
+      activeTtsProfile,
       summarySourceHash,
-      activeTtsCacheKey,
     )
       .then((result) => {
         if (result && requestId.current === warmRequestId) {
@@ -560,7 +482,7 @@ export const useArticleAudioController = ({
       })
       .catch(() => {});
   }, [
-    activeTtsCacheKey,
+    activeTtsProfile,
     getCachedAudioResult,
     getTextForSection,
     seedSummaryAudio,
@@ -599,9 +521,6 @@ export const useArticleAudioController = ({
         });
         if (requestId.current !== warmRequestId) return null;
         seedAudioResult(sectionKey, result, "prefetch");
-        if (!cachedAudio?.urls[sectionKey]) {
-          void cacheAudioInConvex(sectionKey, result.url, result.metadata);
-        }
         return result;
       } catch {
         seededStartupPath.current.delete(sectionKey);
@@ -609,8 +528,6 @@ export const useArticleAudioController = ({
       }
     },
     [
-      cachedAudio,
-      cacheAudioInConvex,
       generateTtsFromApi,
       getCachedAudioResult,
       getTextForSection,
@@ -625,13 +542,13 @@ export const useArticleAudioController = ({
         return true;
       if (
         sectionKey === "summary" &&
-        getCachedSummaryAudio(slug, summarySourceHash, activeTtsCacheKey)
+        getCachedSummaryAudio(slug, activeTtsProfile, summarySourceHash)
       ) {
         return true;
       }
       return getCachedAudioResult(sectionKey) !== null;
     },
-    [activeTtsCacheKey, getCachedAudioResult, slug, summarySourceHash],
+    [activeTtsProfile, getCachedAudioResult, slug, summarySourceHash],
   );
 
   const warmPlayAllQueue = useCallback(
@@ -721,12 +638,17 @@ export const useArticleAudioController = ({
     warmPlayAllQueue,
   ]);
 
+  const activeAudioIdentity = activeNarrationHash
+    ? `${activeNarrationHash}::${activeTtsCacheKey}`
+    : null;
+
   useEffect(() => {
     if (
-      activeNarrationHashRef.current &&
-      activeNarrationHashRef.current !== activeNarrationHash
+      activeAudioIdentityRef.current &&
+      activeAudioIdentityRef.current !== activeAudioIdentity
     ) {
       requestId.current += 1;
+      clearSlowLoadingTimer();
       ttsCache.current.clear();
       ttsRequestCache.current = createAudioRequestCache();
       seededStartupPath.current.clear();
@@ -734,18 +656,29 @@ export const useArticleAudioController = ({
       activeAudioRequestKey.current = null;
       pendingAutoPlay.current = false;
       isPlayingAllRef.current = false;
+      viewportWarmedArticleKey.current = null;
+      fallbackNoticeArticleKey.current = null;
       setTrackingSectionKey(null);
+      setAudioError(null);
+      setFallbackVoiceNotice(null);
+      setFinishedPlaying(false);
       audioRef.current?.pause();
       resetAudioPlayback();
     }
-    activeNarrationHashRef.current = activeNarrationHash;
-  }, [activeNarrationHash, audioRef, resetAudioPlayback]);
+    activeAudioIdentityRef.current = activeAudioIdentity;
+  }, [
+    activeAudioIdentity,
+    audioRef,
+    clearSlowLoadingTimer,
+    resetAudioPlayback,
+  ]);
 
   useEffect(() => {
     if (!article) return;
     if (shouldDisableViewportWarmForStress()) return;
     if (!canUseViewportAudioWarm()) return;
-    if (viewportWarmedArticleKey.current === slug) return;
+    const viewportWarmKey = `${activeTtsCacheKey}::${slug}`;
+    if (viewportWarmedArticleKey.current === viewportWarmKey) return;
     if (typeof IntersectionObserver === "undefined") return;
 
     const node = tocWarmRef.current;
@@ -756,7 +689,7 @@ export const useArticleAudioController = ({
         if (!entries.some((entry) => entry.isIntersecting)) return;
 
         observer.disconnect();
-        viewportWarmedArticleKey.current = slug;
+        viewportWarmedArticleKey.current = viewportWarmKey;
 
         const queue = buildPlayAllQueue(article);
         const firstSection = queue.find((item) => item.sectionIdx !== null);
@@ -793,6 +726,7 @@ export const useArticleAudioController = ({
     return () => observer.disconnect();
   }, [
     article,
+    activeTtsCacheKey,
     getTextForSection,
     hasWarmAudioCached,
     slug,
@@ -874,13 +808,6 @@ export const useArticleAudioController = ({
           memoryCached,
           startupStartedAt,
         );
-        if (!cachedAudio?.urls[sectionKey]) {
-          void cacheAudioInConvex(
-            sectionKey,
-            memoryCached.url,
-            memoryCached.metadata,
-          );
-        }
         return;
       }
 
@@ -928,26 +855,20 @@ export const useArticleAudioController = ({
         showFallbackNoticeForPlayback(result);
         setAudioUrl(result.url);
         trackAudioStartup(scope, source, path, result, startupStartedAt);
-        if (!getCachedAudioResult(sectionKey)) {
-          void cacheAudioInConvex(sectionKey, result.url, result.metadata);
-        }
       };
 
       const prefetchedAudio =
         sectionKey === "summary"
-          ? (getCachedSummaryAudio(
-              slug,
-              summarySourceHash,
-              activeTtsCacheKey,
-            ) ?? getAudioRequestResult(ttsRequestCache.current, sectionKey))
+          ? (getCachedSummaryAudio(slug, activeTtsProfile, summarySourceHash) ??
+            getAudioRequestResult(ttsRequestCache.current, sectionKey))
           : getAudioRequestResult(ttsRequestCache.current, sectionKey);
       const inflightAudio =
         sectionKey === "summary"
           ? (awaitAudioResultWithTimeout(
               awaitSummaryAudioWithMetadata(
                 slug,
+                activeTtsProfile,
                 summarySourceHash,
-                activeTtsCacheKey,
               ),
               PLAY_ALL_PREFETCH_WAIT_TIMEOUT_MS,
             ) ??
@@ -1016,9 +937,7 @@ export const useArticleAudioController = ({
         });
     },
     [
-      activeTtsCacheKey,
-      cacheAudioInConvex,
-      cachedAudio,
+      activeTtsProfile,
       clearSlowLoadingTimer,
       generateTtsFromApi,
       getCachedAudioResult,
