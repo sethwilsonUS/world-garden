@@ -66,7 +66,8 @@ Update this table in the same pull request as the completed test evidence.
 
 ## Manual evidence from 2026-07-27
 
-- Build: `IMPLEMENTATION_COMMIT` on `codex/search-accessibility`
+- Build: `e6dc7e83890d7f26aa10df09515831a530fb2ed8` on
+  `codex/search-accessibility`
 - Test URL: `http://127.0.0.1:3000`
 - Tester: Codex, under the repository owner's authorization
 - Desktop: macOS 26.5.2 (25F84), Safari 26.5.2
