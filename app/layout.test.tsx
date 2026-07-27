@@ -8,11 +8,12 @@ vi.mock("next/font/google", () => ({
   JetBrains_Mono: () => ({ variable: "jetbrains-mono" }),
 }));
 
-vi.mock("@clerk/nextjs", () => ({
-  ClerkProvider: () => {
-    throw new Error("The global layout must not depend on Clerk middleware");
-  },
-}));
+vi.mock("@clerk/nextjs", () => {
+  throw new Error("The global layout must not depend on Clerk middleware");
+});
+
+vi.mock("@vercel/analytics/next", () => ({ Analytics: () => null }));
+vi.mock("@vercel/speed-insights/next", () => ({ SpeedInsights: () => null }));
 
 vi.mock("@/lib/tts-profile", () => ({
   getActiveTtsProfile: () => "test",

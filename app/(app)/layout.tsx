@@ -1,6 +1,4 @@
 import { ClerkProvider } from "@clerk/nextjs";
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { AppProviders } from "../AppProviders";
 import { AccessibleLayout } from "@/components/AccessibleLayout";
 import { AuthNavControls } from "@/components/AuthNavControls";
@@ -61,8 +59,6 @@ export default function AppLayout({
       </AppProviders>
       <TrendingBriefWarmup />
       <ServiceWorkerRegistration />
-      <Analytics />
-      <SpeedInsights />
     </>
   );
 
