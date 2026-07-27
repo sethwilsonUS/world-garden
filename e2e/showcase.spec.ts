@@ -477,9 +477,9 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(
     page.getByRole("heading", { level: 1, name: "Curio Garden" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("searchbox", { name: "Search topic" }),
-  ).toBeVisible();
+  const homeSearch = page.getByRole("searchbox", { name: "Search topic" });
+  await expect(homeSearch).toBeVisible();
+  await expect(homeSearch).not.toBeFocused();
   await expect(
     page.getByText(
       "Explore any Wikipedia article as clear, section-by-section audio, then keep listening wherever curiosity takes you.",

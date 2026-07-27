@@ -513,6 +513,9 @@ Curio Garden targets WCAG 2.2 AA and treats accessibility as product behavior, n
 - **Color independence:** Status indicators use text, not just color
 - **Reduced motion:** `prefers-reduced-motion` media query disables decorative animations
 
+Search focus, keyboard, assistive-technology, and reflow evidence is tracked in
+the [search accessibility test matrix](docs/search-accessibility-test-matrix.md).
+
 ## License
 
 This project's source code is licensed under the [MIT License](LICENSE).
