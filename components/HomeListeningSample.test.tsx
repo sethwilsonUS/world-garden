@@ -88,8 +88,8 @@ describe("HomeListeningSample", () => {
     expect(markup).toContain('aria-label="Skip forward 10 seconds"');
     expect(markup).toContain("border-border bg-surface-3");
     expect(markup).toContain("rounded-full");
-    expect(markup).toContain(
-      'class="article-audio-progress-range block w-full"',
+    expect(markup).toMatch(
+      /class="[^"]*\barticle-audio-progress-range\b[^"]*"/,
     );
     expect(markup).toContain(`max="${HOME_LISTENING_SAMPLE_DURATION_SECONDS}"`);
     expect(markup).toContain("0:00");

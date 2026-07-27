@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import {
+  useRef,
+  useEffect,
+  useEffectEvent,
+  useState,
+  useCallback,
+} from "react";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
@@ -48,6 +54,9 @@ export const AudioPlayer = ({
   const [duration, setDuration] = useState(0);
   const [rateAnnouncement, setRateAnnouncement] = useState("");
   const playbackRateRef = useRef(playbackRate);
+  const handlePlaying = useEffectEvent(() => onPlaying?.());
+  const handleEnded = useEffectEvent(() => onEnded?.());
+  const handlePlaybackError = useEffectEvent(() => onPlaybackError?.());
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -57,16 +66,16 @@ export const AudioPlayer = ({
       setEnded(false);
       setHasPlayed(true);
     };
-    const onPlayingEvent = () => onPlaying?.();
+    const onPlayingEvent = () => handlePlaying();
     const onPause = () => setPlaying(false);
     const onEndedEvt = () => {
       setPlaying(false);
       setEnded(true);
-      onEnded?.();
+      handleEnded();
     };
     const onError = () => {
       setPlaying(false);
-      onPlaybackError?.();
+      handlePlaybackError();
     };
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
     const onMeta = () => {
@@ -90,7 +99,7 @@ export const AudioPlayer = ({
       audio.removeEventListener("durationchange", onMeta);
       audio.removeEventListener("loadedmetadata", onMeta);
     };
-  }, [audioUrl, onEnded, onPlaybackError, onPlaying]);
+  }, [audioUrl]);
 
   const [prevAudioUrl, setPrevAudioUrl] = useState(audioUrl);
   if (audioUrl !== prevAudioUrl) {
@@ -110,14 +119,18 @@ export const AudioPlayer = ({
     const timer = setTimeout(() => {
       const audio = audioRef.current;
       if (!audio) return;
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.catch(() => onPlaybackError?.());
+      try {
+        const playResult = audio.play();
+        if (playResult && typeof playResult.catch === "function") {
+          void playResult.catch(() => handlePlaybackError());
+        }
+      } catch {
+        handlePlaybackError();
       }
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [autoFocus, audioUrl, onPlaybackError]);
+  }, [autoFocus, audioUrl]);
 
   useEffect(() => {
     const audio = audioRef.current;

@@ -580,15 +580,30 @@ test("home presents the product and expands the curated daily preview", async ({
 
   const progressStyle = await progressSlider.evaluate((slider) => {
     const style = getComputedStyle(slider);
+    const accentToken = getComputedStyle(
+      document.documentElement,
+    ).getPropertyValue("--color-accent");
+    const accentProbe = document.createElement("span");
+    accentProbe.style.color = "var(--color-accent)";
+    document.body.append(accentProbe);
+    const resolvedAccentColor = getComputedStyle(accentProbe).color;
+    accentProbe.remove();
+
     return {
       appearance: style.appearance,
       backgroundImage: style.backgroundImage,
       height: style.height,
+      accentToken: accentToken.trim(),
+      playedColor: style.getPropertyValue("--played-color").trim(),
+      resolvedAccentColor,
     };
   });
   expect(progressStyle.appearance).toBe("none");
   expect(progressStyle.backgroundImage).toContain("linear-gradient");
-  expect(progressStyle.backgroundImage).toContain("rgb(3, 107, 74)");
+  expect(progressStyle.playedColor).toBe(progressStyle.accentToken);
+  expect(progressStyle.backgroundImage).toContain(
+    progressStyle.resolvedAccentColor,
+  );
   expect(parseFloat(progressStyle.height)).toBeGreaterThanOrEqual(24);
 
   const playTarget = await playButton.boundingBox();
