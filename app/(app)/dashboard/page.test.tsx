@@ -112,7 +112,11 @@ describe("DashboardPage", () => {
     expect(markup).toContain("Sign in to open your dashboard");
     expect(markup).toContain("Open Library");
     expect(markup).toContain("Playlist");
-    expect(markup).toContain("Badges &amp; streaks");
+    expect(markup).toContain("Topic badges");
+    expect(markup).toContain("Available when signed in");
+    expect(markup).not.toContain("Coming soon");
+    expect(markup).not.toContain("Planned next");
+    expect(markup).not.toContain("Future garden");
   });
 
   it("renders the signed-in dashboard modules", () => {

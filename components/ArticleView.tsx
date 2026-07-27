@@ -259,15 +259,30 @@ const ArticleViewContent = ({
   return (
     <article className="animate-fade-in-up">
       <div className="mb-4">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <h1 className="font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground m-0">
-            {displayArticle.title}
-          </h1>
-          <div className="flex items-center gap-2 shrink-0">
-            <PlaylistActionButton slug={slug} title={displayArticle.title} />
-            <BookmarkButton slug={slug} title={displayArticle.title} />
-          </div>
+        <h1 className="m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
+          {displayArticle.title}
+        </h1>
+        <div
+          role="group"
+          aria-label={isLocal ? "Library action" : "Library and Playlist actions"}
+          className="mt-4 flex flex-wrap items-center gap-2"
+        >
+          <BookmarkButton
+            slug={slug}
+            title={displayArticle.title}
+            variant="labeled"
+          />
+          <PlaylistActionButton
+            slug={slug}
+            title={displayArticle.title}
+            variant="labeled"
+          />
         </div>
+        <p className="mb-3 mt-2 max-w-2xl text-sm leading-[1.65] text-muted">
+          {isLocal
+            ? "Library keeps the article on this device for later."
+            : "Library keeps the article for later. Playlist generates a full-article podcast episode for your private feed."}
+        </p>
         <ArticleSourceLine
           language={displayArticle.language}
           revisionId={displayArticle.revisionId}

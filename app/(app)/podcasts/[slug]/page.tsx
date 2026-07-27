@@ -105,7 +105,6 @@ export default async function PodcastDetailPage({
               heading="Add to your podcast app"
               title={entry.title}
               feedUrl={feedUrl}
-              syncRoute={entry.syncRoute}
             />
           </div>
 
@@ -121,7 +120,7 @@ export default async function PodcastDetailPage({
                   No episodes generated yet
                 </p>
                 <p className="text-muted text-sm mt-2">
-                  Run the sync route once and the latest episode will appear here.
+                  The first published episode will appear here automatically.
                 </p>
               </div>
             ) : (
@@ -169,7 +168,7 @@ export default async function PodcastDetailPage({
                   No episodes generated yet
                 </p>
                 <p className="text-muted text-sm mt-2">
-                  Run the sync route once and the latest episode will appear here.
+                  The first published episode will appear here automatically.
                 </p>
               </div>
             ) : (

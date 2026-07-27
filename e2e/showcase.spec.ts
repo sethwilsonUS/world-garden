@@ -843,7 +843,7 @@ test("mobile navigation, theme, reflow, and project story remain usable", async 
       name: "Free knowledge, made listenable.",
     }),
   ).toBeVisible();
-  await expect(page.getByText("Seth Wilson")).toBeVisible();
+  await expect(page.getByText("Seth Wilson", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Open menu" }).click();
   await expect(
     page.getByRole("navigation", { name: "Mobile navigation" }),

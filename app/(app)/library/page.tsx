@@ -48,14 +48,14 @@ export default function LibraryPage() {
             id="library-heading"
             className="font-display text-[1.75rem] font-bold mb-6 text-foreground"
           >
-            Reading list
+            Library
           </h1>
 
           {viewState === "loading" ? (
             <div className="garden-bed text-center py-12 px-6" role="status">
               <div className="skeleton h-4 w-32 mx-auto" />
               <p className="font-display font-semibold text-lg text-foreground mt-4">
-                Loading your reading list
+                Loading your Library
               </p>
               <p className="text-muted text-sm mt-2">
                 Fetching your saved articles and any guest bookmarks ready for
@@ -126,7 +126,7 @@ export default function LibraryPage() {
                     </ArticleLink>
                     <button
                       onClick={() => remove(entry.slug)}
-                      aria-label={`Remove ${entry.title} from reading list`}
+                      aria-label={`Remove ${entry.title} from your Library`}
                       className="linked-article-link inline-flex items-center justify-center w-8 h-8 shrink-0 bg-transparent border border-border rounded-lg cursor-pointer text-muted transition-colors duration-200"
                     >
                       <svg

@@ -6,24 +6,33 @@ import { usePersonalPlaylist } from "@/hooks/usePersonalPlaylist";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
-const buttonClassName =
-  "inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-[10px] border transition-all duration-200 disabled:cursor-not-allowed";
+const buttonClassName = (variant: "icon" | "labeled") =>
+  `inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-[10px] border transition-all duration-200 disabled:cursor-not-allowed ${
+    variant === "labeled" ? "px-3 py-2" : "h-10 w-10"
+  }`;
 
 export const PlaylistActionButton = ({
   slug,
   title,
   className = "",
+  variant = "icon",
 }: {
   slug: string;
   title: string;
   className?: string;
+  variant?: "icon" | "labeled";
 }) => {
   if (isLocal) {
     return null;
   }
 
   return (
-    <PlaylistActionButtonInner slug={slug} title={title} className={className} />
+    <PlaylistActionButtonInner
+      slug={slug}
+      title={title}
+      className={className}
+      variant={variant}
+    />
   );
 };
 
@@ -31,10 +40,12 @@ const PlaylistActionButtonInner = ({
   slug,
   title,
   className = "",
+  variant,
 }: {
   slug: string;
   title: string;
   className?: string;
+  variant: "icon" | "labeled";
 }) => {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { addBySlug, isAdding, isAvailable, isLoaded, isInPlaylist } =
@@ -44,6 +55,17 @@ const PlaylistActionButtonInner = ({
   const disabled = isSubmitting || isAdding(slug);
   const active = isInPlaylist(slug);
   const isSyncPending = isSignedIn && !isAvailable;
+  const visibleLabel = !isAuthLoaded
+    ? "Checking…"
+    : active
+      ? "In Playlist"
+      : disabled
+        ? "Adding…"
+        : isSyncPending
+          ? "Connecting…"
+          : "Add to Playlist";
+  const accessibleName = (description: string) =>
+    variant === "labeled" ? `${visibleLabel}: ${description}` : description;
 
   const content = (
     <>
@@ -119,6 +141,9 @@ const PlaylistActionButtonInner = ({
           <path d="M3 18h.01" />
         </svg>
       )}
+      {variant === "labeled" ? (
+        <span className="text-sm font-medium">{visibleLabel}</span>
+      ) : null}
     </>
   );
 
@@ -127,8 +152,8 @@ const PlaylistActionButtonInner = ({
       <button
         type="button"
         disabled
-        aria-label="Checking playlist access"
-        className={`${buttonClassName} border-border bg-surface text-muted ${className}`}
+        aria-label={accessibleName("checking playlist access")}
+        className={`${buttonClassName(variant)} border-border bg-surface text-muted ${className}`}
       >
         {content}
       </button>
@@ -140,9 +165,11 @@ const PlaylistActionButtonInner = ({
       <SignInButton>
         <button
           type="button"
-          aria-label={`Sign in to add ${title} to your playlist`}
-          title="Sign in to use your playlist"
-          className={`${buttonClassName} border-border bg-surface text-muted hover:bg-surface-2 hover:text-foreground ${className}`}
+          aria-label={accessibleName(
+            `sign in to add ${title} and generate a podcast episode`,
+          )}
+          title="Playlist: sign in to generate a podcast episode"
+          className={`${buttonClassName(variant)} border-border bg-surface text-muted hover:bg-surface-2 hover:text-foreground ${className}`}
         >
           {content}
         </button>
@@ -155,17 +182,17 @@ const PlaylistActionButtonInner = ({
       <button
         type="button"
         disabled
-        aria-label={
+        aria-label={accessibleName(
           isLoaded
             ? `Playlist sync is still connecting for ${title}`
-            : `Connecting playlist for ${title}`
-        }
+            : `connecting Playlist for ${title}`,
+        )}
         title={
           isLoaded
             ? "Playlist sync is still connecting"
             : "Connecting playlist"
         }
-        className={`${buttonClassName} border-border bg-surface text-muted ${className}`}
+        className={`${buttonClassName(variant)} border-border bg-surface text-muted ${className}`}
       >
         {content}
       </button>
@@ -176,15 +203,21 @@ const PlaylistActionButtonInner = ({
     <button
       type="button"
       disabled={active || disabled}
-      aria-label={
-        active ? `${title} is already in your playlist` : `Add ${title} to your playlist`
+      aria-label={accessibleName(
+        active
+          ? `${title} is already in your Playlist`
+          : `${title}. Generates a podcast episode for your private feed`,
+      )}
+      title={
+        active
+          ? "Playlist: podcast episode already queued"
+          : "Playlist: generate a podcast episode for your private feed"
       }
-      title={active ? "Already in playlist" : "Add to playlist"}
       onClick={() => {
         setIsSubmitting(true);
         void addBySlug({ slug, title }).finally(() => setIsSubmitting(false));
       }}
-      className={`${buttonClassName} ${
+      className={`${buttonClassName(variant)} ${
         active
           ? "border-accent-border bg-accent-bg text-accent"
           : "border-border bg-surface text-muted hover:bg-surface-2 hover:text-foreground"

@@ -36,7 +36,7 @@ describe("LibraryPage", () => {
 
     const markup = renderToStaticMarkup(createElement(LibraryPage));
 
-    expect(markup).toContain("Loading your reading list");
+    expect(markup).toContain("Loading your Library");
     expect(markup).not.toContain("No saved articles yet");
   });
 

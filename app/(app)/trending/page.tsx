@@ -267,9 +267,8 @@ export default function TrendingPage() {
                 Today&apos;s audio brief is still being prepared
               </h2>
               <p className="text-sm text-muted mt-2 leading-[1.7] max-w-3xl">
-                The trending podcast is now published by scheduled sync, so this page
-                won&apos;t generate it on demand. Check back after the daily podcast run
-                completes.
+                Check back soon. The daily briefing is prepared in the
+                background and will appear here when it is ready.
               </p>
             </section>
           ) : briefState?.enabled && briefState.status === "failed" ? (
@@ -287,14 +286,9 @@ export default function TrendingPage() {
                 Today&apos;s audio brief couldn&apos;t be published yet
               </h2>
               <p className="text-sm text-muted mt-2 leading-[1.7] max-w-3xl">
-                The latest scheduled generation failed. A later retry or manual sync
-                can republish it.
+                The briefing is temporarily unavailable. Curio Garden will try
+                to publish it again in the background.
               </p>
-              {briefState.lastError ? (
-                <p className="text-xs text-muted mt-3 font-mono break-words">
-                  {briefState.lastError}
-                </p>
-              ) : null}
             </section>
           ) : null}
 

@@ -24,7 +24,6 @@ const PodcastAccordionSection = ({
   title,
   description,
   feedUrl,
-  syncRoute,
   slug,
   children,
 }: {
@@ -33,7 +32,6 @@ const PodcastAccordionSection = ({
   title: string;
   description: string;
   feedUrl: string;
-  syncRoute: string;
   slug: string;
   children: ReactNode;
 }) => (
@@ -117,7 +115,6 @@ const PodcastAccordionSection = ({
           idBase={`${accordionId}-feed`}
           title={title}
           feedUrl={feedUrl}
-          syncRoute={syncRoute}
         />
       </div>
     </details>

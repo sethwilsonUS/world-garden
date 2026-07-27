@@ -28,7 +28,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Accounts and dashboard** — Clerk sign-in unlocks a dashboard with a synced library, a personal playlist queue, copyable RSS feed URLs, and queue management controls for moving, removing, and retrying generated episodes. Guests can still explore freely and keep a device-local library without creating an account.
 
-**Your library** — Recently listened articles appear on the home page. Save articles to your reading list with one tap and find them on the Library page. Guests keep bookmarks on the current device, while signed-in readers get a synced library across sessions.
+**Your library** — Recently opened articles appear on the home page, with an "In progress" marker after an audio section has been selected. Save articles to your Library with one tap and find them on the Library page. Guests keep bookmarks on the current device, while signed-in readers get a synced Library across sessions.
 
 **Personal playlist** — Add an article to your playlist while browsing to queue a full-article MP3 for background generation. Playlist is intentionally separate from Library: Library is for keeping things around, Playlist is for sequencing what should play next in your personal podcast feed.
 

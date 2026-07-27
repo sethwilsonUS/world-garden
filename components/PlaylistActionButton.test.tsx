@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -46,5 +46,43 @@ describe("PlaylistActionButton", () => {
         }),
       ),
     ).toBe("");
+  });
+
+  it("explains that Playlist creates a podcast episode", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+    vi.doMock("@clerk/nextjs", () => ({
+      SignInButton: ({ children }: { children: ReactNode }) =>
+        createElement("div", null, children),
+      useAuth: () => ({
+        isLoaded: true,
+        isSignedIn: false,
+      }),
+    }));
+    vi.doMock("@/hooks/usePersonalPlaylist", () => ({
+      usePersonalPlaylist: () => ({
+        addBySlug: vi.fn(),
+        isAdding: () => false,
+        isAvailable: false,
+        isLoaded: true,
+        isInPlaylist: () => false,
+      }),
+    }));
+
+    const { PlaylistActionButton } = await import("./PlaylistActionButton");
+    const markup = renderToStaticMarkup(
+      createElement(PlaylistActionButton, {
+        slug: "Taylor_Swift",
+        title: "Taylor Swift",
+        variant: "labeled",
+      }),
+    );
+
+    expect(markup).toContain("Add to Playlist");
+    expect(markup).toContain(
+      'aria-label="Add to Playlist: sign in to add Taylor Swift and generate a podcast episode"',
+    );
+    expect(markup).toContain(
+      'title="Playlist: sign in to generate a podcast episode"',
+    );
   });
 });

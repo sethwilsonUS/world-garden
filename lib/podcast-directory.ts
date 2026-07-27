@@ -29,7 +29,6 @@ export type PodcastDirectoryEntry = {
   title: string;
   description: string;
   feedPath: string;
-  syncRoute: string;
   episodeLabel: string;
   audioLabel: string;
   browseHref: string;
@@ -43,7 +42,6 @@ export const PODCAST_DIRECTORY: PodcastDirectoryEntry[] = [
     title: FEATURED_PODCAST_TITLE,
     description: FEATURED_PODCAST_DESCRIPTION,
     feedPath: "/api/podcast/featured.xml",
-    syncRoute: "POST /api/podcast/featured/sync",
     episodeLabel: "One item per featured article date",
     audioLabel: "Stable enclosure URLs that redirect to stored MP3s",
     browseHref: "/article",
@@ -55,7 +53,6 @@ export const PODCAST_DIRECTORY: PodcastDirectoryEntry[] = [
     title: TRENDING_PODCAST_TITLE,
     description: TRENDING_PODCAST_DESCRIPTION,
     feedPath: "/api/podcast/trending.xml",
-    syncRoute: "POST /api/podcast/trending/sync",
     episodeLabel: "One item per daily trending brief",
     audioLabel: "Stable enclosure URLs that redirect to stored MP3s",
     browseHref: "/trending",

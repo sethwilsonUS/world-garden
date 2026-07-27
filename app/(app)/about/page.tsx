@@ -76,10 +76,20 @@ export default function AboutPage() {
           </h2>
           <div className="mt-5 space-y-4 text-base leading-[1.8] text-foreground-2">
             <p>
-              Reading a long encyclopedia article can be difficult when vision,
-              fatigue, mobility, or context makes a visual interface a poor fit.
-              Curio Garden treats audio as a first-class way to explore—not an
-              afterthought bolted onto a wall of text.
+              Curio Garden began with a specific access need. Its founder, Seth
+              Wilson, is visually impaired and wanted a calmer way to explore
+              long Wikipedia articles by listening without giving up structure,
+              source context, or control. That experience made audio the
+              starting point—not an afterthought bolted onto a wall of text.
+            </p>
+            <p>
+              That origin is context, not a claim to represent everyone. Blind
+              and low-vision people use different tools, have different
+              preferences, and encounter different barriers; people affected by
+              fatigue, mobility, cognitive access, or a temporary situation add
+              still more perspectives. One person&apos;s workflow is one data
+              point, so Curio Garden has to keep learning from people whose
+              experiences differ from Seth&apos;s.
             </p>
             <p>
               It also tries to honor the thing that makes Wikipedia possible:
