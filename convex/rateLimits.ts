@@ -1,4 +1,8 @@
-import { mutation } from "./_generated/server";
+import {
+  internalMutation,
+  mutation,
+  type MutationCtx,
+} from "./_generated/server";
 import { v } from "convex/values";
 import {
   assertValidRouteQuotaParameters,
@@ -10,6 +14,22 @@ import {
   type ServerAttestation,
   verifyServerAttestation,
 } from "../lib/server-attestation";
+import { internal } from "./_generated/api";
+
+export const ROUTE_QUOTA_CLEANUP_BATCH_SIZE = 500;
+const PRODUCT_FEEDBACK_QUOTA_PREFIX = "route-quota:product-feedback:";
+
+type RouteQuotaCleanupCtx = Pick<MutationCtx, "db">;
+type QuotaEnvironment = Record<string, string | undefined>;
+
+export const getRouteQuotaAttestationSecret = (
+  key: string,
+  environment: QuotaEnvironment = process.env,
+): string | undefined =>
+  (key.startsWith(PRODUCT_FEEDBACK_QUOTA_PREFIX)
+    ? environment.PRODUCT_FEEDBACK_WRITE_SECRET
+    : environment.TTS_QUOTA_BYPASS_SECRET
+  )?.trim() || undefined;
 
 export const assertRouteQuotaAttestation = async (
   parameters: RouteQuotaParameters,
@@ -48,7 +68,7 @@ export const consumeRouteQuota = mutation({
     await assertRouteQuotaAttestation(
       { key, limit, windowMs },
       attestation,
-      process.env.TTS_QUOTA_BYPASS_SECRET?.trim() || undefined,
+      getRouteQuotaAttestationSecret(key),
       now,
     );
     const existing = await ctx.db
@@ -100,5 +120,50 @@ export const consumeRouteQuota = mutation({
       remaining: Math.max(0, limit - nextCount),
       resetAt: existing.expiresAt,
     };
+  },
+});
+
+export const cleanupExpiredRouteQuotasForCtx = async (
+  ctx: RouteQuotaCleanupCtx,
+  args: { now: number; limit: number },
+) => {
+  const expiredQuotas = await ctx.db
+    .query("routeQuotas")
+    .withIndex("by_expiresAt", (query) => query.lte("expiresAt", args.now))
+    .take(args.limit);
+
+  await Promise.all(expiredQuotas.map((quota) => ctx.db.delete(quota._id)));
+
+  return { deleted: expiredQuotas.length };
+};
+
+export const shouldContinueRouteQuotaCleanup = ({
+  deleted,
+  limit,
+}: {
+  deleted: number;
+  limit: number;
+}): boolean => deleted === limit;
+
+export const cleanupExpiredRouteQuotas = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const result = await cleanupExpiredRouteQuotasForCtx(ctx, {
+      now: Date.now(),
+      limit: ROUTE_QUOTA_CLEANUP_BATCH_SIZE,
+    });
+    if (
+      shouldContinueRouteQuotaCleanup({
+        deleted: result.deleted,
+        limit: ROUTE_QUOTA_CLEANUP_BATCH_SIZE,
+      })
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.rateLimits.cleanupExpiredRouteQuotas,
+        {},
+      );
+    }
+    return result;
   },
 });

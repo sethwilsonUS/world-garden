@@ -39,9 +39,14 @@ URL, pushes functions, and keeps generated types current. Run
 `npx convex dev` separately only when you need the backend without Next.js. Add
 `CLERK_JWT_ISSUER_DOMAIN` in the Convex dashboard when testing signed-in flows.
 Secrets used by both Next.js and Convex—such as
-`ARTICLE_CONTEXT_WRITE_SECRET`, `TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and
-`ANALYTICS_REPORT_SECRET`—must match across the two environments where their
-corresponding features are enabled. Deployed audio requires
+`ARTICLE_CONTEXT_WRITE_SECRET`, `PRODUCT_FEEDBACK_WRITE_SECRET`,
+`TTS_QUOTA_BYPASS_SECRET`, `CRON_SECRET`, and `ANALYTICS_REPORT_SECRET`—must
+match across the two environments where their corresponding features are
+enabled. Anonymous product feedback requires
+`PRODUCT_FEEDBACK_WRITE_SECRET` whenever local mode is off. Generate a random
+value that is distinct from every other secret, then set the exact same value
+in the Next.js/Vercel environment and the matching Convex deployment. Deployed
+audio requires
 `TTS_QUOTA_BYPASS_SECRET`: only short-lived, domain-separated attestations—not
 the root secret—are sent through public quota/cache mutations and trusted TTS
 requests. Convex audio workers use `AUDIO_GENERATION_BASE_URL` as their trusted

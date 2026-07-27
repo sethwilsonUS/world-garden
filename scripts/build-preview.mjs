@@ -9,7 +9,7 @@ const PREVIEW_DEPLOY_KEY_PATTERN = /^preview:seth-wilson:world-garden\|\S+$/;
 const assertSecretValue = (value, name, { required }) => {
   if (!value) {
     if (required) {
-      throw new Error(`${name} is required for Convex Preview audio.`);
+      throw new Error(`${name} is required for Convex Preview builds.`);
     }
     return;
   }
@@ -40,6 +40,11 @@ export const resolvePreviewBuildConfig = (env = process.env) => {
   assertSecretValue(env.TTS_QUOTA_BYPASS_SECRET, "TTS_QUOTA_BYPASS_SECRET", {
     required: true,
   });
+  assertSecretValue(
+    env.PRODUCT_FEEDBACK_WRITE_SECRET,
+    "PRODUCT_FEEDBACK_WRITE_SECRET",
+    { required: true },
+  );
   assertSecretValue(
     env.VERCEL_AUTOMATION_BYPASS_SECRET,
     "VERCEL_AUTOMATION_BYPASS_SECRET",
@@ -103,6 +108,12 @@ export const runPreviewBuild = ({
     "TTS_QUOTA_BYPASS_SECRET",
     env.TTS_QUOTA_BYPASS_SECRET,
     "Configuring the Convex Preview TTS attestation secret",
+  );
+
+  setConvexSecret(
+    "PRODUCT_FEEDBACK_WRITE_SECRET",
+    env.PRODUCT_FEEDBACK_WRITE_SECRET,
+    "Configuring the Convex Preview product feedback write secret",
   );
 
   if (env.VERCEL_AUTOMATION_BYPASS_SECRET) {

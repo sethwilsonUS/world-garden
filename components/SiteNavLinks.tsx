@@ -65,7 +65,12 @@ export const SiteNavLinks = ({
       ) : (
         renderLink("/library", "Library")
       )}
-      {variant === "footer" ? renderLink("/about", "About") : null}
+      {variant === "footer" ? (
+        <>
+          {renderLink("/feedback", "Feedback")}
+          {renderLink("/about", "About")}
+        </>
+      ) : null}
     </>
   );
 };

@@ -14,6 +14,12 @@ describe("AboutPage", () => {
       "That origin is context, not a claim to represent everyone",
     );
     expect(markup).toContain("One person&#x27;s workflow is one data point");
+    expect(markup).toContain("Your experience can shape what grows next");
+    expect(markup).toContain("You do not need to share a diagnosis");
+    expect(markup).toContain("possible short research conversation");
+    expect(markup).toContain("not a mailing list or a commitment");
+    expect(markup).toContain('href="/feedback"');
+    expect(markup).toContain("Share feedback or volunteer for research");
     expect(markup).toContain("github.com/sethwilsonUS/world-garden");
     expect(markup).toContain("not endorsed by or affiliated with");
   });

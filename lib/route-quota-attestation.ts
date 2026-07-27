@@ -46,9 +46,10 @@ export const assertValidRouteQuotaParameters = ({
 
 export const createAttestedRouteQuotaArgs = async (
   parameters: RouteQuotaParameters,
+  options: { secret?: string } = {},
 ): Promise<AttestedRouteQuotaArgs> => {
   assertValidRouteQuotaParameters(parameters);
-  const secret = requireServerAttestationSecret();
+  const secret = options.secret?.trim() || requireServerAttestationSecret();
   const attestation = await createServerAttestation({
     scope: ROUTE_QUOTA_ATTESTATION_SCOPE,
     payload: getRouteQuotaAttestationPayload(parameters),

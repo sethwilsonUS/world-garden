@@ -16,6 +16,7 @@ import {
 } from "@/lib/adaptive-image";
 import { getVisibleArticleContextBlocks } from "@/lib/article-context-visibility";
 import { ArticleContextLane } from "./ArticleContext";
+import { ArticleFeedbackLink } from "./ArticleFeedbackLink";
 import { ArticleGallery } from "./ArticleGallery";
 import type { LightboxState } from "./GalleryLightbox";
 import { ArticleHeader, ArticleSourceLine } from "./ArticleHeader";
@@ -264,7 +265,7 @@ const ArticleViewContent = ({
         </h1>
         <div
           role="group"
-          aria-label={isLocal ? "Library action" : "Library and Playlist actions"}
+          aria-label="Article actions"
           className="mt-4 flex flex-wrap items-center gap-2"
         >
           <BookmarkButton
@@ -276,6 +277,11 @@ const ArticleViewContent = ({
             slug={slug}
             title={displayArticle.title}
             variant="labeled"
+          />
+          <ArticleFeedbackLink
+            title={displayArticle.title}
+            slug={slug}
+            revisionId={displayArticle.revisionId}
           />
         </div>
         <p className="mb-3 mt-2 max-w-2xl text-sm leading-[1.65] text-muted">

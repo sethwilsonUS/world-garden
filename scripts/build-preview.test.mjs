@@ -22,6 +22,7 @@ const previewEnv = {
   CURIO_CONVEX_PREVIEW_NAME: "codex/edge-tts-auth-policy",
   CONVEX_DEPLOY_KEY: "preview:seth-wilson:world-garden|secret",
   TTS_QUOTA_BYPASS_SECRET: "tts-secret-never-in-argv",
+  PRODUCT_FEEDBACK_WRITE_SECRET: "feedback-secret-never-in-argv",
   VERCEL_AUTOMATION_BYPASS_SECRET: "vercel-secret-never-in-argv",
 };
 
@@ -75,6 +76,25 @@ describe("resolvePreviewBuildConfig", () => {
     [
       "a missing TTS attestation secret",
       { ...previewEnv, TTS_QUOTA_BYPASS_SECRET: "" },
+    ],
+    [
+      "a missing product feedback write secret",
+      { ...previewEnv, PRODUCT_FEEDBACK_WRITE_SECRET: undefined },
+    ],
+    [
+      "a blank product feedback write secret",
+      { ...previewEnv, PRODUCT_FEEDBACK_WRITE_SECRET: "" },
+    ],
+    [
+      "a whitespace-only product feedback write secret",
+      { ...previewEnv, PRODUCT_FEEDBACK_WRITE_SECRET: "   " },
+    ],
+    [
+      "a padded product feedback write secret",
+      {
+        ...previewEnv,
+        PRODUCT_FEEDBACK_WRITE_SECRET: " feedback-secret-never-in-argv ",
+      },
     ],
     [
       "a URL with a path",
@@ -209,6 +229,23 @@ describe("runPreviewBuild", () => {
         path.join(root, "node_modules/convex/bin/main.js"),
         "env",
         "set",
+        "PRODUCT_FEEDBACK_WRITE_SECRET",
+        "--preview-name",
+        "codex/edge-tts-auth-policy",
+      ],
+      expect.objectContaining({
+        env: previewEnv,
+        input: "feedback-secret-never-in-argv",
+        stdio: ["pipe", "inherit", "inherit"],
+      }),
+    );
+    expect(run).toHaveBeenNthCalledWith(
+      4,
+      process.execPath,
+      [
+        path.join(root, "node_modules/convex/bin/main.js"),
+        "env",
+        "set",
         "VERCEL_AUTOMATION_BYPASS_SECRET",
         "--preview-name",
         "codex/edge-tts-auth-policy",
@@ -220,7 +257,7 @@ describe("runPreviewBuild", () => {
       }),
     );
     expect(run).toHaveBeenNthCalledWith(
-      4,
+      5,
       process.execPath,
       [
         path.join(root, "node_modules/convex/bin/main.js"),
@@ -236,6 +273,7 @@ describe("runPreviewBuild", () => {
 
     const allArguments = run.mock.calls.flatMap(([, args]) => args);
     expect(allArguments).not.toContain("tts-secret-never-in-argv");
+    expect(allArguments).not.toContain("feedback-secret-never-in-argv");
     expect(allArguments).not.toContain("vercel-secret-never-in-argv");
   });
 
@@ -260,9 +298,23 @@ describe("runPreviewBuild", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
+  it("stops before optional configuration when the feedback secret fails to sync", () => {
+    const run = vi
+      .fn()
+      .mockReturnValueOnce({ status: 0 })
+      .mockReturnValueOnce({ status: 0 })
+      .mockReturnValueOnce({ status: 1 });
+
+    expect(() => runPreviewBuild({ env: previewEnv, run })).toThrow(
+      "Configuring the Convex Preview product feedback write secret failed",
+    );
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
   it("writes the audio origin only after every required secret is synced", () => {
     const run = vi
       .fn()
+      .mockReturnValueOnce({ status: 0 })
       .mockReturnValueOnce({ status: 0 })
       .mockReturnValueOnce({ status: 0 })
       .mockReturnValueOnce({ status: 0 })
@@ -271,7 +323,7 @@ describe("runPreviewBuild", () => {
     expect(() => runPreviewBuild({ env: previewEnv, run })).toThrow(
       "Configuring the Convex Preview audio origin failed",
     );
-    expect(run).toHaveBeenCalledTimes(4);
+    expect(run).toHaveBeenCalledTimes(5);
   });
 
   it("allows an unprotected Preview without a Vercel bypass secret", () => {
@@ -281,9 +333,9 @@ describe("runPreviewBuild", () => {
 
     runPreviewBuild({ env, run });
 
-    expect(run).toHaveBeenCalledTimes(3);
+    expect(run).toHaveBeenCalledTimes(4);
     expect(run.mock.calls[0][1][0]).toMatch(/next\/dist\/bin\/next$/);
-    expect(run.mock.calls[2][1]).toContain("AUDIO_GENERATION_BASE_URL");
+    expect(run.mock.calls[3][1]).toContain("AUDIO_GENERATION_BASE_URL");
   });
 
   it("keeps preview names as one process argument", () => {

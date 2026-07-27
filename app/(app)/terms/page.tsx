@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "July 13, 2026";
+const LAST_UPDATED = "July 27, 2026";
 
 export const metadata: Metadata = {
   title: "Terms of Use — Curio Garden",
@@ -114,8 +115,14 @@ export default function TermsPage() {
           date.
         </p>
         <p>
-          Questions about a specific Curio Garden deployment should be sent
-          through the contact or support method published with that deployment.
+          Questions about Curio Garden or these terms can be sent through the{" "}
+          <Link
+            href="/feedback"
+            className="text-accent underline underline-offset-2"
+          >
+            feedback page
+          </Link>
+          .
         </p>
       </LegalSection>
     </LegalPageLayout>

@@ -15,7 +15,7 @@ export const ArticleSourceLine = ({
   const revisionUrl = `https://${language}.wikipedia.org/w/index.php?oldid=${revisionId}`;
 
   return (
-    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-relaxed text-muted">
+    <p className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-relaxed text-muted">
       <span>
         From{" "}
         <a
