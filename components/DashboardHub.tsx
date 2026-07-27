@@ -111,7 +111,7 @@ const SignedInDashboard = () => {
       <SectionShell
         eyebrow="Dashboard"
         title={`Welcome back, ${isUserLoaded ? displayName : "friend"}`}
-        description="This is your account hub: the place where synced reading, queued listening, and future progress features can live together without crowding the public browsing experience."
+        description="This is your account hub for synced reading, queued listening, private podcast delivery, and topic-badge progress."
       >
         <div className="garden-bed pattern-leaves p-6 sm:p-7">
           <div className="flex flex-wrap gap-3 text-sm">

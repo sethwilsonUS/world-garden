@@ -1,5 +1,19 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatTimeAgo } from "./RecentlyListened";
+import { formatTimeAgo, RecentlyOpened } from "./RecentlyOpened";
+
+vi.mock("@/hooks/useHistory", () => ({
+  useHistory: () => ({
+    entries: [
+      {
+        slug: "mars",
+        title: "Mars",
+        lastVisitedAt: Date.now(),
+      },
+    ],
+  }),
+}));
 
 describe("formatTimeAgo", () => {
   beforeEach(() => {
@@ -54,5 +68,12 @@ describe("formatTimeAgo", () => {
     const old = new Date("2025-12-25T12:00:00Z").getTime();
     const result = formatTimeAgo(old);
     expect(result).toMatch(/Dec\s+25/);
+  });
+
+  it("labels visit-based history as recently opened", () => {
+    const markup = renderToStaticMarkup(createElement(RecentlyOpened));
+
+    expect(markup).toContain("Recently opened");
+    expect(markup).not.toContain("Recently listened");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { SearchForm } from "@/components/SearchForm";
-import { RecentlyListened } from "@/components/RecentlyListened";
+import { RecentlyOpened } from "@/components/RecentlyOpened";
 import { HomeAuthStatusBanner } from "@/components/HomeAuthStatusBanner";
 import { RandomArticleButton } from "@/components/RandomArticleButton";
 import { TodayOnWikipedia } from "@/components/TodayOnWikipedia";
@@ -45,7 +45,7 @@ export default function Home() {
         </div>
 
         <div className="max-w-xl mx-auto animate-fade-in-up-delay-3">
-          <RecentlyListened />
+          <RecentlyOpened />
         </div>
       </div>
     </>

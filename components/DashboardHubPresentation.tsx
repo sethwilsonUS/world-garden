@@ -90,6 +90,7 @@ export const DashboardSummaryCard = ({
 const FeatureCard = ({
   title,
   status,
+  availability,
   description,
   detail,
   action,
@@ -97,6 +98,7 @@ const FeatureCard = ({
 }: {
   title: string;
   status: string;
+  availability: string;
   description: string;
   detail: string;
   action?: ReactNode;
@@ -117,15 +119,15 @@ const FeatureCard = ({
             {title}
           </h2>
         </div>
-        {accent ? (
-          <span className="inline-flex shrink-0 rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-accent">
-            Ready now
-          </span>
-        ) : (
-          <span className="inline-flex shrink-0 rounded-full border border-border bg-surface px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted">
-            Coming soon
-          </span>
-        )}
+        <span
+          className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] ${
+            accent
+              ? "border-accent-border bg-accent-bg text-accent"
+              : "border-border bg-surface text-muted"
+          }`}
+        >
+          {availability}
+        </span>
       </div>
 
       <p className="mt-4 text-sm leading-[1.8] text-foreground-2">{description}</p>
@@ -290,9 +292,9 @@ export const DashboardPlaylistCard = ({
             Playlist is waiting on account sync
           </p>
           <p className="mt-2 text-sm leading-[1.7] text-muted">
-            You&apos;re signed in with Clerk, but this session has not finished
-            connecting to Convex yet. Refresh in a moment, and if it keeps
-            happening, double-check the Clerk-to-Convex setup.
+            You&apos;re signed in, but this session has not finished connecting
+            to your Curio Garden data yet. Refresh in a moment. If it keeps
+            happening, try signing out and back in.
           </p>
         </div>
       ) : entries.length === 0 ? (
@@ -459,7 +461,8 @@ export const SignedOutDashboardTeaser = () => {
           <p className="text-sm leading-[1.8] text-foreground-2">
             New here? Continue with Google or create an email account in the
             sign-in flow. Your guest library still works without an account, but
-            signing in unlocks a synced home for future features.
+            signing in adds cross-device Library sync, a personal podcast
+            Playlist, and listening progress with topic badges.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <SignInCta
@@ -482,9 +485,10 @@ export const SignedOutDashboardTeaser = () => {
       >
         <FeatureCard
           title="Library"
-          status="Available today"
+          status="Available without an account"
+          availability="Ready now"
           description="Save articles as you browse. Guests keep bookmarks on this device, and signed-in readers get a synced library across sessions."
-          detail="This remains the working saved-items page right now."
+          detail="Use Library for articles you want to keep and return to."
           action={
             <Link
               href="/library"
@@ -497,15 +501,29 @@ export const SignedOutDashboardTeaser = () => {
         />
         <FeatureCard
           title="Playlist"
-          status="Planned next"
-          description="An ordered listen-later queue that can grow into a personal podcast feed with one episode per saved item."
-          detail="Separate from Library: this is for sequencing what you want to hear next."
+          status="Available when signed in"
+          availability="Ready now"
+          description="Build an ordered listen-next queue and generate one podcast episode per article in your private RSS feed."
+          detail="Use Playlist when you want an article turned into podcast-ready audio."
+          action={
+            <SignInCta
+              label="Sign in for Playlist"
+              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm"
+            />
+          }
         />
         <FeatureCard
-          title="Badges & streaks"
-          status="Future garden"
-          description="Progress markers, reading streaks, and gentle gamification for curiosity habits without turning the app into a casino."
-          detail="Think milestones, continuity, and little rewards for coming back."
+          title="Topic badges"
+          status="Available when signed in"
+          availability="Ready now"
+          description="Listening progress earns EXP across topic badges such as history, science, nature, and the arts."
+          detail="Badge credit comes from qualifying article listening in the browser; podcast-app plays do not count yet."
+          action={
+            <SignInCta
+              label="Sign in for Badges"
+              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm"
+            />
+          }
         />
       </section>
     </>

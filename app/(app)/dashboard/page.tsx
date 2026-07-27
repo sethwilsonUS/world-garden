@@ -4,7 +4,7 @@ import { DashboardHub } from "@/components/DashboardHub";
 export const metadata: Metadata = {
   title: "Dashboard — Curio Garden",
   description:
-    "Your account hub for Curio Garden, including the synced library and future listening and progress features.",
+    "Your Curio Garden account hub for the synced Library, personal podcast Playlist, private feed, and listening progress.",
 };
 
 export default function DashboardPage() {

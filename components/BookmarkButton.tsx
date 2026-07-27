@@ -3,20 +3,48 @@
 import { analytics } from "@/lib/analytics";
 import { useBookmarks } from "@/hooks/useBookmarks";
 
-export const BookmarkButton = ({ slug, title }: { slug: string; title: string }) => {
+export const BookmarkButton = ({
+  slug,
+  title,
+  variant = "icon",
+}: {
+  slug: string;
+  title: string;
+  variant?: "icon" | "labeled";
+}) => {
   const { isBookmarked, toggle } = useBookmarks();
   const saved = isBookmarked(slug);
+  const label = saved ? "Saved to Library" : "Save to Library";
 
   return (
     <button
+      type="button"
       onClick={() => {
         if (!saved) analytics.articleBookmarked();
         toggle(slug, title);
       }}
-      aria-label={saved ? `Remove ${title} from reading list` : `Save ${title} to reading list`}
+      aria-label={
+        variant === "labeled"
+          ? saved
+            ? `Saved to Library: remove ${title}`
+            : `Save to Library: ${title}`
+          : saved
+            ? `Remove ${title} from your Library`
+            : `Save ${title} to your Library`
+      }
       aria-pressed={saved}
-      title={saved ? "Remove from reading list" : "Save for later"}
-      className={`linked-article-link inline-flex items-center justify-center w-10 h-10 mt-1 shrink-0 rounded-[10px] cursor-pointer transition-all duration-200 border ${saved ? "bg-accent-bg border-accent-border text-accent" : "bg-transparent border-border text-muted"}`}
+      title={
+        saved
+          ? "Library: remove this saved article"
+          : "Library: save this article to revisit later"
+      }
+      className={`linked-article-link inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] border transition-all duration-200 ${
+        variant === "labeled" ? "px-3 py-2" : "h-10 w-10"
+      } ${
+        saved
+          ? "border-accent-border bg-accent-bg text-accent"
+          : "border-border bg-transparent text-muted"
+      }`}
     >
       <svg
         viewBox="0 0 24 24"
@@ -31,6 +59,9 @@ export const BookmarkButton = ({ slug, title }: { slug: string; title: string })
       >
         <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
       </svg>
+      {variant === "labeled" ? (
+        <span className="text-sm font-medium">{label}</span>
+      ) : null}
     </button>
   );
 };

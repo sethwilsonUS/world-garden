@@ -45,7 +45,7 @@ const HistoryItem = ({ entry }: { entry: HistoryEntry }) => {
   );
 };
 
-export const RecentlyListened = () => {
+export const RecentlyOpened = () => {
   const { entries } = useHistory();
 
   if (entries.length === 0) return null;
@@ -53,12 +53,12 @@ export const RecentlyListened = () => {
   const recent = entries.slice(0, 6);
 
   return (
-    <section aria-labelledby="recently-listened-heading" className="mt-12">
+    <section aria-labelledby="recently-opened-heading" className="mt-12">
       <h2
-        id="recently-listened-heading"
+        id="recently-opened-heading"
         className="font-display font-semibold text-lg text-foreground mb-4 text-center"
       >
-        Recently listened
+        Recently opened
       </h2>
       <ul
         className="list-none p-0 m-0 grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5"
