@@ -1,14 +1,8 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import {
-  InlineProgressBar,
-  PauseIcon,
-  PlayIcon,
-  SpeedButton,
-} from "@/components/AudioPlaybackPresentation";
-import { useAudioElement } from "@/hooks/useAudioElement";
-import { formatRate, usePlaybackRate } from "@/hooks/usePlaybackRate";
+import { AudioPlayer } from "@/components/AudioPlayer";
+import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { analytics } from "@/lib/analytics";
 
 export const HOME_LISTENING_SAMPLE_URL =
@@ -24,15 +18,10 @@ const PLAYBACK_ERROR_MESSAGE = "The listening sample could not start.";
 export const HomeListeningSample = () => {
   const hasTrackedStart = useRef(false);
   const hasTrackedCompletion = useRef(false);
-  const [hasPlayed, setHasPlayed] = useState(false);
-  const [hasEnded, setHasEnded] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
-  const [rateAnnouncement, setRateAnnouncement] = useState("");
-  const { rate, cycleRate } = usePlaybackRate();
+  const { rate, setRate } = usePlaybackRate();
 
   const handlePlaying = useCallback(() => {
-    setHasPlayed(true);
-    setHasEnded(false);
     setPlaybackError("");
     if (hasTrackedStart.current) return;
     hasTrackedStart.current = true;
@@ -40,73 +29,14 @@ export const HomeListeningSample = () => {
   }, []);
 
   const handleEnded = useCallback(() => {
-    setHasEnded(true);
     if (hasTrackedCompletion.current) return;
     hasTrackedCompletion.current = true;
     analytics.listeningSampleCompleted();
   }, []);
 
-  const { audioRef, playing, currentTime, duration, seek } = useAudioElement({
-    url: HOME_LISTENING_SAMPLE_URL,
-    onEnded: handleEnded,
-    playbackRate: rate,
-  });
-
-  const effectiveDuration =
-    duration > 0 ? duration : HOME_LISTENING_SAMPLE_DURATION_SECONDS;
-  const playAction = playing
-    ? "Pause"
-    : hasEnded
-      ? "Play sample again"
-      : hasPlayed
-        ? "Resume"
-        : "Play";
-  const playButtonLabel = playing
-    ? "Pause listening sample"
-    : hasEnded
-      ? "Play sample again"
-      : hasPlayed
-        ? "Resume listening sample"
-        : "Play listening sample";
-
   const handlePlaybackFailure = useCallback(() => {
     setPlaybackError(PLAYBACK_ERROR_MESSAGE);
   }, []);
-
-  const handlePlayToggle = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (playing) {
-      audio.pause();
-      return;
-    }
-
-    if (hasEnded) seek(0);
-    setPlaybackError("");
-
-    try {
-      const playResult = audio.play();
-      if (playResult && typeof playResult.catch === "function") {
-        void playResult.catch(handlePlaybackFailure);
-      }
-    } catch {
-      handlePlaybackFailure();
-    }
-  }, [audioRef, handlePlaybackFailure, hasEnded, playing, seek]);
-
-  const handleSeek = useCallback(
-    (time: number) => {
-      if (time < effectiveDuration) setHasEnded(false);
-      seek(time);
-    },
-    [effectiveDuration, seek],
-  );
-
-  const handleSpeedChange = useCallback(() => {
-    const nextRate = cycleRate();
-    setRateAnnouncement(`Playback speed ${formatRate(nextRate)}`);
-  }, [cycleRate]);
 
   return (
     <section
@@ -152,73 +82,38 @@ export const HomeListeningSample = () => {
           </div>
         </div>
 
-        <div
-          role="group"
-          aria-label="Curio Garden listening sample player"
-          className="mt-4 overflow-hidden rounded-xl border border-border bg-surface-2"
-        >
-          <div className="flex flex-wrap items-center gap-2 px-3 pb-2 pt-3">
-            <button
-              type="button"
-              onClick={handlePlayToggle}
-              aria-label={playButtonLabel}
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-transparent bg-btn-primary px-3 py-2 font-semibold text-btn-primary-text transition-colors duration-150 hover:bg-btn-primary-hover"
-            >
-              {playing ? <PauseIcon /> : <PlayIcon />}
-              <span>{playAction}</span>
-            </button>
+        <AudioPlayer
+          audioUrl={HOME_LISTENING_SAMPLE_URL}
+          title="Curio Garden listening sample"
+          label="Listen: Curio Garden in 18 seconds"
+          fallbackDuration={HOME_LISTENING_SAMPLE_DURATION_SECONDS}
+          playbackRate={rate}
+          onPlaybackRateChange={setRate}
+          onPlaying={handlePlaying}
+          onEnded={handleEnded}
+          onPlaybackError={handlePlaybackFailure}
+          variant="compact"
+          className="mt-4 max-w-full"
+        />
 
-            <SpeedButton rate={rate} onClick={handleSpeedChange} />
-          </div>
-
-          <InlineProgressBar
-            currentTime={currentTime}
-            duration={effectiveDuration}
-            onSeek={handleSeek}
-          />
-
-          {playbackError ? (
-            <p
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-              className="mx-3 mb-3 rounded-lg border border-critical/40 bg-surface px-3 py-2 text-sm leading-[1.6] text-critical"
-            >
-              {playbackError} Try again, or{" "}
-              <a
-                href={HOME_LISTENING_SAMPLE_URL}
-                download
-                className="font-semibold text-accent underline underline-offset-2"
-              >
-                download sample audio
-              </a>
-              .
-            </p>
-          ) : null}
-
-          <div
-            className="sr-only"
+        {playbackError ? (
+          <p
             role="status"
             aria-live="polite"
             aria-atomic="true"
+            className="mt-3 rounded-lg border border-critical/40 bg-surface px-3 py-2 text-sm leading-[1.6] text-critical"
           >
-            {rateAnnouncement}
-          </div>
-        </div>
-
-        <audio
-          ref={audioRef}
-          src={HOME_LISTENING_SAMPLE_URL}
-          preload="metadata"
-          hidden
-          aria-hidden="true"
-          onError={handlePlaybackFailure}
-          onPlaying={handlePlaying}
-        />
-
-        <p className="mt-2 font-mono text-[0.6875rem] leading-[1.5] text-muted">
-          Synthetic voice · 18 seconds
-        </p>
+            {playbackError} Try again, or{" "}
+            <a
+              href={HOME_LISTENING_SAMPLE_URL}
+              download
+              className="font-semibold text-accent underline underline-offset-2"
+            >
+              download sample audio
+            </a>
+            .
+          </p>
+        ) : null}
       </div>
 
       <details className="mt-3 border-t border-border px-4 pb-3 text-sm text-foreground-2 sm:px-5">

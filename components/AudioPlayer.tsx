@@ -1,11 +1,18 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import {
+  useRef,
+  useEffect,
+  useEffectEvent,
+  useState,
+  useCallback,
+} from "react";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
   formatRate,
 } from "@/hooks/usePlaybackRate";
+import { formatTime } from "@/lib/formatTime";
 
 type AudioPlayerProps = {
   audioUrl: string;
@@ -17,9 +24,11 @@ type AudioPlayerProps = {
   onPlaybackRateChange?: (rate: PlaybackRate) => void;
   variant?: "default" | "compact";
   className?: string;
+  fallbackDuration?: number;
+  onPlaying?: () => void;
+  onPlaybackError?: () => void;
 };
 
-import { formatTime } from "@/lib/formatTime";
 export { formatTime } from "@/lib/formatTime";
 
 export const AudioPlayer = ({
@@ -32,34 +41,60 @@ export const AudioPlayer = ({
   onPlaybackRateChange,
   variant = "default",
   className = "",
+  fallbackDuration = 0,
+  onPlaying,
+  onPlaybackError,
 }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playBtnRef = useRef<HTMLButtonElement>(null);
   const [playing, setPlaying] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [rateAnnouncement, setRateAnnouncement] = useState("");
+  const playbackRateRef = useRef(playbackRate);
+  const handlePlaying = useEffectEvent(() => onPlaying?.());
+  const handleEnded = useEffectEvent(() => onEnded?.());
+  const handlePlaybackError = useEffectEvent(() => onPlaybackError?.());
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onPlay = () => setPlaying(true);
+    const onPlay = () => {
+      setPlaying(true);
+      setEnded(false);
+      setHasPlayed(true);
+    };
+    const onPlayingEvent = () => handlePlaying();
     const onPause = () => setPlaying(false);
-    const onEndedEvt = () => setPlaying(false);
+    const onEndedEvt = () => {
+      setPlaying(false);
+      setEnded(true);
+      handleEnded();
+    };
+    const onError = () => {
+      setPlaying(false);
+      handlePlaybackError();
+    };
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
     const onMeta = () => {
       if (isFinite(audio.duration)) setDuration(audio.duration);
     };
     audio.addEventListener("play", onPlay);
+    audio.addEventListener("playing", onPlayingEvent);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("ended", onEndedEvt);
+    audio.addEventListener("error", onError);
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("durationchange", onMeta);
     audio.addEventListener("loadedmetadata", onMeta);
     return () => {
       audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("playing", onPlayingEvent);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("ended", onEndedEvt);
+      audio.removeEventListener("error", onError);
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("durationchange", onMeta);
       audio.removeEventListener("loadedmetadata", onMeta);
@@ -72,6 +107,8 @@ export const AudioPlayer = ({
     setCurrentTime(0);
     setDuration(0);
     setPlaying(false);
+    setEnded(false);
+    setHasPlayed(false);
   }
 
   useEffect(() => {
@@ -82,9 +119,13 @@ export const AudioPlayer = ({
     const timer = setTimeout(() => {
       const audio = audioRef.current;
       if (!audio) return;
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.then(() => setPlaying(true)).catch(() => {});
+      try {
+        const playResult = audio.play();
+        if (playResult && typeof playResult.catch === "function") {
+          void playResult.catch(() => handlePlaybackError());
+        }
+      } catch {
+        handlePlaybackError();
       }
     }, 1500);
 
@@ -93,46 +134,90 @@ export const AudioPlayer = ({
 
   useEffect(() => {
     const audio = audioRef.current;
+    playbackRateRef.current = playbackRate;
     if (audio) audio.playbackRate = playbackRate;
   }, [playbackRate, audioUrl]);
 
   const cycleSpeed = useCallback(() => {
     if (!onPlaybackRateChange) return;
-    const idx = PLAYBACK_RATES.indexOf(playbackRate);
+    const idx = PLAYBACK_RATES.indexOf(playbackRateRef.current);
     const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
+    playbackRateRef.current = next;
     onPlaybackRateChange(next);
     setRateAnnouncement(`Playback speed ${formatRate(next)}`);
-  }, [playbackRate, onPlaybackRateChange]);
+  }, [onPlaybackRateChange]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) audio.play();
-    else audio.pause();
-  }, []);
+    if (playing) {
+      audio.pause();
+      return;
+    }
+
+    if (ended) {
+      audio.currentTime = 0;
+      setCurrentTime(0);
+      setEnded(false);
+    }
+
+    try {
+      const playResult = audio.play();
+      if (playResult && typeof playResult.catch === "function") {
+        void playResult.catch(() => onPlaybackError?.());
+      }
+    } catch {
+      onPlaybackError?.();
+    }
+  }, [ended, onPlaybackError, playing]);
+
+  const effectiveDuration =
+    duration > 0 && Number.isFinite(duration)
+      ? duration
+      : Number.isFinite(fallbackDuration)
+        ? Math.max(0, fallbackDuration)
+        : 0;
+  const normalizedCurrentTime = Number.isFinite(currentTime)
+    ? Math.min(effectiveDuration, Math.max(0, currentTime))
+    : 0;
 
   const handleSeek = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const audio = audioRef.current;
       if (!audio) return;
-      const t = parseFloat(e.target.value);
+      const requestedTime = parseFloat(e.target.value);
+      const t = Number.isFinite(requestedTime)
+        ? Math.min(effectiveDuration, Math.max(0, requestedTime))
+        : 0;
       audio.currentTime = t;
       setCurrentTime(t);
+      if (t < effectiveDuration) setEnded(false);
+      if (t > 0) setHasPlayed(true);
     },
-    [],
+    [effectiveDuration],
   );
 
-  const skip = useCallback((s: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = Math.max(
-      0,
-      Math.min(audio.duration || 0, audio.currentTime + s),
-    );
-  }, []);
+  const skip = useCallback(
+    (s: number) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const fromTime = Number.isFinite(audio.currentTime)
+        ? audio.currentTime
+        : 0;
+      const nextTime = Math.max(0, Math.min(effectiveDuration, fromTime + s));
+      audio.currentTime = nextTime;
+      setCurrentTime(nextTime);
+      if (nextTime < effectiveDuration) setEnded(false);
+      if (nextTime > 0) setHasPlayed(true);
+    },
+    [effectiveDuration],
+  );
 
   const displayLabel = label ?? `Now playing: ${title}`;
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progress =
+    effectiveDuration > 0
+      ? (normalizedCurrentTime / effectiveDuration) * 100
+      : 0;
   const compact = variant === "compact";
 
   return (
@@ -147,7 +232,9 @@ export const AudioPlayer = ({
         aria-live="polite"
       >
         <span
-          className="audio-pulse shrink-0 w-2 h-2 rounded-full bg-accent"
+          className={`shrink-0 h-2 w-2 rounded-full ${
+            playing ? "audio-pulse bg-accent" : "bg-control-border"
+          }`}
           aria-hidden="true"
         />
         <span className="truncate">{displayLabel}</span>
@@ -166,11 +253,22 @@ export const AudioPlayer = ({
           }`}
         >
           <button
+            type="button"
             onClick={() => skip(-10)}
             aria-label="Skip back 10 seconds"
-            className="flex flex-col items-center gap-[1px] p-2 bg-transparent border-0 rounded-[10px] cursor-pointer text-muted font-mono text-[0.5625rem] font-bold leading-none"
+            className="flex min-h-10 min-w-10 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18} aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={18}
+              height={18}
+              aria-hidden="true"
+            >
               <path d="M1 4v6h6" />
               <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
@@ -178,35 +276,68 @@ export const AudioPlayer = ({
           </button>
 
           <button
+            type="button"
             ref={playBtnRef}
             onClick={togglePlay}
-            aria-label={playing ? `Pause: ${title}` : `Play: ${title}`}
-            className={`search-submit flex shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-accent text-white transition-all duration-150 ${
+            aria-label={
+              playing
+                ? `Pause: ${title}`
+                : ended
+                  ? `Replay: ${title}`
+                  : hasPlayed
+                    ? `Resume: ${title}`
+                    : `Play: ${title}`
+            }
+            className={`search-submit flex shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-btn-primary text-btn-primary-text transition-all duration-150 hover:bg-btn-primary-hover ${
               compact ? "h-11 w-11" : "h-[52px] w-[52px]"
             }`}
             style={{
               boxShadow:
-                "0 4px 14px rgba(0,0,0,0.2), 0 0 0 4px var(--accent-glow)",
+                "0 4px 14px rgba(0,0,0,0.2), 0 0 0 4px var(--color-accent-glow)",
             }}
           >
             {playing ? (
-              <svg viewBox="0 0 24 24" fill="currentColor" width={22} height={22} aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                width={22}
+                height={22}
+                aria-hidden="true"
+              >
                 <rect x="6" y="4" width="4" height="16" rx="1" />
                 <rect x="14" y="4" width="4" height="16" rx="1" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" fill="currentColor" width={22} height={22} aria-hidden="true" className="ml-0.5">
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                width={22}
+                height={22}
+                aria-hidden="true"
+                className="ml-0.5"
+              >
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
             )}
           </button>
 
           <button
+            type="button"
             onClick={() => skip(10)}
             aria-label="Skip forward 10 seconds"
-            className="flex flex-col items-center gap-[1px] p-2 bg-transparent border-0 rounded-[10px] cursor-pointer text-muted font-mono text-[0.5625rem] font-bold leading-none"
+            className="flex min-h-10 min-w-10 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={18} height={18} aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={18}
+              height={18}
+              aria-hidden="true"
+            >
               <path d="M23 4v6h-6" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
@@ -215,9 +346,10 @@ export const AudioPlayer = ({
 
           {onPlaybackRateChange && (
             <button
+              type="button"
               onClick={cycleSpeed}
-              aria-label={`Playback speed ${formatRate(playbackRate)}. Click to change.`}
-              className={`flex items-center justify-center py-1.5 px-[10px] bg-transparent border border-border rounded-lg cursor-pointer font-mono text-[0.8125rem] font-bold leading-none min-w-[44px] transition-colors duration-150 ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
+              aria-label={`Playback speed ${formatRate(playbackRate)}. Activate to change.`}
+              className={`flex min-h-10 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-2.5 py-1.5 font-mono text-[0.8125rem] font-bold leading-none transition-colors duration-150 hover:bg-accent-bg hover:text-accent ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
             >
               {formatRate(playbackRate)}
             </button>
@@ -234,79 +366,23 @@ export const AudioPlayer = ({
             className="font-mono text-xs font-medium text-muted min-w-[38px] select-none"
             aria-hidden="true"
           >
-            {formatTime(currentTime)}
+            {formatTime(normalizedCurrentTime)}
           </span>
 
           <div className="flex-1 min-w-0">
-            <style>{`
-              input[data-player-range] {
-                -webkit-appearance: none !important;
-                appearance: none !important;
-                width: 100% !important;
-                height: 8px !important;
-                border-radius: 4px !important;
-                background: linear-gradient(
-                  to right,
-                  var(--accent) 0%,
-                  var(--accent) var(--progress, 0%),
-                  rgba(255,255,255,0.1) var(--progress, 0%),
-                  rgba(255,255,255,0.1) 100%
-                ) !important;
-                cursor: pointer !important;
-                outline: none !important;
-                border: none !important;
-                margin: 0 !important;
-                padding: 0 !important;
-              }
-              input[data-player-range]:focus-visible {
-                outline: 2px solid var(--accent) !important;
-                outline-offset: 4px !important;
-              }
-              input[data-player-range]::-webkit-slider-thumb {
-                -webkit-appearance: none !important;
-                appearance: none !important;
-                width: 18px !important;
-                height: 18px !important;
-                border-radius: 50% !important;
-                background: #fff !important;
-                border: none !important;
-                box-shadow: 0 1px 6px rgba(0,0,0,0.35) !important;
-                cursor: pointer !important;
-              }
-              input[data-player-range]::-moz-range-thumb {
-                width: 18px !important;
-                height: 18px !important;
-                border-radius: 50% !important;
-                background: #fff !important;
-                border: none !important;
-                box-shadow: 0 1px 6px rgba(0,0,0,0.35) !important;
-                cursor: pointer !important;
-              }
-              input[data-player-range]::-moz-range-track {
-                height: 8px !important;
-                border-radius: 4px !important;
-                background: rgba(255,255,255,0.1) !important;
-              }
-              input[data-player-range]::-moz-range-progress {
-                height: 8px !important;
-                border-radius: 4px !important;
-                background: var(--accent) !important;
-              }
-            `}</style>
             <input
               type="range"
-              data-player-range=""
               min={0}
-              max={duration || 0}
+              max={effectiveDuration}
               step={0.1}
-              value={currentTime}
+              value={normalizedCurrentTime}
               onChange={handleSeek}
-              aria-label={`Playback position. ${formatTime(currentTime)} of ${formatTime(duration)}`}
+              aria-label="Playback position"
               aria-valuemin={0}
-              aria-valuemax={duration}
-              aria-valuenow={currentTime}
-              aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
-              className="block w-full"
+              aria-valuemax={effectiveDuration}
+              aria-valuenow={normalizedCurrentTime}
+              aria-valuetext={`${formatTime(normalizedCurrentTime)} of ${formatTime(effectiveDuration)}`}
+              className="article-audio-progress-range block w-full"
               style={
                 {
                   "--progress": `${progress}%`,
@@ -319,7 +395,7 @@ export const AudioPlayer = ({
             className="font-mono text-xs font-medium text-muted min-w-[38px] text-right select-none"
             aria-hidden="true"
           >
-            {duration > 0 ? formatTime(duration) : "--:--"}
+            {effectiveDuration > 0 ? formatTime(effectiveDuration) : "--:--"}
           </span>
         </div>
       </div>
@@ -336,7 +412,17 @@ export const AudioPlayer = ({
           aria-label={`Download audio for ${title}`}
           className="inline-flex items-center gap-1.5 py-1.5 px-[14px] text-xs text-muted no-underline rounded-lg"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={13} height={13} aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            width={13}
+            height={13}
+            aria-hidden="true"
+          >
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
@@ -345,7 +431,13 @@ export const AudioPlayer = ({
         </a>
       </div>
 
-      <audio ref={audioRef} src={audioUrl} onEnded={onEnded} preload="metadata" aria-label={`Audio for ${title}`} />
+      <audio
+        ref={audioRef}
+        src={audioUrl}
+        preload="metadata"
+        hidden
+        aria-hidden="true"
+      />
     </div>
   );
 };
