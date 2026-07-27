@@ -5,6 +5,7 @@ import { RecentlyOpened } from "@/components/RecentlyOpened";
 import { HomeAuthStatusBanner } from "@/components/HomeAuthStatusBanner";
 import { RandomArticleButton } from "@/components/RandomArticleButton";
 import { TodayOnWikipedia } from "@/components/TodayOnWikipedia";
+import { HomeListeningSample } from "@/components/HomeListeningSample";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
@@ -32,11 +33,12 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="animate-fade-in-up-delay-1 max-w-[480px] mx-auto">
+          <div className="animate-fade-in-up-delay-1 mx-auto max-w-[480px]">
             <SearchForm />
             <div className="mt-3">
               <RandomArticleButton />
             </div>
+            <HomeListeningSample />
           </div>
         </section>
 

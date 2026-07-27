@@ -485,6 +485,27 @@ test("home presents the product and expands the curated daily preview", async ({
       "Explore any Wikipedia article as clear, section-by-section audio, then keep listening wherever curiosity takes you.",
     ),
   ).toBeVisible();
+  const listeningSample = page.getByRole("region", {
+    name: "Start with a short listen",
+  });
+  await expect(listeningSample).toBeVisible();
+  await expect(
+    listeningSample.getByText("No account or search needed", { exact: false }),
+  ).toBeVisible();
+  const sampleAudio = listeningSample.locator("audio");
+  await expect(sampleAudio).toHaveAttribute("controls", "");
+  await expect(sampleAudio).toHaveAttribute("preload", "metadata");
+  await expect(sampleAudio.locator("source")).toHaveAttribute(
+    "src",
+    "/audio/curio-garden-listening-sample-edge-v1.mp3",
+  );
+  await listeningSample.getByText("Transcript", { exact: true }).click();
+  await expect(
+    listeningSample.getByText(
+      "Welcome to Curio Garden. A Wikipedia article becomes a listening path:",
+      { exact: false },
+    ),
+  ).toBeVisible();
   await expect(page.getByText("Audio-first Wikipedia")).toHaveCount(0);
   await expect(
     page.getByText("accessible fact 4", { exact: false }),
@@ -497,6 +518,30 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(
     page.getByRole("button", { name: "Show fewer facts" }),
   ).toBeFocused();
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("home listening sample and search reflow at 320 pixels", async ({
+  page,
+  request,
+}) => {
+  await mockHomeData(page);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/");
+
+  const assetResponse = await request.get(
+    "/audio/curio-garden-listening-sample-edge-v1.mp3",
+  );
+  expect(assetResponse.status()).toBe(200);
+  expect(assetResponse.headers()["content-type"]).toContain("audio/mpeg");
+
+  await expect(
+    page.getByRole("region", { name: "Start with a short listen" }),
+  ).toBeVisible();
+  const horizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(horizontalOverflow).toBeLessThanOrEqual(0);
   await expectNoSeriousAxeViolations(page);
 });
 
