@@ -16,7 +16,7 @@ type SearchResult = {
 const SearchResultsForTerm = ({ term }: { term: string }) => {
   const { search: searchAction } = useData();
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(term.trim()));
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
 
@@ -24,6 +24,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
     if (!term.trim()) return;
 
     let cancelled = false;
+    // Mount the empty polite region before adding text so AT announces it.
     queueMicrotask(() => {
       if (!cancelled) {
         setStatusMessage(`Searching Wikipedia for ${term}.`);
@@ -42,9 +43,13 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
           );
         }
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err.message ?? "Search failed");
+          setError(
+            err instanceof Error && err.message
+              ? err.message
+              : "Search failed",
+          );
           setStatusMessage("");
         }
       })

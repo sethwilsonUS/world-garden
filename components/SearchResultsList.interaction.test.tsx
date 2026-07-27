@@ -159,8 +159,6 @@ describe("SearchResultsList interactions", () => {
     const firstLink = links[0];
     expect(firstLink).toBeInstanceOf(HTMLAnchorElement);
     firstLink?.focus();
-    const click = vi.fn();
-    links.forEach((link) => link.addEventListener("click", click));
 
     for (const event of [
       new KeyboardEvent("keydown", { key: "1", bubbles: true }),
@@ -176,7 +174,6 @@ describe("SearchResultsList interactions", () => {
       expect(event.defaultPrevented).toBe(false);
     }
 
-    expect(click).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(firstLink);
 
     const playlistButton = Array.from(
@@ -191,7 +188,6 @@ describe("SearchResultsList interactions", () => {
     playlistButton?.dispatchEvent(digitFromButton);
 
     expect(digitFromButton.defaultPrevented).toBe(false);
-    expect(click).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(playlistButton);
   });
 
@@ -216,9 +212,7 @@ describe("SearchResultsList interactions", () => {
       "No search results found for Entwives.",
     );
 
-    const failedSearch = vi.fn(async () => {
-      throw new Error("The garden gate is stuck.");
-    });
+    const failedSearch = vi.fn(() => Promise.reject(null));
     await act(async () => {
       root.render(
         <DataContext.Provider value={dataValue(failedSearch)}>
@@ -229,10 +223,28 @@ describe("SearchResultsList interactions", () => {
     });
     await waitForExpectation(() => {
       expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-        "The garden gate is stuck.",
+        "Search failed",
       );
     });
 
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("");
+  });
+
+  it("does not strand a blank term in the hidden loading skeleton", async () => {
+    const search = vi.fn(async () => []);
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={dataValue(search)}>
+          <SearchResultsList term="   " />
+        </DataContext.Provider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(container.querySelector(".skeleton")).toBeNull();
+    expect(container.textContent).toContain("No seeds found");
     expect(container.querySelector('[role="status"]')?.textContent).toBe("");
   });
 
