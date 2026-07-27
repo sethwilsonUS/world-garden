@@ -21,6 +21,8 @@ export const analytics = {
   trendingPageAccessed: () => track("Trending Page Accessed"),
   trendingArticleViewed: (source?: "curious" | "trending_page") =>
     track("Trending Article Viewed", source ? { source } : {}),
+  listeningSampleStarted: () => track("Listening Sample Started"),
+  listeningSampleCompleted: () => track("Listening Sample Completed"),
   audioStartup: ({
     scope,
     source,
