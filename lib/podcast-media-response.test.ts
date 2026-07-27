@@ -42,6 +42,7 @@ describe("isPodcastDownloadRequest", () => {
 describe("createPodcastAttachmentResponse", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("returns an attachment response with audio headers", async () => {
@@ -181,5 +182,32 @@ describe("createPodcastAttachmentResponse", () => {
     expect(response.headers.get("Accept-Ranges")).toBe("bytes");
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(response.headers.get("Vary")).toBe("Range");
+  });
+
+  it("aborts an upstream handshake that exceeds its bounded timeout", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Timed out", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const responsePromise = createPodcastInlineResponse({
+      audioUrl: "https://storage.example/private.mp3",
+      cacheControl: "private, no-store",
+      request: new NextRequest("https://example.com/private-audio"),
+      upstreamTimeoutMs: 25,
+    });
+    const rejection = expect(responsePromise).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+    await rejection;
   });
 });

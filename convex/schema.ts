@@ -194,6 +194,7 @@ export default defineSchema({
   personalPodcastFeeds: defineTable({
     viewerTokenIdentifier: v.string(),
     feedToken: v.string(),
+    revokedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

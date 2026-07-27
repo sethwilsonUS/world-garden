@@ -28,22 +28,41 @@ const createPodcastMediaProxyResponse = async ({
   cacheControl,
   request,
   contentDisposition,
+  upstreamTimeoutMs,
 }: {
   audioUrl: string;
   cacheControl: string;
   request: NextRequest;
   contentDisposition?: string;
+  upstreamTimeoutMs?: number;
 }): Promise<NextResponse> => {
   const method = request.method === "HEAD" ? "HEAD" : "GET";
   const upstreamRequestHeaders = new Headers();
   const requestedRange = request.headers.get("Range");
   if (requestedRange) upstreamRequestHeaders.set("Range", requestedRange);
 
-  const upstream = await fetch(audioUrl, {
-    cache: "no-store",
-    method,
-    headers: upstreamRequestHeaders,
-  });
+  const timeoutController =
+    upstreamTimeoutMs != null &&
+    Number.isFinite(upstreamTimeoutMs) &&
+    upstreamTimeoutMs > 0
+      ? new AbortController()
+      : null;
+  const timeoutHandle = timeoutController
+    ? setTimeout(() => timeoutController.abort(), upstreamTimeoutMs)
+    : null;
+  let upstream: Response;
+  try {
+    upstream = await fetch(audioUrl, {
+      cache: "no-store",
+      method,
+      headers: upstreamRequestHeaders,
+      ...(timeoutController ? { signal: timeoutController.signal } : {}),
+    });
+  } finally {
+    // Bound the upstream handshake without cutting off the streamed audio body
+    // after its response headers have arrived.
+    if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+  }
 
   const isRangeNotSatisfiable = upstream.status === 416;
   if (
@@ -54,9 +73,7 @@ const createPodcastMediaProxyResponse = async ({
   }
 
   const headers = new Headers({
-    "Cache-Control": isRangeNotSatisfiable
-      ? "private, no-store"
-      : cacheControl,
+    "Cache-Control": isRangeNotSatisfiable ? "private, no-store" : cacheControl,
     "Content-Type": upstream.headers.get("Content-Type") ?? "audio/mpeg",
     Vary: "Range",
   });
@@ -78,12 +95,19 @@ export const createPodcastInlineResponse = async ({
   audioUrl,
   cacheControl,
   request,
+  upstreamTimeoutMs,
 }: {
   audioUrl: string;
   cacheControl: string;
   request: NextRequest;
+  upstreamTimeoutMs?: number;
 }): Promise<NextResponse> =>
-  await createPodcastMediaProxyResponse({ audioUrl, cacheControl, request });
+  await createPodcastMediaProxyResponse({
+    audioUrl,
+    cacheControl,
+    request,
+    upstreamTimeoutMs,
+  });
 
 export const createPodcastAttachmentResponse = async ({
   audioUrl,
@@ -91,17 +115,20 @@ export const createPodcastAttachmentResponse = async ({
   fallbackFilename,
   cacheControl = PODCAST_MEDIA_CACHE_CONTROL,
   request,
+  upstreamTimeoutMs,
 }: {
   audioUrl: string;
   title: string;
   fallbackFilename: string;
   cacheControl?: string;
   request: NextRequest;
+  upstreamTimeoutMs?: number;
 }): Promise<NextResponse> => {
   return await createPodcastMediaProxyResponse({
     audioUrl,
     cacheControl,
     request,
+    upstreamTimeoutMs,
     contentDisposition: `attachment; filename="${buildPodcastDownloadFilename(title, fallbackFilename)}"`,
   });
 };

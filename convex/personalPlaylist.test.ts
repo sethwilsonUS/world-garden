@@ -3,10 +3,17 @@ import { type Id } from "./_generated/dataModel";
 import { type TtsMetadata } from "../lib/tts-profile";
 import {
   addViewerPlaylistEpisodeBySlug,
+  getEpisodeByTokenAndId,
+  getFeedEpisodesByToken,
+  getEpisodeForPersonalFeedServer,
+  getViewerFeedToken,
+  getViewerFeedState,
   listViewerPlaylistEpisodesForCtx,
   moveViewerPlaylistEpisodeForCtx,
   removeViewerPlaylistEpisodeForCtx,
+  revokeViewerFeedToken,
   retryViewerPlaylistEpisode,
+  rotateViewerFeedToken,
   upsertViewerPlaylistEpisodeForCtx,
 } from "./personalPlaylist";
 import {
@@ -20,11 +27,13 @@ import {
   updateViewerPlaylistEpisodeProgressForCtx,
   type PersonalPlaylistMutationCtx,
 } from "./lib/personalPlaylistPersistence";
+import { createPersonalFeedMediaReadAttestation } from "../lib/personal-feed-media-attestation";
 
 type FeedDoc = {
   _id: Id<"personalPodcastFeeds">;
   viewerTokenIdentifier: string;
   feedToken: string;
+  revokedAt?: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -75,6 +84,11 @@ type QuotaDoc = {
   updatedAt: number;
 };
 
+type ArticleDoc = {
+  _id: Id<"articles">;
+  revisionId: string;
+};
+
 const buildEpisode = (
   overrides: Partial<EpisodeDoc> &
     Pick<EpisodeDoc, "_id" | "articleId" | "slug" | "title">,
@@ -90,14 +104,21 @@ const buildEpisode = (
 });
 
 const createCtx = (seed?: {
+  articles?: ArticleDoc[];
   feeds?: FeedDoc[];
   episodes?: EpisodeDoc[];
   quotas?: QuotaDoc[];
+  viewerTokenIdentifier?: string | null;
 }) => {
+  const articles = [...(seed?.articles ?? [])];
   let feeds = [...(seed?.feeds ?? [])];
   let episodes = [...(seed?.episodes ?? [])];
   let quotas = [...(seed?.quotas ?? [])];
   let idCounter = feeds.length + episodes.length + quotas.length;
+  const getStorageUrl = vi.fn(
+    async (storageId: Id<"_storage">) =>
+      `https://cdn.example.com/${storageId}.mp3`,
+  );
 
   const matchesFilters = (
     doc: Record<string, unknown>,
@@ -105,6 +126,14 @@ const createCtx = (seed?: {
   ) => filters.every(([field, value]) => doc[field] === value);
 
   const ctx = {
+    auth: {
+      getUserIdentity: async () =>
+        seed?.viewerTokenIdentifier === null
+          ? null
+          : {
+              tokenIdentifier: seed?.viewerTokenIdentifier ?? "user-1",
+            },
+    },
     db: {
       query: (
         tableName:
@@ -178,13 +207,18 @@ const createCtx = (seed?: {
           episodes.find((doc) => doc._id === id) ??
           feeds.find((doc) => doc._id === id) ??
           quotas.find((doc) => doc._id === id) ??
+          articles.find((doc) => doc._id === id) ??
           null
         );
       },
+      normalizeId: (tableName: string, id: string) =>
+        tableName === "personalPlaylistEpisodes" &&
+        episodes.some((episode) => episode._id === id)
+          ? (id as Id<"personalPlaylistEpisodes">)
+          : null,
     },
     storage: {
-      getUrl: async (storageId: Id<"_storage">) =>
-        `https://cdn.example.com/${storageId}.mp3`,
+      getUrl: getStorageUrl,
     },
   } as unknown as PersonalPlaylistMutationCtx;
 
@@ -193,8 +227,20 @@ const createCtx = (seed?: {
     getFeeds: () => feeds,
     getEpisodes: () => episodes,
     getQuotas: () => quotas,
+    getStorageUrl,
   };
 };
+
+const invokeRegistered = async <TArgs, TResult>(
+  registeredFunction: unknown,
+  ctx: unknown,
+  args: TArgs,
+): Promise<TResult> =>
+  await (
+    registeredFunction as {
+      _handler: (handlerCtx: unknown, handlerArgs: TArgs) => Promise<TResult>;
+    }
+  )._handler(ctx, args);
 
 describe("personal playlist data helpers", () => {
   const narrationHash = "article-narration-current";
@@ -275,6 +321,343 @@ describe("personal playlist data helpers", () => {
         requestedTtsMetadata,
       }),
     ]);
+  });
+
+  it("rotates the signed-in viewer's feed token and invalidates the old URL", async () => {
+    const oldFeedToken = "a".repeat(64);
+    const otherFeedToken = "c".repeat(64);
+    const { ctx, getFeeds } = createCtx({
+      feeds: [
+        {
+          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-1",
+          feedToken: oldFeedToken,
+          createdAt: Date.now() - 1_000,
+          updatedAt: Date.now() - 1_000,
+        },
+        {
+          _id: "personalPodcastFeeds-2" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-2",
+          feedToken: otherFeedToken,
+          createdAt: Date.now() - 1_000,
+          updatedAt: Date.now() - 1_000,
+        },
+      ],
+    });
+
+    const rotated = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null }
+    >(rotateViewerFeedToken, ctx, {});
+    const activeState = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null }
+    >(getViewerFeedState, ctx, {});
+    const oldPublicFeed = await invokeRegistered<
+      { feedToken: string },
+      unknown
+    >(getFeedEpisodesByToken, ctx, { feedToken: oldFeedToken });
+    const newPublicFeed = await invokeRegistered<
+      { feedToken: string },
+      unknown
+    >(getFeedEpisodesByToken, ctx, { feedToken: rotated.feedToken ?? "" });
+
+    expect(rotated).toMatchObject({ status: "active" });
+    expect(rotated.feedToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(rotated.feedToken).not.toBe(oldFeedToken);
+    expect(activeState).toEqual(rotated);
+    expect(oldPublicFeed).toBeNull();
+    expect(newPublicFeed).not.toBeNull();
+    expect(
+      getFeeds().find(
+        ({ viewerTokenIdentifier }) => viewerTokenIdentifier === "user-2",
+      )?.feedToken,
+    ).toBe(otherFeedToken);
+  });
+
+  it("rejects unauthenticated feed lifecycle mutations", async () => {
+    const { ctx } = createCtx({ viewerTokenIdentifier: null });
+
+    await expect(
+      invokeRegistered(rotateViewerFeedToken, ctx, {}),
+    ).rejects.toThrow("Unauthorized");
+    await expect(
+      invokeRegistered(revokeViewerFeedToken, ctx, {}),
+    ).rejects.toThrow("Unauthorized");
+  });
+
+  it("revokes feed access idempotently without deleting the playlist and allows reactivation", async () => {
+    const originalFeedToken = "b".repeat(64);
+    const episode = buildEpisode({
+      _id: "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">,
+      articleId: "article-1" as Id<"articles">,
+      slug: "mars",
+      title: "Mars",
+      status: "ready",
+      storageId: "storage-1" as Id<"_storage">,
+    });
+    const { ctx, getEpisodes, getFeeds } = createCtx({
+      feeds: [
+        {
+          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-1",
+          feedToken: originalFeedToken,
+          createdAt: Date.now() - 1_000,
+          updatedAt: Date.now() - 1_000,
+        },
+      ],
+      episodes: [episode],
+    });
+
+    const revoked = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null; updatedAt: number | null }
+    >(revokeViewerFeedToken, ctx, {});
+    const repeated = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null; updatedAt: number | null }
+    >(revokeViewerFeedToken, ctx, {});
+    const viewerState = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null; updatedAt: number | null }
+    >(getViewerFeedState, ctx, {});
+    const compatibilityToken = await invokeRegistered<
+      Record<string, never>,
+      string | null
+    >(getViewerFeedToken, ctx, {});
+    const publicFeed = await invokeRegistered<{ feedToken: string }, unknown>(
+      getFeedEpisodesByToken,
+      ctx,
+      { feedToken: originalFeedToken },
+    );
+
+    expect(revoked).toEqual({
+      status: "revoked",
+      feedToken: null,
+      updatedAt: Date.now(),
+    });
+    expect(repeated).toEqual(revoked);
+    expect(viewerState).toEqual(revoked);
+    expect(compatibilityToken).toBeNull();
+    expect(publicFeed).toBeNull();
+    expect(getEpisodes()).toEqual([episode]);
+    expect(getFeeds()[0]).toMatchObject({
+      revokedAt: Date.now(),
+    });
+    const tombstoneToken = getFeeds()[0].feedToken;
+    expect(tombstoneToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(tombstoneToken).not.toBe(originalFeedToken);
+
+    const addedWhileRevoked = await upsertViewerPlaylistEpisodeForCtx(ctx, {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-2" as Id<"articles">,
+      wikiPageId: "wiki-2",
+      slug: "venus",
+      title: "Venus",
+      sectionCount: 2,
+      narrationHash: "venus-narration",
+    });
+    const stillRevoked = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null; updatedAt: number | null }
+    >(getViewerFeedState, ctx, {});
+
+    expect(addedWhileRevoked).not.toHaveProperty("feedToken");
+    expect(stillRevoked.status).toBe("revoked");
+    expect(getFeeds()[0].feedToken).toBe(tombstoneToken);
+
+    vi.advanceTimersByTime(1_000);
+    const reactivated = await invokeRegistered<
+      Record<string, never>,
+      { status: string; feedToken: string | null; updatedAt: number | null }
+    >(rotateViewerFeedToken, ctx, {});
+
+    expect(reactivated.status).toBe("active");
+    expect(reactivated.feedToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(reactivated.feedToken).not.toBe(originalFeedToken);
+    expect(getFeeds()[0].revokedAt).toBeUndefined();
+    expect(getEpisodes().map(({ title }) => title)).toEqual(["Mars", "Venus"]);
+  });
+
+  it("returns only the RSS fields for ready episodes without creating storage URLs", async () => {
+    const feedToken = "d".repeat(64);
+    const readyEpisode = buildEpisode({
+      _id: "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">,
+      articleId: "article-1" as Id<"articles">,
+      slug: "mars",
+      title: "Mars",
+      description: "The red planet.",
+      imageUrl: "https://images.example.com/mars.jpg",
+      status: "ready",
+      storageId: "storage-1" as Id<"_storage">,
+      durationSeconds: 120,
+      byteLength: 12_345,
+      ttsCacheKey: "private-cache-key",
+      lastError: "internal worker detail",
+      leaseOwner: "worker-secret",
+      updatedAt: 2_000,
+      publishedAt: 1_500,
+    });
+    const failedEpisode = buildEpisode({
+      _id: "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">,
+      articleId: "article-2" as Id<"articles">,
+      slug: "venus",
+      title: "Venus",
+      status: "failed",
+      lastError: "private failure",
+    });
+    const { ctx, getStorageUrl } = createCtx({
+      articles: [
+        {
+          _id: "article-1" as Id<"articles">,
+          revisionId: "revision-42",
+        },
+      ],
+      feeds: [
+        {
+          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-1",
+          feedToken,
+          createdAt: 1_000,
+          updatedAt: 2_500,
+        },
+      ],
+      episodes: [readyEpisode, failedEpisode],
+    });
+
+    const payload = await invokeRegistered<{ feedToken: string }, unknown>(
+      getFeedEpisodesByToken,
+      ctx,
+      { feedToken },
+    );
+
+    expect(payload).toEqual({
+      feed: { updatedAt: 2_500 },
+      episodes: [
+        {
+          _id: readyEpisode._id,
+          wikiPageId: readyEpisode.wikiPageId,
+          slug: "mars",
+          title: "Mars",
+          description: "The red planet.",
+          imageUrl: "https://images.example.com/mars.jpg",
+          publishedAt: 1_500,
+          updatedAt: 2_000,
+          durationSeconds: 120,
+          byteLength: 12_345,
+          sourceRevisionId: "revision-42",
+        },
+      ],
+    });
+    expect(getStorageUrl).not.toHaveBeenCalled();
+  });
+
+  it("resolves one ready episode's media only for a server-attested request", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "personal-media-server-secret");
+    const feedToken = "e".repeat(64);
+    const episode = buildEpisode({
+      _id: "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">,
+      articleId: "article-1" as Id<"articles">,
+      slug: "mars",
+      title: "Mars",
+      status: "ready",
+      storageId: "storage-1" as Id<"_storage">,
+    });
+    const { ctx, getStorageUrl } = createCtx({
+      feeds: [
+        {
+          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-1",
+          feedToken,
+          createdAt: 1_000,
+          updatedAt: 2_000,
+        },
+      ],
+      episodes: [episode],
+    });
+    const identity = { feedToken, episodeId: episode._id };
+    const attestation = await createPersonalFeedMediaReadAttestation(identity);
+
+    const resolved = await invokeRegistered<
+      typeof identity & { attestation: typeof attestation },
+      unknown
+    >(getEpisodeForPersonalFeedServer, ctx, {
+      ...identity,
+      attestation,
+    });
+
+    expect(resolved).toEqual({
+      title: "Mars",
+      audioUrl: "https://cdn.example.com/storage-1.mp3",
+    });
+    expect(getStorageUrl).toHaveBeenCalledTimes(1);
+
+    await expect(
+      invokeRegistered(getEpisodeForPersonalFeedServer, ctx, {
+        feedToken,
+        episodeId: "personalPlaylistEpisodes-2",
+        attestation,
+      }),
+    ).rejects.toThrow("valid server attestation");
+    expect(getStorageUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the temporary legacy media reader narrow and owner-scoped", async () => {
+    const feedToken = "f".repeat(64);
+    const episode = buildEpisode({
+      _id: "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">,
+      articleId: "article-1" as Id<"articles">,
+      slug: "mars",
+      title: "Mars",
+      status: "ready",
+      storageId: "storage-1" as Id<"_storage">,
+      narrationHash: "private-narration-hash",
+      lastError: "private worker detail",
+      leaseOwner: "worker-secret",
+    });
+    const otherViewerEpisode = buildEpisode({
+      _id: "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">,
+      viewerTokenIdentifier: "user-2",
+      articleId: "article-2" as Id<"articles">,
+      slug: "venus",
+      title: "Venus",
+      status: "ready",
+      storageId: "storage-2" as Id<"_storage">,
+    });
+    const { ctx } = createCtx({
+      feeds: [
+        {
+          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-1",
+          feedToken,
+          createdAt: 1_000,
+          updatedAt: 2_000,
+        },
+      ],
+      episodes: [episode, otherViewerEpisode],
+    });
+
+    const resolved = await invokeRegistered<
+      { feedToken: string; episodeId: Id<"personalPlaylistEpisodes"> },
+      unknown
+    >(getEpisodeByTokenAndId, ctx, {
+      feedToken,
+      episodeId: episode._id,
+    });
+    const crossViewer = await invokeRegistered<
+      { feedToken: string; episodeId: Id<"personalPlaylistEpisodes"> },
+      unknown
+    >(getEpisodeByTokenAndId, ctx, {
+      feedToken,
+      episodeId: otherViewerEpisode._id,
+    });
+
+    expect(resolved).toEqual({
+      title: "Mars",
+      status: "ready",
+      audioUrl: "https://cdn.example.com/storage-1.mp3",
+    });
+    expect(crossViewer).toBeNull();
   });
 
   it("does not create duplicate active episodes for the same article", async () => {
@@ -679,7 +1062,7 @@ describe("personal playlist data helpers", () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]._id).toBe(first.episodeId);
     expect(visible[0].status).toBe("queued");
-    expect(visible[0].requestedTtsMetadata).toEqual(refreshedTtsMetadata);
+    expect(visible[0]).not.toHaveProperty("requestedTtsMetadata");
   });
 
   it("preserves a pinned profile when a legacy restore omits metadata", async () => {
@@ -751,7 +1134,7 @@ describe("personal playlist data helpers", () => {
   });
 
   it("keeps viewer queries scoped to the current account", async () => {
-    const { ctx } = createCtx({
+    const { ctx, getStorageUrl } = createCtx({
       feeds: [
         {
           _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
@@ -771,8 +1154,16 @@ describe("personal playlist data helpers", () => {
           title: "Mars",
           position: 0,
           publishedAt: 10,
-          status: "ready",
+          status: "failed",
+          stage: "rendering_audio",
+          sectionCount: 4,
+          completedSectionCount: 2,
           storageId: "storage-1" as Id<"_storage">,
+          narrationHash: "private-narration-hash",
+          requestedTtsMetadata,
+          audioVariants: [{ storageId: "variant-secret" }],
+          lastError: "private worker stack trace",
+          leaseOwner: "worker-secret",
           createdAt: 1,
           updatedAt: 1,
         },
@@ -796,10 +1187,19 @@ describe("personal playlist data helpers", () => {
     const visible = await listViewerPlaylistEpisodesForCtx(ctx, "user-1");
 
     expect(visible).toHaveLength(1);
-    expect(visible[0]).toMatchObject({
+    expect(visible[0]).toEqual({
+      _id: "personalPlaylistEpisodes-1",
       slug: "mars",
-      audioUrl: "https://cdn.example.com/storage-1.mp3",
+      title: "Mars",
+      position: 0,
+      publishedAt: 10,
+      status: "failed",
+      stage: "rendering_audio",
+      sectionCount: 4,
+      completedSectionCount: 2,
+      lastError: "Episode generation failed. Retry when ready.",
     });
+    expect(getStorageUrl).not.toHaveBeenCalled();
   });
 
   it("honors another worker's active lease and claims after it expires", async () => {

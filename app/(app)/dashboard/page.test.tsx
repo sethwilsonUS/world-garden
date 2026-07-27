@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import DashboardPage from "./page";
 
 let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
+let playlistIsAvailable = true;
+let playlistIsLoaded = true;
 const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
 
 const restoreEnvValue = (key: string, value: string | undefined) => {
@@ -16,6 +18,8 @@ const restoreEnvValue = (key: string, value: string | undefined) => {
 
 afterEach(() => {
   restoreEnvValue("NEXT_PUBLIC_LOCAL_MODE", originalLocalMode);
+  playlistIsAvailable = true;
+  playlistIsLoaded = true;
 });
 
 vi.mock("@clerk/nextjs", () => ({
@@ -61,11 +65,15 @@ vi.mock("@/hooks/usePersonalPlaylist", () => ({
         status: "ready",
       },
     ],
-    feedToken: "opaque-token",
-    feedUrl: "https://curiogarden.org/api/podcast/personal.xml?token=opaque-token",
-    isAvailable: true,
-    isLoaded: true,
+    feedStatus: "active",
+    feedUrl:
+      "https://curiogarden.org/api/podcast/personal.xml?token=opaque-token",
+    isAvailable: playlistIsAvailable,
+    isFeedUpdating: false,
+    isLoaded: playlistIsLoaded,
     addBySlug: async () => {},
+    rotateFeed: async () => {},
+    revokeFeed: async () => {},
     remove: async () => {},
     moveUp: async () => {},
     moveDown: async () => {},
@@ -129,8 +137,24 @@ describe("DashboardPage", () => {
     expect(markup).toContain("2 saved articles");
     expect(markup).toContain("Playlist");
     expect(markup).toContain("opaque-token");
+    expect(markup).toContain("Your private feed is active");
     expect(markup).toContain("Signed-in progress");
-    expect(markup).toContain("Podcast plays in podcast apps do not count toward badges yet.");
+    expect(markup).toContain(
+      "Podcast plays in podcast apps do not count toward badges yet.",
+    );
+  });
+
+  it("waits for account hydration before exposing private feed controls", () => {
+    authState = "signed-in";
+    playlistIsAvailable = false;
+    playlistIsLoaded = false;
+
+    const markup = renderToStaticMarkup(createElement(DashboardPage));
+
+    expect(markup).toContain("Syncing queue");
+    expect(markup).not.toContain("opaque-token");
+    expect(markup).not.toContain("Create private feed URL");
+    expect(markup).not.toContain("Private RSS feed is not created");
   });
 
   it("renders the local-mode dashboard without touching Clerk", async () => {
@@ -151,6 +175,8 @@ describe("DashboardPage", () => {
     const LocalDashboardPage = (await import("./page")).default;
     const markup = renderToStaticMarkup(createElement(LocalDashboardPage));
 
-    expect(markup).toContain("Dashboard is only available with accounts enabled");
+    expect(markup).toContain(
+      "Dashboard is only available with accounts enabled",
+    );
   });
 });

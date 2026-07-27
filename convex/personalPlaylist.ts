@@ -16,21 +16,26 @@ import {
 import { processViewerPlaylistEpisodeForCtx } from "./lib/personalPlaylistWorker";
 import { buildArticleNarrationHash } from "../lib/section-narration";
 import { isTtsMetadataValid, type TtsMetadata } from "../lib/tts-profile";
+import { verifyPersonalFeedMediaReadAttestation } from "../lib/personal-feed-media-attestation";
 import {
   completeViewerPlaylistEpisodeForCtx,
   ensureViewerPersonalPodcastFeedForCtx,
   failViewerPlaylistEpisodeForCtx,
   getNextQueuedEpisodeForViewerForCtx,
+  getReadyPersonalPodcastEpisodeForFeed,
   getViewerFeedRecord,
   getViewerFeedRecordByToken,
+  getViewerPersonalFeedState,
+  listViewerPodcastFeedEpisodesForCtx,
   listViewerPlaylistEpisodesForCtx,
   markViewerPlaylistEpisodeRunningForCtx,
   moveViewerPlaylistEpisodeForCtx,
   removeViewerPlaylistEpisodeForCtx,
   retryViewerPlaylistEpisodeForCtx,
+  revokeViewerPersonalPodcastFeedForCtx,
+  rotateViewerPersonalPodcastFeedForCtx,
   updateViewerPlaylistEpisodeProgressForCtx,
   upsertViewerPlaylistEpisodeForCtx,
-  withStorageUrl,
   type PersonalPlaylistEpisodeDoc,
   type UpsertViewerPlaylistEpisodeResult,
 } from "./lib/personalPlaylistPersistence";
@@ -52,6 +57,12 @@ const ttsMetadataValidator = v.object({
   ttsNormVersion: v.string(),
   ttsCacheKey: v.string(),
 });
+const serverAttestationValidator = v.object({
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  nonce: v.string(),
+  signature: v.string(),
+});
 
 const assertRequestedTtsMetadataValid = (
   metadata: TtsMetadata | undefined,
@@ -66,13 +77,49 @@ const assertRequestedTtsMetadataValid = (
   }
 };
 
+// Deployment bridge for clients released before getViewerFeedState. Remove
+// after the proxy-based personal media release is serving in production.
 export const getViewerFeedToken = query({
   args: {},
   async handler(ctx) {
     const viewerTokenIdentifier =
       await getAuthenticatedViewerTokenIdentifier(ctx);
     const feed = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
-    return feed?.feedToken ?? null;
+    return getViewerPersonalFeedState(feed).feedToken;
+  },
+});
+
+export const getViewerFeedState = query({
+  args: {},
+  async handler(ctx) {
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
+    const feed = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
+    return getViewerPersonalFeedState(feed);
+  },
+});
+
+export const rotateViewerFeedToken = mutation({
+  args: {},
+  async handler(ctx) {
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
+    return await rotateViewerPersonalPodcastFeedForCtx(
+      ctx,
+      viewerTokenIdentifier,
+    );
+  },
+});
+
+export const revokeViewerFeedToken = mutation({
+  args: {},
+  async handler(ctx) {
+    const viewerTokenIdentifier =
+      await getAuthenticatedViewerTokenIdentifier(ctx);
+    return await revokeViewerPersonalPodcastFeedForCtx(
+      ctx,
+      viewerTokenIdentifier,
+    );
   },
 });
 
@@ -205,15 +252,6 @@ export const retryViewerPlaylistEpisode = mutation({
   },
 });
 
-export const getFeedByToken = query({
-  args: {
-    feedToken: v.string(),
-  },
-  async handler(ctx, args) {
-    return await getViewerFeedRecordByToken(ctx, args.feedToken);
-  },
-});
-
 export const getFeedEpisodesByToken = query({
   args: {
     feedToken: v.string(),
@@ -224,38 +262,83 @@ export const getFeedEpisodesByToken = query({
       return null;
     }
 
-    const episodes = (
-      await listViewerPlaylistEpisodesForCtx(ctx, feed.viewerTokenIdentifier)
-    ).filter((episode) => episode.status === "ready");
+    const episodes = await listViewerPodcastFeedEpisodesForCtx(
+      ctx,
+      feed.viewerTokenIdentifier,
+    );
 
     return {
-      feed,
+      feed: { updatedAt: feed.updatedAt },
       episodes,
     };
   },
 });
 
+// Deployment bridge for the currently deployed redirecting media route. This
+// remains deliberately narrow and is removed immediately after that route has
+// been replaced by the attested proxy release.
 export const getEpisodeByTokenAndId = query({
   args: {
     feedToken: v.string(),
     episodeId: v.id("personalPlaylistEpisodes"),
   },
   async handler(ctx, args) {
-    const [feed, episode] = await Promise.all([
-      getViewerFeedRecordByToken(ctx, args.feedToken),
-      ctx.db.get(args.episodeId),
-    ]);
-
-    if (
-      !feed ||
-      !episode ||
-      episode.viewerTokenIdentifier !== feed.viewerTokenIdentifier ||
-      episode.removedAt != null
-    ) {
+    const feed = await getViewerFeedRecordByToken(ctx, args.feedToken);
+    if (!feed) {
+      return null;
+    }
+    const episode = await getReadyPersonalPodcastEpisodeForFeed(
+      ctx,
+      feed,
+      args.episodeId,
+    );
+    if (!episode?.storageId) {
       return null;
     }
 
-    return await withStorageUrl(ctx, episode);
+    const audioUrl = await ctx.storage.getUrl(episode.storageId);
+    return audioUrl
+      ? {
+          title: episode.title,
+          status: "ready" as const,
+          audioUrl,
+        }
+      : null;
+  },
+});
+
+export const getEpisodeForPersonalFeedServer = mutation({
+  args: {
+    feedToken: v.string(),
+    episodeId: v.string(),
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const validAttestation = await verifyPersonalFeedMediaReadAttestation({
+      feedToken: args.feedToken,
+      episodeId: args.episodeId,
+      attestation: args.attestation,
+    });
+    if (!validAttestation) {
+      throw new Error(
+        "A valid server attestation is required to read personal feed media.",
+      );
+    }
+
+    const feed = await getViewerFeedRecordByToken(ctx, args.feedToken);
+    if (!feed) {
+      return null;
+    }
+    const episode = await getReadyPersonalPodcastEpisodeForFeed(
+      ctx,
+      feed,
+      args.episodeId,
+    );
+    if (!episode?.storageId) {
+      return null;
+    }
+    const audioUrl = await ctx.storage.getUrl(episode.storageId);
+    return audioUrl ? { title: episode.title, audioUrl } : null;
   },
 });
 

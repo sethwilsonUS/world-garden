@@ -1,68 +1,82 @@
 import { anyApi } from "convex/server";
-import { fetchQuery } from "convex/nextjs";
+import { fetchMutation } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
 import {
   createPodcastAttachmentResponse,
+  createPodcastInlineResponse,
   isPodcastDownloadRequest,
-  PODCAST_MEDIA_CACHE_CONTROL,
 } from "@/lib/podcast-media-response";
+import { createPersonalFeedMediaReadAttestation } from "@/lib/personal-feed-media-attestation";
+import { isValidPersonalFeedToken } from "@/lib/personal-feed-token";
+import {
+  applyPersonalPodcastPrivateHeaders,
+  PERSONAL_PODCAST_CACHE_CONTROL,
+  PERSONAL_PODCAST_PRIVATE_HEADERS,
+} from "@/lib/personal-podcast-response";
 
-type PersonalPlaylistEpisode = Doc<"personalPlaylistEpisodes"> & {
-  audioUrl: string | null;
+type PersonalPlaylistEpisode = {
+  title: string;
+  audioUrl: string;
 };
+
+const PERSONAL_PODCAST_MEDIA_UPSTREAM_TIMEOUT_MS = 15_000;
 
 export const GET = async (
   req: NextRequest,
   { params }: { params: Promise<{ episodeId: string }> },
 ) => {
   const { episodeId } = await params;
-  const feedToken = req.nextUrl.searchParams.get("token")?.trim();
+  const feedToken = req.nextUrl.searchParams.get("token");
 
-  if (!feedToken) {
+  if (!feedToken || !isValidPersonalFeedToken(feedToken)) {
     return NextResponse.json(
       { error: "Podcast episode not found" },
-      { status: 404, headers: { "Cache-Control": "no-store" } },
+      { status: 404, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },
     );
   }
 
   try {
-    const episode = (await fetchQuery(anyApi.personalPlaylist.getEpisodeByTokenAndId, {
+    const attestation = await createPersonalFeedMediaReadAttestation({
       feedToken,
-      episodeId: episodeId as Id<"personalPlaylistEpisodes">,
-    })) as PersonalPlaylistEpisode | null;
+      episodeId,
+    });
+    const episode = (await fetchMutation(
+      anyApi.personalPlaylist.getEpisodeForPersonalFeedServer,
+      {
+        feedToken,
+        episodeId,
+        attestation,
+      },
+    )) as PersonalPlaylistEpisode | null;
 
-    if (!episode || episode.status !== "ready" || !episode.audioUrl) {
+    if (!episode) {
       return NextResponse.json(
         { error: "Podcast episode not found" },
-        { status: 404, headers: { "Cache-Control": "no-store" } },
+        { status: 404, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },
       );
     }
 
-    if (isPodcastDownloadRequest(req)) {
-      return await createPodcastAttachmentResponse({
-        audioUrl: episode.audioUrl,
-        title: episode.title,
-        fallbackFilename: "personal-playlist-episode.mp3",
-        request: req,
-      });
-    }
-
-    return NextResponse.redirect(episode.audioUrl, {
-      status: 307,
-      headers: {
-        "Cache-Control": PODCAST_MEDIA_CACHE_CONTROL,
-      },
-    });
-  } catch (error) {
+    const response = isPodcastDownloadRequest(req)
+      ? await createPodcastAttachmentResponse({
+          audioUrl: episode.audioUrl,
+          title: episode.title,
+          fallbackFilename: "personal-playlist-episode.mp3",
+          cacheControl: PERSONAL_PODCAST_CACHE_CONTROL,
+          request: req,
+          upstreamTimeoutMs: PERSONAL_PODCAST_MEDIA_UPSTREAM_TIMEOUT_MS,
+        })
+      : await createPodcastInlineResponse({
+          audioUrl: episode.audioUrl,
+          cacheControl: PERSONAL_PODCAST_CACHE_CONTROL,
+          request: req,
+          upstreamTimeoutMs: PERSONAL_PODCAST_MEDIA_UPSTREAM_TIMEOUT_MS,
+        });
+    applyPersonalPodcastPrivateHeaders(response.headers);
+    return response;
+  } catch {
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to resolve personal podcast episode audio",
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
+      { error: "Personal podcast audio is unavailable" },
+      { status: 500, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },
     );
   }
 };
