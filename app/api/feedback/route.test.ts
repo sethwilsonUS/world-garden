@@ -282,6 +282,7 @@ describe("POST /api/feedback", () => {
     });
     expect(consoleError).toHaveBeenCalledWith(
       "[/api/feedback] Feedback persistence failed",
+      "Error",
     );
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
       "203.0.113.42",

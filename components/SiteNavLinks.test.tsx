@@ -71,7 +71,9 @@ describe("SiteNavLinks", () => {
       createElement(SiteNavLinks, { variant: "footer", authEnabled: false }),
     );
 
-    expect(markup).toContain('aria-current="page"');
+    expect(markup).toMatch(
+      /<a(?=[^>]*href="\/")(?=[^>]*aria-current="page")[^>]*>Home<\/a>/u,
+    );
     expect(markup).toContain('href="/feedback"');
     expect(markup).toContain('href="/about"');
   });

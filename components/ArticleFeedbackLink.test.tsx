@@ -5,6 +5,10 @@ import {
   ArticleFeedbackLink,
   buildArticleFeedbackHref,
 } from "./ArticleFeedbackLink";
+import {
+  MAX_PRODUCT_FEEDBACK_ARTICLE_SLUG_BYTES,
+  MAX_PRODUCT_FEEDBACK_ARTICLE_TITLE_BYTES,
+} from "@/lib/product-feedback";
 
 describe("ArticleFeedbackLink", () => {
   it("carries bounded article context into the feedback route", () => {
@@ -61,10 +65,27 @@ describe("ArticleFeedbackLink", () => {
     const title = url.searchParams.get("articleTitle") ?? "";
     const slug = url.searchParams.get("articleSlug") ?? "";
 
-    expect(new TextEncoder().encode(title).byteLength).toBeLessThanOrEqual(512);
-    expect(new TextEncoder().encode(slug).byteLength).toBeLessThanOrEqual(768);
+    expect(new TextEncoder().encode(title).byteLength).toBeLessThanOrEqual(
+      MAX_PRODUCT_FEEDBACK_ARTICLE_TITLE_BYTES,
+    );
+    expect(new TextEncoder().encode(slug).byteLength).toBeLessThanOrEqual(
+      MAX_PRODUCT_FEEDBACK_ARTICLE_SLUG_BYTES,
+    );
     expect(title.endsWith("�")).toBe(false);
     expect(slug.endsWith("�")).toBe(false);
+  });
+
+  it("normalizes Unicode line separators before building context", () => {
+    const url = new URL(
+      buildArticleFeedbackHref({
+        title: "One\u2028Two",
+        slug: "One\u2029Two",
+      }),
+      "https://curiogarden.org",
+    );
+
+    expect(url.searchParams.get("articleTitle")).toBe("One Two");
+    expect(url.searchParams.get("articleSlug")).toBe("One Two");
   });
 
   it("falls back to general feedback unless title and slug are both present", () => {

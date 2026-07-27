@@ -169,8 +169,11 @@ export const POST = async (request: NextRequest) => {
       { accepted: true },
       { status: 202, headers: NO_CACHE_HEADERS },
     );
-  } catch {
-    console.error("[/api/feedback] Feedback persistence failed");
+  } catch (error) {
+    console.error(
+      "[/api/feedback] Feedback persistence failed",
+      error instanceof Error ? error.name : typeof error,
+    );
     return unavailable();
   }
 };

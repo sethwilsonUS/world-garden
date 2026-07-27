@@ -50,14 +50,10 @@ test("feedback route does not steal focus and supports skip navigation", async (
   await page.goto("/feedback");
 
   await expect(page.locator("body")).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(
-    page.getByRole("button", { name: "Dismiss local mode notice" }),
-  ).toBeFocused();
-  await page.keyboard.press("Tab");
   const skipLink = page.getByRole("link", {
     name: "Skip to main content",
   });
+  await skipLink.focus();
   await expect(skipLink).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();

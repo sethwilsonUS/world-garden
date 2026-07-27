@@ -20,9 +20,9 @@ export type ProductFeedbackInput = {
 
 type Environment = Record<string, string | undefined>;
 
-const MAX_MESSAGE_BYTES = 4_000;
-const MAX_ENVIRONMENT_BYTES = 1_000;
-const MAX_CONTACT_EMAIL_BYTES = 254;
+export const MAX_PRODUCT_FEEDBACK_MESSAGE_BYTES = 4_000;
+export const MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES = 1_000;
+export const MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES = 254;
 export const MAX_PRODUCT_FEEDBACK_ARTICLE_TITLE_BYTES = 512;
 export const MAX_PRODUCT_FEEDBACK_ARTICLE_SLUG_BYTES = 768;
 export const MAX_PRODUCT_FEEDBACK_ARTICLE_REVISION_ID_DIGITS = 20;
@@ -90,7 +90,7 @@ const normalizeContactEmail = (value: unknown): string | undefined => {
   const email = normalizeOptionalText(
     value,
     "Contact email",
-    MAX_CONTACT_EMAIL_BYTES,
+    MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES,
   );
   if (!email) return undefined;
   if (
@@ -157,7 +157,7 @@ export const normalizeProductFeedbackInput = (
   const normalizedEnvironment = normalizeOptionalText(
     value.environment,
     "Environment",
-    MAX_ENVIRONMENT_BYTES,
+    MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES,
   );
   const articleTitle = normalizeArticleText(
     value.articleTitle,
@@ -178,7 +178,11 @@ export const normalizeProductFeedbackInput = (
 
   return {
     kind: value.kind as ProductFeedbackKind,
-    message: normalizeRequiredText(value.message, "Message", MAX_MESSAGE_BYTES),
+    message: normalizeRequiredText(
+      value.message,
+      "Message",
+      MAX_PRODUCT_FEEDBACK_MESSAGE_BYTES,
+    ),
     ...(normalizedEnvironment ? { environment: normalizedEnvironment } : {}),
     ...(contactEmail ? { contactEmail } : {}),
     researchOptIn: value.researchOptIn,

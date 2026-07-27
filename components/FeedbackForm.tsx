@@ -8,7 +8,12 @@ import {
   type FormEvent,
   type RefObject,
 } from "react";
-import type { ProductFeedbackKind } from "@/lib/product-feedback";
+import {
+  MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES,
+  MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES,
+  MAX_PRODUCT_FEEDBACK_MESSAGE_BYTES,
+  type ProductFeedbackKind,
+} from "@/lib/product-feedback";
 
 type FeedbackFormProps = {
   deliveryAvailable: boolean;
@@ -40,9 +45,6 @@ const INITIAL_FIELDS: FeedbackFields = {
   researchOptIn: false,
 };
 
-const MESSAGE_BYTES_LIMIT = 4_000;
-const ENVIRONMENT_BYTES_LIMIT = 1_000;
-const EMAIL_BYTES_LIMIT = 254;
 const encoder = new TextEncoder();
 
 const RESEARCH_EMAIL_ERROR =
@@ -63,16 +65,20 @@ const validateFields = (fields: FeedbackFields): FieldErrors => {
   }
   if (!message) {
     errors.message = "Tell us what you would like Curio Garden to know.";
-  } else if (utf8Length(message) > MESSAGE_BYTES_LIMIT) {
+  } else if (utf8Length(message) > MAX_PRODUCT_FEEDBACK_MESSAGE_BYTES) {
     errors.message =
       "Please shorten your feedback. Some characters use more space than others.";
   }
-  if (utf8Length(environment) > ENVIRONMENT_BYTES_LIMIT) {
+  if (
+    utf8Length(environment) > MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES
+  ) {
     errors.environment = "Please shorten the browser or access-tool details.";
   }
   if (fields.researchOptIn && !email) {
     errors.contactEmail = RESEARCH_EMAIL_ERROR;
-  } else if (utf8Length(email) > EMAIL_BYTES_LIMIT) {
+  } else if (
+    utf8Length(email) > MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES
+  ) {
     errors.contactEmail =
       "Please shorten the email address. Some characters use more space than others.";
   } else if (email && (!EMAIL_PATTERN.test(email) || email.includes(".."))) {
@@ -369,7 +375,7 @@ export const FeedbackForm = ({
           readOnly={sending}
           aria-disabled={sending}
           rows={7}
-          maxLength={4000}
+          maxLength={MAX_PRODUCT_FEEDBACK_MESSAGE_BYTES}
           value={fields.message}
           aria-describedby={describedBy(
             "feedback-message-help",
@@ -410,7 +416,7 @@ export const FeedbackForm = ({
           type="text"
           readOnly={sending}
           aria-disabled={sending}
-          maxLength={1000}
+          maxLength={MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES}
           value={fields.environment}
           aria-describedby={describedBy(
             "feedback-environment-help",
@@ -457,7 +463,7 @@ export const FeedbackForm = ({
           aria-disabled={sending}
           inputMode="email"
           autoComplete="email"
-          maxLength={254}
+          maxLength={MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES}
           value={fields.contactEmail}
           aria-describedby={describedBy(
             "feedback-email-help",

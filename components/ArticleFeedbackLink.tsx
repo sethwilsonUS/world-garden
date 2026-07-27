@@ -1,4 +1,9 @@
 import Link from "next/link";
+import {
+  MAX_PRODUCT_FEEDBACK_ARTICLE_REVISION_ID_DIGITS,
+  MAX_PRODUCT_FEEDBACK_ARTICLE_SLUG_BYTES,
+  MAX_PRODUCT_FEEDBACK_ARTICLE_TITLE_BYTES,
+} from "@/lib/product-feedback";
 
 type ArticleFeedbackLinkProps = {
   title: string;
@@ -6,8 +11,6 @@ type ArticleFeedbackLinkProps = {
   revisionId?: string;
 };
 
-const ARTICLE_TITLE_MAX_BYTES = 512;
-const ARTICLE_SLUG_MAX_BYTES = 768;
 const encoder = new TextEncoder();
 
 const normalizeBoundedSingleLine = (
@@ -15,7 +18,7 @@ const normalizeBoundedSingleLine = (
   maxBytes: number,
 ): string => {
   const normalized = value
-    .replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
   let result = "";
@@ -38,16 +41,25 @@ export const buildArticleFeedbackHref = ({
 }: ArticleFeedbackLinkProps): string => {
   const articleTitle = normalizeBoundedSingleLine(
     title,
-    ARTICLE_TITLE_MAX_BYTES,
+    MAX_PRODUCT_FEEDBACK_ARTICLE_TITLE_BYTES,
   );
-  const articleSlug = normalizeBoundedSingleLine(slug, ARTICLE_SLUG_MAX_BYTES);
+  const articleSlug = normalizeBoundedSingleLine(
+    slug,
+    MAX_PRODUCT_FEEDBACK_ARTICLE_SLUG_BYTES,
+  );
   const articleRevisionId = revisionId?.trim();
   const params = new URLSearchParams();
 
   if (articleTitle && articleSlug) {
     params.set("articleTitle", articleTitle);
     params.set("articleSlug", articleSlug);
-    if (articleRevisionId && /^\d{1,20}$/u.test(articleRevisionId)) {
+    if (
+      articleRevisionId &&
+      new RegExp(
+        `^\\d{1,${MAX_PRODUCT_FEEDBACK_ARTICLE_REVISION_ID_DIGITS}}$`,
+        "u",
+      ).test(articleRevisionId)
+    ) {
       params.set("articleRevisionId", articleRevisionId);
     }
   }
