@@ -23,11 +23,13 @@ import {
   InlineProgressBar,
   PauseIcon,
   PlayIcon,
-  SectionDetailsBadge,
-  SectionDetailsPanel,
   SoundIcon,
   SpeedButton,
   SpinnerIcon,
+} from "@/components/AudioPlaybackPresentation";
+import {
+  SectionDetailsBadge,
+  SectionDetailsPanel,
 } from "@/components/TableOfContentsPresentation";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import { useArticleSectionCounts } from "@/hooks/useArticleSectionMetadata";
