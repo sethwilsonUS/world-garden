@@ -167,7 +167,7 @@ describe("HomeAuthStatusBanner", () => {
       root.render(
         <>
           <HomeAuthStatusBanner />
-          <SearchForm autoFocus />
+          <SearchForm />
         </>,
       );
       await Promise.resolve();
@@ -185,7 +185,7 @@ describe("HomeAuthStatusBanner", () => {
       root.render(
         <>
           <HomeAuthStatusBanner />
-          <SearchForm autoFocus />
+          <SearchForm />
         </>,
       );
       await Promise.resolve();

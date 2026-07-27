@@ -38,7 +38,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         <section aria-labelledby="search-heading">
           <h1
             id="search-heading"
-            className="font-display text-[1.75rem] font-bold mb-5 text-foreground"
+            className="font-display text-[1.75rem] font-bold mb-5 text-foreground [overflow-wrap:anywhere]"
           >
             {term ? `Results for \u201c${term}\u201d` : "Search Wikipedia"}
           </h1>
@@ -46,11 +46,10 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           {!term ? (
             <div>
               <div className="mb-8">
-                <SearchForm autoFocus />
+                <SearchForm />
               </div>
               <div
                 className="garden-bed text-center py-12 px-6"
-                role="status"
               >
                 <p className="font-display font-semibold text-lg text-foreground">
                   Plant a seed

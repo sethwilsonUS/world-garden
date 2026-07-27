@@ -33,7 +33,7 @@ export default function Home() {
           </div>
 
           <div className="animate-fade-in-up-delay-1 max-w-[480px] mx-auto">
-            <SearchForm autoFocus />
+            <SearchForm />
             <div className="mt-3">
               <RandomArticleButton />
             </div>

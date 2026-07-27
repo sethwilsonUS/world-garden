@@ -101,6 +101,11 @@ All contributions must maintain WCAG 2.2 AA compliance. Before submitting a PR, 
 
 If your change adds a new interactive component, include a brief note in the PR describing how it behaves for keyboard and screen reader users.
 
+For search, use the
+[search accessibility test matrix](docs/search-accessibility-test-matrix.md)
+to keep automated evidence separate from genuine browser, screen-reader,
+zoom, and magnifier results.
+
 ## Testing
 
 `npm run check` is the baseline before every pull request. It validates the

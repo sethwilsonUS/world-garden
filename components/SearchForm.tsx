@@ -2,10 +2,8 @@
 
 export const SearchForm = ({
   defaultValue = "",
-  autoFocus = false,
 }: {
   defaultValue?: string;
-  autoFocus?: boolean;
 }) => {
   return (
     <form
@@ -46,7 +44,6 @@ export const SearchForm = ({
           type="search"
           placeholder="Monarch butterfly, Ada Lovelace, Bossa nova..."
           defaultValue={defaultValue}
-          autoFocus={autoFocus}
           autoComplete="off"
           required
           className="flex-1 min-w-0 py-[18px] px-4 bg-transparent border-0 outline-none focus-visible:outline-none text-[1.0625rem] text-foreground"
