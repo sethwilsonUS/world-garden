@@ -69,7 +69,7 @@ describe("HomeListeningSample", () => {
     vi.restoreAllMocks();
   });
 
-  it("offers an opt-in custom player with the shared progress treatment and transcript", () => {
+  it("offers the same article player presentation with an opt-in transcript", () => {
     const markup = renderToStaticMarkup(<HomeListeningSample />);
 
     expect(markup).toContain("Listening sample");
@@ -79,12 +79,18 @@ describe("HomeListeningSample", () => {
     );
     expect(markup).not.toContain("No account or search needed");
     expect(markup).toContain(
-      'aria-label="Curio Garden listening sample player"',
+      'aria-label="Audio player for Curio Garden listening sample"',
     );
-    expect(markup).toContain('aria-label="Play listening sample"');
-    expect(markup).toContain("border-border bg-surface-2");
-    expect(markup).toContain("min-h-11");
-    expect(markup).toContain('class="audio-progress-range block w-full"');
+    expect(markup).toContain(
+      'aria-label="Play: Curio Garden listening sample"',
+    );
+    expect(markup).toContain('aria-label="Skip back 10 seconds"');
+    expect(markup).toContain('aria-label="Skip forward 10 seconds"');
+    expect(markup).toContain("border-border bg-surface-3");
+    expect(markup).toContain("rounded-full");
+    expect(markup).toContain(
+      'class="article-audio-progress-range block w-full"',
+    );
     expect(markup).toContain(`max="${HOME_LISTENING_SAMPLE_DURATION_SECONDS}"`);
     expect(markup).toContain("0:00");
     expect(markup).toContain("0:18");
@@ -95,7 +101,7 @@ describe("HomeListeningSample", () => {
     expect(markup).not.toContain(' controls=""');
     expect(markup).not.toContain("autoplay");
     expect(markup).not.toContain("autofocus");
-    expect(markup).toContain("Synthetic voice · 18 seconds");
+    expect(markup).toContain("Synthetic speech audio.");
     expect(markup).toContain("Transcript");
     expect(markup).toContain(HOME_LISTENING_SAMPLE_TRANSCRIPT);
   });
@@ -112,7 +118,7 @@ describe("HomeListeningSample", () => {
       .mockResolvedValueOnce(undefined);
     await renderSample();
 
-    act(() => buttonNamed("Play listening sample").click());
+    act(() => buttonNamed("Play: Curio Garden listening sample").click());
     expect(playbackError()?.textContent).toContain(
       "Try again, or download sample audio",
     );
@@ -123,20 +129,20 @@ describe("HomeListeningSample", () => {
     ).not.toBeNull();
 
     await act(async () => {
-      buttonNamed("Play listening sample").click();
+      buttonNamed("Play: Curio Garden listening sample").click();
       await Promise.resolve();
     });
     expect(playbackError()).not.toBeUndefined();
-    expect(buttonNamed("Play listening sample")).not.toBeNull();
+    expect(buttonNamed("Play: Curio Garden listening sample")).not.toBeNull();
     expect(analyticsMocks.listeningSampleStarted).not.toHaveBeenCalled();
 
     await act(async () => {
-      buttonNamed("Play listening sample").click();
+      buttonNamed("Play: Curio Garden listening sample").click();
       await Promise.resolve();
     });
     expect(play).toHaveBeenCalledTimes(3);
-    expect(playbackError()).toBeUndefined();
-    expect(buttonNamed("Play listening sample")).not.toBeNull();
+    expect(playbackError()).not.toBeUndefined();
+    expect(buttonNamed("Play: Curio Garden listening sample")).not.toBeNull();
     expect(analyticsMocks.listeningSampleStarted).not.toHaveBeenCalled();
     expect(analyticsMocks.listeningSampleCompleted).not.toHaveBeenCalled();
   });
@@ -165,8 +171,8 @@ describe("HomeListeningSample", () => {
     });
     const audio = await renderSample();
 
-    act(() => buttonNamed("Play listening sample").click());
-    expect(buttonNamed("Pause listening sample")).not.toBeNull();
+    act(() => buttonNamed("Play: Curio Garden listening sample").click());
+    expect(buttonNamed("Pause: Curio Garden listening sample")).not.toBeNull();
     expect(analyticsMocks.listeningSampleStarted).not.toHaveBeenCalled();
 
     act(() => audio.dispatchEvent(new Event("playing", { bubbles: true })));
@@ -188,15 +194,15 @@ describe("HomeListeningSample", () => {
       });
     await renderSample();
 
-    act(() => buttonNamed("Play listening sample").click());
-    expect(buttonNamed("Pause listening sample")).not.toBeNull();
+    act(() => buttonNamed("Play: Curio Garden listening sample").click());
+    expect(buttonNamed("Pause: Curio Garden listening sample")).not.toBeNull();
     expect(analyticsMocks.listeningSampleStarted).toHaveBeenCalledTimes(1);
 
-    act(() => buttonNamed("Pause listening sample").click());
-    expect(buttonNamed("Resume listening sample")).not.toBeNull();
+    act(() => buttonNamed("Pause: Curio Garden listening sample").click());
+    expect(buttonNamed("Resume: Curio Garden listening sample")).not.toBeNull();
 
-    act(() => buttonNamed("Resume listening sample").click());
-    expect(buttonNamed("Pause listening sample")).not.toBeNull();
+    act(() => buttonNamed("Resume: Curio Garden listening sample").click());
+    expect(buttonNamed("Pause: Curio Garden listening sample")).not.toBeNull();
     expect(play).toHaveBeenCalledTimes(2);
     expect(pause).toHaveBeenCalledTimes(1);
     expect(analyticsMocks.listeningSampleStarted).toHaveBeenCalledTimes(1);
@@ -231,9 +237,10 @@ describe("HomeListeningSample", () => {
     expect(progress.value).toBe("7.5");
     expect(container.textContent).toContain("0:07");
     expect(container.textContent).toContain("0:23");
+    expect(buttonNamed("Resume: Curio Garden listening sample")).not.toBeNull();
   });
 
-  it("announces speed changes politely and applies them to the media element", async () => {
+  it("announces speed changes and applies them to the media element", async () => {
     const audio = await renderSample();
     const speed = buttonNamed("Playback speed 1x. Activate to change.");
 
@@ -244,8 +251,7 @@ describe("HomeListeningSample", () => {
       buttonNamed("Playback speed 1.25x. Activate to change."),
     ).not.toBeNull();
     const announcement = container.querySelector('.sr-only[role="status"]');
-    expect(announcement?.getAttribute("aria-live")).toBe("polite");
-    expect(announcement?.getAttribute("aria-atomic")).toBe("true");
+    expect(announcement?.getAttribute("aria-live")).toBe("assertive");
     expect(announcement?.textContent).toBe("Playback speed 1.25x");
     expect(audio.playbackRate).toBe(1.25);
   });
@@ -296,7 +302,7 @@ describe("HomeListeningSample", () => {
     });
     const audio = await renderSample();
 
-    act(() => buttonNamed("Play listening sample").click());
+    act(() => buttonNamed("Play: Curio Garden listening sample").click());
     act(() => {
       audio.currentTime = HOME_LISTENING_SAMPLE_DURATION_SECONDS;
       audio.dispatchEvent(new Event("timeupdate"));
@@ -304,7 +310,7 @@ describe("HomeListeningSample", () => {
       audio.dispatchEvent(new Event("ended"));
     });
 
-    expect(buttonNamed("Play sample again")).not.toBeNull();
+    expect(buttonNamed("Replay: Curio Garden listening sample")).not.toBeNull();
     expect(analyticsMocks.listeningSampleStarted).toHaveBeenCalledTimes(1);
     expect(analyticsMocks.listeningSampleCompleted).toHaveBeenCalledTimes(1);
 
@@ -319,16 +325,16 @@ describe("HomeListeningSample", () => {
       valueSetter?.call(progress, "5");
       progress.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(buttonNamed("Resume listening sample")).not.toBeNull();
+    expect(buttonNamed("Resume: Curio Garden listening sample")).not.toBeNull();
 
-    act(() => buttonNamed("Resume listening sample").click());
-    expect(buttonNamed("Pause listening sample")).not.toBeNull();
+    act(() => buttonNamed("Resume: Curio Garden listening sample").click());
+    expect(buttonNamed("Pause: Curio Garden listening sample")).not.toBeNull();
     expect(playTimes).toEqual([0, 5]);
 
     act(() => audio.dispatchEvent(new Event("ended")));
-    expect(buttonNamed("Play sample again")).not.toBeNull();
+    expect(buttonNamed("Replay: Curio Garden listening sample")).not.toBeNull();
 
-    act(() => buttonNamed("Play sample again").click());
+    act(() => buttonNamed("Replay: Curio Garden listening sample").click());
     expect(playTimes).toEqual([0, 5, 0]);
 
     act(() => audio.dispatchEvent(new Event("ended")));

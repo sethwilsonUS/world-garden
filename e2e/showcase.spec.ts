@@ -557,10 +557,10 @@ test("home presents the product and expands the curated daily preview", async ({
   ).toBe(false);
 
   const samplePlayer = listeningSample.getByRole("group", {
-    name: "Curio Garden listening sample player",
+    name: "Audio player for Curio Garden listening sample",
   });
   const playButton = samplePlayer.getByRole("button", {
-    name: "Play listening sample",
+    name: "Play: Curio Garden listening sample",
     exact: true,
   });
   const speedButton = samplePlayer.getByRole("button", {
@@ -572,6 +572,24 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(playButton).toBeVisible();
   await expect(speedButton).toBeVisible();
   await expect(progressSlider).toBeVisible();
+  await expect(progressSlider).toHaveClass(/article-audio-progress-range/);
+  await expect(samplePlayer.getByText("Synthetic speech audio.")).toBeVisible();
+  await expect(
+    samplePlayer.getByText("Listen: Curio Garden in 18 seconds"),
+  ).toBeVisible();
+
+  const progressStyle = await progressSlider.evaluate((slider) => {
+    const style = getComputedStyle(slider);
+    return {
+      appearance: style.appearance,
+      backgroundImage: style.backgroundImage,
+      height: style.height,
+    };
+  });
+  expect(progressStyle.appearance).toBe("none");
+  expect(progressStyle.backgroundImage).toContain("linear-gradient");
+  expect(progressStyle.backgroundImage).toContain("rgb(3, 107, 74)");
+  expect(parseFloat(progressStyle.height)).toBeGreaterThanOrEqual(24);
 
   const playTarget = await playButton.boundingBox();
   expect(playTarget).not.toBeNull();
@@ -588,15 +606,20 @@ test("home presents the product and expands the curated daily preview", async ({
     .poll(async () => Number(await progressSlider.inputValue()))
     .toBeGreaterThan(positionBeforeSeek);
 
-  await playButton.click();
+  const playAfterSeekButton = samplePlayer.getByRole("button", {
+    name: "Resume: Curio Garden listening sample",
+    exact: true,
+  });
+  await expect(playAfterSeekButton).toBeVisible();
+  await playAfterSeekButton.click();
   const pauseButton = samplePlayer.getByRole("button", {
-    name: "Pause listening sample",
+    name: "Pause: Curio Garden listening sample",
     exact: true,
   });
   await expect(pauseButton).toBeVisible();
   await pauseButton.click();
   const resumeButton = samplePlayer.getByRole("button", {
-    name: "Resume listening sample",
+    name: "Resume: Curio Garden listening sample",
     exact: true,
   });
   await expect(resumeButton).toBeVisible();
@@ -615,7 +638,7 @@ test("home presents the product and expands the curated daily preview", async ({
   expect(completedPosition).toBeLessThanOrEqual(sliderMax);
   await sampleAudio.dispatchEvent("ended");
   const replayButton = samplePlayer.getByRole("button", {
-    name: "Play sample again",
+    name: "Replay: Curio Garden listening sample",
     exact: true,
   });
   await expect(replayButton).toBeVisible();
@@ -624,7 +647,7 @@ test("home presents the product and expands the curated daily preview", async ({
   expect(resumedPosition).toBeGreaterThan(0);
   expect(resumedPosition).toBeLessThan(completedPosition);
   const resumeAfterSeek = samplePlayer.getByRole("button", {
-    name: "Resume listening sample",
+    name: "Resume: Curio Garden listening sample",
     exact: true,
   });
   await expect(resumeAfterSeek).toBeVisible();
@@ -687,13 +710,15 @@ test("home listening sample and search reflow at 320 pixels", async ({
   });
   await expect(listeningSample).toBeVisible();
   const samplePlayer = listeningSample.getByRole("group", {
-    name: "Curio Garden listening sample player",
+    name: "Audio player for Curio Garden listening sample",
   });
   const playerControls = [
+    samplePlayer.getByRole("button", { name: "Skip back 10 seconds" }),
     samplePlayer.getByRole("button", {
-      name: "Play listening sample",
+      name: "Play: Curio Garden listening sample",
       exact: true,
     }),
+    samplePlayer.getByRole("button", { name: "Skip forward 10 seconds" }),
     samplePlayer.getByRole("button", { name: /^Playback speed / }),
     samplePlayer.getByRole("slider", { name: /^Playback position/ }),
   ];
@@ -703,7 +728,7 @@ test("home listening sample and search reflow at 320 pixels", async ({
     await expect(control).toBeFocused();
     await expectVisibleFocusOutline(control);
   }
-  await expect(playerControls[1]).toHaveAccessibleName(
+  await expect(playerControls[3]).toHaveAccessibleName(
     "Playback speed 1.5x. Activate to change.",
   );
   expect(runtimeErrors).toEqual([]);

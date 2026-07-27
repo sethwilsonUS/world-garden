@@ -531,7 +531,96 @@ body {
   background-color: var(--color-surface-3);
 }
 
-/* ── Shared Audio Scrubber ── */
+/* ── Shared Article Audio Player ── */
+.article-audio-progress-range {
+  --played-color: var(--color-accent);
+  --unplayed-color: color-mix(
+    in srgb,
+    var(--color-control-border) 72%,
+    var(--color-surface-3)
+  );
+  --track-h: 8px;
+  --thumb-size: 18px;
+
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-height: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  border-radius: 999px !important;
+  background: linear-gradient(
+      to right,
+      var(--played-color) 0%,
+      var(--played-color) var(--progress, 0%),
+      var(--unplayed-color) var(--progress, 0%),
+      var(--unplayed-color) 100%
+    )
+    center / 100% var(--track-h) no-repeat !important;
+  cursor: pointer !important;
+  outline: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  accent-color: var(--color-accent);
+}
+
+.article-audio-progress-range:hover,
+.article-audio-progress-range:focus-visible {
+  --played-color: var(--color-accent-hover);
+}
+
+.article-audio-progress-range:focus-visible {
+  outline: 2px solid var(--color-accent) !important;
+  outline-offset: 2px !important;
+}
+
+.article-audio-progress-range::-webkit-slider-runnable-track {
+  height: var(--track-h) !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+}
+
+.article-audio-progress-range::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: var(--thumb-size) !important;
+  height: var(--thumb-size) !important;
+  margin-top: calc((var(--track-h) - var(--thumb-size)) / 2) !important;
+  border: 3px solid var(--played-color) !important;
+  border-radius: 50% !important;
+  background: var(--color-surface) !important;
+  box-shadow:
+    0 0 0 2px var(--color-accent-border),
+    0 0 8px var(--color-accent-glow) !important;
+  cursor: pointer !important;
+}
+
+.article-audio-progress-range::-moz-range-track {
+  height: var(--track-h) !important;
+  border-radius: 999px !important;
+  background: var(--unplayed-color) !important;
+}
+
+.article-audio-progress-range::-moz-range-progress {
+  height: var(--track-h) !important;
+  border-radius: 999px !important;
+  background: var(--played-color) !important;
+}
+
+.article-audio-progress-range::-moz-range-thumb {
+  width: var(--thumb-size) !important;
+  height: var(--thumb-size) !important;
+  border: 3px solid var(--played-color) !important;
+  border-radius: 50% !important;
+  background: var(--color-surface) !important;
+  box-shadow:
+    0 0 0 2px var(--color-accent-border),
+    0 0 8px var(--color-accent-glow) !important;
+  cursor: pointer !important;
+}
+
+/* ── Shared Inline Audio Scrubber ── */
 .audio-scrubber {
   --thumb-size: 16px;
   --track-h: 5px;
@@ -642,6 +731,7 @@ body {
 }
 
 @media (forced-colors: active) {
+  .article-audio-progress-range,
   .audio-progress-range {
     -webkit-appearance: auto !important;
     appearance: auto !important;
@@ -649,16 +739,19 @@ body {
     forced-color-adjust: auto;
   }
 
+  .article-audio-progress-range:focus-visible,
   .audio-progress-range:focus-visible {
     outline-color: Highlight !important;
   }
 
+  .article-audio-progress-range::-webkit-slider-runnable-track,
   .audio-progress-range::-webkit-slider-runnable-track {
     height: revert !important;
     border-radius: revert !important;
     background: revert !important;
   }
 
+  .article-audio-progress-range::-webkit-slider-thumb,
   .audio-progress-range::-webkit-slider-thumb {
     -webkit-appearance: auto !important;
     appearance: auto !important;
@@ -670,6 +763,9 @@ body {
     box-shadow: none !important;
   }
 
+  .article-audio-progress-range::-moz-range-track,
+  .article-audio-progress-range::-moz-range-progress,
+  .article-audio-progress-range::-moz-range-thumb,
   .audio-progress-range::-moz-range-track,
   .audio-progress-range::-moz-range-progress,
   .audio-progress-range::-moz-range-thumb {
