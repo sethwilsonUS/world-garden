@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "May 10, 2026";
+const LAST_UPDATED = "July 27, 2026";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Curio Garden",
@@ -53,6 +54,16 @@ export default function PrivacyPage() {
             service, such as performance and diagnostic information from hosting
             and analytics providers.
           </li>
+          <li>
+            Information you choose to submit through the feedback form. This may
+            include a feedback message, optional details about your browser,
+            device, assistive technology, or other environment, an optional
+            contact email, and whether you opt in to invitations for future
+            research. When you choose “Give feedback on this article,” the
+            article title, article identifier, and saved Wikipedia revision are
+            also included so the feedback can be connected to the page you were
+            using.
+          </li>
         </ul>
       </LegalSection>
 
@@ -70,7 +81,51 @@ export default function PrivacyPage() {
           <li>
             To prevent abuse, protect the service, and troubleshoot issues.
           </li>
+          <li>
+            To understand feedback and access barriers, improve the product, and
+            contact you about your feedback or future research only when you
+            choose to provide an email address for that purpose.
+          </li>
         </ul>
+      </LegalSection>
+
+      <LegalSection id="privacy-feedback" title="Feedback and research">
+        <p>
+          The feedback form is available without signing in. A message is
+          required when you submit feedback. Environment details and a contact
+          email are optional unless you opt in to research invitations, in which
+          case an email address is needed so an invitation can reach you. You do
+          not need to share a medical condition or diagnosis to describe an
+          access need, report a barrier, or suggest an improvement.
+        </p>
+        <p>
+          Feedback is used to understand what is working, identify barriers, and
+          decide what to improve. If you provide an email address, it may be
+          used to follow up about your feedback. Curio Garden will use it for
+          research invitations only if you opt in. Curio Garden removes the
+          contact email from stored feedback when it reaches 180 days and turns
+          off the related research opt-in. An hourly cleanup works in bounded
+          batches and immediately schedules additional batches until any backlog
+          is drained. The feedback message and any environment details remain so
+          the team can continue to understand product issues and access
+          barriers. Article context also remains with article-specific feedback.
+          You can share feedback on the{" "}
+          <Link
+            href="/feedback"
+            className="text-accent underline underline-offset-2"
+          >
+            feedback page
+          </Link>
+          .
+        </p>
+        <p>
+          To limit repeated submissions, the server derives an opaque,
+          secret-salted identifier from the request&apos;s network address.
+          Curio Garden does not store the raw network address with your
+          feedback. The separate quota record&apos;s active window ends after
+          one hour. An hourly cleanup deletes expired quota records in bounded
+          batches of up to 500 until the current backlog is gone.
+        </p>
       </LegalSection>
 
       <LegalSection
@@ -96,8 +151,10 @@ export default function PrivacyPage() {
             social sign-in providers such as Google if enabled.
           </li>
           <li>
-            Convex is used for application data needed to power signed-in
-            features such as synced bookmarks.
+            Convex stores application data used for signed-in features such as
+            synced bookmarks. It also stores anonymous feedback, any contact or
+            research details you choose to provide, article context attached to
+            feedback, and opaque submission-quota records.
           </li>
           <li>
             Hosting and analytics providers may process limited technical data
@@ -139,9 +196,15 @@ export default function PrivacyPage() {
           date at the top of this page.
         </p>
         <p>
-          Questions about the privacy practices of a specific Curio Garden
-          deployment should be sent through the contact or support method
-          published with that deployment.
+          Questions about Curio Garden&apos;s privacy practices can be sent
+          through the{" "}
+          <Link
+            href="/feedback"
+            className="text-accent underline underline-offset-2"
+          >
+            feedback page
+          </Link>
+          .
         </p>
       </LegalSection>
     </LegalPageLayout>

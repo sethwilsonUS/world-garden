@@ -16,6 +16,7 @@ describe("article provenance", () => {
     expect(markup).toContain("From");
     expect(markup).toContain("oldid=123456");
     expect(markup).toContain("CC BY-SA 4.0");
+    expect(markup).toContain("mb-4");
   });
 
   it("explains the listening adaptation beside contributor history", () => {

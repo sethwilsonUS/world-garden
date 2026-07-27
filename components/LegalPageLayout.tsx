@@ -69,7 +69,7 @@ export function LegalSection({ id, title, children }: LegalSectionProps) {
     <section aria-labelledby={id} className="garden-bed p-5 sm:p-6">
       <h2
         id={id}
-        className="font-display text-[1.2rem] font-semibold text-foreground"
+        className="scroll-mt-24 font-display text-[1.2rem] font-semibold text-foreground"
       >
         {title}
       </h2>

@@ -649,7 +649,36 @@ export default defineSchema({
     expiresAt: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_key", ["key"]),
+  })
+    .index("by_key", ["key"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  productFeedback: defineTable({
+    kind: v.union(
+      v.literal("accessibility"),
+      v.literal("product"),
+      v.literal("technical"),
+      v.literal("other"),
+    ),
+    message: v.string(),
+    environment: v.optional(v.string()),
+    contactEmail: v.optional(v.string()),
+    researchOptIn: v.boolean(),
+    articleTitle: v.optional(v.string()),
+    articleSlug: v.optional(v.string()),
+    articleRevisionId: v.optional(v.string()),
+    status: v.union(
+      v.literal("open"),
+      v.literal("reviewing"),
+      v.literal("resolved"),
+      v.literal("dismissed"),
+    ),
+    contactExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_status", ["status"])
+    .index("by_contactExpiresAt", ["contactExpiresAt"]),
 
   analyticsRollups: defineTable({
     key: v.string(),

@@ -99,6 +99,33 @@ export default function AboutPage() {
           </div>
         </section>
 
+        <section
+          aria-labelledby="research-heading"
+          className="garden-bed mx-auto mt-10 max-w-3xl overflow-hidden p-6 sm:p-8"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+            Help the garden learn
+          </p>
+          <h2
+            id="research-heading"
+            className="mt-2 font-display text-2xl font-semibold text-foreground"
+          >
+            Your experience can shape what grows next.
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-[1.8] text-foreground-2">
+            If you use a screen reader, magnification, voice control, keyboard
+            navigation, or another access approach, Curio Garden would like to
+            learn what works and what gets in your way. Product feedback from
+            every visitor is welcome, too. You do not need to share a diagnosis,
+            and you can choose whether to volunteer for a possible short
+            research conversation. Volunteering is not a mailing list or a
+            commitment.
+          </p>
+          <Link href="/feedback" className="btn-primary mt-6 no-underline">
+            Share feedback or volunteer for research
+          </Link>
+        </section>
+
         <section aria-labelledby="engineering-heading" className="mt-16">
           <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">

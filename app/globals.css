@@ -12,6 +12,7 @@
   --color-foreground-2: #4b5441;
   --color-muted: #516247;
   --color-border: #d4d1c7;
+  --color-control-border: #7a8273;
   --color-accent: #036b4a;
   --color-accent-hover: #065f46;
   --color-accent-bg: rgba(4, 120, 87, 0.08);
@@ -20,7 +21,7 @@
   --color-btn-primary: #036b4a;
   --color-btn-primary-hover: #065f46;
   --color-btn-primary-text: #ffffff;
-  --color-critical: #dc2626;
+  --color-critical: #b91c1c;
   --color-serious: #c2410c;
   --color-skeleton-base: #e5e2db;
   --color-skeleton-shine: #efede8;
@@ -43,6 +44,7 @@
     --color-foreground-2: #a8b89e;
     --color-muted: #909f86;
     --color-border: #2f2f2f;
+    --color-control-border: #71806b;
     --color-accent: #34d399;
     --color-accent-hover: #6ee7b7;
     --color-accent-bg: rgba(52, 211, 153, 0.1);
@@ -51,7 +53,7 @@
     --color-btn-primary: #047857;
     --color-btn-primary-hover: #065f46;
     --color-btn-primary-text: #ffffff;
-    --color-critical: #ef4444;
+    --color-critical: #f87171;
     --color-serious: #f97316;
     --color-skeleton-base: #1e1e1e;
     --color-skeleton-shine: #2a2a2a;
@@ -212,7 +214,7 @@ body {
   padding: 12px 24px;
   background-color: var(--color-surface-2);
   color: var(--color-foreground-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-control-border);
   border-radius: 12px;
   font-weight: 600;
   font-size: 1rem;
@@ -226,7 +228,7 @@ body {
 .btn-secondary:hover {
   background-color: var(--color-surface-3);
   color: var(--color-foreground);
-  border-color: var(--color-accent-border);
+  border-color: var(--color-accent);
 }
 
 /* ── Form Inputs ── */
@@ -235,7 +237,7 @@ body {
   padding: 16px 20px;
   background-color: var(--color-surface);
   color: var(--color-foreground);
-  border: 2px solid var(--color-accent-border);
+  border: 2px solid var(--color-control-border);
   border-radius: 12px;
   font-size: 1rem;
   transition:
@@ -247,10 +249,26 @@ body {
   color: var(--color-muted);
 }
 
+.input-field:disabled,
+.input-field[aria-disabled="true"] {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .input-field:focus {
   outline: none;
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px var(--color-accent-glow);
+}
+
+.input-field[aria-invalid="true"] {
+  border-color: var(--color-critical);
+}
+
+.input-field[aria-invalid="true"]:focus {
+  border-color: var(--color-critical);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--color-critical) 24%, transparent);
 }
 
 /* ── Navbar ── */

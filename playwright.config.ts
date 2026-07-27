@@ -18,6 +18,9 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run local -- --hostname 127.0.0.1",
+    env: {
+      CURIO_E2E_FEEDBACK_FORM_AVAILABLE: "true",
+    },
     url: "http://127.0.0.1:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

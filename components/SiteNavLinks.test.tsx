@@ -66,12 +66,23 @@ describe("SiteNavLinks", () => {
     expect(markup).not.toContain("/did-you-know");
   });
 
-  it("marks the current page and includes About in footer navigation", () => {
+  it("marks the current page and includes Feedback and About in footer navigation", () => {
     const markup = renderToStaticMarkup(
       createElement(SiteNavLinks, { variant: "footer", authEnabled: false }),
     );
 
-    expect(markup).toContain('aria-current="page"');
+    expect(markup).toMatch(
+      /<a(?=[^>]*href="\/")(?=[^>]*aria-current="page")[^>]*>Home<\/a>/u,
+    );
+    expect(markup).toContain('href="/feedback"');
     expect(markup).toContain('href="/about"');
+  });
+
+  it("keeps Feedback out of the primary navigation", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SiteNavLinks, { variant: "desktop", authEnabled: false }),
+    );
+
+    expect(markup).not.toContain('href="/feedback"');
   });
 });

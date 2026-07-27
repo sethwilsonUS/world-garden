@@ -8,6 +8,7 @@ describe("sitemap", () => {
     expect(paths).toContain("/trending");
     expect(paths).toContain("/podcasts");
     expect(paths).toContain("/about");
+    expect(paths).toContain("/feedback");
     expect(paths).not.toContain("/did-you-know");
   });
 });
