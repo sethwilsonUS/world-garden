@@ -119,6 +119,32 @@ const mockHomeData = async (page: Page) => {
   );
 };
 
+const mockMediaPlayback = async (page: Page) => {
+  await page.addInitScript(() => {
+    const currentTimes = new WeakMap<HTMLMediaElement, number>();
+
+    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+      configurable: true,
+      get() {
+        return currentTimes.get(this) ?? 0;
+      },
+      set(value: number) {
+        currentTimes.set(this, value);
+      },
+    });
+
+    HTMLMediaElement.prototype.play = function () {
+      this.dispatchEvent(new Event("play"));
+      this.dispatchEvent(new Event("playing"));
+      return Promise.resolve();
+    };
+
+    HTMLMediaElement.prototype.pause = function () {
+      this.dispatchEvent(new Event("pause"));
+    };
+  });
+};
+
 const expectPhotoFirstFrame = async (
   page: Page,
   source: string,
@@ -471,6 +497,7 @@ const mockArticleData = async (
 test("home presents the product and expands the curated daily preview", async ({
   page,
 }) => {
+  await mockMediaPlayback(page);
   await mockHomeData(page);
   await page.goto("/");
 
@@ -490,15 +517,100 @@ test("home presents the product and expands the curated daily preview", async ({
   });
   await expect(listeningSample).toBeVisible();
   await expect(
-    listeningSample.getByText("No account or search needed", { exact: false }),
+    listeningSample.getByText(
+      "Hear how a Wikipedia page becomes a clear listening path.",
+      { exact: true },
+    ),
   ).toBeVisible();
+  await expect(
+    listeningSample.getByText("No account or search needed", { exact: false }),
+  ).toHaveCount(0);
   const sampleAudio = listeningSample.locator("audio");
-  await expect(sampleAudio).toHaveAttribute("controls", "");
-  await expect(sampleAudio).toHaveAttribute("preload", "metadata");
-  await expect(sampleAudio.locator("source")).toHaveAttribute(
+  await expect(sampleAudio).toBeHidden();
+  await expect(sampleAudio).toHaveAttribute("hidden", "");
+  await expect(sampleAudio).toHaveAttribute("aria-hidden", "true");
+  await expect(sampleAudio).toHaveAttribute(
     "src",
     "/audio/curio-garden-listening-sample-edge-v1.mp3",
   );
+  await expect(sampleAudio).toHaveAttribute("preload", "metadata");
+  expect(
+    await sampleAudio.evaluate((audio) => audio.hasAttribute("controls")),
+  ).toBe(false);
+
+  const samplePlayer = listeningSample.getByRole("group", {
+    name: "Curio Garden listening sample player",
+  });
+  const playButton = samplePlayer.getByRole("button", {
+    name: "Play listening sample",
+    exact: true,
+  });
+  const speedButton = samplePlayer.getByRole("button", {
+    name: /^Playback speed /,
+  });
+  const progressSlider = samplePlayer.getByRole("slider", {
+    name: /^Playback position/,
+  });
+  await expect(playButton).toBeVisible();
+  await expect(speedButton).toBeVisible();
+  await expect(progressSlider).toBeVisible();
+
+  const playTarget = await playButton.boundingBox();
+  expect(playTarget).not.toBeNull();
+  expect(playTarget!.width).toBeGreaterThanOrEqual(44);
+  expect(playTarget!.height).toBeGreaterThanOrEqual(44);
+  const rangeTarget = await progressSlider.boundingBox();
+  expect(rangeTarget).not.toBeNull();
+  expect(rangeTarget!.height).toBeGreaterThanOrEqual(24);
+
+  await progressSlider.focus();
+  const positionBeforeSeek = Number(await progressSlider.inputValue());
+  await progressSlider.press("ArrowRight");
+  await expect
+    .poll(async () => Number(await progressSlider.inputValue()))
+    .toBeGreaterThan(positionBeforeSeek);
+
+  await playButton.click();
+  const pauseButton = samplePlayer.getByRole("button", {
+    name: "Pause listening sample",
+    exact: true,
+  });
+  await expect(pauseButton).toBeVisible();
+  await pauseButton.click();
+  const resumeButton = samplePlayer.getByRole("button", {
+    name: "Resume listening sample",
+    exact: true,
+  });
+  await expect(resumeButton).toBeVisible();
+  await resumeButton.click();
+  await expect(pauseButton).toBeVisible();
+  await progressSlider.focus();
+  await progressSlider.press("End");
+  const completedPosition = Number(await progressSlider.inputValue());
+  expect(completedPosition).toBeGreaterThan(18);
+  await sampleAudio.dispatchEvent("ended");
+  const replayButton = samplePlayer.getByRole("button", {
+    name: "Play sample again",
+    exact: true,
+  });
+  await expect(replayButton).toBeVisible();
+  await progressSlider.press("ArrowLeft");
+  const resumedPosition = Number(await progressSlider.inputValue());
+  expect(resumedPosition).toBeGreaterThan(0);
+  expect(resumedPosition).toBeLessThan(completedPosition);
+  const resumeAfterSeek = samplePlayer.getByRole("button", {
+    name: "Resume listening sample",
+    exact: true,
+  });
+  await expect(resumeAfterSeek).toBeVisible();
+  await resumeAfterSeek.click();
+  await expect(pauseButton).toBeVisible();
+  await expect
+    .poll(async () =>
+      sampleAudio.evaluate((audio) => (audio as HTMLAudioElement).currentTime),
+    )
+    .toBe(resumedPosition);
+
   await listeningSample.getByText("Transcript", { exact: true }).click();
   await expect(
     listeningSample.getByText(
@@ -525,6 +637,15 @@ test("home listening sample and search reflow at 320 pixels", async ({
   page,
   request,
 }) => {
+  const runtimeErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") runtimeErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  await page.addInitScript(() => {
+    window.localStorage.setItem("theme", "dark");
+    window.localStorage.setItem("curio-garden-playback-rate", "1.5");
+  });
   await mockHomeData(page);
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto("/");
@@ -535,9 +656,33 @@ test("home listening sample and search reflow at 320 pixels", async ({
   expect(assetResponse.status()).toBe(200);
   expect(assetResponse.headers()["content-type"]).toContain("audio/mpeg");
 
-  await expect(
-    page.getByRole("region", { name: "Start with a short listen" }),
-  ).toBeVisible();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  const listeningSample = page.getByRole("region", {
+    name: "Start with a short listen",
+  });
+  await expect(listeningSample).toBeVisible();
+  const samplePlayer = listeningSample.getByRole("group", {
+    name: "Curio Garden listening sample player",
+  });
+  const playerControls = [
+    samplePlayer.getByRole("button", {
+      name: "Play listening sample",
+      exact: true,
+    }),
+    samplePlayer.getByRole("button", { name: /^Playback speed / }),
+    samplePlayer.getByRole("slider", { name: /^Playback position/ }),
+  ];
+  for (const control of playerControls) {
+    await expect(control).toBeVisible();
+    await control.focus();
+    await expect(control).toBeFocused();
+    await expectVisibleFocusOutline(control);
+  }
+  await expect(playerControls[1]).toHaveAccessibleName(
+    "Playback speed 1.5x. Activate to change.",
+  );
+  expect(runtimeErrors).toEqual([]);
+
   const horizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   );

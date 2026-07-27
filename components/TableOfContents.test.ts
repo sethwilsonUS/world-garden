@@ -592,7 +592,7 @@ describe("TableOfContents narration", () => {
     expect(markup).toContain(">Stop<");
     expect(stopButton).toContain('type="button"');
     expect(markup).toContain(">Playing<");
-    expect(markup).toContain("toc-progress-range");
+    expect(markup).toContain("audio-progress-range");
   });
 
   it("keeps the active section progress visible while Play All is paused", () => {
@@ -632,7 +632,7 @@ describe("TableOfContents narration", () => {
     expect(markup).toContain(">Stop<");
     expect(stopButton).toContain('type="button"');
     expect(markup).toContain(">Paused<");
-    expect(markup).toContain("toc-progress-range");
+    expect(markup).toContain("audio-progress-range");
   });
 
   it("renders the slow-loading nudge for Play All generation", () => {

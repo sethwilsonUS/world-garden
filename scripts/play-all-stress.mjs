@@ -213,7 +213,7 @@ const waitForTocStatus = async (page, status, timeout = 10_000) => {
 };
 
 const waitForProgressBar = async (page, timeout = 10_000) => {
-  await page.locator(".toc-progress-range").first().waitFor({ timeout });
+  await page.locator(".audio-progress-range").first().waitFor({ timeout });
 };
 
 const createTtsResponder = ({

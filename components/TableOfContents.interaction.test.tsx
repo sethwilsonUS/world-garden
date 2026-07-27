@@ -119,7 +119,7 @@ describe("TableOfContents interactions", () => {
       root.render(<TableHarness value={value} initialRate={3} />),
     );
     const speed = container.querySelector(
-      '[aria-label="Playback speed 3x. Click to change."]',
+      '[aria-label="Playback speed 3x. Activate to change."]',
     ) as HTMLButtonElement;
     expect(speed).not.toBeNull();
 
@@ -127,7 +127,7 @@ describe("TableOfContents interactions", () => {
     await waitForExpectation(() => {
       expect(
         container.querySelector(
-          '[aria-label="Playback speed 0.5x. Click to change."]',
+          '[aria-label="Playback speed 0.5x. Activate to change."]',
         ),
       ).not.toBeNull();
       expect(container.textContent).toContain("Playback speed 0.5x");
