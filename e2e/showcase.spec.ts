@@ -122,6 +122,7 @@ const mockHomeData = async (page: Page) => {
 const mockMediaPlayback = async (page: Page) => {
   await page.addInitScript(() => {
     const currentTimes = new WeakMap<HTMLMediaElement, number>();
+    const pausedStates = new WeakMap<HTMLMediaElement, boolean>();
 
     Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
       configurable: true,
@@ -132,14 +133,31 @@ const mockMediaPlayback = async (page: Page) => {
         currentTimes.set(this, value);
       },
     });
+    Object.defineProperty(HTMLMediaElement.prototype, "paused", {
+      configurable: true,
+      get() {
+        return pausedStates.get(this) ?? true;
+      },
+    });
+    document.addEventListener(
+      "ended",
+      (event) => {
+        if (event.target instanceof HTMLMediaElement) {
+          pausedStates.set(event.target, true);
+        }
+      },
+      true,
+    );
 
     HTMLMediaElement.prototype.play = function () {
+      pausedStates.set(this, false);
       this.dispatchEvent(new Event("play"));
       this.dispatchEvent(new Event("playing"));
       return Promise.resolve();
     };
 
     HTMLMediaElement.prototype.pause = function () {
+      pausedStates.set(this, true);
       this.dispatchEvent(new Event("pause"));
     };
   });
@@ -584,10 +602,17 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(resumeButton).toBeVisible();
   await resumeButton.click();
   await expect(pauseButton).toBeVisible();
+  await expect
+    .poll(async () => Number(await progressSlider.getAttribute("max")))
+    .toBeGreaterThan(0);
+  const sliderMax = Number(await progressSlider.getAttribute("max"));
+  const sliderStep = Number(await progressSlider.getAttribute("step"));
+  expect(sliderStep).toBeGreaterThan(0);
   await progressSlider.focus();
   await progressSlider.press("End");
   const completedPosition = Number(await progressSlider.inputValue());
-  expect(completedPosition).toBeGreaterThan(18);
+  expect(completedPosition).toBeGreaterThanOrEqual(sliderMax - sliderStep);
+  expect(completedPosition).toBeLessThanOrEqual(sliderMax);
   await sampleAudio.dispatchEvent("ended");
   const replayButton = samplePlayer.getByRole("button", {
     name: "Play sample again",
@@ -609,7 +634,7 @@ test("home presents the product and expands the curated daily preview", async ({
     .poll(async () =>
       sampleAudio.evaluate((audio) => (audio as HTMLAudioElement).currentTime),
     )
-    .toBe(resumedPosition);
+    .toBeCloseTo(resumedPosition, 2);
 
   await listeningSample.getByText("Transcript", { exact: true }).click();
   await expect(

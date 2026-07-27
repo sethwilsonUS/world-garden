@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatRate, PLAYBACK_RATES } from "./usePlaybackRate";
+import {
+  formatRate,
+  getNextPlaybackRate,
+  PLAYBACK_RATES,
+} from "./usePlaybackRate";
 
 describe("formatRate", () => {
   it("formats integer rates", () => {
@@ -35,6 +39,16 @@ describe("PLAYBACK_RATES", () => {
   it("contains only positive numbers", () => {
     for (const rate of PLAYBACK_RATES) {
       expect(rate).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("getNextPlaybackRate", () => {
+  it("advances through the shared rates and wraps after the fastest speed", () => {
+    for (let index = 0; index < PLAYBACK_RATES.length; index += 1) {
+      const rate = PLAYBACK_RATES[index];
+      const expected = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+      expect(getNextPlaybackRate(rate)).toBe(expected);
     }
   });
 });

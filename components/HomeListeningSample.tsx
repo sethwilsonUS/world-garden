@@ -8,11 +8,7 @@ import {
   SpeedButton,
 } from "@/components/AudioPlaybackPresentation";
 import { useAudioElement } from "@/hooks/useAudioElement";
-import {
-  formatRate,
-  PLAYBACK_RATES,
-  usePlaybackRate,
-} from "@/hooks/usePlaybackRate";
+import { formatRate, usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { analytics } from "@/lib/analytics";
 
 export const HOME_LISTENING_SAMPLE_URL =
@@ -32,7 +28,7 @@ export const HomeListeningSample = () => {
   const [hasEnded, setHasEnded] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
   const [rateAnnouncement, setRateAnnouncement] = useState("");
-  const { rate, setRate } = usePlaybackRate();
+  const { rate, cycleRate } = usePlaybackRate();
 
   const handlePlaying = useCallback(() => {
     setHasPlayed(true);
@@ -108,11 +104,9 @@ export const HomeListeningSample = () => {
   );
 
   const handleSpeedChange = useCallback(() => {
-    const currentIndex = PLAYBACK_RATES.indexOf(rate);
-    const nextRate = PLAYBACK_RATES[(currentIndex + 1) % PLAYBACK_RATES.length];
-    setRate(nextRate);
+    const nextRate = cycleRate();
     setRateAnnouncement(`Playback speed ${formatRate(nextRate)}`);
-  }, [rate, setRate]);
+  }, [cycleRate]);
 
   return (
     <section

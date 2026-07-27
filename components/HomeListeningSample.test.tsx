@@ -243,11 +243,30 @@ describe("HomeListeningSample", () => {
     expect(
       buttonNamed("Playback speed 1.25x. Activate to change."),
     ).not.toBeNull();
-    const announcement = container.querySelector('[role="status"]');
+    const announcement = container.querySelector('.sr-only[role="status"]');
     expect(announcement?.getAttribute("aria-live")).toBe("polite");
     expect(announcement?.getAttribute("aria-atomic")).toBe("true");
     expect(announcement?.textContent).toBe("Playback speed 1.25x");
     expect(audio.playbackRate).toBe(1.25);
+  });
+
+  it("cycles and persists two same-turn speed changes without stale state", async () => {
+    await renderSample();
+    const speed = buttonNamed("Playback speed 1x. Activate to change.");
+
+    act(() => {
+      speed.click();
+      speed.click();
+    });
+    await flushEffects();
+
+    expect(
+      buttonNamed("Playback speed 1.5x. Activate to change."),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('.sr-only[role="status"]')?.textContent,
+    ).toBe("Playback speed 1.5x");
+    expect(localStorage.getItem("curio-garden-playback-rate")).toBe("1.5");
   });
 
   it("keeps server markup stable before restoring a saved playback speed", async () => {
