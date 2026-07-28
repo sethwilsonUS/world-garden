@@ -33,6 +33,7 @@ import {
   buildArticleAudioExportReadAttestationPayload,
 } from "../lib/article-audio-export-attestation";
 import { verifyServerAttestation } from "../lib/server-attestation";
+import { getArticleAudioExportQuotaKey } from "./lib/accountQuotaKeys";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
@@ -188,9 +189,6 @@ export const resolveArticleAudioExportBaseUrl = (
   void legacyRequestedBaseUrl;
   return configuredBaseUrl;
 };
-
-const getArticleAudioExportQuotaKey = (ownerTokenIdentifier: string): string =>
-  `article-audio-export:openai:daily:${ownerTokenIdentifier}`;
 
 type ArticleAudioExportAccessRecord = {
   ttsProvider?: string;

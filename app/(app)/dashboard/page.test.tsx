@@ -139,9 +139,20 @@ describe("DashboardPage", () => {
     expect(markup).toContain("opaque-token");
     expect(markup).toContain("Your private feed is active");
     expect(markup).toContain("Signed-in progress");
+    expect(markup).toContain('href="/account"');
+    expect(markup).toContain("Account &amp; data");
     expect(markup).toContain(
       "Podcast plays in podcast apps do not count toward badges yet.",
     );
+  });
+
+  it("does not offer account-data controls to signed-out visitors", () => {
+    authState = "signed-out";
+
+    const markup = renderToStaticMarkup(createElement(DashboardPage));
+
+    expect(markup).not.toContain('href="/account"');
+    expect(markup).not.toContain("Account &amp; data");
   });
 
   it("waits for account hydration before exposing private feed controls", () => {

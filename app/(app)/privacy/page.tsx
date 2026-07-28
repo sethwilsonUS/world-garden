@@ -210,6 +210,25 @@ export default function PrivacyPage() {
             the app.
           </li>
           <li>
+            From the{" "}
+            <Link
+              href="/account"
+              className="text-accent underline underline-offset-2"
+            >
+              Account &amp; data page
+            </Link>
+            , you can download a portable JSON copy of your server-side account
+            data. It includes bookmarks, Playlist order and episode status,
+            listening progress, topic-badge credit, personal feed state, and
+            metadata about article-audio exports and generation quota windows.
+            While the feed URL is active, the active private RSS feed token is
+            included and remains a bearer credential, so keep the export
+            private. Revoked feed tokens are not included. The export contains
+            metadata about article-audio exports, not the generated audio files
+            themselves. Device-local history and preferences, anonymous
+            feedback, shared caches, and aggregated analytics are excluded.
+          </li>
+          <li>
             A private RSS URL is a revocable bearer credential: anyone who has
             the address can use it. From the dashboard, you can replace the
             address or turn the feed off without deleting your playlist.

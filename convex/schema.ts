@@ -745,6 +745,7 @@ export default defineSchema({
     .index("by_clientId_updatedAt", ["clientId", "updatedAt"])
     .index("by_articleId", ["articleId"])
     .index("by_clientId_articleId", ["clientId", "articleId"])
+    .index("by_ownerTokenIdentifier", ["ownerTokenIdentifier"])
     .index("by_queueKey_status", ["queueKey", "status", "createdAt"]),
 
   viewerArticleListenProgress: defineTable({

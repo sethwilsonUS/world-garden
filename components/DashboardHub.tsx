@@ -123,6 +123,12 @@ const SignedInDashboard = () => {
                 Signed in as {email}
               </span>
             ) : null}
+            <Link
+              href="/account"
+              className="btn-secondary inline-flex min-h-10 items-center justify-center px-4 py-2 text-sm no-underline"
+            >
+              Account &amp; data
+            </Link>
           </div>
         </div>
       </SectionShell>

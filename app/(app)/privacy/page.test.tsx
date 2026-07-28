@@ -66,5 +66,22 @@ describe("PrivacyPage", () => {
     expect(markup).toContain(
       "Device-local information is outside Curio Garden’s server-side account data",
     );
+    expect(markup).toContain('href="/account"');
+    expect(markup).toContain(
+      "download a portable JSON copy of your server-side account data",
+    );
+    expect(markup).toContain(
+      "bookmarks, Playlist order and episode status, listening progress, topic-badge credit",
+    );
+    expect(markup).toContain(
+      "active private RSS feed token is included and remains a bearer credential",
+    );
+    expect(markup).toContain("Revoked feed tokens are not included");
+    expect(markup).toContain(
+      "metadata about article-audio exports, not the generated audio files themselves",
+    );
+    expect(markup).toContain(
+      "Device-local history and preferences, anonymous feedback, shared caches, and aggregated analytics are excluded",
+    );
   });
 });

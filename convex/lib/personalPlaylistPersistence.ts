@@ -5,6 +5,7 @@ import {
   createPersonalFeedToken,
   isValidPersonalFeedToken,
 } from "../../lib/personal-feed-token";
+import { getPersonalPlaylistOpenAiQuotaKey } from "./accountQuotaKeys";
 import { upsertTtsAudioVariant } from "./ttsAudioVariants";
 
 export type PersonalPlaylistReadCtx = Pick<QueryCtx, "db" | "storage">;
@@ -234,10 +235,6 @@ const getActiveViewerEpisodes = async (
   (await getViewerEpisodes(ctx, viewerTokenIdentifier)).filter(
     (episode) => episode.removedAt == null,
   );
-
-const getPersonalPlaylistOpenAiQuotaKey = (
-  viewerTokenIdentifier: string,
-): string => `personal-playlist:openai:daily:${viewerTokenIdentifier}`;
 
 const reservePersonalPlaylistOpenAiGeneration = async (
   ctx: PersonalPlaylistMutationCtx,
