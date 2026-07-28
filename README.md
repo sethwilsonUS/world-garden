@@ -256,7 +256,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_EDGE_FALLBACK`                            | No                      | Set to `"false"` to disable automatic Edge fallback after OpenAI failures                                                                                                                                       |
 | `EDGE_TTS_VOICE_ID`                            | No                      | Public/default Edge voice; defaults to `en-US-AriaNeural`; mirror custom values in Convex and `NEXT_PUBLIC_EDGE_TTS_VOICE_ID`                                                                                   |
 | `TTS_UPSTREAM_TIMEOUT_MS`                      | No                      | Per-provider TTS request timeout; defaults to `45000` ms                                                                                                                                                        |
-| `TTS_OPENAI_INTERACTIVE_FALLBACK_MS`           | No                      | Time before an interactive OpenAI request races the Edge fallback; defaults to `25000` ms                                                                                                                       |
+| `TTS_OPENAI_INTERACTIVE_FALLBACK_MS`           | No                      | Interactive OpenAI request budget before the route stops waiting and falls back sequentially to Edge; defaults to `25000` ms                                                                                    |
 | `EDGE_TTS_TIMEOUT_MS`                          | No                      | Local Edge TTS subprocess timeout; defaults to `60000` ms                                                                                                                                                       |
 | `VERCEL_AUTOMATION_BYPASS_SECRET`              | Protected previews      | System environment variable Vercel injects after Protection Bypass for Automation is enabled; trusted self-calls forward it, and the build securely copies it into the exact isolated Convex Preview            |
 | `TTS_PUBLIC_OPENAI_BURST_LIMIT`                | No                      | Authenticated OpenAI TTS burst quota per IP (legacy variable name); defaults to `120` requests                                                                                                                  |
@@ -287,7 +287,8 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `ARTICLE_CONTEXT_RATE_LIMIT`                   | No                      | Article-context requests allowed per IP/window; defaults to `30`                                                                                                                                                |
 | `ARTICLE_CONTEXT_RATE_WINDOW_MS`               | No                      | Article-context route window; defaults to `300000` ms                                                                                                                                                           |
 | `VERCEL_ANALYTICS_DRAIN_SECRET`                | No                      | Secret used to verify signed Vercel Analytics Drain payloads sent to `/api/analytics/vercel-drain`                                                                                                              |
-| `ANALYTICS_REPORT_SECRET`                      | No                      | Bearer token used by the local analytics report command and server routes to read/write compact Convex rollups; set the same value in Vercel and Convex                                                         |
+| `ANALYTICS_REPORT_SECRET`                      | Owner reports           | Bearer token used locally for owner analytics/cost routes; set the same value in Vercel and Convex, where payload-bound attestations protect each report or statement operation                                 |
+| `AI_COST_LEDGER_MODE`                          | No                      | Server-only `off` or `observe` switch for best-effort provider/cache/listening accounting; missing or invalid values act as `off`, and the value must match in Vercel and Convex                                |
 | `VERCEL_PROJECT`                               | No                      | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees                                                                                                                           |
 | `VERCEL_ANALYTICS_CLI`                         | No                      | Optional command override for the Vercel CLI used by `npm run analytics:site`                                                                                                                                   |
 | `TRENDING_BRIEF_MODEL`                         | No                      | Direct OpenAI model for the daily trending brief; defaults to `gpt-5.6-luna`                                                                                                                                    |
@@ -372,6 +373,31 @@ To enable the drain path:
 
 If the local Vercel CLI is too old for `vercel logs --json --environment`, the report command falls back to `npx --yes vercel@latest`. In a fresh worktree without an ignored `.vercel/` link, pass `--project world-garden` or set `VERCEL_PROJECT`. Set `VERCEL_ANALYTICS_CLI` to a custom command if you want to pin the CLI used by the report script.
 
+## AI Cost Ledger
+
+The first-party AI/audio cost ledger is operational accounting, separate from
+browser analytics. In `observe` mode it records idempotent provider attempts,
+authoritative cache decisions, unique persisted audio, and aggregate signed-in
+unique heard time. It does not change quotas, provider selection, fallback,
+cache behavior, or playback, and a ledger failure is fail-open.
+
+Run an aggregate owner report over a half-open UTC range of at most 90 days:
+
+```bash
+npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01
+npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --csv
+npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --json
+```
+
+Set `ANALYTICS_REPORT_SECRET` and `NEXT_PUBLIC_SITE_URL` in the shell or local
+`.env.local`. Set `AI_COST_LEDGER_MODE=observe` independently in Vercel and the
+matching Convex deployment; its default is `off`. Provider-reported statement
+cost remains distinct from local estimates, and external podcast/download
+listening is reported as unknown rather than unused. See the
+[AI cost ledger runbook](docs/ai-cost-ledger-runbook.md) for definitions,
+privacy exclusions, statement import, pricing sources, retention, rollout, and
+known blind spots.
+
 ## Podcasts
 
 Curio Garden can publish multiple RSS feeds:
@@ -449,6 +475,7 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run dev:python`      | Start Next.js + Convex + Python TTS server                                                                |
 | `npm run local`           | Local mode — no Convex, with Edge speech through the canonical TTS route                                  |
 | `npm run analytics:site`  | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
+| `npm run analytics:costs` | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
 | `npm run build`           | Production build (handles Vercel environments)                                                            |
 | `npm run check`           | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
 | `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |

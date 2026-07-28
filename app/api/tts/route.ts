@@ -1,4 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { auth } from "@clerk/nextjs/server";
 import { track } from "@vercel/analytics/server";
 import {
@@ -27,16 +28,152 @@ import {
   type TtsQuotaDecision,
   type TtsQuotaMode,
 } from "@/lib/tts-quota";
+import { recordProviderAttemptFailOpen } from "@/lib/ai-cost-provider-recorder";
+import {
+  getAiCostLedgerMode,
+  type AiCostFailureCategory,
+  type AiCostProviderAttempt,
+  type AiCostSource,
+} from "@/lib/ai-cost-ledger-contract";
+import { resolveTtsAiCostSource } from "@/lib/tts-source-attestation";
 
 const OPENAI_SPEECH_ENDPOINT = "https://api.openai.com/v1/audio/speech";
 const DEFAULT_TTS_UPSTREAM_TIMEOUT_MS = 45_000;
 const DEFAULT_TTS_OPENAI_INTERACTIVE_FALLBACK_MS = 25_000;
+const AI_COST_PROVIDER_IDENTIFIER_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,119}$/;
 
 const countWords = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length;
 
+const estimateSpeechDurationMs = (wordCount: number): number =>
+  Math.round((wordCount / 2.5) * 1_000);
+
+const boundedProviderIdentifier = (value: string): string | null => {
+  const identifier = value.trim();
+  return AI_COST_PROVIDER_IDENTIFIER_PATTERN.test(identifier)
+    ? identifier
+    : null;
+};
+
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Audio generation failed";
+
+class TtsUpstreamTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TtsUpstreamTimeoutError";
+  }
+}
+
+const classifyDispatchedTtsError = (error: unknown): AiCostFailureCategory => {
+  if (error instanceof TtsUpstreamTimeoutError) return "timeout";
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "aborted";
+  }
+  if (error instanceof TypeError) return "network";
+  return "unknown";
+};
+
+const createTtsLedgerId = (): string | null => {
+  if (getAiCostLedgerMode() !== "observe") return null;
+  try {
+    return randomUUID();
+  } catch {
+    console.warn("[ai-cost-ledger] TTS attempt identity could not be created.");
+    return null;
+  }
+};
+
+const recordTtsAttempt = (attempt: AiCostProviderAttempt | null): void => {
+  if (!attempt) return;
+  try {
+    const task = Promise.resolve(recordProviderAttemptFailOpen(attempt)).catch(
+      () => {
+        console.warn("[ai-cost-ledger] TTS attempt recording failed.");
+      },
+    );
+    try {
+      after(async () => await task);
+    } catch {
+      // The write is already in flight; accounting must never affect TTS.
+    }
+  } catch {
+    console.warn("[ai-cost-ledger] TTS attempt recording failed.");
+  }
+};
+
+type TtsAttemptIdentity = {
+  correlationId: string | null;
+  requestedProvider: TtsProvider;
+  isFallbackAttempt: boolean;
+  source: AiCostSource;
+};
+
+const createTtsAttempt = ({
+  eventKey,
+  identity,
+  provider,
+  profile,
+  text,
+  lifecycleVersion,
+  state,
+  failureCategory,
+  dispatchedAt,
+  completedAt,
+  responseAudioBytes = null,
+}: {
+  eventKey: string | null;
+  identity: TtsAttemptIdentity;
+  provider: TtsProvider;
+  profile: TtsProfile;
+  text: string;
+  lifecycleVersion: number;
+  state: AiCostProviderAttempt["state"];
+  failureCategory: AiCostFailureCategory | null;
+  dispatchedAt: number | null;
+  completedAt: number | null;
+  responseAudioBytes?: number | null;
+}): AiCostProviderAttempt | null => {
+  if (!eventKey || !identity.correlationId) return null;
+  const wordCount = countWords(text);
+  const succeeded = state === "succeeded";
+  return {
+    eventKey,
+    correlationId: identity.correlationId,
+    lifecycleVersion,
+    operation: "tts",
+    source: identity.source,
+    requestedProvider: identity.requestedProvider,
+    effectiveProvider: provider,
+    model: boundedProviderIdentifier(profile.model),
+    serviceTier: null,
+    profile: boundedProviderIdentifier(profile.voiceId),
+    state,
+    failureCategory,
+    dispatchedAt,
+    completedAt,
+    inputCharacters: Array.from(text).length,
+    inputWords: wordCount,
+    inputTokens: null,
+    cachedInputTokens: null,
+    cacheWriteInputTokens: null,
+    outputTokens: null,
+    reasoningOutputTokens: null,
+    audioInputTokens: null,
+    audioOutputTokens: null,
+    webSearchCalls: null,
+    responseAudioBytes,
+    audioDurationMs: succeeded ? estimateSpeechDurationMs(wordCount) : null,
+    durationMeasurement: succeeded ? "estimated" : "unknown",
+    isFallbackAttempt: identity.isFallbackAttempt,
+  };
+};
+
+const updateTtsAttempt = (
+  attempt: AiCostProviderAttempt | null,
+  update: Partial<AiCostProviderAttempt>,
+): AiCostProviderAttempt | null => (attempt ? { ...attempt, ...update } : null);
 
 const getAuthenticatedUserId = async (): Promise<string | null> => {
   try {
@@ -127,7 +264,7 @@ const fetchWithTimeout = async (
       : fetchPromise);
   } catch (error) {
     if (didTimeout) {
-      throw new Error(timeoutMessage);
+      throw new TtsUpstreamTimeoutError(timeoutMessage);
     }
     throw error;
   } finally {
@@ -193,44 +330,133 @@ const audioResponse = (
 const generateOpenAiSpeech = async (
   text: string,
   profile: TtsProfile,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; attempt: TtsAttemptIdentity },
 ): Promise<Buffer> => {
+  const eventKey = options.attempt.correlationId ? createTtsLedgerId() : null;
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
+    recordTtsAttempt(
+      createTtsAttempt({
+        eventKey,
+        identity: options.attempt,
+        provider: "openai",
+        profile,
+        text,
+        lifecycleVersion: 1,
+        state: "failed_before_dispatch",
+        failureCategory: "configuration",
+        dispatchedAt: null,
+        completedAt: Date.now(),
+      }),
+    );
     throw new Error("OPENAI_API_KEY is required for OpenAI TTS");
   }
 
   const timeoutMs = options.timeoutMs ?? getTtsUpstreamTimeoutMs();
-  const response = await fetchWithTimeout(
-    OPENAI_SPEECH_ENDPOINT,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+  const dispatchedAt = Date.now();
+  const boundaryAttempt = createTtsAttempt({
+    eventKey,
+    identity: options.attempt,
+    provider: "openai",
+    profile,
+    text,
+    lifecycleVersion: 0,
+    state: "unknown_after_dispatch",
+    failureCategory: null,
+    dispatchedAt,
+    completedAt: null,
+  });
+  recordTtsAttempt(boundaryAttempt);
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      OPENAI_SPEECH_ENDPOINT,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: profile.model,
+          voice: profile.voiceId,
+          input: text,
+          instructions: profile.instructions,
+          response_format: "mp3",
+        }),
       },
-      body: JSON.stringify({
-        model: profile.model,
-        voice: profile.voiceId,
-        input: text,
-        instructions: profile.instructions,
-        response_format: "mp3",
+      {
+        timeoutMs,
+        timeoutMessage: `OpenAI TTS request timed out after ${timeoutMs}ms`,
+      },
+    );
+  } catch (error) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "unknown_after_dispatch",
+        failureCategory: classifyDispatchedTtsError(error),
+        completedAt: Date.now(),
       }),
-    },
-    {
-      timeoutMs,
-      timeoutMessage: `OpenAI TTS request timed out after ${timeoutMs}ms`,
-    },
-  );
+    );
+    throw error;
+  }
 
   if (!response.ok) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "failed_after_dispatch",
+        failureCategory:
+          response.status >= 500 ? "provider_http_5xx" : "provider_http_4xx",
+        completedAt: Date.now(),
+      }),
+    );
     throw new Error(await readErrorBody(response));
   }
 
-  const audioBuffer = Buffer.from(await response.arrayBuffer());
+  let audioBuffer: Buffer;
+  try {
+    audioBuffer = Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "unknown_after_dispatch",
+        failureCategory: classifyDispatchedTtsError(error),
+        completedAt: Date.now(),
+      }),
+    );
+    throw error;
+  }
   if (audioBuffer.length === 0) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "failed_after_dispatch",
+        failureCategory: "empty_response",
+        completedAt: Date.now(),
+      }),
+    );
     throw new Error("No audio was generated");
   }
+
+  recordTtsAttempt(
+    createTtsAttempt({
+      eventKey,
+      identity: options.attempt,
+      provider: "openai",
+      profile,
+      text,
+      lifecycleVersion: 1,
+      state: "succeeded",
+      failureCategory: null,
+      dispatchedAt,
+      completedAt: Date.now(),
+      responseAudioBytes: audioBuffer.length,
+    }),
+  );
 
   return audioBuffer;
 };
@@ -239,28 +465,124 @@ const generateEdgeSpeech = async (
   req: NextRequest,
   text: string,
   profile: TtsProfile,
+  attempt: TtsAttemptIdentity,
 ): Promise<Buffer> => {
-  const { url, protectionHeaders } = getEdgeSpeechTarget(req);
-  const response = await fetchWithTimeout(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...protectionHeaders,
-    },
-    body: JSON.stringify({
-      text,
-      voiceId: profile.voiceId,
-    }),
+  const eventKey = attempt.correlationId ? createTtsLedgerId() : null;
+  let target: ReturnType<typeof getEdgeSpeechTarget>;
+  try {
+    target = getEdgeSpeechTarget(req);
+  } catch (error) {
+    recordTtsAttempt(
+      createTtsAttempt({
+        eventKey,
+        identity: attempt,
+        provider: "edge",
+        profile,
+        text,
+        lifecycleVersion: 1,
+        state: "failed_before_dispatch",
+        failureCategory: "configuration",
+        dispatchedAt: null,
+        completedAt: Date.now(),
+      }),
+    );
+    throw error;
+  }
+
+  const dispatchedAt = Date.now();
+  const boundaryAttempt = createTtsAttempt({
+    eventKey,
+    identity: attempt,
+    provider: "edge",
+    profile,
+    text,
+    lifecycleVersion: 0,
+    state: "unknown_after_dispatch",
+    failureCategory: null,
+    dispatchedAt,
+    completedAt: null,
   });
+  recordTtsAttempt(boundaryAttempt);
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(target.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...target.protectionHeaders,
+      },
+      body: JSON.stringify({
+        text,
+        voiceId: profile.voiceId,
+      }),
+    });
+  } catch (error) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "unknown_after_dispatch",
+        failureCategory: classifyDispatchedTtsError(error),
+        completedAt: Date.now(),
+      }),
+    );
+    throw error;
+  }
 
   if (!response.ok) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "failed_after_dispatch",
+        failureCategory:
+          response.status >= 500 ? "provider_http_5xx" : "provider_http_4xx",
+        completedAt: Date.now(),
+      }),
+    );
     throw new Error(await readErrorBody(response));
   }
 
-  const audioBuffer = Buffer.from(await response.arrayBuffer());
+  let audioBuffer: Buffer;
+  try {
+    audioBuffer = Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "unknown_after_dispatch",
+        failureCategory: classifyDispatchedTtsError(error),
+        completedAt: Date.now(),
+      }),
+    );
+    throw error;
+  }
   if (audioBuffer.length === 0) {
+    recordTtsAttempt(
+      updateTtsAttempt(boundaryAttempt, {
+        lifecycleVersion: 1,
+        state: "failed_after_dispatch",
+        failureCategory: "empty_response",
+        completedAt: Date.now(),
+      }),
+    );
     throw new Error("No audio was generated");
   }
+
+  recordTtsAttempt(
+    createTtsAttempt({
+      eventKey,
+      identity: attempt,
+      provider: "edge",
+      profile,
+      text,
+      lifecycleVersion: 1,
+      state: "succeeded",
+      failureCategory: null,
+      dispatchedAt,
+      completedAt: Date.now(),
+      responseAudioBytes: audioBuffer.length,
+    }),
+  );
 
   return audioBuffer;
 };
@@ -350,6 +672,7 @@ export const POST = async (req: NextRequest) => {
   const startedAt = Date.now();
   let wordCount = 0;
   let quotaDecision: TtsQuotaDecision | undefined;
+  const attemptCorrelationId = createTtsLedgerId();
 
   try {
     const body = (await req.json()) as TtsRequest;
@@ -385,6 +708,7 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
+    const aiCostSource = await resolveTtsAiCostSource(req.headers);
     const localMode = isLocalMode();
     const isTrustedRequest =
       !localMode && (await isTtsQuotaBypassRequest(req.headers));
@@ -443,7 +767,12 @@ export const POST = async (req: NextRequest) => {
 
     if (primaryProfile.provider === "edge") {
       effectiveProvider = "edge";
-      const audioBuffer = await generateEdgeSpeech(req, text, primaryProfile);
+      const audioBuffer = await generateEdgeSpeech(req, text, primaryProfile, {
+        correlationId: attemptCorrelationId,
+        requestedProvider: provider,
+        isFallbackAttempt: usedFallback,
+        source: aiCostSource,
+      });
       const response = audioResponse(
         audioBuffer,
         getTtsMetadata(primaryProfile),
@@ -474,7 +803,12 @@ export const POST = async (req: NextRequest) => {
       effectiveProvider = "edge";
       usedFallback = true;
       effectiveFallbackReason = quotaDecision.fallbackReason ?? "openai_quota";
-      const audioBuffer = await generateEdgeSpeech(req, text, edgeProfile);
+      const audioBuffer = await generateEdgeSpeech(req, text, edgeProfile, {
+        correlationId: attemptCorrelationId,
+        requestedProvider: provider,
+        isFallbackAttempt: true,
+        source: aiCostSource,
+      });
       const response = audioResponse(audioBuffer, getTtsMetadata(edgeProfile), {
         fallback: true,
         fallbackReason: effectiveFallbackReason,
@@ -503,6 +837,12 @@ export const POST = async (req: NextRequest) => {
       );
       const audioBuffer = await generateOpenAiSpeech(text, primaryProfile, {
         timeoutMs: openAiTimeoutMs,
+        attempt: {
+          correlationId: attemptCorrelationId,
+          requestedProvider: provider,
+          isFallbackAttempt: false,
+          source: aiCostSource,
+        },
       });
       const response = audioResponse(
         audioBuffer,
@@ -533,7 +873,12 @@ export const POST = async (req: NextRequest) => {
       effectiveProvider = "edge";
       usedFallback = true;
       effectiveFallbackReason = "openai_error";
-      const audioBuffer = await generateEdgeSpeech(req, text, edgeProfile);
+      const audioBuffer = await generateEdgeSpeech(req, text, edgeProfile, {
+        correlationId: attemptCorrelationId,
+        requestedProvider: provider,
+        isFallbackAttempt: true,
+        source: aiCostSource,
+      });
       const response = audioResponse(audioBuffer, getTtsMetadata(edgeProfile), {
         fallback: true,
         fallbackReason: effectiveFallbackReason,

@@ -11,6 +11,7 @@ import {
 import type { Id } from "../_generated/dataModel";
 import { createTestSection } from "../../lib/test-section-narration";
 import { TTS_QUOTA_BYPASS_HEADER } from "../../lib/tts-quota-bypass";
+import { TTS_AI_COST_SOURCE_HEADER } from "../../lib/tts-source-attestation";
 import {
   assembleArticleAudio,
   getArticleAudioSections,
@@ -150,6 +151,7 @@ describe("assembleArticleAudio", () => {
 
     let uploadedBytes: Uint8Array | null = null;
     const result = await assembleArticleAudio({
+      aiCostSource: "article_audio_export",
       article,
       albumTitle: "Curio Garden Article Audio",
       baseUrl: "https://curiogarden.org",
@@ -210,6 +212,7 @@ describe("assembleArticleAudio", () => {
 
     await expect(
       assembleArticleAudio({
+        aiCostSource: "article_audio_export",
         article: {
           _id: "article-profile-drift" as Id<"articles">,
           title: "Profile drift",
@@ -267,6 +270,7 @@ describe("assembleArticleAudio", () => {
     );
 
     const result = await assembleArticleAudio({
+      aiCostSource: "article_audio_export",
       article: {
         _id: "article-profile-authority" as Id<"articles">,
         title: "Profile authority",
@@ -332,6 +336,7 @@ describe("assembleArticleAudio", () => {
     );
 
     const result = await assembleArticleAudio({
+      aiCostSource: "article_audio_export",
       article: {
         _id: "article-stale-profile" as Id<"articles">,
         title: "Stale profile",
@@ -453,6 +458,7 @@ describe("assembleArticleAudio", () => {
     );
 
     const result = await assembleArticleAudio({
+      aiCostSource: "article_audio_export",
       article,
       albumTitle: "Curio Garden Article Audio",
       baseUrl: "https://curiogarden.org",
@@ -478,6 +484,15 @@ describe("assembleArticleAudio", () => {
         headers.get("x-vercel-protection-bypass"),
       ),
     ).toEqual(["preview-secret", "preview-secret", "preview-secret"]);
+    expect(
+      generationHeaders.map((headers) =>
+        headers.get(TTS_AI_COST_SOURCE_HEADER),
+      ),
+    ).toEqual([
+      "article_audio_export",
+      "article_audio_export",
+      "article_audio_export",
+    ]);
     expect(
       generationRequests.map(({ text, provider, expectedTtsCacheKey }) => ({
         text,

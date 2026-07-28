@@ -17,6 +17,12 @@ import { isLocalMode } from "@/lib/runtime-mode";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { resolveTtsProviderAccess } from "@/lib/tts-access-policy";
 import {
+  createAudioCacheLedgerAssetKey,
+  recordAudioCacheReadResultBestEffort,
+  recordAudioCacheWriteFailureBestEffort,
+  type AudioCacheReadResultInput,
+} from "@/lib/audio-cache-ledger";
+import {
   buildTtsMetadataHeaders,
   getTtsMetadata,
   getTtsProfile,
@@ -47,7 +53,24 @@ type StoredArticle = {
 
 type CachedSectionAudio = {
   urls: Record<string, string>;
+  durations?: Record<string, number>;
   metadata: Record<string, Record<string, string>>;
+  ledgerAssetKeys?: Record<string, string>;
+};
+
+const recordInteractiveCacheReadAfterResponse = (
+  result: Omit<AudioCacheReadResultInput, "source">,
+): void => {
+  try {
+    after(async () => {
+      await recordAudioCacheReadResultBestEffort({
+        source: "interactive_article",
+        ...result,
+      });
+    });
+  } catch {
+    console.warn("[ai-cost-ledger] Audio cache read result was not scheduled.");
+  }
 };
 
 const getCanonicalArticle = async (
@@ -155,21 +178,26 @@ const fetchCachedAudioBlob = async (url: string): Promise<Blob | null> => {
   }
 };
 
-const persistGeneratedAudio = async ({
-  articleId,
-  sectionKey,
-  sourceHash,
-  blob,
-  text,
-  metadata,
-}: {
+type PersistGeneratedAudioArgs = {
   articleId: Id<"articles">;
   sectionKey: string;
   sourceHash: string;
   blob: Blob;
   text: string;
   metadata: TtsMetadata;
-}): Promise<void> => {
+  expectedExistingLedgerAssetKey?: string;
+};
+
+const persistGeneratedAudioAttempt = async ({
+  articleId,
+  sectionKey,
+  sourceHash,
+  blob,
+  text,
+  metadata,
+  ledgerAssetKey,
+  expectedExistingLedgerAssetKey,
+}: PersistGeneratedAudioArgs & { ledgerAssetKey?: string }): Promise<void> => {
   const uploadAttestation = await createAudioCacheUploadAttestation();
   const uploadUrl = (await fetchMutation(anyApi.audio.generateUploadUrl, {
     attestation: uploadAttestation,
@@ -193,6 +221,14 @@ const persistGeneratedAudio = async ({
     throw new Error("Audio cache upload did not return a storage ID.");
   }
 
+  const ledgerArgs = ledgerAssetKey
+    ? {
+        byteLength: blob.size,
+        ledgerAssetKey,
+        expectedExistingLedgerAssetKey,
+        ledgerSource: "interactive_article" as const,
+      }
+    : {};
   const saveArgs = {
     articleId,
     sectionKey,
@@ -205,12 +241,31 @@ const persistGeneratedAudio = async ({
     voiceId: metadata.voiceId,
     promptVersion: metadata.promptVersion,
     durationSeconds: estimateAudioDurationSeconds(text),
+    ...ledgerArgs,
   };
   const saveAttestation = await createAudioCacheSaveAttestation(saveArgs);
   await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
     ...saveArgs,
     attestation: saveAttestation,
   });
+};
+
+const persistGeneratedAudio = async (
+  args: PersistGeneratedAudioArgs,
+): Promise<void> => {
+  const ledgerAssetKey = createAudioCacheLedgerAssetKey();
+  try {
+    await persistGeneratedAudioAttempt({ ...args, ledgerAssetKey });
+  } catch (error) {
+    if (ledgerAssetKey) {
+      await recordAudioCacheWriteFailureBestEffort({
+        ledgerAssetKey,
+        source: "interactive_article",
+        provider: args.metadata.provider,
+      });
+    }
+    throw error;
+  }
 };
 
 const isBoundedString = (value: unknown, maxLength: number): value is string =>
@@ -290,6 +345,7 @@ export const POST = async (req: NextRequest) => {
         }
       : null;
 
+    let expectedExistingLedgerAssetKey: string | undefined;
     if (cacheArgs) {
       try {
         const readAttestation =
@@ -299,6 +355,8 @@ export const POST = async (req: NextRequest) => {
           { ...cacheArgs, attestation: readAttestation },
           session.convexToken ? { token: session.convexToken } : {},
         )) as CachedSectionAudio;
+        expectedExistingLedgerAssetKey =
+          cached.ledgerAssetKeys?.[track.sectionKey];
         const cachedResult = buildCachedTtsResult(
           cached.urls[track.sectionKey],
           cached.metadata[track.sectionKey],
@@ -307,6 +365,18 @@ export const POST = async (req: NextRequest) => {
         if (cachedResult) {
           const cachedBlob = await fetchCachedAudioBlob(cachedResult.url);
           if (cachedBlob) {
+            const cachedDurationSeconds = cached.durations?.[track.sectionKey];
+            recordInteractiveCacheReadAfterResponse({
+              provider: expectedMetadata.provider,
+              hit: true,
+              byteLength: cachedBlob.size,
+              durationSeconds:
+                typeof cachedDurationSeconds === "number" &&
+                Number.isFinite(cachedDurationSeconds) &&
+                cachedDurationSeconds > 0
+                  ? cachedDurationSeconds
+                  : estimateAudioDurationSeconds(track.text),
+            });
             return audioResponse(
               cachedBlob,
               cachedResult.metadata,
@@ -320,6 +390,12 @@ export const POST = async (req: NextRequest) => {
           error,
         );
       }
+      recordInteractiveCacheReadAfterResponse({
+        provider: expectedMetadata.provider,
+        hit: false,
+        byteLength: 0,
+        durationSeconds: 0,
+      });
     }
 
     const generated = await generateTtsAudioWithMetadata(
@@ -342,6 +418,7 @@ export const POST = async (req: NextRequest) => {
             blob: generated.blob,
             text: track.text,
             metadata: generated.metadata,
+            expectedExistingLedgerAssetKey,
           });
         } catch (error) {
           console.warn(

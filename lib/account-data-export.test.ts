@@ -5,6 +5,7 @@ vi.mock("server-only", () => ({}));
 import {
   assembleAccountDataExport,
   getAccountDataExportFilename,
+  type ListeningProgressExport,
 } from "./account-data-export";
 
 const requestFetch = vi.fn();
@@ -104,6 +105,33 @@ describe("account data export assembler", () => {
       createdAt: 1_760_000_002_000,
       updatedAt: 1_760_000_003_000,
     };
+    const listeningProgress = {
+      wikiPageId: "wiki-1",
+      slug: "The_Shire",
+      title: "The Shire",
+      totalDurationSeconds: 120,
+      heardSeconds: 30,
+      sections: [
+        {
+          sectionKey: "summary",
+          durationSeconds: 60,
+          heardRanges: [{ startSecond: 0, endSecond: 30 }],
+        },
+      ],
+      meaningfulUseSession: {
+        startedAt: 1_760_000_004_000,
+        expiresAt: 1_760_007_204_000,
+        sections: [
+          {
+            sectionKey: "summary",
+            durationSeconds: 60,
+            heardRanges: [{ startSecond: 0, endSecond: 30 }],
+          },
+        ],
+      },
+      createdAt: 1_760_000_004_000,
+      updatedAt: 1_760_000_005_000,
+    } satisfies ListeningProgressExport;
 
     requestFetch.mockImplementation(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -119,9 +147,11 @@ describe("account data export assembler", () => {
           page:
             args.collection === "bookmarks"
               ? [bookmark]
-              : args.collection === "articleAudioExports"
-                ? [articleAudioExport]
-                : [],
+              : args.collection === "listeningProgress"
+                ? [listeningProgress]
+                : args.collection === "articleAudioExports"
+                  ? [articleAudioExport]
+                  : [],
           continueCursor: "done",
           isDone: true,
         });
@@ -154,7 +184,7 @@ describe("account data export assembler", () => {
         bookmarks: [bookmark],
         personalPodcastFeed: overview.feed,
         personalPlaylistEpisodes: [],
-        listeningProgress: [],
+        listeningProgress: [listeningProgress],
         badgeCredits: [],
         articleAudioExports: [articleAudioExport],
         quotaUsage: overview.quotas,

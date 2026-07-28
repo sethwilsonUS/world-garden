@@ -13,6 +13,11 @@ import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
 import { TTS_NORM_VERSION } from "../../lib/tts-normalize";
 import { getAudioGenerationBaseUrl } from "../../lib/audio-generation-url";
 import { getCombinedAudioStorageContentType } from "../../lib/account-owned-audio-storage";
+import { createAudioCacheLedgerAssetKey } from "../../lib/audio-cache-ledger-key";
+import {
+  recordCacheWriteFailureBestEffort,
+  recordOpaquePipelineOutcomeBestEffort,
+} from "./aiCostPipelineInstrumentation";
 
 const PERSONAL_PODCAST_ALBUM_TITLE = "Curio Garden Personal Playlist";
 
@@ -157,6 +162,7 @@ export const processViewerPlaylistEpisodeForCtx = async (
     }
 
     const result = await assembleArticleAudio({
+      aiCostSource: "personal_playlist",
       article: {
         ...article,
         slug: article.slug ?? generationEpisode.slug,
@@ -187,24 +193,44 @@ export const processViewerPlaylistEpisodeForCtx = async (
         durationSeconds,
         metadata,
       }) => {
-        const uploadUrl = await ctx.runMutation(
-          internal.audio.generateUploadUrlInternal,
-          {},
-        );
-        const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
-        await ctx.runMutation(internal.audio.saveSectionAudioRecordInternal, {
-          articleId: article._id,
-          sectionKey,
-          sourceHash,
-          storageId,
-          ttsNormVersion: metadata.ttsNormVersion,
-          ttsCacheKey: metadata.ttsCacheKey,
-          provider: metadata.provider,
-          model: metadata.model,
-          voiceId: metadata.voiceId,
-          promptVersion: metadata.promptVersion,
-          durationSeconds,
-        });
+        const ledgerAssetKey = createAudioCacheLedgerAssetKey();
+        let storageId: Id<"_storage">;
+        try {
+          const uploadUrl = await ctx.runMutation(
+            internal.audio.generateUploadUrlInternal,
+            {},
+          );
+          storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
+          await ctx.runMutation(internal.audio.saveSectionAudioRecordInternal, {
+            articleId: article._id,
+            sectionKey,
+            sourceHash,
+            storageId,
+            ttsNormVersion: metadata.ttsNormVersion,
+            ttsCacheKey: metadata.ttsCacheKey,
+            provider: metadata.provider,
+            model: metadata.model,
+            voiceId: metadata.voiceId,
+            promptVersion: metadata.promptVersion,
+            durationSeconds,
+            ...(ledgerAssetKey
+              ? {
+                  byteLength: blob.size,
+                  ledgerAssetKey,
+                  ledgerSource: "personal_playlist" as const,
+                }
+              : {}),
+          });
+        } catch (error) {
+          if (ledgerAssetKey) {
+            await recordCacheWriteFailureBestEffort(ctx, {
+              eventKey: `cache-write-failure:${ledgerAssetKey}`,
+              source: "personal_playlist",
+              provider: metadata.provider,
+            });
+          }
+          throw error;
+        }
         const storageUrl = await ctx.storage.getUrl(storageId);
         if (!storageUrl) {
           throw new Error("Stored section audio URL could not be resolved.");
@@ -262,24 +288,44 @@ export const processViewerPlaylistEpisodeForCtx = async (
         }
       },
     });
-    const completion = await ctx.runMutation(
-      internal.personalPlaylist.completeViewerPlaylistEpisodeInternal,
-      {
-        episodeId: args.episodeId,
-        owner,
-        storageId: result.storageId,
-        durationSeconds: result.durationSeconds,
-        byteLength: result.byteLength,
-        ttsCacheKey: result.metadata.ttsCacheKey,
-        provider: result.metadata.provider,
-        model: result.metadata.model,
-        voiceId: result.metadata.voiceId,
-        promptVersion: result.metadata.promptVersion,
-        ttsNormVersion: result.metadata.ttsNormVersion,
-        narrationHash: result.narrationHash,
-        viewerTokenIdentifier: claim.viewerTokenIdentifier,
-      },
-    );
+    const completion = await (async () => {
+      try {
+        return await ctx.runMutation(
+          internal.personalPlaylist.completeViewerPlaylistEpisodeInternal,
+          {
+            episodeId: args.episodeId,
+            owner,
+            storageId: result.storageId,
+            durationSeconds: result.durationSeconds,
+            byteLength: result.byteLength,
+            ttsCacheKey: result.metadata.ttsCacheKey,
+            provider: result.metadata.provider,
+            model: result.metadata.model,
+            voiceId: result.metadata.voiceId,
+            promptVersion: result.metadata.promptVersion,
+            ttsNormVersion: result.metadata.ttsNormVersion,
+            narrationHash: result.narrationHash,
+            viewerTokenIdentifier: claim.viewerTokenIdentifier!,
+          },
+        );
+      } finally {
+        await recordOpaquePipelineOutcomeBestEffort(
+          ctx,
+          {
+            namespace: "pipeline-personal-playlist",
+            identityParts: [String(args.episodeId), owner],
+          },
+          {
+            source: "personal_playlist",
+            provider: result.metadata.provider,
+            operation: "tts",
+            generatedSections: result.generatedSectionCount,
+            reusedSections: result.reusedSectionCount,
+            recordedAt: Date.now(),
+          },
+        );
+      }
+    })();
     if (completion.completed) {
       pendingCombinedStorageId = null;
     } else {

@@ -53,6 +53,20 @@ requests. Convex audio workers use `AUDIO_GENERATION_BASE_URL` as their trusted
 HTTPS app origin (production by default). Vercel Preview builds set the exact
 generated origin and sync the required shared secrets into only the matching
 isolated Convex Preview.
+
+The first-party AI/audio cost ledger is server-only and additive. Set
+`AI_COST_LEDGER_MODE=observe` in both Next.js/Vercel and the matching Convex
+deployment to record best-effort provider, cache, generation, and signed-in
+unique-heard aggregates. Missing or invalid values act as `off`; there is no
+enforcement mode. Provider/cache writes use short-lived attestations derived
+from `TTS_QUOTA_BYPASS_SECRET`, while owner reports and provider-statement
+upserts use payload-bound attestations derived from `ANALYTICS_REPORT_SECRET`.
+Raw operational rows expire after 90 days through the bounded Convex cleanup;
+privacy-reduced daily rollups and aggregate statements remain available for
+longer-term reconciliation. See
+[`docs/ai-cost-ledger-runbook.md`](../docs/ai-cost-ledger-runbook.md) for metric
+definitions, privacy exclusions, pricing sources, and rollout steps.
+
 Personal Playlist OpenAI scheduling is bounded per account with
 `PERSONAL_PLAYLIST_OPENAI_DAILY_LIMIT` (default `10`),
 `PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS` (default `86400000`), and

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import {
   claimTrendingBriefJob,
   finalizeTrendingBriefJob,
@@ -217,6 +218,74 @@ describe("Trending publication write attestations", () => {
     ).rejects.toThrow("current Edge TTS profile");
     expect(insert).not.toHaveBeenCalled();
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("schedules an external generation cohort after a generated asset is saved", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const edge = getTtsMetadata(getTtsProfile("edge"));
+    const saveArgs = {
+      trendingDate: "2026-07-26",
+      owner: "worker-1",
+      status: "ready" as const,
+      storageId: "storage-1",
+      durationSeconds: 12,
+      byteLength: 2_048,
+      provider: edge.provider,
+      ttsModel: edge.model,
+      voiceId: edge.voiceId,
+      promptVersion: edge.promptVersion,
+      ttsNormVersion: edge.ttsNormVersion,
+      ttsCacheKey: getTrendingAudioCacheKey(),
+      ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+      ledgerGeneratedAt: 1_700_000_000_000,
+    };
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: saveArgs,
+    });
+    const query = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: Date.now() + 60_000,
+              }
+            : null,
+        ),
+      };
+      return chain;
+    });
+    const runAfter = vi.fn().mockResolvedValue("scheduled");
+
+    await expect(
+      getHandler(saveTrendingBrief)(
+        {
+          db: { query, insert: vi.fn(async () => "brief-1"), patch: vi.fn() },
+          scheduler: { runAfter },
+        },
+        { ...saveArgs, attestation },
+      ),
+    ).resolves.toBe("brief-1");
+
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(getFunctionName(runAfter.mock.calls[0]?.[1])).toBe(
+      "aiCostLedger:recordGenerationAssetInternal",
+    );
+    expect(runAfter.mock.calls[0]?.[2]).toMatchObject({
+      eventKey: saveArgs.ledgerAssetKey,
+      source: "trending_podcast",
+      provider: "edge",
+      model: edge.model,
+      byteLength: 2_048,
+      durationMs: 12_000,
+      externalConsumptionUnknown: true,
+      generatedAt: saveArgs.ledgerGeneratedAt,
+    });
   });
 
   it("verifies finalization arguments before releasing the worker lease", async () => {

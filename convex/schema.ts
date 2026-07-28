@@ -54,6 +54,32 @@ const ttsMetadata = v.object({
   ttsCacheKey: v.string(),
 });
 
+const aiCostProvider = v.union(v.literal("openai"), v.literal("edge"));
+
+const aiCostOperation = v.union(
+  v.literal("tts"),
+  v.literal("article_context_generation"),
+  v.literal("trending_brief_research"),
+  v.literal("trending_brief_writing"),
+);
+
+const aiCostSource = v.union(
+  v.literal("interactive_article"),
+  v.literal("article_audio_export"),
+  v.literal("personal_playlist"),
+  v.literal("featured_podcast"),
+  v.literal("trending_podcast"),
+  v.literal("picture_of_day"),
+  v.literal("featured_audio_warm"),
+  v.literal("article_context"),
+  v.literal("trending_brief"),
+  v.literal("background_generation"),
+  v.literal("unknown"),
+);
+
+const aiCostOptionalProvider = v.union(aiCostProvider, v.null());
+const aiCostOptionalOperation = v.union(aiCostOperation, v.null());
+
 const articleAudioExportStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -288,6 +314,8 @@ export default defineSchema({
     voiceId: v.optional(v.string()),
     ttsModel: v.optional(v.string()),
     durationSeconds: v.optional(v.number()),
+    byteLength: v.optional(v.number()),
+    ledgerAssetKey: v.optional(v.string()),
   })
     .index("by_article_section", ["articleId", "sectionKey"])
     .index("by_article_section_tts", [
@@ -730,6 +758,279 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_expiresAt", ["expiresAt"]),
 
+  aiCostLedgerEvents: defineTable({
+    eventKey: v.string(),
+    eventDay: v.number(),
+    observationEndsAt: v.union(v.number(), v.null()),
+    expiresAt: v.number(),
+    event: v.union(
+      v.object({
+        kind: v.literal("provider_attempt"),
+        correlationId: v.string(),
+        lifecycleVersion: v.number(),
+        operation: aiCostOperation,
+        source: aiCostSource,
+        requestedProvider: aiCostProvider,
+        effectiveProvider: aiCostProvider,
+        model: v.union(v.string(), v.null()),
+        serviceTier: v.union(
+          v.literal("default"),
+          v.literal("auto"),
+          v.literal("flex"),
+          v.literal("priority"),
+          v.literal("scale"),
+          v.literal("unknown"),
+          v.null(),
+        ),
+        profile: v.union(v.string(), v.null()),
+        state: v.union(
+          v.literal("succeeded"),
+          v.literal("failed_before_dispatch"),
+          v.literal("failed_after_dispatch"),
+          v.literal("unknown_after_dispatch"),
+        ),
+        failureCategory: v.union(
+          v.literal("configuration"),
+          v.literal("validation"),
+          v.literal("quota"),
+          v.literal("timeout"),
+          v.literal("network"),
+          v.literal("provider_http_4xx"),
+          v.literal("provider_http_5xx"),
+          v.literal("empty_response"),
+          v.literal("invalid_response"),
+          v.literal("aborted"),
+          v.literal("unknown"),
+          v.null(),
+        ),
+        dispatchedAt: v.union(v.number(), v.null()),
+        completedAt: v.union(v.number(), v.null()),
+        inputCharacters: v.union(v.number(), v.null()),
+        inputWords: v.union(v.number(), v.null()),
+        inputTokens: v.union(v.number(), v.null()),
+        cachedInputTokens: v.union(v.number(), v.null()),
+        cacheWriteInputTokens: v.union(v.number(), v.null()),
+        outputTokens: v.union(v.number(), v.null()),
+        reasoningOutputTokens: v.union(v.number(), v.null()),
+        audioInputTokens: v.union(v.number(), v.null()),
+        audioOutputTokens: v.union(v.number(), v.null()),
+        webSearchCalls: v.union(v.number(), v.null()),
+        responseAudioBytes: v.union(v.number(), v.null()),
+        audioDurationMs: v.union(v.number(), v.null()),
+        durationMeasurement: v.union(
+          v.literal("measured"),
+          v.literal("estimated"),
+          v.literal("unknown"),
+        ),
+        estimatedDirectAiCostMicros: v.union(v.number(), v.null()),
+        estimatedCostCurrency: v.literal("USD"),
+        estimatedCostPricingVersion: v.union(v.string(), v.null()),
+        estimatedCostEffectiveFrom: v.union(v.string(), v.null()),
+        estimatedCostQuality: v.union(
+          v.literal("derived_from_provider_usage"),
+          v.literal("locally_measured_estimate"),
+          v.literal("unknown"),
+        ),
+        estimatedCostReason: v.union(
+          v.literal("not_dispatched"),
+          v.literal("unsupported_provider"),
+          v.literal("unsupported_model"),
+          v.literal("unsupported_service_tier"),
+          v.literal("long_context"),
+          v.literal("missing_usage"),
+          v.literal("speech_usage_unavailable"),
+          v.null(),
+        ),
+        isFallbackAttempt: v.boolean(),
+      }),
+      v.object({
+        kind: v.literal("cache_decision"),
+        source: aiCostSource,
+        provider: aiCostProvider,
+        operation: aiCostOperation,
+        requests: v.number(),
+        hits: v.number(),
+        misses: v.number(),
+        reusedAssetServes: v.number(),
+        avoidedGeneration: v.number(),
+        uniqueGeneratedAssets: v.number(),
+        concurrentGenerationRaces: v.number(),
+        cacheWriteFailures: v.number(),
+        idempotentRetryWrites: v.number(),
+        bytes: v.number(),
+        durationMs: v.number(),
+        recordedAt: v.number(),
+      }),
+      v.object({
+        kind: v.literal("generation_asset"),
+        articleId: v.optional(v.id("articles")),
+        sectionKey: v.optional(v.string()),
+        source: aiCostSource,
+        provider: aiCostProvider,
+        model: v.union(v.string(), v.null()),
+        byteLength: v.number(),
+        durationMs: v.number(),
+        durationMeasurement: v.union(
+          v.literal("measured"),
+          v.literal("estimated"),
+          v.literal("unknown"),
+        ),
+        generatedAt: v.number(),
+        observationEndsAt: v.number(),
+        generationUseState: v.union(
+          v.literal("awaiting_observation"),
+          v.literal("observed_meaningful_use"),
+          v.literal("no_observed_meaningful_use"),
+          v.literal("external_consumption_unknown"),
+        ),
+      }),
+      v.object({
+        kind: v.literal("listening_contribution"),
+        newUniqueHeardMs: v.number(),
+        meaningfulUse: v.boolean(),
+        observedAt: v.number(),
+      }),
+      v.object({
+        kind: v.literal("pipeline_outcome"),
+        source: aiCostSource,
+        provider: aiCostOptionalProvider,
+        operation: aiCostOptionalOperation,
+        generatedSections: v.number(),
+        reusedSections: v.number(),
+        recordedAt: v.number(),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_eventKey", ["eventKey"])
+    .index("by_eventDay", ["eventDay"])
+    .index("by_observationEndsAt", ["observationEndsAt"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  aiCostLedgerDeliveries: defineTable({
+    eventKey: v.string(),
+    eventKind: v.union(
+      v.literal("provider_attempt"),
+      v.literal("cache_decision"),
+      v.literal("generation_asset"),
+      v.literal("listening_contribution"),
+      v.literal("pipeline_outcome"),
+    ),
+    latestLifecycleVersion: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_eventKey", ["eventKey"]),
+
+  aiCostLedgerCoverage: defineTable({
+    key: v.literal("observe-v1"),
+    // Optional only to permit an additive migration from the original
+    // singleton marker. Every new write supplies these epoch fields.
+    epochKey: v.optional(v.string()),
+    epochVersion: v.optional(v.number()),
+    firstObservedAt: v.union(v.number(), v.null()),
+    resetAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  }).index("by_key", ["key"]),
+
+  aiCostLedgerCoverageResets: defineTable({
+    epochKey: v.string(),
+    epochVersion: v.number(),
+    resetAt: v.number(),
+    createdAt: v.number(),
+  }).index("by_epochKey", ["epochKey"]),
+
+  aiCostDailyRollups: defineTable({
+    key: v.string(),
+    bucketStart: v.number(),
+    source: aiCostSource,
+    provider: aiCostOptionalProvider,
+    operation: aiCostOptionalOperation,
+    providerAttempts: v.number(),
+    successfulAttempts: v.number(),
+    failedBeforeDispatchAttempts: v.number(),
+    failedAfterDispatchAttempts: v.number(),
+    ambiguousAfterDispatchAttempts: v.number(),
+    potentiallyBillableAttempts: v.number(),
+    fallbackAttempts: v.number(),
+    fallbackSucceededAttempts: v.number(),
+    inputCharacters: v.number(),
+    inputWords: v.number(),
+    inputTokens: v.number(),
+    cachedInputTokens: v.number(),
+    cacheWriteInputTokens: v.number(),
+    outputTokens: v.number(),
+    webSearchCalls: v.number(),
+    providerResponseAudioBytes: v.number(),
+    providerAudioDurationMeasuredMs: v.number(),
+    providerAudioDurationEstimatedMs: v.number(),
+    estimatedDirectAiCostMicros: v.number(),
+    estimatedCostKnownAttempts: v.number(),
+    estimatedCostProviderUsageAttempts: v.number(),
+    estimatedCostLocalEstimateAttempts: v.number(),
+    estimatedCostUnknownAttempts: v.number(),
+    cacheRequests: v.number(),
+    cacheHits: v.number(),
+    cacheMisses: v.number(),
+    reusedAssetServes: v.number(),
+    avoidedGeneration: v.number(),
+    uniqueGeneratedAssets: v.number(),
+    concurrentGenerationRaces: v.number(),
+    cacheWriteFailures: v.number(),
+    idempotentRetryWrites: v.number(),
+    cacheServedBytes: v.number(),
+    cacheServedDurationMs: v.number(),
+    uniqueGeneratedBytes: v.number(),
+    uniqueGeneratedDurationMeasuredMs: v.number(),
+    uniqueGeneratedDurationEstimatedMs: v.number(),
+    pipelineGeneratedSections: v.number(),
+    pipelineReusedSections: v.number(),
+    signedInUniqueHeardMs: v.number(),
+    generationAwaitingObservation: v.number(),
+    generationObservedMeaningfulUse: v.number(),
+    generationNoObservedMeaningfulUse: v.number(),
+    generationExternalConsumptionUnknown: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_bucketStart", ["bucketStart"]),
+
+  aiCostStatements: defineTable({
+    statementKey: v.string(),
+    provider: aiCostProvider,
+    serviceScope: v.union(
+      v.literal("all_direct_ai"),
+      v.literal("responses"),
+      v.literal("speech"),
+      v.literal("web_search"),
+    ),
+    periodStartDay: v.string(),
+    periodEndDay: v.string(),
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    amountMicros: v.number(),
+    currency: v.literal("USD"),
+    source: v.union(
+      v.literal("provider_costs_api"),
+      v.literal("invoice_total"),
+      v.literal("manual_entry"),
+    ),
+    allocationMethod: v.union(
+      v.literal("unallocated"),
+      v.literal("estimated_cost_weight"),
+      v.literal("input_tokens"),
+      v.literal("input_characters"),
+      v.literal("web_search_calls"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_statementKey", ["statementKey"])
+    .index("by_periodStart", ["periodStart"])
+    .index("by_periodEnd", ["periodEnd"]),
+
   podcastShowAssets: defineTable({
     slug: podcastShowAssetSlug,
     storageId: v.id("_storage"),
@@ -789,6 +1090,19 @@ export default defineSchema({
         heardRanges: v.array(heardRange),
       }),
     ),
+    meaningfulUseSession: v.optional(
+      v.object({
+        startedAt: v.number(),
+        sections: v.array(
+          v.object({
+            sectionKey: v.string(),
+            durationSeconds: v.number(),
+            heardRanges: v.array(heardRange),
+          }),
+        ),
+      }),
+    ),
+    meaningfulUseSessionExpiresAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -800,6 +1114,10 @@ export default defineSchema({
     .index("by_viewerTokenIdentifier_articleId", [
       "viewerTokenIdentifier",
       "articleId",
+    ])
+    .index("by_meaningfulUseSessionExpiresAt_sessionStartedAt", [
+      "meaningfulUseSessionExpiresAt",
+      "meaningfulUseSession.startedAt",
     ]),
 
   badgeArticleCredits: defineTable({

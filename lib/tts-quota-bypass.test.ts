@@ -4,6 +4,7 @@ import {
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
   getEdgeTtsGenerationHeaders,
+  getTrustedTtsGenerationHeaders,
   getTtsQuotaBypassHeaders,
   TTS_QUOTA_BYPASS_HEADER,
 } from "./tts-quota-bypass";
@@ -17,6 +18,11 @@ import {
 } from "./audio-cache-attestation";
 import { verifyServerAttestation } from "./server-attestation";
 import { verifyTtsQuotaBypassHeaderValue } from "./tts-quota-bypass-attestation";
+import {
+  resolveTtsAiCostSource,
+  TTS_AI_COST_SOURCE_ATTESTATION_HEADER,
+  TTS_AI_COST_SOURCE_HEADER,
+} from "./tts-source-attestation";
 
 describe("getTtsQuotaBypassHeaders", () => {
   afterEach(() => {
@@ -34,9 +40,7 @@ describe("getTtsQuotaBypassHeaders", () => {
     process.env.TTS_QUOTA_BYPASS_SECRET = "internal-secret";
     process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "preview-secret";
 
-    const headers = await getTtsQuotaBypassHeaders(
-      "https://curiogarden.org",
-    );
+    const headers = await getTtsQuotaBypassHeaders("https://curiogarden.org");
     const headerValue = headers?.[TTS_QUOTA_BYPASS_HEADER];
 
     expect(headerValue).toBeTypeOf("string");
@@ -56,6 +60,12 @@ describe("getTtsQuotaBypassHeaders", () => {
     await expect(
       getTtsQuotaBypassHeaders("https://attacker.example"),
     ).rejects.toThrow("untrusted origin");
+    await expect(
+      getTrustedTtsGenerationHeaders(
+        "https://attacker.example",
+        "featured_podcast",
+      ),
+    ).rejects.toThrow("untrusted origin");
     expect(() =>
       getEdgeTtsGenerationHeaders("https://attacker.example"),
     ).toThrow("untrusted origin");
@@ -68,6 +78,44 @@ describe("getTtsQuotaBypassHeaders", () => {
     expect(getEdgeTtsGenerationHeaders("https://curiogarden.org")).toEqual({
       "x-vercel-protection-bypass": "preview-secret",
     });
+  });
+
+  it("attests a bounded source without granting Edge generation quota authority", async () => {
+    process.env.TTS_QUOTA_BYPASS_SECRET = "internal-secret";
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "preview-secret";
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "featured_podcast",
+    );
+
+    expect(headers).toMatchObject({
+      "x-vercel-protection-bypass": "preview-secret",
+      [TTS_AI_COST_SOURCE_HEADER]: "featured_podcast",
+    });
+    expect(headers).not.toHaveProperty(TTS_QUOTA_BYPASS_HEADER);
+    expect(headers?.[TTS_AI_COST_SOURCE_ATTESTATION_HEADER]).toBeTypeOf(
+      "string",
+    );
+    await expect(
+      resolveTtsAiCostSource(new Headers(headers), {
+        secret: "internal-secret",
+      }),
+    ).resolves.toBe("featured_podcast");
+  });
+
+  it("fails open to an untrusted source claim when source signing is unavailable", async () => {
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "picture_of_day",
+    );
+
+    expect(headers).toEqual({
+      [TTS_AI_COST_SOURCE_HEADER]: "picture_of_day",
+    });
+    await expect(resolveTtsAiCostSource(new Headers(headers))).resolves.toBe(
+      "unknown",
+    );
   });
 });
 

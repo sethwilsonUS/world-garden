@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateNewlyHeardSeconds,
   detectContinuousPlaybackWindow,
+  getMeaningfulUseQualification,
   mergeHeardRanges,
   normalizeHeardRanges,
   sumHeardRangeSeconds,
@@ -45,6 +47,49 @@ describe("normalizeHeardRanges", () => {
     );
 
     expect(sumHeardRangeSeconds(ranges)).toBe(7);
+  });
+});
+
+describe("calculateNewlyHeardSeconds", () => {
+  it("counts only incoming coverage that was not heard before", () => {
+    expect(
+      calculateNewlyHeardSeconds({
+        existingRanges: [{ startSecond: 0, endSecond: 5 }],
+        incomingRanges: [{ startSecond: 4, endSecond: 8 }],
+        durationSeconds: 10,
+      }),
+    ).toBe(3);
+  });
+});
+
+describe("getMeaningfulUseQualification", () => {
+  it("qualifies after sixty accumulated unique heard seconds", () => {
+    expect(
+      getMeaningfulUseQualification([
+        {
+          durationSeconds: 40,
+          heardRanges: [{ startSecond: 0, endSecond: 35 }],
+          countsTowardProgress: true,
+        },
+        {
+          durationSeconds: 40,
+          heardRanges: [{ startSecond: 10, endSecond: 35 }],
+          countsTowardProgress: true,
+        },
+      ]),
+    ).toBe("sixty_unique_heard_seconds");
+  });
+
+  it("qualifies at eighty percent of a progress item lasting at least fifteen seconds", () => {
+    expect(
+      getMeaningfulUseQualification([
+        {
+          durationSeconds: 20,
+          heardRanges: [{ startSecond: 0, endSecond: 16 }],
+          countsTowardProgress: true,
+        },
+      ]),
+    ).toBe("eighty_percent_of_item");
   });
 });
 

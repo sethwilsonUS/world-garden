@@ -16,11 +16,18 @@ import {
   type TtsAudioResult,
 } from "@/lib/tts-client";
 import {
+  createAudioCacheReadAttestation,
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
-  getEdgeTtsGenerationHeaders,
+  getTrustedTtsGenerationHeaders,
 } from "@/lib/tts-quota-bypass";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
+import {
+  recordAudioCacheReadResultBestEffort,
+  recordAudioCacheWriteFailureBestEffort,
+  type AudioCacheReadResultInput,
+} from "@/lib/audio-cache-ledger";
+import { createAudioCacheLedgerAssetKey } from "@/lib/audio-cache-ledger-key";
 import {
   getTtsMetadata,
   getTtsProfile,
@@ -34,6 +41,8 @@ const MIN_SUMMARY_LENGTH = 1;
 type CachedSummaryAudio = {
   url?: string;
   metadata?: Partial<TtsMetadata>;
+  durationSeconds?: number;
+  byteLength?: number;
 };
 
 type WarmArticle = {
@@ -79,6 +88,7 @@ export type HomepageAudioWarmDependencies = {
     expected: TtsMetadata,
   ) => Promise<CachedSummaryAudio>;
   verifyAudioUrl: (url: string) => Promise<void>;
+  recordCacheReadResult: (input: AudioCacheReadResultInput) => Promise<void>;
   generateAudio: (
     text: string,
     expected: TtsMetadata,
@@ -164,18 +174,34 @@ const createProductionDependencies = (
     return result as WarmArticle;
   },
   async getCachedSummary(articleId, sourceHash, expected) {
-    const cached = (await fetchQuery(anyApi.audio.getAllSectionAudio, {
+    const cacheArgs = {
       articleId,
       ttsNormVersion: expected.ttsNormVersion,
       ttsCacheKey: expected.ttsCacheKey,
       sourceHashes: [{ sectionKey: "summary", sourceHash }],
-    })) as {
+    };
+    const cached = (
+      process.env.TTS_QUOTA_BYPASS_SECRET?.trim()
+        ? await (async () => {
+            const attestation =
+              await createAudioCacheReadAttestation(cacheArgs);
+            return await fetchMutation(
+              anyApi.audio.getAllSectionAudioForServer,
+              { ...cacheArgs, attestation },
+            );
+          })()
+        : await fetchQuery(anyApi.audio.getAllSectionAudio, cacheArgs)
+    ) as {
       urls?: Record<string, string>;
       metadata?: Record<string, Partial<TtsMetadata>>;
+      durations?: Record<string, number>;
+      byteLengths?: Record<string, number>;
     };
     return {
       url: cached.urls?.summary,
       metadata: cached.metadata?.summary,
+      durationSeconds: cached.durations?.summary,
+      byteLength: cached.byteLengths?.summary,
     };
   },
   async verifyAudioUrl(url) {
@@ -185,12 +211,16 @@ const createProductionDependencies = (
     }
     await response.body?.cancel();
   },
+  recordCacheReadResult: recordAudioCacheReadResultBestEffort,
   async generateAudio(text, expected) {
     return generateTtsAudioWithMetadata(
       { text, provider: expected.provider },
       {
         apiBaseUrl: baseUrl,
-        headers: getEdgeTtsGenerationHeaders(baseUrl),
+        headers: await getTrustedTtsGenerationHeaders(
+          baseUrl,
+          "featured_audio_warm",
+        ),
       },
     );
   },
@@ -201,6 +231,7 @@ const createProductionDependencies = (
     durationSeconds,
     metadata,
   }) {
+    const ledgerAssetKey = createAudioCacheLedgerAssetKey();
     const uploadAttestation = await createAudioCacheUploadAttestation();
     const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {
       attestation: uploadAttestation,
@@ -221,12 +252,30 @@ const createProductionDependencies = (
       voiceId: metadata.voiceId,
       promptVersion: metadata.promptVersion,
       durationSeconds,
+      ...(ledgerAssetKey
+        ? {
+            byteLength: blob.size,
+            ledgerAssetKey,
+            ledgerSource: "featured_audio_warm" as const,
+          }
+        : {}),
     };
     const saveAttestation = await createAudioCacheSaveAttestation(record);
-    await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
-      ...record,
-      attestation: saveAttestation,
-    });
+    try {
+      await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
+        ...record,
+        attestation: saveAttestation,
+      });
+    } catch (error) {
+      if (ledgerAssetKey) {
+        await recordAudioCacheWriteFailureBestEffort({
+          ledgerAssetKey,
+          source: "featured_audio_warm",
+          provider: metadata.provider,
+        });
+      }
+      throw error;
+    }
   },
   now: Date.now,
 });
@@ -256,6 +305,18 @@ export const warmHomepageArticleSummaries = async ({
   let nextIndex = 0;
   let processed = 0;
 
+  const recordCacheReadResult = async (
+    input: AudioCacheReadResultInput,
+  ): Promise<void> => {
+    try {
+      await dependencies.recordCacheReadResult(input);
+    } catch {
+      console.warn(
+        "[ai-cost-ledger] Homepage audio cache read was not recorded.",
+      );
+    }
+  };
+
   const warmArticle = async (ref: HomepageArticleRef): Promise<void> => {
     try {
       const article = await dependencies.fetchArticle(ref);
@@ -278,6 +339,20 @@ export const warmHomepageArticleSummaries = async ({
       if (cached.url && metadataMatches(cached.metadata, expected)) {
         try {
           await dependencies.verifyAudioUrl(cached.url);
+          await recordCacheReadResult({
+            source: "featured_audio_warm",
+            provider: expected.provider,
+            hit: true,
+            byteLength:
+              Number.isFinite(cached.byteLength) && (cached.byteLength ?? 0) > 0
+                ? cached.byteLength!
+                : 0,
+            durationSeconds:
+              Number.isFinite(cached.durationSeconds) &&
+              (cached.durationSeconds ?? 0) >= 0
+                ? cached.durationSeconds!
+                : estimateDurationSeconds(summary),
+          });
           result.reused += 1;
           return;
         } catch (error) {
@@ -292,6 +367,14 @@ export const warmHomepageArticleSummaries = async ({
           );
         }
       }
+
+      await recordCacheReadResult({
+        source: "featured_audio_warm",
+        provider: expected.provider,
+        hit: false,
+        byteLength: 0,
+        durationSeconds: 0,
+      });
 
       const generated = await dependencies.generateAudio(summary, expected);
       await dependencies.saveSummary({

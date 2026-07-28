@@ -17,6 +17,8 @@ import {
   type PublicAudioWriteOperation,
 } from "./public-audio-write-attestation";
 import type { ServerAttestation } from "./server-attestation";
+import * as audioCacheLedger from "./audio-cache-ledger";
+import { TTS_AI_COST_SOURCE_HEADER } from "./tts-source-attestation";
 
 vi.mock("convex/nextjs", () => ({
   fetchMutation: vi.fn(),
@@ -164,13 +166,14 @@ describe("picture of day audio", () => {
       }
       return undefined as never;
     });
-    const ttsRequests: Array<{ provider?: string }> = [];
+    const ttsRequests: Array<{ provider?: string; source: string | null }> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        ttsRequests.push(
-          JSON.parse(String(init?.body)) as { provider?: string },
-        );
+        ttsRequests.push({
+          ...(JSON.parse(String(init?.body)) as { provider?: string }),
+          source: new Headers(init?.headers).get(TTS_AI_COST_SOURCE_HEADER),
+        });
         return Response.json({ error: "speech unavailable" }, { status: 503 });
       }),
     );
@@ -184,7 +187,10 @@ describe("picture of day audio", () => {
     ).rejects.toThrow("speech unavailable");
 
     expect(ttsRequests).toEqual([
-      expect.objectContaining({ provider: "edge" }),
+      expect.objectContaining({
+        provider: "edge",
+        source: "picture_of_day",
+      }),
     ]);
     expect(persisted).toMatchObject({
       status: "failed",
@@ -259,6 +265,7 @@ describe("picture of day audio", () => {
   });
 
   it("signs the exact payload for every successful publication write", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", PUBLICATION_SECRET);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
@@ -351,5 +358,79 @@ describe("picture of day audio", () => {
       "save-record",
       "finalize-job",
     ]);
+    const readySaveArgs = vi
+      .mocked(fetchMutation)
+      .mock.calls.find(
+        ([reference, args]) =>
+          getFunctionName(reference) === "pictureOfDay:savePictureOfDayAudio" &&
+          (args as { status?: string }).status === "ready",
+      )?.[1] as Record<string, unknown> | undefined;
+    expect(readySaveArgs).toMatchObject({
+      ledgerAssetKey: expect.any(String),
+      ledgerGeneratedAt: expect.any(Number),
+    });
+  });
+
+  it("records a cache-write failure when generated narration cannot be saved", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", PUBLICATION_SECRET);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const recordWriteFailure = vi
+      .spyOn(audioCacheLedger, "recordAudioCacheWriteFailureBestEffort")
+      .mockResolvedValue(undefined);
+    const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
+    const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+    vi.mocked(fetchQuery).mockResolvedValue(null as never);
+    vi.mocked(fetchMutation).mockImplementation(async (...callArgs) => {
+      const [reference, args] = callArgs;
+      const functionName = getFunctionName(reference);
+      if (functionName === "pictureOfDay:claimPictureOfDayAudioJob") {
+        return { claimed: true } as never;
+      }
+      if (functionName === "pictureOfDay:generateUploadUrl") {
+        return "https://uploads.example.com/picture" as never;
+      }
+      if (functionName === "pictureOfDay:savePictureOfDayAudio") {
+        const writeArgs = await expectValidPictureWrite("save-record", args);
+        if (writeArgs.status === "ready") {
+          throw new Error("ready save unavailable");
+        }
+        return "picture-audio-1" as never;
+      }
+      if (functionName === "pictureOfDay:finalizePictureOfDayAudioJob") {
+        return { updated: true } as never;
+      }
+      throw new Error(`Unexpected mutation: ${functionName}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "https://uploads.example.com/picture") {
+          return Response.json({ storageId: "edge-storage" });
+        }
+        return new Response(Uint8Array.of(1, 2, 3), {
+          status: 200,
+          headers: {
+            "Content-Type": "audio/mpeg",
+            ...buildTtsMetadataHeaders(edgeMetadata),
+          },
+        });
+      }),
+    );
+
+    await expect(
+      syncPictureOfDayAudio({
+        baseUrl: "https://curiogarden.org",
+        feedDateIso: "2026-05-08",
+        picture,
+      }),
+    ).rejects.toThrow("ready save unavailable");
+
+    expect(recordWriteFailure).toHaveBeenCalledOnce();
+    expect(recordWriteFailure).toHaveBeenCalledWith({
+      ledgerAssetKey: expect.any(String),
+      source: "picture_of_day",
+      provider: "edge",
+    });
   });
 });

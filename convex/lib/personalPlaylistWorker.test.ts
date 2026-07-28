@@ -5,6 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { getTtsMetadata, getTtsProfile } from "../../lib/tts-profile";
+import { TTS_AI_COST_SOURCE_HEADER } from "../../lib/tts-source-attestation";
 import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
 import { processViewerPlaylistEpisodeForCtx } from "./personalPlaylistWorker";
 
@@ -12,13 +13,17 @@ const buildCombinedUploadHarness = ({
   registration,
   completion,
   discard = { discarded: true, referenced: false },
+  sectionSave,
 }: {
   registration: { registered: boolean } | Error;
   completion: { completed: boolean } | Error;
   discard?: { discarded: boolean; referenced: boolean };
+  sectionSave?: Error;
 }) => {
   vi.stubEnv("TTS_PRIMARY_PROVIDER", "openai");
   vi.stubEnv("AUDIO_GENERATION_BASE_URL", "https://example.com");
+  vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "synthetic-ledger-secret");
+  vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
   const episodeId = "episode-1" as Id<"personalPlaylistEpisodes">;
   const articleId = "article-1" as Id<"articles">;
   const owner = "00000000-0000-4000-8000-000000000001";
@@ -80,6 +85,7 @@ const buildCombinedUploadHarness = ({
             ? "https://upload.test/section"
             : "https://upload.test/combined";
         case "audio:saveSectionAudioRecordInternal":
+          if (sectionSave) throw sectionSave;
           return undefined;
         case "personalPlaylist:registerViewerPlaylistEpisodeStorageInternal":
           if (registration instanceof Error) throw registration;
@@ -87,6 +93,10 @@ const buildCombinedUploadHarness = ({
         case "personalPlaylist:completeViewerPlaylistEpisodeInternal":
           if (completion instanceof Error) throw completion;
           return completion;
+        case "aiCostLedger:recordPipelineOutcomeInternal":
+          return { created: true, disposition: "inserted" };
+        case "aiCostLedger:recordCacheDecisionInternal":
+          return { created: true, disposition: "inserted" };
         case "personalPlaylist:discardViewerPlaylistEpisodeStorageInternal":
           return discard;
         case "personalPlaylist:failViewerPlaylistEpisodeInternal":
@@ -142,6 +152,61 @@ describe("personal playlist worker orchestration", () => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("persists the final-pass generated and reused section summary with the lease run key", async () => {
+    const { ctx, episodeId, runMutation } = buildCombinedUploadHarness({
+      registration: { registered: true },
+      completion: { completed: true },
+    });
+
+    await processViewerPlaylistEpisodeForCtx(ctx, { episodeId });
+
+    const pipelineCall = runMutation.mock.calls.find(
+      ([reference]) =>
+        getFunctionName(reference) ===
+        "aiCostLedger:recordPipelineOutcomeInternal",
+    );
+    const pipelineArgs = pipelineCall?.[1] as { eventKey?: string } | undefined;
+    expect(pipelineArgs).toEqual({
+      eventKey: expect.stringMatching(
+        /^opaque:pipeline-personal-playlist:[a-f0-9]{64}$/,
+      ),
+      source: "personal_playlist",
+      provider: "openai",
+      operation: "tts",
+      generatedSections: 1,
+      reusedSections: 0,
+      recordedAt: expect.any(Number),
+    });
+    expect(pipelineArgs?.eventKey).not.toContain(String(episodeId));
+  });
+
+  it("records a section cache write failure after paid generation and still follows worker failure handling", async () => {
+    const { ctx, episodeId, runMutation } = buildCombinedUploadHarness({
+      registration: { registered: true },
+      completion: { completed: true },
+      sectionSave: new Error("cache save unavailable"),
+    });
+
+    await processViewerPlaylistEpisodeForCtx(ctx, { episodeId });
+
+    const cacheFailureCall = runMutation.mock.calls.find(
+      ([reference]) =>
+        getFunctionName(reference) ===
+        "aiCostLedger:recordCacheDecisionInternal",
+    );
+    expect(cacheFailureCall?.[1]).toMatchObject({
+      eventKey: expect.stringMatching(/^cache-write-failure:/),
+      source: "personal_playlist",
+      provider: "openai",
+      operation: "tts",
+      cacheWriteFailures: 1,
+      uniqueGeneratedAssets: 0,
+    });
+    expect(
+      runMutation.mock.calls.map(([reference]) => getFunctionName(reference)),
+    ).toContain("personalPlaylist:failViewerPlaylistEpisodeInternal");
   });
 
   it("uses the latest claimed initiating profile when the worker environment differs", async () => {
@@ -255,7 +320,12 @@ describe("personal playlist worker orchestration", () => {
         voiceId: "cedar",
         expectedTtsCacheKey: requestedTtsMetadata.ttsCacheKey,
       }),
-      expect.objectContaining({ apiBaseUrl: "https://example.com" }),
+      expect.objectContaining({
+        apiBaseUrl: "https://example.com",
+        headers: expect.objectContaining({
+          [TTS_AI_COST_SOURCE_HEADER]: "personal_playlist",
+        }),
+      }),
     );
     const registrationArgs = runMutation.mock.calls.find(
       ([reference]) =>

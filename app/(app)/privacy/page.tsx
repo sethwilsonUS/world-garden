@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "July 27, 2026";
+const LAST_UPDATED = "July 28, 2026";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Curio Garden",
@@ -72,6 +72,12 @@ export default function PrivacyPage() {
             and analytics providers.
           </li>
           <li>
+            AI and audio operational records, including provider attempts,
+            measured usage and response sizes, cache reuse, and aggregate
+            signed-in listening progress. These records help compare provider
+            costs with generated and reused audio.
+          </li>
+          <li>
             Information you choose to submit through the feedback form. This may
             include a feedback message, optional details about your browser,
             device, assistive technology, or other environment, an optional
@@ -104,6 +110,40 @@ export default function PrivacyPage() {
             choose to provide an email address for that purpose.
           </li>
         </ul>
+      </LegalSection>
+
+      <LegalSection
+        id="privacy-ai-cost-ledger"
+        title="AI and audio cost records"
+      >
+        <p>
+          Curio Garden keeps limited operational records to understand the cost
+          and reliability of AI and audio generation. This ledger does not store
+          article or narration text, page titles, full URLs, account
+          identifiers, network addresses, or raw provider error messages. Raw
+          provider-attempt, cache, generation-observation, and
+          listening-contribution records are scheduled for deletion after 90
+          days using bounded cleanup batches, so a cleanup backlog can retain a
+          record longer. Reduced daily totals, opaque duplicate-prevention
+          receipts, and aggregate provider cost statements may be kept longer
+          for accounting and service planning.
+        </p>
+        <p>
+          Listening comparisons use the signed-in article progress Curio Garden
+          already stores. The ledger does not observe guest listening or
+          listening in external podcast and download clients. Those external
+          uses are treated as unknown rather than as unused audio.
+        </p>
+        <p>
+          For these comparisons, Curio Garden temporarily keeps the current
+          signed-in listening session’s exact heard ranges and start time. This
+          session accumulator expires after about two hours without activity in
+          that session. An hourly bounded cleanup clears expired session
+          accumulators and older accumulators that lack an expiry, continuing in
+          batches through any backlog even when cost observation is off. A live
+          session accumulator and its expiry are included in your account data
+          export.
+        </p>
       </LegalSection>
 
       <LegalSection id="privacy-feedback" title="Feedback and research">

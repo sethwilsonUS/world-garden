@@ -9,13 +9,17 @@ import {
 } from "@/lib/featured-article";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
-import { getEdgeTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
+import { getTrustedTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
 import {
   createPublicAudioWriteAttestation,
   type PublicAudioWriteOperation,
 } from "@/lib/public-audio-write-attestation";
 import { isExactCurrentEdgeAudioMetadata } from "@/lib/public-edge-audio-metadata";
+import {
+  createAudioCacheLedgerAssetKey,
+  recordAudioCacheWriteFailureBestEffort,
+} from "@/lib/audio-cache-ledger";
 
 const PICTURE_OF_DAY_ALBUM = "Curio Garden Picture of the Day";
 const TTS_WORDS_PER_SECOND = 2.5;
@@ -196,14 +200,18 @@ const generatePictureOfDayAudioRecord = async ({
   let stage = "initializing";
   let spokenText: string | undefined;
   let committedReady = false;
+  let ledgerAssetKey: string | undefined;
+  let ledgerGeneratedAt: number | undefined;
+  let generatedAudioReady = false;
   const title = buildPictureOfDayAudioTitle(feedDateIso);
 
   const existing = await getPictureOfDayAudio({
     feedDate: feedDateIso,
     pictureKey: picture.pictureKey,
   });
-  const previousReadyAudio =
-    shouldReuseExistingPictureAudio(existing) ? existing : null;
+  const previousReadyAudio = shouldReuseExistingPictureAudio(existing)
+    ? existing
+    : null;
 
   if (shouldReuseExistingPictureAudio(existing)) {
     return {
@@ -276,11 +284,15 @@ const generatePictureOfDayAudioRecord = async ({
     );
 
     stage = "generating_tts_audio";
+    ledgerAssetKey = createAudioCacheLedgerAssetKey();
     const generatedAudio = await generateTtsAudioWithMetadata(
       { text: spokenText, provider: "edge" },
       {
         apiBaseUrl: baseUrl,
-        headers: getEdgeTtsGenerationHeaders(baseUrl),
+        headers: await getTrustedTtsGenerationHeaders(
+          baseUrl,
+          "picture_of_day",
+        ),
       },
     );
     const sourceAudioBlob = generatedAudio.blob;
@@ -290,6 +302,8 @@ const generatePictureOfDayAudioRecord = async ({
         "Picture of the Day narration returned a non-Edge TTS profile.",
       );
     }
+    ledgerGeneratedAt = Date.now();
+    generatedAudioReady = true;
 
     stage = "tagging_audio";
     const taggedAudioBlob = await addMp3MetadataToBlob(sourceAudioBlob, {
@@ -330,6 +344,9 @@ const generatePictureOfDayAudioRecord = async ({
         model: ttsMetadata.model,
         promptVersion: ttsMetadata.promptVersion,
         ttsNormVersion: ttsMetadata.ttsNormVersion,
+        ...(ledgerAssetKey && ledgerGeneratedAt != null
+          ? { ledgerAssetKey, ledgerGeneratedAt }
+          : {}),
       }),
     );
     committedReady = true;
@@ -379,6 +396,14 @@ const generatePictureOfDayAudioRecord = async ({
       `[picture-of-day ${feedDateIso} run=${runId}] failed at stage=${stage}: ${message}`,
       error,
     );
+
+    if (generatedAudioReady && ledgerAssetKey && !committedReady) {
+      await recordAudioCacheWriteFailureBestEffort({
+        ledgerAssetKey,
+        source: "picture_of_day",
+        provider: "edge",
+      });
+    }
 
     if (!previousReadyAudio && !committedReady) {
       try {
@@ -502,9 +527,7 @@ export const getPictureOfDayAudioState = async ({
           : "failed"
         : record.status,
     audioUrl: hasCurrentReadyAudio ? record.audioUrl : null,
-    durationSeconds: hasCurrentReadyAudio
-      ? record.durationSeconds
-      : undefined,
+    durationSeconds: hasCurrentReadyAudio ? record.durationSeconds : undefined,
     lastError: record.lastError,
   };
 };

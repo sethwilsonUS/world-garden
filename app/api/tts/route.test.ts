@@ -1,11 +1,21 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getTtsQuotaBypassHeaders } from "@/lib/tts-quota-bypass";
+import {
+  getTrustedTtsGenerationHeaders,
+  getTtsQuotaBypassHeaders,
+} from "@/lib/tts-quota-bypass";
+import type { AiCostProviderAttempt } from "@/lib/ai-cost-ledger-contract";
+import { TTS_AI_COST_SOURCE_HEADER } from "@/lib/tts-source-attestation";
 
 const fetchMutation = vi.hoisted(() => vi.fn());
 const track = vi.hoisted(() => vi.fn(async () => {}));
 const after = vi.hoisted(() => vi.fn((task: () => void) => task()));
 const auth = vi.hoisted(() => vi.fn());
+const recordProviderAttempt = vi.hoisted(() =>
+  vi.fn<(attempt: AiCostProviderAttempt) => Promise<void>>(
+    async () => undefined,
+  ),
+);
 
 vi.mock("@clerk/nextjs/server", () => ({
   auth,
@@ -17,6 +27,10 @@ vi.mock("convex/nextjs", () => ({
 
 vi.mock("@vercel/analytics/server", () => ({
   track,
+}));
+
+vi.mock("@/lib/ai-cost-provider-recorder", () => ({
+  recordProviderAttemptFailOpen: recordProviderAttempt,
 }));
 
 vi.mock("next/server", async () => {
@@ -36,6 +50,9 @@ describe("POST /api/tts", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "quota-attestation-secret");
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    recordProviderAttempt.mockReset();
+    recordProviderAttempt.mockResolvedValue(undefined);
     fetchMutation.mockResolvedValue({
       allowed: true,
       remaining: 119,
@@ -78,6 +95,84 @@ describe("POST /api/tts", () => {
     expect(auth).toHaveBeenCalledOnce();
     expect(fetchMutation).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      recordProviderAttempt.mock.calls.map(([attempt]) => attempt.source),
+    ).toEqual(["interactive_article", "interactive_article"]);
+  });
+
+  it("records a server-attested source on every TTS lifecycle write", async () => {
+    auth.mockResolvedValue({ userId: null });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0xff, 0xfb, 0x89]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
+    );
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "featured_podcast",
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "This featured episode text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      recordProviderAttempt.mock.calls.map(([attempt]) => attempt.source),
+    ).toEqual(["featured_podcast", "featured_podcast"]);
+  });
+
+  it("does not trust a public client's self-declared TTS source", async () => {
+    auth.mockResolvedValue({ userId: null });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0xff, 0xfb, 0x89]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers: {
+          [TTS_AI_COST_SOURCE_HEADER]: "picture_of_day",
+        },
+        body: JSON.stringify({
+          text: "This public request text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      recordProviderAttempt.mock.calls.map(([attempt]) => attempt.source),
+    ).toEqual(["unknown", "unknown"]);
   });
 
   it("coerces a signed-out OpenAI request to Edge with an auth fallback reason", async () => {
@@ -422,6 +517,43 @@ describe("POST /api/tts", () => {
     expect(JSON.stringify(track.mock.calls)).not.toContain(
       "preview-bypass-secret",
     );
+
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(4),
+    );
+    const attempts = recordProviderAttempt.mock.calls.map(
+      ([attempt]) => attempt,
+    );
+    const terminalAttempts = attempts.filter(
+      (attempt) => attempt.lifecycleVersion === 1,
+    );
+    expect(terminalAttempts).toEqual([
+      expect.objectContaining({
+        operation: "tts",
+        requestedProvider: "openai",
+        effectiveProvider: "openai",
+        state: "failed_after_dispatch",
+        failureCategory: "provider_http_5xx",
+        inputCharacters: 53,
+        inputWords: 8,
+        isFallbackAttempt: false,
+      }),
+      expect.objectContaining({
+        operation: "tts",
+        requestedProvider: "openai",
+        effectiveProvider: "edge",
+        state: "succeeded",
+        failureCategory: null,
+        responseAudioBytes: 4,
+        audioDurationMs: 3_200,
+        durationMeasurement: "estimated",
+        isFallbackAttempt: true,
+      }),
+    ]);
+    expect(
+      new Set(attempts.map(({ correlationId }) => correlationId)).size,
+    ).toBe(1);
+    expect(new Set(attempts.map(({ eventKey }) => eventKey)).size).toBe(2);
   });
 
   it("never sends the bypass secret to an untrusted request origin", async () => {
@@ -453,6 +585,49 @@ describe("POST /api/tts", () => {
       "preview-bypass-secret",
     );
     consoleError.mockRestore();
+  });
+
+  it("preserves OpenAI-to-Edge fallback when attempt recording rejects", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    recordProviderAttempt.mockRejectedValue(
+      new Error("private ledger database details"),
+    );
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      if (String(input) === "https://api.openai.com/v1/audio/speech") {
+        return Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      return new Response(new Uint8Array([0xff, 0xfb, 0xa0]), {
+        status: 200,
+        headers: { "Content-Type": "audio/mpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(4),
+    );
+    await vi.waitFor(() => expect(consoleWarn).toHaveBeenCalled());
+    expect(JSON.stringify(consoleWarn.mock.calls)).not.toContain(
+      "private ledger database details",
+    );
+    consoleWarn.mockRestore();
   });
 
   it("falls back to Edge when OpenAI speech generation times out", async () => {
@@ -515,6 +690,26 @@ describe("POST /api/tts", () => {
     expect(response.headers.get("X-Curio-TTS-Fallback-Reason")).toBe(
       "openai_error",
     );
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(4),
+    );
+    const terminals = recordProviderAttempt.mock.calls
+      .map(([attempt]) => attempt)
+      .filter(({ lifecycleVersion }) => lifecycleVersion === 1);
+    expect(terminals).toEqual([
+      expect.objectContaining({
+        effectiveProvider: "openai",
+        state: "unknown_after_dispatch",
+        failureCategory: "timeout",
+        isFallbackAttempt: false,
+      }),
+      expect.objectContaining({
+        effectiveProvider: "edge",
+        state: "succeeded",
+        failureCategory: null,
+        isFallbackAttempt: true,
+      }),
+    ]);
   });
 
   it("falls back to Edge at the OpenAI interactive soft timeout", async () => {
@@ -670,6 +865,50 @@ describe("POST /api/tts", () => {
       }),
     );
 
+    consoleError.mockRestore();
+  });
+
+  it("classifies an empty OpenAI body as a known after-dispatch failure", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_EDGE_FALLBACK", "false");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array(), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This article section text is comfortably long enough.",
+          provider: "openai",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(2),
+    );
+    expect(recordProviderAttempt.mock.calls[1]?.[0]).toMatchObject({
+      lifecycleVersion: 1,
+      effectiveProvider: "openai",
+      state: "failed_after_dispatch",
+      failureCategory: "empty_response",
+      responseAudioBytes: null,
+      audioDurationMs: null,
+      durationMeasurement: "unknown",
+    });
     consoleError.mockRestore();
   });
 
@@ -1073,6 +1312,58 @@ describe("POST /api/tts", () => {
     await expect(response.json()).resolves.toEqual({
       error: "OPENAI_API_KEY is required for OpenAI TTS",
     });
+    await vi.waitFor(() =>
+      expect(recordProviderAttempt).toHaveBeenCalledTimes(1),
+    );
+    expect(recordProviderAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycleVersion: 1,
+        operation: "tts",
+        effectiveProvider: "openai",
+        state: "failed_before_dispatch",
+        failureCategory: "configuration",
+        dispatchedAt: null,
+        completedAt: expect.any(Number),
+      }),
+    );
+  });
+
+  it("keeps successful speech delivery fail-open when the recorder rejects", async () => {
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    recordProviderAttempt.mockRejectedValue(
+      new Error("ledger database details"),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0xff, 0xfb, 0x99]), {
+            status: 200,
+            headers: { "Content-Type": "audio/mpeg" },
+          }),
+      ),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This Edge narration remains available during ledger failure.",
+          provider: "edge",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    await vi.waitFor(() => expect(consoleWarn).toHaveBeenCalled());
+    expect(JSON.stringify(consoleWarn.mock.calls)).not.toContain(
+      "ledger database details",
+    );
+    consoleWarn.mockRestore();
   });
 
   it("rejects an invalid explicit OpenAI voice", async () => {
