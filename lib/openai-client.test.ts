@@ -20,14 +20,16 @@ afterEach(() => {
 describe("shared OpenAI client", () => {
   it("passes the same trimmed key that configuration validation accepts", async () => {
     process.env.OPENAI_API_KEY = "  test-openai-key  ";
-    const { getOpenAIClient, isOpenAIConfigured } = await import(
-      "./openai-client"
-    );
+    const { getOpenAIClient, isOpenAIConfigured } =
+      await import("./openai-client");
 
     expect(isOpenAIConfigured()).toBe(true);
     getOpenAIClient();
     expect(OpenAI).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: "test-openai-key" }),
+      expect.objectContaining({
+        apiKey: "test-openai-key",
+        fetch: expect.any(Function),
+      }),
     );
   });
 

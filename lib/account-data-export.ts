@@ -56,7 +56,7 @@ type HeardRangeExport = {
   endSecond: number;
 };
 
-type ListeningProgressExport = {
+export type ListeningProgressExport = {
   wikiPageId: string;
   slug: string;
   title: string;
@@ -68,6 +68,15 @@ type ListeningProgressExport = {
     durationSeconds: number;
     heardRanges: HeardRangeExport[];
   }>;
+  meaningfulUseSession?: {
+    startedAt: number;
+    expiresAt: number;
+    sections: Array<{
+      sectionKey: string;
+      durationSeconds: number;
+      heardRanges: HeardRangeExport[];
+    }>;
+  };
   createdAt: number;
   updatedAt: number;
 };

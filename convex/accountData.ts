@@ -1,9 +1,6 @@
 import type { Doc } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
-import {
-  paginationOptsValidator,
-  type PaginationOptions,
-} from "convex/server";
+import { paginationOptsValidator, type PaginationOptions } from "convex/server";
 import { v } from "convex/values";
 import { getAuthenticatedViewerTokenIdentifier } from "./bookmarks";
 import {
@@ -31,15 +28,13 @@ type AccountQuota = {
 };
 
 type AccountDataOverview = {
-  feed:
-    | null
-    | {
-        status: "active" | "revoked";
-        feedToken: string | null;
-        createdAt: number;
-        updatedAt: number;
-        revokedAt?: number;
-      };
+  feed: null | {
+    status: "active" | "revoked";
+    feedToken: string | null;
+    createdAt: number;
+    updatedAt: number;
+    revokedAt?: number;
+  };
   quotas: AccountQuota[];
 };
 
@@ -74,19 +69,13 @@ export const getViewerAccountDataOverviewForCtx = async (
       ctx.db
         .query("routeQuotas")
         .withIndex("by_key", (q) =>
-          q.eq(
-            "key",
-            getPersonalPlaylistOpenAiQuotaKey(viewerTokenIdentifier),
-          ),
+          q.eq("key", getPersonalPlaylistOpenAiQuotaKey(viewerTokenIdentifier)),
         )
         .first(),
       ctx.db
         .query("routeQuotas")
         .withIndex("by_key", (q) =>
-          q.eq(
-            "key",
-            getArticleAudioExportQuotaKey(viewerTokenIdentifier),
-          ),
+          q.eq("key", getArticleAudioExportQuotaKey(viewerTokenIdentifier)),
         )
         .first(),
     ]);
@@ -209,6 +198,7 @@ export const getViewerAccountDataPageForCtx = async (
           q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
         )
         .paginate(paginationOpts);
+      const now = Date.now();
 
       return {
         ...result,
@@ -227,6 +217,26 @@ export const getViewerAccountDataPageForCtx = async (
               endSecond: range.endSecond,
             })),
           })),
+          ...(progress.meaningfulUseSession &&
+          progress.meaningfulUseSessionExpiresAt !== undefined &&
+          progress.meaningfulUseSessionExpiresAt > now
+            ? {
+                meaningfulUseSession: {
+                  startedAt: progress.meaningfulUseSession.startedAt,
+                  expiresAt: progress.meaningfulUseSessionExpiresAt,
+                  sections: progress.meaningfulUseSession.sections.map(
+                    (section) => ({
+                      sectionKey: section.sectionKey,
+                      durationSeconds: section.durationSeconds,
+                      heardRanges: section.heardRanges.map((range) => ({
+                        startSecond: range.startSecond,
+                        endSecond: range.endSecond,
+                      })),
+                    }),
+                  ),
+                },
+              }
+            : {}),
           createdAt: progress.createdAt,
           updatedAt: progress.updatedAt,
         })),

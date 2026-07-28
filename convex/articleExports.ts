@@ -29,6 +29,7 @@ import {
 import { buildArticleNarrationHash } from "../lib/section-narration";
 import { getAudioGenerationBaseUrl } from "../lib/audio-generation-url";
 import { getCombinedAudioStorageContentType } from "../lib/account-owned-audio-storage";
+import { createAudioCacheLedgerAssetKey } from "../lib/audio-cache-ledger-key";
 import {
   ARTICLE_AUDIO_EXPORT_READ_ATTESTATION_SCOPE,
   buildArticleAudioExportReadAttestationPayload,
@@ -44,6 +45,10 @@ import {
   hasAccountOwnedAudioStorageMarkerForCtx,
   registerAccountOwnedStorageForCtx,
 } from "./lib/accountOwnedStorage";
+import {
+  recordCacheWriteFailureBestEffort,
+  recordOpaquePipelineOutcomeBestEffort,
+} from "./lib/aiCostPipelineInstrumentation";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
@@ -1375,6 +1380,7 @@ export const processArticleAudioExport = internalAction({
     try {
       const result = await assembleArticleAudio({
         preferredProvider: ttsProvider,
+        aiCostSource: "article_audio_export",
         article: {
           ...article,
           slug: article.slug ?? record.slug,
@@ -1401,24 +1407,47 @@ export const processArticleAudioExport = internalAction({
           durationSeconds,
           metadata,
         }) => {
-          const uploadUrl = await ctx.runMutation(
-            internal.audio.generateUploadUrlInternal,
-            {},
-          );
-          const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
-          await ctx.runMutation(internal.audio.saveSectionAudioRecordInternal, {
-            articleId: article._id,
-            sectionKey,
-            sourceHash,
-            storageId,
-            ttsNormVersion: TTS_NORM_VERSION,
-            ttsCacheKey: metadata.ttsCacheKey,
-            provider: metadata.provider,
-            model: metadata.model,
-            voiceId: metadata.voiceId,
-            promptVersion: metadata.promptVersion,
-            durationSeconds,
-          });
+          const ledgerAssetKey = createAudioCacheLedgerAssetKey();
+          let storageId: Id<"_storage">;
+          try {
+            const uploadUrl = await ctx.runMutation(
+              internal.audio.generateUploadUrlInternal,
+              {},
+            );
+            storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
+            await ctx.runMutation(
+              internal.audio.saveSectionAudioRecordInternal,
+              {
+                articleId: article._id,
+                sectionKey,
+                sourceHash,
+                storageId,
+                ttsNormVersion: TTS_NORM_VERSION,
+                ttsCacheKey: metadata.ttsCacheKey,
+                provider: metadata.provider,
+                model: metadata.model,
+                voiceId: metadata.voiceId,
+                promptVersion: metadata.promptVersion,
+                durationSeconds,
+                ...(ledgerAssetKey
+                  ? {
+                      byteLength: blob.size,
+                      ledgerAssetKey,
+                      ledgerSource: "article_audio_export" as const,
+                    }
+                  : {}),
+              },
+            );
+          } catch (error) {
+            if (ledgerAssetKey) {
+              await recordCacheWriteFailureBestEffort(ctx, {
+                eventKey: `cache-write-failure:${ledgerAssetKey}`,
+                source: "article_audio_export",
+                provider: metadata.provider,
+              });
+            }
+            throw error;
+          }
           const storageUrl = await ctx.storage.getUrl(storageId);
           if (!storageUrl) {
             throw new Error("Stored section audio URL could not be resolved.");
@@ -1469,22 +1498,42 @@ export const processArticleAudioExport = internalAction({
         },
       });
 
-      const completion = await ctx.runMutation(
-        internal.articleExports.completeArticleAudioExport,
-        {
-          exportId: args.exportId,
-          owner,
-          storageId: result.storageId,
-          ...(record.ownerTokenIdentifier
-            ? {
-                expectedViewerTokenIdentifier: record.ownerTokenIdentifier,
-              }
-            : {}),
-          byteLength: result.byteLength,
-          producedTtsCacheKey: result.metadata.ttsCacheKey,
-          narrationHash: result.narrationHash,
-        },
-      );
+      const completion = await (async () => {
+        try {
+          return await ctx.runMutation(
+            internal.articleExports.completeArticleAudioExport,
+            {
+              exportId: args.exportId,
+              owner,
+              storageId: result.storageId,
+              ...(record.ownerTokenIdentifier
+                ? {
+                    expectedViewerTokenIdentifier: record.ownerTokenIdentifier,
+                  }
+                : {}),
+              byteLength: result.byteLength,
+              producedTtsCacheKey: result.metadata.ttsCacheKey,
+              narrationHash: result.narrationHash,
+            },
+          );
+        } finally {
+          await recordOpaquePipelineOutcomeBestEffort(
+            ctx,
+            {
+              namespace: "pipeline-article-export",
+              identityParts: [String(args.exportId), owner],
+            },
+            {
+              source: "article_audio_export",
+              provider: result.metadata.provider,
+              operation: "tts",
+              generatedSections: result.generatedSectionCount,
+              reusedSections: result.reusedSectionCount,
+              recordedAt: Date.now(),
+            },
+          );
+        }
+      })();
       if (!completion.completed) {
         if (
           "uploadAlreadyDiscarded" in completion &&

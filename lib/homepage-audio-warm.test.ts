@@ -49,6 +49,7 @@ const makeDependencies = (
     fetchArticle: vi.fn(async (article) => warmArticleFixture(article)),
     getCachedSummary: vi.fn(async () => ({})),
     verifyAudioUrl: vi.fn(async () => undefined),
+    recordCacheReadResult: vi.fn(async () => undefined),
     generateAudio: vi.fn(async () => ({
       blob: new Blob(["audio"], { type: "audio/mpeg" }),
       metadata: expected,
@@ -79,10 +80,14 @@ describe("homepage summary audio warmer", () => {
       .mockResolvedValueOnce({
         url: "https://audio.test/good.mp3",
         metadata: expected,
+        durationSeconds: 12,
+        byteLength: 2_048,
       })
       .mockResolvedValueOnce({
         url: "https://audio.test/stale.mp3",
         metadata: expected,
+        durationSeconds: 12,
+        byteLength: 2_048,
       });
     const verifyAudioUrl = vi
       .fn<HomepageAudioWarmDependencies["verifyAudioUrl"]>()
@@ -106,6 +111,20 @@ describe("homepage summary audio warmer", () => {
       failed: 0,
     });
     expect(dependencies.generateAudio).toHaveBeenCalledTimes(1);
+    expect(dependencies.recordCacheReadResult).toHaveBeenNthCalledWith(1, {
+      source: "featured_audio_warm",
+      provider: "edge",
+      hit: true,
+      byteLength: 2_048,
+      durationSeconds: 12,
+    });
+    expect(dependencies.recordCacheReadResult).toHaveBeenNthCalledWith(2, {
+      source: "featured_audio_warm",
+      provider: "edge",
+      hit: false,
+      byteLength: 0,
+      durationSeconds: 0,
+    });
     expect(consoleWarn).toHaveBeenCalledWith(
       "[homepage-audio-warm] cached summary unavailable; regenerating",
       expect.objectContaining({ title: "Stale", error: "404" }),

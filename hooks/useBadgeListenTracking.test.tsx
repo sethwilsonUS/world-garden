@@ -17,6 +17,11 @@ type HarnessProps = {
   trackingSectionKey: string | null;
   isPlaying: boolean;
   reportProgress: (args: unknown) => Promise<unknown>;
+  articleId?: string;
+  wikiPageId?: string;
+  slug?: string;
+  title?: string;
+  durationSeconds?: number;
   enabled?: boolean;
   onBadgesAwarded?: (args: {
     articleTitle: string;
@@ -34,18 +39,23 @@ const Harness = ({
   trackingSectionKey,
   isPlaying,
   reportProgress,
+  articleId: harnessArticleId = articleId,
+  wikiPageId = "wiki-1",
+  slug = "Roman_roads",
+  title = "Roman roads",
+  durationSeconds = 10,
   enabled,
   onBadgesAwarded,
   resolveAwardedBadges,
 }: HarnessProps) => {
   useBadgeListenTracking({
     enabled,
-    articleId,
-    wikiPageId: "wiki-1",
+    articleId: harnessArticleId as never,
+    wikiPageId,
     revisionId: "revision-1",
     narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
-    slug: "Roman_roads",
-    title: "Roman roads",
+    slug,
+    title,
     summaryText: "One two three four five six seven eight nine ten.",
     sections: [
       createTestSection({
@@ -60,12 +70,12 @@ const Harness = ({
       }),
     ],
     sectionDurations: {
-      summary: 10,
-      "section-0": 10,
-      "section-1": 10,
+      summary: durationSeconds,
+      "section-0": durationSeconds,
+      "section-1": durationSeconds,
     },
     trackingSectionKey,
-    audioDurationSeconds: 10,
+    audioDurationSeconds: durationSeconds,
     isPlaying,
     audioRef: { current: audio },
     reportProgress,
@@ -184,6 +194,420 @@ describe("useBadgeListenTracking", () => {
         heardRanges: [{ startSecond: 0, endSecond: 2 }],
       }),
     );
+  });
+
+  it("keeps an exiting section's progress attached to its original article", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-0"
+          isPlaying
+          reportProgress={reportProgress}
+          articleId="article-old"
+          wikiPageId="wiki-old"
+          slug="Old_article"
+          title="Old article"
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey={null}
+          isPlaying
+          reportProgress={reportProgress}
+          articleId="article-new"
+          wikiPageId="wiki-new"
+          slug="New_article"
+          title="New article"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(reportProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        articleId: "article-old",
+        wikiPageId: "wiki-old",
+        slug: "Old_article",
+        title: "Old article",
+        sectionKey: "section-0",
+        heardRanges: [{ startSecond: 0, endSecond: 2 }],
+      }),
+    );
+    expect(reportProgress).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        articleId: "article-new",
+      }),
+    );
+  });
+
+  it("keeps pending ranges separated when section timing metadata changes", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+          durationSeconds={10}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+          durationSeconds={20}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      audio.currentTime = 2.2;
+      vi.advanceTimersByTime(1_000);
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying={false}
+          reportProgress={reportProgress}
+          durationSeconds={20}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(reportProgress).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        totalDurationSeconds: 30,
+        sectionDurationSeconds: 10,
+        heardRanges: [{ startSecond: 0, endSecond: 2 }],
+      }),
+    );
+    expect(reportProgress).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        totalDurationSeconds: 60,
+        sectionDurationSeconds: 20,
+        heardRanges: [{ startSecond: 1, endSecond: 3 }],
+      }),
+    );
+  });
+
+  it("starts a fresh attribution cutoff on a continuous section transition", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+    const firstSectionStartedAt = 1_780_000_000_000;
+    vi.setSystemTime(firstSectionStartedAt);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-0"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      audio.currentTime = 0;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-1"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const secondSectionStartedAt = Date.now();
+    const secondSectionGenerationAt = secondSectionStartedAt - 1;
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-1"
+          isPlaying={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(reportProgress).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        sectionKey: "section-0",
+        listeningSessionStartedAt: firstSectionStartedAt,
+        progressStartedAt: firstSectionStartedAt,
+      }),
+    );
+    expect(reportProgress).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sectionKey: "section-1",
+        listeningSessionStartedAt: firstSectionStartedAt,
+        progressStartedAt: secondSectionStartedAt,
+      }),
+    );
+    expect(reportProgress.mock.calls[1]?.[0].progressStartedAt).toBeGreaterThan(
+      secondSectionGenerationAt,
+    );
+  });
+
+  it("preserves the original attribution cutoff when a failed report is retried", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValue(undefined);
+    const originalStartedAt = 1_780_000_000_000;
+    vi.setSystemTime(originalStartedAt);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    vi.setSystemTime(originalStartedAt + 60_000);
+    await act(async () => {
+      audio.paused = false;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+    await act(async () => {
+      audio.currentTime = 2.2;
+      vi.advanceTimersByTime(1_000);
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(reportProgress.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(reportProgress.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        listeningSessionStartedAt: originalStartedAt,
+        progressStartedAt: originalStartedAt,
+      }),
+    );
+    expect(reportProgress.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        heardRanges: [{ startSecond: 0, endSecond: 2 }],
+        listeningSessionStartedAt: originalStartedAt,
+        progressStartedAt: originalStartedAt,
+      }),
+    );
+    expect(reportProgress.mock.calls[2]?.[0]).toEqual(
+      expect.objectContaining({
+        heardRanges: [{ startSecond: 1, endSecond: 3 }],
+        listeningSessionStartedAt: originalStartedAt + 60_000,
+        progressStartedAt: originalStartedAt + 60_000,
+      }),
+    );
+  });
+
+  it("retries a rejected transition flush without relabeling it as the next section", async () => {
+    const audio = createAudioStub();
+    audio.currentTime = 4;
+    let rejectPreviousSection!: (reason: Error) => void;
+    const previousSectionReport = new Promise<unknown>((_resolve, reject) => {
+      rejectPreviousSection = reject;
+    });
+    const reportProgress = vi
+      .fn()
+      .mockImplementationOnce(() => previousSectionReport)
+      .mockResolvedValue(undefined);
+    const listeningSessionStartedAt = 1_780_000_000_000;
+    vi.setSystemTime(listeningSessionStartedAt);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-0"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    await act(async () => {
+      audio.currentTime = 5.2;
+      vi.advanceTimersByTime(1_000);
+      audio.currentTime = 0;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-1"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const nextSectionStartedAt = Date.now();
+
+    await act(async () => {
+      audio.currentTime = 1.2;
+      vi.advanceTimersByTime(1_000);
+      rejectPreviousSection(new Error("network unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      audio.paused = true;
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="section-1"
+          isPlaying={false}
+          reportProgress={reportProgress}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+      await Promise.resolve();
+    });
+
+    const reports = reportProgress.mock.calls.map(
+      ([report]) =>
+        report as {
+          sectionKey: string;
+          heardRanges: Array<{ startSecond: number; endSecond: number }>;
+          listeningSessionStartedAt: number;
+          progressStartedAt: number;
+        },
+    );
+    expect(
+      reports.filter((report) => report.sectionKey === "section-0"),
+    ).toEqual([
+      expect.objectContaining({
+        heardRanges: [{ startSecond: 4, endSecond: 6 }],
+        listeningSessionStartedAt,
+        progressStartedAt: listeningSessionStartedAt,
+      }),
+      expect.objectContaining({
+        heardRanges: [{ startSecond: 4, endSecond: 6 }],
+        listeningSessionStartedAt,
+        progressStartedAt: listeningSessionStartedAt,
+      }),
+    ]);
+    expect(
+      reports.filter((report) => report.sectionKey === "section-1"),
+    ).toEqual([
+      expect.objectContaining({
+        heardRanges: [{ startSecond: 0, endSecond: 2 }],
+        listeningSessionStartedAt,
+        progressStartedAt: nextSectionStartedAt,
+      }),
+    ]);
+  });
+
+  it("keeps one listening session across periodic five-second flushes", async () => {
+    const audio = createAudioStub();
+    const reportProgress = vi.fn().mockResolvedValue(undefined);
+    const listeningSessionStartedAt = 1_780_000_000_000;
+    vi.setSystemTime(listeningSessionStartedAt);
+
+    await act(async () => {
+      root.render(
+        <Harness
+          audio={audio}
+          trackingSectionKey="summary"
+          isPlaying
+          reportProgress={reportProgress}
+        />,
+      );
+    });
+
+    for (let second = 1; second <= 10; second += 1) {
+      await act(async () => {
+        audio.currentTime = second;
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+      });
+    }
+
+    expect(reportProgress.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      reportProgress.mock.calls
+        .slice(0, 2)
+        .map(
+          (call) =>
+            (call[0] as { listeningSessionStartedAt?: number })
+              .listeningSessionStartedAt,
+        ),
+    ).toEqual([listeningSessionStartedAt, listeningSessionStartedAt]);
   });
 
   it("does not credit seek jumps and still flushes on page hide", async () => {

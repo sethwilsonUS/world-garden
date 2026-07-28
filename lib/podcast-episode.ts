@@ -20,9 +20,10 @@ import {
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import {
+  createAudioCacheReadAttestation,
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
-  getEdgeTtsGenerationHeaders,
+  getTrustedTtsGenerationHeaders,
 } from "@/lib/tts-quota-bypass";
 import {
   buildArticleNarrationHash,
@@ -39,6 +40,11 @@ import {
   type PublicAudioWriteOperation,
 } from "@/lib/public-audio-write-attestation";
 import { isExactCurrentEdgeAudioMetadata } from "@/lib/public-edge-audio-metadata";
+import {
+  recordAudioCacheReadResultBestEffort,
+  recordAudioCacheWriteFailureBestEffort,
+} from "@/lib/audio-cache-ledger";
+import { createAudioCacheLedgerAssetKey } from "@/lib/audio-cache-ledger-key";
 
 export { doesTtsMetadataMatch } from "@/lib/tts-profile";
 
@@ -549,7 +555,7 @@ export const syncFeaturedPodcastEpisode = async ({
     }> => {
       const passMetadata = expectedTtsMetadata;
       currentTtsMetadata = passMetadata;
-      const cachedAudio = await fetchQuery(api.audio.getAllSectionAudio, {
+      const cacheArgs = {
         articleId,
         ttsNormVersion: passMetadata.ttsNormVersion,
         ttsCacheKey: passMetadata.ttsCacheKey,
@@ -557,7 +563,12 @@ export const syncFeaturedPodcastEpisode = async ({
           sectionKey,
           sourceHash,
         })),
-      });
+      };
+      const readAttestation = await createAudioCacheReadAttestation(cacheArgs);
+      const cachedAudio = await fetchMutation(
+        anyApi.audio.getAllSectionAudioForServer,
+        { ...cacheArgs, attestation: readAttestation },
+      );
 
       let generatedSectionCount = 0;
       let reusedSectionCount = 0;
@@ -577,6 +588,20 @@ export const syncFeaturedPodcastEpisode = async ({
         ) {
           try {
             blob = await fetchBlobFromUrl(cachedUrl);
+            const cachedDurationSeconds =
+              cachedAudio.durations?.[section.sectionKey];
+            await recordAudioCacheReadResultBestEffort({
+              source: "featured_podcast",
+              provider: passMetadata.provider,
+              hit: true,
+              byteLength: blob.size,
+              durationSeconds:
+                typeof cachedDurationSeconds === "number" &&
+                Number.isFinite(cachedDurationSeconds) &&
+                cachedDurationSeconds >= 0
+                  ? cachedDurationSeconds
+                  : estimateDurationSeconds([section.text]),
+            });
             reusedSectionCount += 1;
           } catch {
             blob = null;
@@ -584,6 +609,13 @@ export const syncFeaturedPodcastEpisode = async ({
         }
 
         if (!blob) {
+          await recordAudioCacheReadResultBestEffort({
+            source: "featured_podcast",
+            provider: passMetadata.provider,
+            hit: false,
+            byteLength: 0,
+            durationSeconds: 0,
+          });
           let metadata: TtsMetadata;
           stage = `generating_section_audio:${section.sectionKey}`;
           try {
@@ -591,7 +623,10 @@ export const syncFeaturedPodcastEpisode = async ({
               { text: section.text, provider: passMetadata.provider },
               {
                 apiBaseUrl: baseUrl,
-                headers: getEdgeTtsGenerationHeaders(baseUrl),
+                headers: await getTrustedTtsGenerationHeaders(
+                  baseUrl,
+                  "featured_podcast",
+                ),
               },
             );
             blob = generatedAudio.blob;
@@ -610,40 +645,59 @@ export const syncFeaturedPodcastEpisode = async ({
 
           producedMetadata = metadata;
           generatedSectionCount += 1;
+          const ledgerAssetKey = createAudioCacheLedgerAssetKey();
+          try {
+            stage = `uploading_section_audio:${section.sectionKey}`;
+            const uploadAttestation = await createAudioCacheUploadAttestation();
+            const sectionUploadUrl = await fetchMutation(
+              api.audio.generateUploadUrl,
+              { attestation: uploadAttestation },
+            );
+            const sectionStorageId = await uploadBlobToConvexStorage(
+              sectionUploadUrl,
+              blob,
+            );
 
-          stage = `uploading_section_audio:${section.sectionKey}`;
-          const uploadAttestation = await createAudioCacheUploadAttestation();
-          const sectionUploadUrl = await fetchMutation(
-            api.audio.generateUploadUrl,
-            { attestation: uploadAttestation },
-          );
-          const sectionStorageId = await uploadBlobToConvexStorage(
-            sectionUploadUrl,
-            blob,
-          );
-
-          stage = `saving_section_audio:${section.sectionKey}`;
-          const record = {
-            articleId,
-            sectionKey: section.sectionKey,
-            sourceHash: section.sourceHash,
-            storageId: sectionStorageId,
-            ttsNormVersion: metadata.ttsNormVersion,
-            ttsCacheKey: metadata.ttsCacheKey,
-            provider: metadata.provider,
-            model: metadata.model,
-            voiceId: metadata.voiceId,
-            promptVersion: metadata.promptVersion,
-            durationSeconds: Math.round(
-              section.text.split(/\s+/).filter(Boolean).length /
-                TTS_WORDS_PER_SECOND,
-            ),
-          };
-          const saveAttestation = await createAudioCacheSaveAttestation(record);
-          await fetchMutation(api.audio.saveSectionAudioRecord, {
-            ...record,
-            attestation: saveAttestation,
-          });
+            stage = `saving_section_audio:${section.sectionKey}`;
+            const record = {
+              articleId,
+              sectionKey: section.sectionKey,
+              sourceHash: section.sourceHash,
+              storageId: sectionStorageId,
+              ttsNormVersion: metadata.ttsNormVersion,
+              ttsCacheKey: metadata.ttsCacheKey,
+              provider: metadata.provider,
+              model: metadata.model,
+              voiceId: metadata.voiceId,
+              promptVersion: metadata.promptVersion,
+              durationSeconds: Math.round(
+                section.text.split(/\s+/).filter(Boolean).length /
+                  TTS_WORDS_PER_SECOND,
+              ),
+              ...(ledgerAssetKey
+                ? {
+                    byteLength: blob.size,
+                    ledgerAssetKey,
+                    ledgerSource: "featured_podcast" as const,
+                  }
+                : {}),
+            };
+            const saveAttestation =
+              await createAudioCacheSaveAttestation(record);
+            await fetchMutation(api.audio.saveSectionAudioRecord, {
+              ...record,
+              attestation: saveAttestation,
+            });
+          } catch (error) {
+            if (ledgerAssetKey) {
+              await recordAudioCacheWriteFailureBestEffort({
+                ledgerAssetKey,
+                source: "featured_podcast",
+                provider: metadata.provider,
+              });
+            }
+            throw error;
+          }
         }
 
         audioChunks.push(blob);

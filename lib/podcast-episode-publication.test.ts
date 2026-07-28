@@ -10,14 +10,17 @@ import { verifyPublicAudioWriteAttestation } from "./public-audio-write-attestat
 const mocks = vi.hoisted(() => ({
   addMp3MetadataToBlob: vi.fn(),
   concatenateMp3Blobs: vi.fn(),
+  createAudioCacheReadAttestation: vi.fn(),
   createAudioCacheSaveAttestation: vi.fn(),
   createAudioCacheUploadAttestation: vi.fn(),
   fetchAction: vi.fn(),
   fetchMutation: vi.fn(),
   fetchQuery: vi.fn(),
   generateTtsAudioWithMetadata: vi.fn(),
-  getEdgeTtsGenerationHeaders: vi.fn(),
+  getTrustedTtsGenerationHeaders: vi.fn(),
   getTodayWikipediaData: vi.fn(),
+  recordAudioCacheReadResultBestEffort: vi.fn(),
+  recordAudioCacheWriteFailureBestEffort: vi.fn(),
   renderFeaturedPodcastArtworkPng: vi.fn(),
 }));
 
@@ -50,10 +53,18 @@ vi.mock("@/lib/tts-client", () => ({
   generateTtsAudioWithMetadata: mocks.generateTtsAudioWithMetadata,
 }));
 
+vi.mock("@/lib/audio-cache-ledger", () => ({
+  recordAudioCacheReadResultBestEffort:
+    mocks.recordAudioCacheReadResultBestEffort,
+  recordAudioCacheWriteFailureBestEffort:
+    mocks.recordAudioCacheWriteFailureBestEffort,
+}));
+
 vi.mock("@/lib/tts-quota-bypass", () => ({
+  createAudioCacheReadAttestation: mocks.createAudioCacheReadAttestation,
   createAudioCacheSaveAttestation: mocks.createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation: mocks.createAudioCacheUploadAttestation,
-  getEdgeTtsGenerationHeaders: mocks.getEdgeTtsGenerationHeaders,
+  getTrustedTtsGenerationHeaders: mocks.getTrustedTtsGenerationHeaders,
 }));
 
 import { syncFeaturedPodcastEpisode } from "./podcast-episode";
@@ -143,13 +154,16 @@ beforeEach(() => {
     data: new Uint8Array([1, 2, 3]),
     mimeType: "image/png",
   });
+  mocks.createAudioCacheReadAttestation.mockResolvedValue({
+    signature: "read-attestation",
+  });
   mocks.createAudioCacheSaveAttestation.mockResolvedValue({
     signature: "save-attestation",
   });
   mocks.createAudioCacheUploadAttestation.mockResolvedValue({
     signature: "upload-attestation",
   });
-  mocks.getEdgeTtsGenerationHeaders.mockReturnValue({
+  mocks.getTrustedTtsGenerationHeaders.mockResolvedValue({
     "x-vercel-protection-bypass": "preview-secret",
   });
   vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -170,11 +184,11 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
     };
     mocks.fetchQuery
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ urls: {}, metadata: {} })
       .mockResolvedValueOnce({ _id: "episode-1", status: "ready" });
     mocks.fetchMutation
       .mockResolvedValueOnce({ claimed: true, attempts: 1 })
       .mockResolvedValueOnce("pending-episode")
+      .mockResolvedValueOnce({ urls: {}, metadata: {} })
       .mockResolvedValueOnce("https://upload.example.test/section")
       .mockResolvedValueOnce("section-record")
       .mockResolvedValueOnce("https://upload.example.test/assets")
@@ -202,24 +216,35 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
     await expect(
       syncFeaturedPodcastEpisode({ baseUrl }),
     ).resolves.toMatchObject({ status: "created", generatedSectionCount: 1 });
-    expect(mocks.getEdgeTtsGenerationHeaders).toHaveBeenCalledWith(baseUrl);
+    expect(mocks.getTrustedTtsGenerationHeaders).toHaveBeenCalledWith(
+      baseUrl,
+      "featured_podcast",
+    );
     expect(mocks.generateTtsAudioWithMetadata).toHaveBeenCalledWith(
       expect.objectContaining({ provider: "edge" }),
       { apiBaseUrl: baseUrl, headers: generationHeaders },
     );
+    expect(mocks.recordAudioCacheReadResultBestEffort).toHaveBeenCalledWith({
+      source: "featured_podcast",
+      provider: "edge",
+      hit: false,
+      byteLength: 0,
+      durationSeconds: 0,
+    });
   });
 
   it("attests every claim, upload, save, and finalize write on a new episode", async () => {
     mocks.fetchQuery
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        urls: { summary: "https://cache.example.test/summary.mp3" },
-        metadata: { summary: edgeMetadata },
-      })
       .mockResolvedValueOnce({ _id: "episode-1", status: "ready" });
     mocks.fetchMutation
       .mockResolvedValueOnce({ claimed: true, attempts: 1 })
       .mockResolvedValueOnce("pending-episode")
+      .mockResolvedValueOnce({
+        urls: { summary: "https://cache.example.test/summary.mp3" },
+        metadata: { summary: edgeMetadata },
+        durations: { summary: 11 },
+      })
       .mockResolvedValueOnce("https://upload.example.test/assets")
       .mockResolvedValueOnce("https://upload.example.test/assets")
       .mockResolvedValueOnce("episode-1")
@@ -242,7 +267,17 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
       syncFeaturedPodcastEpisode({ baseUrl: "https://curio.example.test" }),
     ).resolves.toMatchObject({ status: "created" });
 
-    expect(mocks.fetchMutation).toHaveBeenCalledTimes(6);
+    expect(mocks.createAudioCacheReadAttestation).toHaveBeenCalledWith(
+      expect.not.objectContaining({ ledgerSource: expect.anything() }),
+    );
+    expect(mocks.recordAudioCacheReadResultBestEffort).toHaveBeenCalledWith({
+      source: "featured_podcast",
+      provider: "edge",
+      hit: true,
+      byteLength: 12,
+      durationSeconds: 11,
+    });
+    expect(mocks.fetchMutation).toHaveBeenCalledTimes(7);
     await expect(getAttestedWriteArgs(0, "claim-job")).resolves.toEqual({
       featuredDate: "2026-07-26",
       articleId: "article-1",
@@ -259,12 +294,12 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
       },
     );
     await expect(
-      getAttestedWriteArgs(2, "generate-upload-url"),
-    ).resolves.toEqual({});
-    await expect(
       getAttestedWriteArgs(3, "generate-upload-url"),
     ).resolves.toEqual({});
-    await expect(getAttestedWriteArgs(4, "save-record")).resolves.toMatchObject(
+    await expect(
+      getAttestedWriteArgs(4, "generate-upload-url"),
+    ).resolves.toEqual({});
+    await expect(getAttestedWriteArgs(5, "save-record")).resolves.toMatchObject(
       {
         featuredDate: "2026-07-26",
         storageId: "audio-storage-1",
@@ -274,7 +309,7 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
         provider: "edge",
       },
     );
-    await expect(getAttestedWriteArgs(5, "finalize-job")).resolves.toEqual({
+    await expect(getAttestedWriteArgs(6, "finalize-job")).resolves.toEqual({
       featuredDate: "2026-07-26",
       articleId: "article-1",
       owner,
@@ -285,13 +320,14 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
   });
 
   it("attests failed finalization and the failed episode record", async () => {
-    mocks.fetchQuery.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      urls: { summary: "https://cache.example.test/summary.mp3" },
-      metadata: { summary: edgeMetadata },
-    });
+    mocks.fetchQuery.mockResolvedValueOnce(null);
     mocks.fetchMutation
       .mockResolvedValueOnce({ claimed: true, attempts: 1 })
       .mockResolvedValueOnce("pending-episode")
+      .mockResolvedValueOnce({
+        urls: { summary: "https://cache.example.test/summary.mp3" },
+        metadata: { summary: edgeMetadata },
+      })
       .mockResolvedValueOnce("failed-episode")
       .mockResolvedValueOnce({ updated: true });
     mocks.concatenateMp3Blobs.mockRejectedValue(new Error("concat exploded"));
@@ -304,8 +340,8 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
       syncFeaturedPodcastEpisode({ baseUrl: "https://curio.example.test" }),
     ).rejects.toThrow("concat exploded");
 
-    expect(mocks.fetchMutation).toHaveBeenCalledTimes(4);
-    await expect(getAttestedWriteArgs(2, "save-record")).resolves.toMatchObject(
+    expect(mocks.fetchMutation).toHaveBeenCalledTimes(5);
+    await expect(getAttestedWriteArgs(3, "save-record")).resolves.toMatchObject(
       {
         featuredDate: "2026-07-26",
         articleId: "article-1",
@@ -315,7 +351,7 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
       },
     );
     await expect(
-      getAttestedWriteArgs(3, "finalize-job"),
+      getAttestedWriteArgs(4, "finalize-job"),
     ).resolves.toMatchObject({
       featuredDate: "2026-07-26",
       articleId: "article-1",
@@ -492,10 +528,6 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
     mocks.fetchQuery
       .mockResolvedValueOnce(existingEpisode)
       .mockResolvedValueOnce({
-        urls: { summary: "https://cache.example.test/summary.mp3" },
-        metadata: { summary: edgeMetadata },
-      })
-      .mockResolvedValueOnce({
         ...existingEpisode,
         ...edgeMetadata,
         artworkVersion: 2,
@@ -503,6 +535,10 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
     mocks.fetchMutation
       .mockResolvedValueOnce({ claimed: true, attempts: 1 })
       .mockResolvedValueOnce("pending-episode")
+      .mockResolvedValueOnce({
+        urls: { summary: "https://cache.example.test/summary.mp3" },
+        metadata: { summary: edgeMetadata },
+      })
       .mockResolvedValueOnce("https://upload.example.test/assets")
       .mockResolvedValueOnce("https://upload.example.test/assets")
       .mockResolvedValueOnce("episode-1")
@@ -543,7 +579,7 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
         status: "pending",
       },
     );
-    await expect(getAttestedWriteArgs(4, "save-record")).resolves.toMatchObject(
+    await expect(getAttestedWriteArgs(5, "save-record")).resolves.toMatchObject(
       { ...edgeMetadata, owner },
     );
   });
@@ -572,15 +608,14 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
         ...edgeMetadata,
         ...incompatibleFields,
       };
-      mocks.fetchQuery
-        .mockResolvedValueOnce(existingEpisode)
-        .mockResolvedValueOnce({
-          urls: { summary: "https://cache.example.test/summary.mp3" },
-          metadata: { summary: edgeMetadata },
-        });
+      mocks.fetchQuery.mockResolvedValueOnce(existingEpisode);
       mocks.fetchMutation
         .mockResolvedValueOnce({ claimed: true, attempts: 1 })
         .mockResolvedValueOnce("pending-episode")
+        .mockResolvedValueOnce({
+          urls: { summary: "https://cache.example.test/summary.mp3" },
+          metadata: { summary: edgeMetadata },
+        })
         .mockResolvedValueOnce("failed-episode")
         .mockResolvedValueOnce({ updated: true });
       mocks.concatenateMp3Blobs.mockRejectedValue(
@@ -598,7 +633,7 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
         }),
       ).rejects.toThrow("repair concatenation failed");
 
-      expect(mocks.fetchMutation).toHaveBeenCalledTimes(4);
+      expect(mocks.fetchMutation).toHaveBeenCalledTimes(5);
       await expect(
         getAttestedWriteArgs(1, "save-record"),
       ).resolves.toMatchObject({
@@ -607,14 +642,14 @@ describe("syncFeaturedPodcastEpisode publication attestations", () => {
         status: "pending",
       });
       await expect(
-        getAttestedWriteArgs(2, "save-record"),
+        getAttestedWriteArgs(3, "save-record"),
       ).resolves.toMatchObject({
         ...edgeMetadata,
         owner,
         status: "failed",
       });
       await expect(
-        getAttestedWriteArgs(3, "finalize-job"),
+        getAttestedWriteArgs(4, "finalize-job"),
       ).resolves.toMatchObject({
         owner,
         status: "failed",

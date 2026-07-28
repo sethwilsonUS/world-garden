@@ -7,6 +7,7 @@ import {
   assertExactCurrentEdgeAudioMetadata,
   hasPublicAudioMetadata,
 } from "../lib/public-edge-audio-metadata";
+import { scheduleGenerationAssetBestEffort } from "./lib/aiCostPipelineInstrumentation";
 
 export const MAX_PICTURE_OF_DAY_AUDIO_JOB_LEASE_MS = 15 * 60 * 1000;
 
@@ -169,6 +170,8 @@ export const savePictureOfDayAudio = mutation({
     model: v.optional(v.string()),
     promptVersion: v.optional(v.string()),
     ttsNormVersion: v.optional(v.string()),
+    ledgerAssetKey: v.optional(v.string()),
+    ledgerGeneratedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     attestation: serverAttestationValidator,
   },
@@ -259,18 +262,43 @@ export const savePictureOfDayAudio = mutation({
       updatedAt: now,
     };
 
+    let savedId;
     if (existing) {
       await ctx.db.patch(existing._id, data);
-      return existing._id;
+      savedId = existing._id;
+    } else {
+      savedId = await ctx.db.insert("pictureOfDayAudio", {
+        feedDate: args.feedDate,
+        pictureKey: args.pictureKey,
+        scriptVersion: args.scriptVersion,
+        ...data,
+        createdAt: now,
+      });
     }
 
-    return await ctx.db.insert("pictureOfDayAudio", {
-      feedDate: args.feedDate,
-      pictureKey: args.pictureKey,
-      scriptVersion: args.scriptVersion,
-      ...data,
-      createdAt: now,
-    });
+    if (
+      args.status === "ready" &&
+      args.ledgerAssetKey &&
+      args.ledgerGeneratedAt != null &&
+      args.byteLength != null &&
+      args.byteLength > 0 &&
+      args.durationSeconds != null &&
+      args.durationSeconds > 0
+    ) {
+      await scheduleGenerationAssetBestEffort(ctx, {
+        eventKey: args.ledgerAssetKey,
+        source: "picture_of_day",
+        provider: "edge",
+        model: args.model ?? null,
+        byteLength: args.byteLength,
+        durationMs: Math.round(args.durationSeconds * 1_000),
+        durationMeasurement: "estimated",
+        externalConsumptionUnknown: true,
+        generatedAt: args.ledgerGeneratedAt,
+      });
+    }
+
+    return savedId;
   },
 });
 

@@ -11,6 +11,7 @@
 import type * as accountData from "../accountData.js";
 import type * as accountDeletion from "../accountDeletion.js";
 import type * as accountOwnedStorage from "../accountOwnedStorage.js";
+import type * as aiCostLedger from "../aiCostLedger.js";
 import type * as analyticsRollups from "../analyticsRollups.js";
 import type * as articleContextCache from "../articleContextCache.js";
 import type * as articleContextModeration from "../articleContextModeration.js";
@@ -28,6 +29,8 @@ import type * as didYouKnow from "../didYouKnow.js";
 import type * as lib_accountDeletionState from "../lib/accountDeletionState.js";
 import type * as lib_accountOwnedStorage from "../lib/accountOwnedStorage.js";
 import type * as lib_accountQuotaKeys from "../lib/accountQuotaKeys.js";
+import type * as lib_aiCostLedger from "../lib/aiCostLedger.js";
+import type * as lib_aiCostPipelineInstrumentation from "../lib/aiCostPipelineInstrumentation.js";
 import type * as lib_articleAudioPipeline from "../lib/articleAudioPipeline.js";
 import type * as lib_personalPlaylistPersistence from "../lib/personalPlaylistPersistence.js";
 import type * as lib_personalPlaylistWorker from "../lib/personalPlaylistWorker.js";
@@ -53,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   accountData: typeof accountData;
   accountDeletion: typeof accountDeletion;
   accountOwnedStorage: typeof accountOwnedStorage;
+  aiCostLedger: typeof aiCostLedger;
   analyticsRollups: typeof analyticsRollups;
   articleContextCache: typeof articleContextCache;
   articleContextModeration: typeof articleContextModeration;
@@ -70,6 +74,8 @@ declare const fullApi: ApiFromModules<{
   "lib/accountDeletionState": typeof lib_accountDeletionState;
   "lib/accountOwnedStorage": typeof lib_accountOwnedStorage;
   "lib/accountQuotaKeys": typeof lib_accountQuotaKeys;
+  "lib/aiCostLedger": typeof lib_aiCostLedger;
+  "lib/aiCostPipelineInstrumentation": typeof lib_aiCostPipelineInstrumentation;
   "lib/articleAudioPipeline": typeof lib_articleAudioPipeline;
   "lib/personalPlaylistPersistence": typeof lib_personalPlaylistPersistence;
   "lib/personalPlaylistWorker": typeof lib_personalPlaylistWorker;

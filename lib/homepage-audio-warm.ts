@@ -1,5 +1,5 @@
 import { anyApi } from "convex/server";
-import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchMutation } from "convex/nextjs";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
 import { estimateDurationSeconds } from "@/convex/lib/articleAudioPipeline";
 import {
@@ -16,11 +16,18 @@ import {
   type TtsAudioResult,
 } from "@/lib/tts-client";
 import {
+  createAudioCacheReadAttestation,
   createAudioCacheSaveAttestation,
   createAudioCacheUploadAttestation,
-  getEdgeTtsGenerationHeaders,
+  getTrustedTtsGenerationHeaders,
 } from "@/lib/tts-quota-bypass";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
+import {
+  recordAudioCacheReadResultBestEffort,
+  recordAudioCacheWriteFailureBestEffort,
+  type AudioCacheReadResultInput,
+} from "@/lib/audio-cache-ledger";
+import { createAudioCacheLedgerAssetKey } from "@/lib/audio-cache-ledger-key";
 import {
   getTtsMetadata,
   getTtsProfile,
@@ -34,6 +41,8 @@ const MIN_SUMMARY_LENGTH = 1;
 type CachedSummaryAudio = {
   url?: string;
   metadata?: Partial<TtsMetadata>;
+  durationSeconds?: number;
+  byteLength?: number;
 };
 
 type WarmArticle = {
@@ -79,6 +88,7 @@ export type HomepageAudioWarmDependencies = {
     expected: TtsMetadata,
   ) => Promise<CachedSummaryAudio>;
   verifyAudioUrl: (url: string) => Promise<void>;
+  recordCacheReadResult: (input: AudioCacheReadResultInput) => Promise<void>;
   generateAudio: (
     text: string,
     expected: TtsMetadata,
@@ -164,18 +174,27 @@ const createProductionDependencies = (
     return result as WarmArticle;
   },
   async getCachedSummary(articleId, sourceHash, expected) {
-    const cached = (await fetchQuery(anyApi.audio.getAllSectionAudio, {
+    const cacheArgs = {
       articleId,
       ttsNormVersion: expected.ttsNormVersion,
       ttsCacheKey: expected.ttsCacheKey,
       sourceHashes: [{ sectionKey: "summary", sourceHash }],
-    })) as {
+    };
+    const attestation = await createAudioCacheReadAttestation(cacheArgs);
+    const cached = (await fetchMutation(
+      anyApi.audio.getAllSectionAudioForServer,
+      { ...cacheArgs, attestation },
+    )) as {
       urls?: Record<string, string>;
       metadata?: Record<string, Partial<TtsMetadata>>;
+      durations?: Record<string, number>;
+      byteLengths?: Record<string, number>;
     };
     return {
       url: cached.urls?.summary,
       metadata: cached.metadata?.summary,
+      durationSeconds: cached.durations?.summary,
+      byteLength: cached.byteLengths?.summary,
     };
   },
   async verifyAudioUrl(url) {
@@ -185,12 +204,16 @@ const createProductionDependencies = (
     }
     await response.body?.cancel();
   },
+  recordCacheReadResult: recordAudioCacheReadResultBestEffort,
   async generateAudio(text, expected) {
     return generateTtsAudioWithMetadata(
       { text, provider: expected.provider },
       {
         apiBaseUrl: baseUrl,
-        headers: getEdgeTtsGenerationHeaders(baseUrl),
+        headers: await getTrustedTtsGenerationHeaders(
+          baseUrl,
+          "featured_audio_warm",
+        ),
       },
     );
   },
@@ -201,32 +224,51 @@ const createProductionDependencies = (
     durationSeconds,
     metadata,
   }) {
-    const uploadAttestation = await createAudioCacheUploadAttestation();
-    const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {
-      attestation: uploadAttestation,
-    });
-    const storageId = await uploadBlobToConvexStorage(
-      uploadUrl as string,
-      blob,
-    );
-    const record = {
-      articleId,
-      sectionKey: "summary",
-      sourceHash,
-      storageId,
-      ttsNormVersion: metadata.ttsNormVersion,
-      ttsCacheKey: metadata.ttsCacheKey,
-      provider: metadata.provider,
-      model: metadata.model,
-      voiceId: metadata.voiceId,
-      promptVersion: metadata.promptVersion,
-      durationSeconds,
-    };
-    const saveAttestation = await createAudioCacheSaveAttestation(record);
-    await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
-      ...record,
-      attestation: saveAttestation,
-    });
+    const ledgerAssetKey = createAudioCacheLedgerAssetKey();
+    try {
+      const uploadAttestation = await createAudioCacheUploadAttestation();
+      const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {
+        attestation: uploadAttestation,
+      });
+      const storageId = await uploadBlobToConvexStorage(
+        uploadUrl as string,
+        blob,
+      );
+      const record = {
+        articleId,
+        sectionKey: "summary",
+        sourceHash,
+        storageId,
+        ttsNormVersion: metadata.ttsNormVersion,
+        ttsCacheKey: metadata.ttsCacheKey,
+        provider: metadata.provider,
+        model: metadata.model,
+        voiceId: metadata.voiceId,
+        promptVersion: metadata.promptVersion,
+        durationSeconds,
+        ...(ledgerAssetKey
+          ? {
+              byteLength: blob.size,
+              ledgerAssetKey,
+              ledgerSource: "featured_audio_warm" as const,
+            }
+          : {}),
+      };
+      const saveAttestation = await createAudioCacheSaveAttestation(record);
+      await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
+        ...record,
+        attestation: saveAttestation,
+      });
+    } catch (error) {
+      if (ledgerAssetKey) {
+        await recordAudioCacheWriteFailureBestEffort({
+          ledgerAssetKey,
+          source: "featured_audio_warm",
+          provider: metadata.provider,
+        });
+      }
+      throw error;
+    }
   },
   now: Date.now,
 });
@@ -256,6 +298,18 @@ export const warmHomepageArticleSummaries = async ({
   let nextIndex = 0;
   let processed = 0;
 
+  const recordCacheReadResult = async (
+    input: AudioCacheReadResultInput,
+  ): Promise<void> => {
+    try {
+      await dependencies.recordCacheReadResult(input);
+    } catch {
+      console.warn(
+        "[ai-cost-ledger] Homepage audio cache read was not recorded.",
+      );
+    }
+  };
+
   const warmArticle = async (ref: HomepageArticleRef): Promise<void> => {
     try {
       const article = await dependencies.fetchArticle(ref);
@@ -278,6 +332,22 @@ export const warmHomepageArticleSummaries = async ({
       if (cached.url && metadataMatches(cached.metadata, expected)) {
         try {
           await dependencies.verifyAudioUrl(cached.url);
+          if (
+            Number.isFinite(cached.byteLength) &&
+            (cached.byteLength ?? 0) > 0
+          ) {
+            await recordCacheReadResult({
+              source: "featured_audio_warm",
+              provider: expected.provider,
+              hit: true,
+              byteLength: cached.byteLength!,
+              durationSeconds:
+                Number.isFinite(cached.durationSeconds) &&
+                (cached.durationSeconds ?? 0) >= 0
+                  ? cached.durationSeconds!
+                  : estimateDurationSeconds(summary),
+            });
+          }
           result.reused += 1;
           return;
         } catch (error) {
@@ -292,6 +362,14 @@ export const warmHomepageArticleSummaries = async ({
           );
         }
       }
+
+      await recordCacheReadResult({
+        source: "featured_audio_warm",
+        provider: expected.provider,
+        hit: false,
+        byteLength: 0,
+        durationSeconds: 0,
+      });
 
       const generated = await dependencies.generateAudio(summary, expected);
       await dependencies.saveSummary({

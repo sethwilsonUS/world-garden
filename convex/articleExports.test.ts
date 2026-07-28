@@ -708,6 +708,7 @@ describe("article audio export worker leases", () => {
     };
     const discardArgs: Array<Record<string, unknown>> = [];
     const failureArgs: Array<Record<string, unknown>> = [];
+    const pipelineArgs: Array<Record<string, unknown>> = [];
     let nextQueueLookups = 0;
     const discardHandler = getHandler(discardArticleAudioExportUpload);
     const runQuery = vi.fn(async (_reference: unknown, args: object) => {
@@ -733,6 +734,10 @@ describe("article audio export worker leases", () => {
           return { claimed: true };
         }
         if (Object.keys(args).length === 0) return "upload-url";
+        if ("generatedSections" in args) {
+          pipelineArgs.push(args);
+          return { created: true, disposition: "inserted" };
+        }
         if ("lastError" in args) {
           failureArgs.push(args);
           return { failed: false };
@@ -795,6 +800,8 @@ describe("article audio export worker leases", () => {
           ...upload,
           metadata,
           narrationHash: "narration-1",
+          generatedSectionCount: 1,
+          reusedSectionCount: 0,
         };
       },
     );
@@ -813,6 +820,7 @@ describe("article audio export worker leases", () => {
       deleteStorage,
       discardArgs,
       failureArgs,
+      pipelineArgs,
       getCurrentRecord: () => currentRecord,
       getNextQueueLookups: () => nextQueueLookups,
     };
@@ -1732,6 +1740,27 @@ describe("article audio export worker leases", () => {
 
     expect(result.discardArgs).toHaveLength(1);
     expect(result.deleteStorage).toHaveBeenCalledWith("combined-storage");
+  });
+
+  it("records the final pipeline pass with an idempotent lease run key", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "synthetic-ledger-secret");
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    const result = await runCombinedUploadLifecycle({ completion: "false" });
+
+    expect(result.pipelineArgs).toEqual([
+      {
+        eventKey: expect.stringMatching(
+          /^opaque:pipeline-article-export:[a-f0-9]{64}$/,
+        ),
+        source: "article_audio_export",
+        provider: "openai",
+        operation: "tts",
+        generatedSections: 1,
+        reusedSections: 0,
+        recordedAt: expect.any(Number),
+      },
+    ]);
+    expect(result.pipelineArgs[0]?.eventKey).not.toContain("export-1");
   });
 
   it("does not discard combined audio twice when completion already removed it", async () => {

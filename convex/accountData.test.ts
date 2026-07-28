@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getViewerAccountDataOverviewForCtx,
   getViewerAccountDataPageForCtx,
 } from "./accountData";
 import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 type FeedDoc = {
   _id: string;
@@ -467,6 +471,17 @@ describe("getViewerAccountDataPageForCtx", () => {
               heardRanges: [{ startSecond: 10, endSecond: 37.25 }],
             },
           ],
+          meaningfulUseSession: {
+            startedAt: 1_900,
+            sections: [
+              {
+                sectionKey: "summary",
+                durationSeconds: 60,
+                heardRanges: [{ startSecond: 15, endSecond: 30.25 }],
+              },
+            ],
+          },
+          meaningfulUseSessionExpiresAt: 4_102_444_800_000,
           createdAt: 1_000,
           updatedAt: 2_000,
           internalMarker: "must-not-leak",
@@ -502,10 +517,66 @@ describe("getViewerAccountDataPageForCtx", () => {
             heardRanges: [{ startSecond: 10, endSecond: 37.25 }],
           },
         ],
+        meaningfulUseSession: {
+          startedAt: 1_900,
+          expiresAt: 4_102_444_800_000,
+          sections: [
+            {
+              sectionKey: "summary",
+              durationSeconds: 60,
+              heardRanges: [{ startSecond: 15, endSecond: 30.25 }],
+            },
+          ],
+        },
         createdAt: 1_000,
         updatedAt: 2_000,
       },
     ]);
+  });
+
+  it("omits expired and legacy session accumulators from account exports", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(2_000);
+    const viewerTokenIdentifier = "https://clerk.example|viewer-1";
+    const baseProgress = {
+      viewerTokenIdentifier,
+      articleId: "article-1",
+      wikiPageId: "wiki-1",
+      slug: "Roman_roads",
+      title: "Roman roads",
+      totalDurationSeconds: 60,
+      heardSeconds: 1,
+      sections: [],
+      meaningfulUseSession: {
+        startedAt: 1_000,
+        sections: [],
+      },
+      createdAt: 1_000,
+      updatedAt: 1_500,
+    };
+    const { ctx } = createPageCtx({
+      tableName: "viewerArticleListenProgress",
+      viewerTokenIdentifier,
+      docs: [
+        {
+          _id: "progress-expired",
+          ...baseProgress,
+          meaningfulUseSessionExpiresAt: 2_000,
+        },
+        {
+          _id: "progress-legacy",
+          ...baseProgress,
+        },
+      ],
+    });
+
+    const result = await getViewerAccountDataPageForCtx(ctx as never, {
+      collection: "listeningProgress",
+      paginationOpts: { cursor: null, numItems: 25 },
+    });
+
+    expect(result.page).toHaveLength(2);
+    expect(result.page[0]).not.toHaveProperty("meaningfulUseSession");
+    expect(result.page[1]).not.toHaveProperty("meaningfulUseSession");
   });
 
   it("exports earned badge credit as article context rather than database records", async () => {

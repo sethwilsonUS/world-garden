@@ -4,6 +4,8 @@ import {
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
 } from "./article-context-ai";
+import { createInstrumentedOpenAiFetch } from "./openai-client";
+import type { AiCostProviderAttempt } from "./ai-cost-ledger-contract";
 import {
   ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   ARTICLE_CONTEXT_SCHEMA_VERSION,
@@ -169,6 +171,54 @@ describe("article context AI descriptions", () => {
       descriptionMethod: "ai-assisted",
       model: "gpt-5.6-luna",
       promptVersion: "context-accessibility-v3",
+    });
+  });
+
+  it("classifies the provider dispatch as article-context generation", async () => {
+    const record = vi.fn<(attempt: AiCostProviderAttempt) => Promise<void>>(
+      async () => undefined,
+    );
+    const providerFetch = createInstrumentedOpenAiFetch({
+      fetch: vi.fn(async () =>
+        Response.json({
+          model: "gpt-5.6-luna",
+          service_tier: "auto",
+          usage: {
+            input_tokens: 80,
+            output_tokens: 20,
+          },
+        }),
+      ),
+      record,
+    });
+    const parse = vi.fn(async () => {
+      await providerFetch("https://api.openai.com/v1/responses");
+      return {
+        output_parsed: {
+          blocks: [
+            {
+              id: "timeline-1",
+              caption: "Two milestones span 1969 to 1972.",
+              longDescription:
+                "The chronology begins with launch in 1969 and ends with return in 1972.",
+            },
+          ],
+        },
+      };
+    });
+
+    await enhanceArticleContextManifest(manifest, {
+      client: { responses: { parse } } as unknown as Pick<OpenAI, "responses">,
+      model: "gpt-5.6-luna",
+    });
+    await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2));
+
+    expect(record.mock.calls[1]?.[0]).toMatchObject({
+      operation: "article_context_generation",
+      source: "article_context",
+      state: "succeeded",
+      inputTokens: 80,
+      outputTokens: 20,
     });
   });
 

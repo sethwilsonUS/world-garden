@@ -8,6 +8,7 @@ import {
   hasPublicAudioMetadata,
 } from "../lib/public-edge-audio-metadata";
 import { getTrendingAudioCacheKey } from "../lib/trending-audio-profile";
+import { scheduleGenerationAssetBestEffort } from "./lib/aiCostPipelineInstrumentation";
 
 const serverAttestationValidator = v.object({
   issuedAt: v.number(),
@@ -231,6 +232,8 @@ export const saveTrendingBrief = mutation({
     voiceId: v.optional(v.string()),
     promptVersion: v.optional(v.string()),
     ttsNormVersion: v.optional(v.string()),
+    ledgerAssetKey: v.optional(v.string()),
+    ledgerGeneratedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     attestation: serverAttestationValidator,
   },
@@ -297,6 +300,7 @@ export const saveTrendingBrief = mutation({
       now,
     );
 
+    let savedId;
     if (existing) {
       await ctx.db.patch(existing._id, {
         status: args.status,
@@ -325,38 +329,62 @@ export const saveTrendingBrief = mutation({
         lastError: args.lastError,
         updatedAt: now,
       });
-      return existing._id;
+      savedId = existing._id;
+    } else {
+      savedId = await ctx.db.insert("trendingBriefs", {
+        trendingDate: args.trendingDate,
+        status: args.status,
+        headline: args.headline,
+        summary: args.summary,
+        podcastDescription: args.podcastDescription,
+        spokenSummary: args.spokenSummary,
+        keyPoints: args.keyPoints,
+        articleTitles: args.articleTitles,
+        imageUrls: args.imageUrls,
+        artworkItems: args.artworkItems,
+        sources: args.sources,
+        storageId: args.storageId,
+        artworkStorageId: args.artworkStorageId,
+        artworkVersion: args.artworkVersion,
+        durationSeconds: args.durationSeconds,
+        byteLength: args.byteLength,
+        model: args.model,
+        ttsModel: args.ttsModel,
+        ttsCacheKey: args.ttsCacheKey,
+        provider: args.provider,
+        voiceId: args.voiceId,
+        promptVersion: args.promptVersion,
+        ttsNormVersion: args.ttsNormVersion,
+        audioVariants,
+        lastError: args.lastError,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
 
-    return await ctx.db.insert("trendingBriefs", {
-      trendingDate: args.trendingDate,
-      status: args.status,
-      headline: args.headline,
-      summary: args.summary,
-      podcastDescription: args.podcastDescription,
-      spokenSummary: args.spokenSummary,
-      keyPoints: args.keyPoints,
-      articleTitles: args.articleTitles,
-      imageUrls: args.imageUrls,
-      artworkItems: args.artworkItems,
-      sources: args.sources,
-      storageId: args.storageId,
-      artworkStorageId: args.artworkStorageId,
-      artworkVersion: args.artworkVersion,
-      durationSeconds: args.durationSeconds,
-      byteLength: args.byteLength,
-      model: args.model,
-      ttsModel: args.ttsModel,
-      ttsCacheKey: args.ttsCacheKey,
-      provider: args.provider,
-      voiceId: args.voiceId,
-      promptVersion: args.promptVersion,
-      ttsNormVersion: args.ttsNormVersion,
-      audioVariants,
-      lastError: args.lastError,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (
+      args.status === "ready" &&
+      args.ledgerAssetKey &&
+      args.ledgerGeneratedAt != null &&
+      args.byteLength != null &&
+      args.byteLength > 0 &&
+      args.durationSeconds != null &&
+      args.durationSeconds > 0
+    ) {
+      await scheduleGenerationAssetBestEffort(ctx, {
+        eventKey: args.ledgerAssetKey,
+        source: "trending_podcast",
+        provider: "edge",
+        model: args.ttsModel ?? null,
+        byteLength: args.byteLength,
+        durationMs: Math.round(args.durationSeconds * 1_000),
+        durationMeasurement: "estimated",
+        externalConsumptionUnknown: true,
+        generatedAt: args.ledgerGeneratedAt,
+      });
+    }
+
+    return savedId;
   },
 });
 

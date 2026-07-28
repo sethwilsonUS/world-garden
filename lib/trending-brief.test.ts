@@ -19,6 +19,9 @@ import {
 import { getTtsProfile } from "./tts-profile";
 import { renderTrendingPodcastArtworkPng } from "./trending-podcast-artwork";
 import { verifyPublicAudioWriteAttestation } from "./public-audio-write-attestation";
+import { createInstrumentedOpenAiFetch } from "./openai-client";
+import type { AiCostProviderAttempt } from "./ai-cost-ledger-contract";
+import { TTS_AI_COST_SOURCE_HEADER } from "./tts-source-attestation";
 
 vi.mock("convex/nextjs", () => ({
   fetchMutation: vi.fn(),
@@ -467,6 +470,7 @@ describe("cached trending brief reuse", () => {
 
   it("attests both upload URL requests before publishing new Edge assets", async () => {
     vi.stubEnv("OPENAI_API_KEY", "openai-key");
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     vi.mocked(renderTrendingPodcastArtworkPng).mockResolvedValueOnce({
@@ -520,11 +524,15 @@ describe("cached trending brief reuse", () => {
       }
       throw new Error(`Unexpected mutation: ${functionName}`);
     });
+    const ttsSources: Array<string | null> = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url === "https://curiogarden.org/api/tts") {
+          ttsSources.push(
+            new Headers(init?.headers).get(TTS_AI_COST_SOURCE_HEADER),
+          );
           return new Response(Uint8Array.of(0xff, 0xfb, 0x90, 0x64), {
             status: 200,
             headers: { "Content-Type": "audio/mpeg" },
@@ -542,6 +550,19 @@ describe("cached trending brief reuse", () => {
     await expect(
       syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
     ).resolves.toMatchObject({ status: "created" });
+    expect(ttsSources).toEqual(["trending_podcast"]);
+
+    const readySaveArgs = vi
+      .mocked(fetchMutation)
+      .mock.calls.find(
+        ([reference, args]) =>
+          getFunctionName(reference) === "trending:saveTrendingBrief" &&
+          (args as { status?: string }).status === "ready",
+      )?.[1] as Record<string, unknown> | undefined;
+    expect(readySaveArgs).toMatchObject({
+      ledgerAssetKey: expect.any(String),
+      ledgerGeneratedAt: expect.any(Number),
+    });
 
     const operationByFunction = {
       "trending:claimTrendingBriefJob": "claim-job",
@@ -700,50 +721,69 @@ describe("direct OpenAI trending generation", () => {
 
   it("uses Responses web search, Structured Outputs, and cited source metadata", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const create = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
-      output_text: "The topic followed a recent announcement.",
-      output: [
-        {
-          type: "web_search_call",
-          status: "completed",
-          action: {
-            type: "search",
-            sources: [
-              { type: "url", url: "https://www.reuters.com/example" },
-              { type: "url", url: "https://www.bbc.com/example" },
-            ],
-          },
-        },
-        {
-          type: "message",
-          content: [
-            {
-              type: "output_text",
-              annotations: [
-                {
-                  type: "url_citation",
-                  title: "Reuters report",
-                  url: "https://www.reuters.com/example",
-                },
+    const record = vi.fn<(attempt: AiCostProviderAttempt) => Promise<void>>(
+      async () => undefined,
+    );
+    const providerFetch = createInstrumentedOpenAiFetch({
+      fetch: vi.fn(async () =>
+        Response.json({
+          model: "gpt-5.6-luna",
+          service_tier: "auto",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      ),
+      record,
+    });
+    const create = vi.fn(async () => {
+      await providerFetch("https://api.openai.com/v1/responses");
+      return {
+        model: "gpt-5.6-luna",
+        output_text: "The topic followed a recent announcement.",
+        output: [
+          {
+            type: "web_search_call",
+            status: "completed",
+            action: {
+              type: "search",
+              sources: [
+                { type: "url", url: "https://www.reuters.com/example" },
+                { type: "url", url: "https://www.bbc.com/example" },
               ],
             },
-          ],
+          },
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                annotations: [
+                  {
+                    type: "url_citation",
+                    title: "Reuters report",
+                    url: "https://www.reuters.com/example",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+      };
+    });
+    const parse = vi.fn(async () => {
+      await providerFetch("https://api.openai.com/v1/responses");
+      return {
+        model: "gpt-5.6-luna",
+        output_parsed: {
+          headline: "  A headline  ",
+          summary: "A sourced summary.",
+          podcastDescription: "A compact description.",
+          spokenSummary: "A natural spoken summary.",
+          keyPoints: ["One", "Two", "Three"],
         },
-      ],
-      usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130 },
-    }));
-    const parse = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
-      output_parsed: {
-        headline: "  A headline  ",
-        summary: "A sourced summary.",
-        podcastDescription: "A compact description.",
-        spokenSummary: "A natural spoken summary.",
-        keyPoints: ["One", "Two", "Three"],
-      },
-      usage: { input_tokens: 200, output_tokens: 50, total_tokens: 250 },
-    }));
+        usage: { input_tokens: 200, output_tokens: 50, total_tokens: 250 },
+      };
+    });
     const client = {
       responses: { create, parse },
     } as unknown as Parameters<
@@ -788,6 +828,29 @@ describe("direct OpenAI trending generation", () => {
         },
         { title: "bbc.com", url: "https://www.bbc.com/example" },
       ],
+    });
+    await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(5));
+    expect(
+      record.mock.calls
+        .map(([attempt]) => attempt)
+        .filter(
+          ({ state, lifecycleVersion }) =>
+            state === "succeeded" && lifecycleVersion === 1,
+        )
+        .map(({ operation }) => operation),
+    ).toEqual(["trending_brief_research", "trending_brief_writing"]);
+    expect(
+      record.mock.calls
+        .map(([attempt]) => attempt)
+        .find(
+          ({ operation, lifecycleVersion }) =>
+            operation === "trending_brief_research" && lifecycleVersion === 2,
+        ),
+    ).toMatchObject({
+      operation: "trending_brief_research",
+      lifecycleVersion: 2,
+      state: "succeeded",
+      webSearchCalls: 1,
     });
   });
 

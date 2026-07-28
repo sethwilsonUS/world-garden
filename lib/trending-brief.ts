@@ -11,9 +11,15 @@ import {
   TRENDING_PODCAST_TITLE,
 } from "@/lib/podcast-feed";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
-import { getOpenAIClient, isOpenAIConfigured } from "@/lib/openai-client";
+import {
+  createAiCostOperationContext,
+  getOpenAIClient,
+  isOpenAIConfigured,
+  recordAiCostOperationSupplement,
+  runWithAiCostOperationContext,
+} from "@/lib/openai-client";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
-import { getEdgeTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
+import { getTrustedTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
 import {
   getTtsMetadata,
   getTtsProfile,
@@ -30,6 +36,10 @@ import {
 } from "@/lib/public-audio-write-attestation";
 import { isExactCurrentEdgeAudioMetadata } from "@/lib/public-edge-audio-metadata";
 import { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
+import {
+  createAudioCacheLedgerAssetKey,
+  recordAudioCacheWriteFailureBestEffort,
+} from "@/lib/audio-cache-ledger";
 
 export { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
 
@@ -457,24 +467,37 @@ export const generateTrendingBriefContent = async ({
   trendingDate: string;
   articles: TrendingArticle[];
 }): Promise<GeneratedTrendingBrief> => {
-  const researchResult = await client.responses.create({
+  const researchContext = createAiCostOperationContext({
+    operation: "trending_brief_research",
+    source: "trending_brief",
     model,
-    instructions:
-      "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use current, reputable reporting to investigate why topics are trending. Distinguish supported explanations from uncertainty.",
-    input: buildTrendingResearchPrompt({ trendingDate, articles }),
-    tools: [{ type: "web_search", search_context_size: "medium" }],
-    tool_choice: "required",
-    include: ["web_search_call.action.sources"],
-    reasoning: { effort: "medium" },
-    max_output_tokens: 4_000,
-    metadata: { workflow: "trending-brief", stage: "research" },
-    safety_identifier: "public-trending-brief",
-    store: false,
   });
+  const researchResult = await runWithAiCostOperationContext(
+    researchContext,
+    () =>
+      client.responses.create({
+        model,
+        instructions:
+          "You are a careful editorial researcher for an accessibility-first Wikipedia listening app. Use current, reputable reporting to investigate why topics are trending. Distinguish supported explanations from uncertainty.",
+        input: buildTrendingResearchPrompt({ trendingDate, articles }),
+        tools: [{ type: "web_search", search_context_size: "medium" }],
+        tool_choice: "required",
+        include: ["web_search_call.action.sources"],
+        reasoning: { effort: "medium" },
+        max_output_tokens: 4_000,
+        metadata: { workflow: "trending-brief", stage: "research" },
+        safety_identifier: "public-trending-brief",
+        store: false,
+      }),
+  );
 
   const webSearchCalls = researchResult.output.filter(
     (item) => item.type === "web_search_call",
   ).length;
+  recordAiCostOperationSupplement({
+    context: researchContext,
+    webSearchCalls,
+  });
   logOpenAIUsage({
     stage: "research",
     response: researchResult,
@@ -495,29 +518,37 @@ export const generateTrendingBriefContent = async ({
     throw new Error("Trending brief research did not return cited web sources");
   }
 
-  const writingResult = await client.responses.parse({
-    model,
-    instructions:
-      "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using only the supplied research and article context, never speculation. Write clean prose for sighted and screen-reader audiences.",
-    input: [
-      buildTrendingBriefPrompt({ trendingDate, articles }),
-      "",
-      "Research context from OpenAI web search:",
-      researchText,
-      "",
-      "Verified source list:",
-      ...sources.map((source) => `- ${source.title}: ${source.url}`),
-    ].join("\n"),
-    reasoning: { effort: "medium" },
-    max_output_tokens: 4_000,
-    text: {
-      format: zodTextFormat(TrendingBriefOutputSchema, "trending_brief"),
-      verbosity: "low",
-    },
-    metadata: { workflow: "trending-brief", stage: "writing" },
-    safety_identifier: "public-trending-brief",
-    store: false,
-  });
+  const writingResult = await runWithAiCostOperationContext(
+    createAiCostOperationContext({
+      operation: "trending_brief_writing",
+      source: "trending_brief",
+      model,
+    }),
+    () =>
+      client.responses.parse({
+        model,
+        instructions:
+          "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using only the supplied research and article context, never speculation. Write clean prose for sighted and screen-reader audiences.",
+        input: [
+          buildTrendingBriefPrompt({ trendingDate, articles }),
+          "",
+          "Research context from OpenAI web search:",
+          researchText,
+          "",
+          "Verified source list:",
+          ...sources.map((source) => `- ${source.title}: ${source.url}`),
+        ].join("\n"),
+        reasoning: { effort: "medium" },
+        max_output_tokens: 4_000,
+        text: {
+          format: zodTextFormat(TrendingBriefOutputSchema, "trending_brief"),
+          verbosity: "low",
+        },
+        metadata: { workflow: "trending-brief", stage: "writing" },
+        safety_identifier: "public-trending-brief",
+        store: false,
+      }),
+  );
 
   logOpenAIUsage({ stage: "writing", response: writingResult });
 
@@ -652,6 +683,9 @@ const generateTrendingBriefRecord = async ({
   const imageUrls = artworkItems.map((item) => item.imageUrl);
   const articleTitles = articles.map((article) => article.title);
   let stage = "initializing";
+  let generatedLedgerAssetKey: string | undefined;
+  let generatedLedgerGeneratedAt: number | undefined;
+  let generatedAudioReady = false;
 
   if (existingReadyBrief) {
     return {
@@ -753,9 +787,7 @@ const generateTrendingBriefRecord = async ({
       existingAudioMatchesCurrentEdge,
     );
     const canReuseExistingAudioForArtwork = Boolean(
-      regenArt &&
-      existing?.audioUrl &&
-      existingAudioMatchesCurrentEdge,
+      regenArt && existing?.audioUrl && existingAudioMatchesCurrentEdge,
     );
 
     const assetState = canReuseStoredAssets
@@ -790,21 +822,25 @@ const generateTrendingBriefRecord = async ({
           const sourceAudioBlob = existingAudioUrl
             ? await fetchBlobFromUrl(existingAudioUrl)
             : await (async () => {
+                generatedLedgerAssetKey = createAudioCacheLedgerAssetKey();
                 const generatedAudio = await generateTtsAudioWithMetadata(
                   { text: audioScript, provider: "edge" },
                   {
                     apiBaseUrl: baseUrl,
-                    headers: getEdgeTtsGenerationHeaders(baseUrl),
+                    headers: await getTrustedTtsGenerationHeaders(
+                      baseUrl,
+                      "trending_podcast",
+                    ),
                   },
                 );
-                if (
-                  !isExactCurrentEdgeAudioMetadata(generatedAudio.metadata)
-                ) {
+                if (!isExactCurrentEdgeAudioMetadata(generatedAudio.metadata)) {
                   throw new Error(
                     "Trending narration returned a non-Edge TTS profile.",
                   );
                 }
                 ttsMetadata = generatedAudio.metadata;
+                generatedLedgerGeneratedAt = Date.now();
+                generatedAudioReady = true;
                 return generatedAudio.blob;
               })();
           const metadata = {
@@ -876,6 +912,12 @@ const generateTrendingBriefRecord = async ({
         voiceId: assetState.metadata.voiceId,
         promptVersion: assetState.metadata.promptVersion,
         ttsNormVersion: assetState.metadata.ttsNormVersion,
+        ...(generatedLedgerAssetKey && generatedLedgerGeneratedAt != null
+          ? {
+              ledgerAssetKey: generatedLedgerAssetKey,
+              ledgerGeneratedAt: generatedLedgerGeneratedAt,
+            }
+          : {}),
       }),
     );
     committedReady = true;
@@ -927,6 +969,14 @@ const generateTrendingBriefRecord = async ({
       `[podcast:trending ${trendingDateIso} run=${runId}] failed at stage=${stage}: ${message}`,
       error,
     );
+
+    if (generatedAudioReady && generatedLedgerAssetKey && !committedReady) {
+      await recordAudioCacheWriteFailureBestEffort({
+        ledgerAssetKey: generatedLedgerAssetKey,
+        source: "trending_podcast",
+        provider: "edge",
+      });
+    }
 
     if (!previousReadyBrief && !committedReady) {
       try {

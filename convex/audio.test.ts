@@ -1,20 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import {
   assertCurrentSectionAudioCacheContract,
   assertSectionAudioCacheAccess,
   assertSectionAudioCacheReadAccess,
   assertSectionAudioCacheWriteAccess,
   assertSectionAudioKeyCanBeSaved,
+  assertSectionAudioLedgerMetadata,
   assertSectionAudioMetadataMatchesCacheKey,
+  getSectionAudioWriteDisposition,
+  getSectionAudioWriteCounters,
+  hasExternalConsumptionUnknown,
+  getAllSectionAudioForServer,
   isQuarantinedContextAudioKey,
+  recordSectionAudioCacheWriteFailure,
+  saveSectionAudioRecordInternal,
   selectSectionAudioVariant,
   selectSupersededSectionAudioRecords,
+  summarizeSectionAudioCacheRead,
 } from "./audio";
 import {
   AUDIO_CACHE_READ_ATTESTATION_SCOPE,
   AUDIO_CACHE_SAVE_ATTESTATION_SCOPE,
   AUDIO_CACHE_UPLOAD_ATTESTATION_SCOPE,
+  AUDIO_CACHE_WRITE_FAILURE_ATTESTATION_SCOPE,
   buildAudioCacheReadAttestationPayload,
+  buildAudioCacheWriteFailureAttestationPayload,
   buildAudioCacheUploadAttestationPayload,
 } from "../lib/audio-cache-attestation";
 import { createServerAttestation } from "../lib/server-attestation";
@@ -27,6 +38,11 @@ const trustedCacheContract = {
   cacheContractVersion: 1,
   ttsNormVersion: "ttsNorm:3",
 };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe("section audio provider access", () => {
   it("keeps Edge cache variants publicly readable and writable", () => {
@@ -344,5 +360,524 @@ describe("selectSupersededSectionAudioRecords", () => {
         ttsCacheKey: openAiKey,
       }).map((record) => record._id),
     ).toEqual(["legacy", "duplicate"]);
+  });
+});
+
+describe("getSectionAudioWriteDisposition", () => {
+  it("distinguishes a first insert from an idempotent retry and a competing generation", () => {
+    expect(getSectionAudioWriteDisposition(null, "asset-a")).toBe("inserted");
+    expect(getSectionAudioWriteDisposition({}, "asset-a")).toBe("inserted");
+    expect(
+      getSectionAudioWriteDisposition({ ledgerAssetKey: "asset-a" }, "asset-a"),
+    ).toBe("idempotent_retry");
+    expect(
+      getSectionAudioWriteDisposition({ ledgerAssetKey: "asset-a" }, "asset-b"),
+    ).toBe("competing_generation");
+  });
+});
+
+describe("getSectionAudioWriteCounters", () => {
+  it("counts one unique insert without overcounting retries or races", () => {
+    expect(getSectionAudioWriteCounters("inserted")).toEqual({
+      uniqueGeneratedAssets: 1,
+      concurrentGenerationRaces: 0,
+      idempotentRetryWrites: 0,
+    });
+    expect(getSectionAudioWriteCounters("idempotent_retry")).toEqual({
+      uniqueGeneratedAssets: 0,
+      concurrentGenerationRaces: 0,
+      idempotentRetryWrites: 1,
+    });
+    expect(getSectionAudioWriteCounters("competing_generation")).toEqual({
+      uniqueGeneratedAssets: 0,
+      concurrentGenerationRaces: 1,
+      idempotentRetryWrites: 0,
+    });
+  });
+});
+
+describe("summarizeSectionAudioCacheRead", () => {
+  it("counts served cache units and known bytes without exposing asset keys", () => {
+    expect(
+      summarizeSectionAudioCacheRead({
+        requestedSectionKeys: ["summary", "section-0", "summary"],
+        servedRecords: [
+          {
+            sectionKey: "summary",
+            byteLength: 2_048,
+            durationSeconds: 12,
+          },
+        ],
+      }),
+    ).toEqual({
+      requests: 2,
+      hits: 1,
+      misses: 1,
+      reusedAssetServes: 1,
+      avoidedGeneration: 1,
+      bytes: 2_048,
+      seconds: 12,
+    });
+  });
+});
+
+describe("assertSectionAudioLedgerMetadata", () => {
+  it("accepts bounded opaque asset keys and safe byte counts", () => {
+    expect(() =>
+      assertSectionAudioLedgerMetadata({
+        byteLength: 3,
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects unsafe byte counts and descriptive asset keys", () => {
+    expect(() =>
+      assertSectionAudioLedgerMetadata({
+        byteLength: -1,
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+      }),
+    ).toThrow("byte length");
+    expect(() =>
+      assertSectionAudioLedgerMetadata({
+        byteLength: 3,
+        ledgerAssetKey: "The Silmarillion summary audio",
+      }),
+    ).toThrow("asset key");
+  });
+});
+
+describe("hasExternalConsumptionUnknown", () => {
+  it("keeps direct podcast/download generation unknown without hiding warm-cache observability", () => {
+    expect(hasExternalConsumptionUnknown("interactive_article")).toBe(false);
+    expect(hasExternalConsumptionUnknown("featured_audio_warm")).toBe(false);
+    expect(hasExternalConsumptionUnknown("article_audio_export")).toBe(true);
+    expect(hasExternalConsumptionUnknown("personal_playlist")).toBe(true);
+    expect(hasExternalConsumptionUnknown("featured_podcast")).toBe(true);
+    expect(hasExternalConsumptionUnknown("trending_podcast")).toBe(true);
+    expect(hasExternalConsumptionUnknown("picture_of_day")).toBe(true);
+    expect(hasExternalConsumptionUnknown("unknown")).toBe(true);
+  });
+});
+
+describe("section audio ledger scheduling", () => {
+  it("returns cached audio while scheduling its idempotent cache-read event", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const now = Date.now();
+    const args = {
+      articleId: "article-1",
+      ttsNormVersion: "ttsNorm:3",
+      ttsCacheKey: openAiKey,
+      sourceHashes: [{ sectionKey: "summary", sourceHash }],
+      ledgerSource: "interactive_article" as const,
+    };
+    const attestation = await createServerAttestation({
+      scope: AUDIO_CACHE_READ_ATTESTATION_SCOPE,
+      payload: buildAudioCacheReadAttestationPayload(args),
+      secret: "server-secret",
+      now,
+      nonce: "cache-read-nonce",
+    });
+    const runAfter = vi.fn().mockResolvedValue("scheduled-1");
+    const handler = (
+      getAllSectionAudioForServer as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            query: vi.fn(() => ({
+              withIndex: vi.fn(() => ({
+                collect: async () => [
+                  {
+                    _id: "audio-1",
+                    ...trustedCacheContract,
+                    articleId: "article-1",
+                    sectionKey: "summary",
+                    sourceHash,
+                    storageId: "storage-1",
+                    ttsCacheKey: openAiKey,
+                    provider: "openai",
+                    byteLength: 2_048,
+                    durationSeconds: 12,
+                  },
+                ],
+              })),
+            })),
+          },
+          storage: {
+            getUrl: vi.fn().mockResolvedValue("https://cdn.test/summary.mp3"),
+          },
+          scheduler: { runAfter },
+        },
+        { ...args, attestation },
+      ),
+    ).resolves.toMatchObject({
+      urls: { summary: "https://cdn.test/summary.mp3" },
+      durations: { summary: 12 },
+    });
+
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(getFunctionName(runAfter.mock.calls[0][1])).toBe(
+      "aiCostLedger:recordCacheDecisionInternal",
+    );
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      eventKey: "cache-read:cache-read-nonce",
+      source: "interactive_article",
+      provider: "openai",
+      requests: 1,
+      hits: 1,
+      misses: 0,
+      reusedAssetServes: 1,
+      avoidedGeneration: 1,
+    });
+  });
+
+  it("commits a section save result even when ledger enqueueing fails", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    const rows: Array<Record<string, unknown>> = [];
+    const runAfter = vi
+      .fn()
+      .mockRejectedValue(new Error("scheduler unavailable"));
+    const handler = (
+      saveSectionAudioRecordInternal as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            query: vi.fn(() => ({
+              withIndex: vi.fn(() => ({
+                first: async () => null,
+                collect: async () => rows,
+              })),
+            })),
+            insert: vi.fn(
+              async (_table: string, value: Record<string, unknown>) => {
+                rows.push({ _id: "audio-saved", ...value });
+                return "audio-saved";
+              },
+            ),
+            patch: vi.fn(),
+            delete: vi.fn(),
+          },
+          storage: { delete: vi.fn() },
+          scheduler: { runAfter },
+        },
+        {
+          articleId: "article-1",
+          sectionKey: "summary",
+          sourceHash,
+          storageId: "storage-1",
+          ttsNormVersion: "ttsNorm:3",
+          ttsCacheKey: openAiKey,
+          provider: "openai",
+          model: "gpt-4o-mini-tts",
+          voiceId: "marin",
+          promptVersion: "curio-warm-narrator-v1",
+          durationSeconds: 12,
+          byteLength: 2_048,
+          ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+          ledgerSource: "interactive_article",
+        },
+      ),
+    ).resolves.toBe("audio-saved");
+
+    expect(rows).toHaveLength(1);
+    expect(runAfter).toHaveBeenCalledTimes(2);
+    expect(runAfter.mock.calls.map((call) => getFunctionName(call[1]))).toEqual(
+      [
+        "aiCostLedger:recordGenerationAssetInternal",
+        "aiCostLedger:recordCacheDecisionInternal",
+      ],
+    );
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      eventKey: "00000000-0000-4000-8000-000000000001",
+      source: "interactive_article",
+      provider: "openai",
+      byteLength: 2_048,
+    });
+    expect(runAfter.mock.calls[1][2]).toMatchObject({
+      eventKey: "cache-write:00000000-0000-4000-8000-000000000001:inserted",
+      source: "interactive_article",
+      provider: "openai",
+      uniqueGeneratedAssets: 1,
+    });
+  });
+
+  it("preserves last-write cache semantics while retaining one aggregate generation cohort", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    const existing = {
+      _id: "audio-winner",
+      ...trustedCacheContract,
+      articleId: "article-1",
+      sectionKey: "summary",
+      sourceHash,
+      storageId: "storage-winner",
+      ttsCacheKey: openAiKey,
+      provider: "openai",
+      model: "winner-model",
+      voiceId: "winner-voice",
+      promptVersion: "winner-prompt",
+      durationSeconds: 12,
+      byteLength: 2_048,
+      ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+    };
+    const patch = vi.fn();
+    const deleteStorage = vi.fn();
+    const runAfter = vi.fn().mockResolvedValue("scheduled-race");
+    const handler = (
+      saveSectionAudioRecordInternal as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            query: vi.fn(() => ({
+              withIndex: vi.fn(() => ({
+                first: async () => existing,
+                collect: async () => [existing],
+              })),
+            })),
+            insert: vi.fn(),
+            patch,
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+          scheduler: { runAfter },
+        },
+        {
+          articleId: "article-1",
+          sectionKey: "summary",
+          sourceHash,
+          storageId: "storage-loser",
+          ttsNormVersion: "ttsNorm:3",
+          ttsCacheKey: openAiKey,
+          provider: "openai",
+          model: "loser-model",
+          voiceId: "loser-voice",
+          promptVersion: "loser-prompt",
+          durationSeconds: 15,
+          byteLength: 3_072,
+          ledgerAssetKey: "00000000-0000-4000-8000-000000000002",
+          ledgerSource: "interactive_article",
+        },
+      ),
+    ).resolves.toBe("audio-winner");
+
+    expect(patch).toHaveBeenCalledWith(
+      "audio-winner",
+      expect.objectContaining({
+        storageId: "storage-loser",
+        model: "loser-model",
+        byteLength: 3_072,
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+      }),
+    );
+    expect(deleteStorage).not.toHaveBeenCalled();
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(getFunctionName(runAfter.mock.calls[0][1])).toBe(
+      "aiCostLedger:recordCacheDecisionInternal",
+    );
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      eventKey:
+        "cache-write:00000000-0000-4000-8000-000000000002:competing_generation",
+      uniqueGeneratedAssets: 0,
+      concurrentGenerationRaces: 1,
+    });
+  });
+
+  it("replaces an unusable cached asset when the save names the version it observed", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    const existing = {
+      _id: "audio-broken",
+      ...trustedCacheContract,
+      articleId: "article-1",
+      sectionKey: "summary",
+      sourceHash,
+      storageId: "storage-broken",
+      ttsCacheKey: openAiKey,
+      provider: "openai",
+      model: "broken-model",
+      durationSeconds: 12,
+      byteLength: 2_048,
+      ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+    };
+    const patch = vi.fn();
+    const deleteStorage = vi.fn();
+    const runAfter = vi.fn().mockResolvedValue("scheduled-repair");
+    const handler = (
+      saveSectionAudioRecordInternal as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await handler(
+      {
+        db: {
+          query: vi.fn(() => ({
+            withIndex: vi.fn(() => ({
+              first: async () => existing,
+              collect: async () => [existing],
+            })),
+          })),
+          insert: vi.fn(),
+          patch,
+          delete: vi.fn(),
+        },
+        storage: { delete: deleteStorage },
+        scheduler: { runAfter },
+      },
+      {
+        articleId: "article-1",
+        sectionKey: "summary",
+        sourceHash,
+        storageId: "storage-repaired",
+        ttsNormVersion: "ttsNorm:3",
+        ttsCacheKey: openAiKey,
+        provider: "openai",
+        model: "repaired-model",
+        durationSeconds: 13,
+        byteLength: 3_072,
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000002",
+        expectedExistingLedgerAssetKey: "00000000-0000-4000-8000-000000000001",
+        ledgerSource: "interactive_article",
+      },
+    );
+
+    expect(patch).toHaveBeenCalledWith(
+      "audio-broken",
+      expect.objectContaining({
+        storageId: "storage-repaired",
+        model: "repaired-model",
+        byteLength: 3_072,
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000002",
+      }),
+    );
+    expect(deleteStorage).not.toHaveBeenCalled();
+    expect(runAfter).toHaveBeenCalledTimes(2);
+    expect(runAfter.mock.calls[0]?.[2]).toMatchObject({
+      eventKey: "00000000-0000-4000-8000-000000000002",
+      byteLength: 3_072,
+    });
+    expect(runAfter.mock.calls[1]?.[2]).toMatchObject({
+      uniqueGeneratedAssets: 1,
+      concurrentGenerationRaces: 0,
+    });
+  });
+
+  it("preserves replacement behavior while ledger observation is off", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "off");
+    const existing = {
+      _id: "audio-existing-off",
+      ...trustedCacheContract,
+      articleId: "article-1",
+      sectionKey: "summary",
+      sourceHash,
+      storageId: "storage-existing-off",
+      ttsCacheKey: openAiKey,
+      provider: "openai",
+      model: "old-model",
+      ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+    };
+    const patch = vi.fn();
+    const deleteStorage = vi.fn();
+    const runAfter = vi.fn();
+    const handler = (
+      saveSectionAudioRecordInternal as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await handler(
+      {
+        db: {
+          query: vi.fn(() => ({
+            withIndex: vi.fn(() => ({
+              first: async () => existing,
+              collect: async () => [existing],
+            })),
+          })),
+          insert: vi.fn(),
+          patch,
+          delete: vi.fn(),
+        },
+        storage: { delete: deleteStorage },
+        scheduler: { runAfter },
+      },
+      {
+        articleId: "article-1",
+        sectionKey: "summary",
+        sourceHash,
+        storageId: "storage-new-off",
+        ttsNormVersion: "ttsNorm:3",
+        ttsCacheKey: openAiKey,
+        provider: "openai",
+        model: "new-model",
+        durationSeconds: 13,
+        byteLength: 3_072,
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000002",
+        ledgerSource: "interactive_article",
+      },
+    );
+
+    expect(patch).toHaveBeenCalledWith(
+      "audio-existing-off",
+      expect.objectContaining({
+        storageId: "storage-new-off",
+        model: "new-model",
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+      }),
+    );
+    expect(deleteStorage).not.toHaveBeenCalled();
+    expect(runAfter).not.toHaveBeenCalled();
+  });
+
+  it("schedules an idempotent cache-write-failure event after attestation", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const input = {
+      ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+      source: "featured_podcast" as const,
+      provider: "openai" as const,
+    };
+    const attestation = await createServerAttestation({
+      scope: AUDIO_CACHE_WRITE_FAILURE_ATTESTATION_SCOPE,
+      payload: buildAudioCacheWriteFailureAttestationPayload(input),
+      secret: "server-secret",
+      now: Date.now(),
+      nonce: "cache-write-failure-nonce",
+    });
+    const runAfter = vi.fn().mockResolvedValue("scheduled-failure");
+    const handler = (
+      recordSectionAudioCacheWriteFailure as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler({ scheduler: { runAfter } }, { ...input, attestation }),
+    ).resolves.toEqual({ created: true, disposition: "inserted" });
+
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(getFunctionName(runAfter.mock.calls[0][1])).toBe(
+      "aiCostLedger:recordCacheDecisionInternal",
+    );
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      eventKey: "cache-write-failure:00000000-0000-4000-8000-000000000001",
+      source: "featured_podcast",
+      provider: "openai",
+      cacheWriteFailures: 1,
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import {
   MAX_PICTURE_OF_DAY_AUDIO_JOB_LEASE_MS,
   claimPictureOfDayAudioJob,
@@ -213,6 +214,73 @@ describe("Picture of the Day audio publication writes", () => {
     ).rejects.toThrow("publication lease was lost");
     expect(insert).not.toHaveBeenCalled();
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("schedules an external generation cohort after generated narration is saved", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+    const edge = getTtsMetadata(getTtsProfile("edge"));
+    const writeArgs = {
+      feedDate: "2026-07-26",
+      pictureKey: "File:Bunny.jpg",
+      scriptVersion: 1,
+      owner: "worker-1",
+      status: "ready" as const,
+      storageId: "storage-1",
+      durationSeconds: 9,
+      byteLength: 1_024,
+      ...edge,
+      ledgerAssetKey: "00000000-0000-4000-8000-000000000002",
+      ledgerGeneratedAt: 1_700_000_000_000,
+    };
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "picture-of-day",
+      operation: "save-record",
+      args: writeArgs,
+    });
+    const query = vi.fn((table: string) => ({
+      withIndex: vi.fn(() => ({
+        first: vi.fn(async () =>
+          table === "pictureOfDayAudioJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: Date.now() + 60_000,
+              }
+            : null,
+        ),
+      })),
+    }));
+    const runAfter = vi.fn().mockResolvedValue("scheduled");
+
+    await expect(
+      getHandler(savePictureOfDayAudio)(
+        {
+          db: {
+            query,
+            insert: vi.fn(async () => "picture-audio-1"),
+            patch: vi.fn(),
+          },
+          scheduler: { runAfter },
+        },
+        { ...writeArgs, attestation },
+      ),
+    ).resolves.toBe("picture-audio-1");
+
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(getFunctionName(runAfter.mock.calls[0]?.[1])).toBe(
+      "aiCostLedger:recordGenerationAssetInternal",
+    );
+    expect(runAfter.mock.calls[0]?.[2]).toMatchObject({
+      eventKey: writeArgs.ledgerAssetKey,
+      source: "picture_of_day",
+      provider: "edge",
+      model: edge.model,
+      byteLength: 1_024,
+      durationMs: 9_000,
+      externalConsumptionUnknown: true,
+      generatedAt: writeArgs.ledgerGeneratedAt,
+    });
   });
 
   it("rejects a finalize whose signed owner was changed, then accepts the exact payload", async () => {

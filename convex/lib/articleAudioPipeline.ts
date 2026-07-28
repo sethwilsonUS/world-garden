@@ -2,10 +2,8 @@ import { type Id } from "../_generated/dataModel";
 import { titleToSlug } from "./wikipedia";
 import { addMp3MetadataToBlob } from "../../lib/audio-metadata";
 import { generateTtsAudioWithMetadata } from "../../lib/tts-client";
-import {
-  getEdgeTtsGenerationHeaders,
-  getTtsQuotaBypassHeaders,
-} from "../../lib/tts-quota-bypass";
+import { getTrustedTtsGenerationHeaders } from "../../lib/tts-quota-bypass";
+import type { TtsAiCostSource } from "../../lib/tts-source-attestation";
 import {
   buildArticleNarrationHash,
   buildArticleNarrationTracks,
@@ -49,6 +47,7 @@ export type AssembleArticleAudioArgs<TStorageId = string> = {
   article: ArticleAudioSource;
   albumTitle: string;
   baseUrl: string;
+  aiCostSource: TtsAiCostSource;
   requestedTtsMetadata?: TtsMetadata;
   preferredProvider?: TtsProvider;
   getCachedSectionAudioUrls: (args: {
@@ -234,6 +233,7 @@ export const assembleArticleAudio = async <TStorageId = string>({
   article,
   albumTitle,
   baseUrl,
+  aiCostSource,
   requestedTtsMetadata,
   preferredProvider,
   getCachedSectionAudioUrls,
@@ -293,10 +293,13 @@ export const assembleArticleAudio = async <TStorageId = string>({
             },
             {
               apiBaseUrl: baseUrl,
-              headers:
-                passMetadata.provider === "openai"
-                  ? await getTtsQuotaBypassHeaders(baseUrl)
-                  : getEdgeTtsGenerationHeaders(baseUrl),
+              headers: await getTrustedTtsGenerationHeaders(
+                baseUrl,
+                aiCostSource,
+                {
+                  bypassOpenAiQuota: passMetadata.provider === "openai",
+                },
+              ),
             },
           );
           blob = generatedAudio.blob;

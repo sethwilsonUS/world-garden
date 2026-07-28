@@ -3,6 +3,7 @@ import {
   buildAudioCacheReadAttestationPayload,
   buildAudioCacheSaveAttestationPayload,
   buildAudioCacheUploadAttestationPayload,
+  buildAudioCacheWriteFailureAttestationPayload,
   type AudioCacheSaveAttestationPayload,
 } from "./audio-cache-attestation";
 
@@ -17,11 +18,13 @@ describe("audio cache attestation payloads", () => {
           { sectionKey: "summary", sourceHash: "source-1" },
           { sectionKey: "section-0", sourceHash: "source-2" },
         ],
+        ledgerSource: "interactive_article",
       }),
     ).toEqual([
       "article-1",
       "ttsNorm:3",
       "tts:openai:profile:ttsNorm:3",
+      "interactive_article",
       2,
       "summary",
       "source-1",
@@ -32,6 +35,20 @@ describe("audio cache attestation payloads", () => {
 
   it("uses a stable upload operation payload", () => {
     expect(buildAudioCacheUploadAttestationPayload()).toEqual(["sectionAudio"]);
+  });
+
+  it("binds cache-write failure accounting to an opaque asset and bounded dimensions", () => {
+    expect(
+      buildAudioCacheWriteFailureAttestationPayload({
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+        source: "interactive_article",
+        provider: "edge",
+      }),
+    ).toEqual([
+      "00000000-0000-4000-8000-000000000001",
+      "interactive_article",
+      "edge",
+    ]);
   });
 
   it("binds every persisted cache field in a stable order", () => {
@@ -48,6 +65,10 @@ describe("audio cache attestation payloads", () => {
         voiceId: "en-US-AriaNeural",
         promptVersion: "edge-default",
         durationSeconds: 12,
+        byteLength: 2_048,
+        ledgerAssetKey: "asset-1",
+        expectedExistingLedgerAssetKey: "asset-0",
+        ledgerSource: "interactive_article",
       }),
     ).toEqual([
       "article-1",
@@ -61,6 +82,10 @@ describe("audio cache attestation payloads", () => {
       "en-US-AriaNeural",
       "edge-default",
       12,
+      2_048,
+      "asset-1",
+      "asset-0",
+      "interactive_article",
     ]);
   });
 
@@ -73,8 +98,8 @@ describe("audio cache attestation payloads", () => {
         storageId: "storage-1",
         ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: "tts:edge:profile",
-      }).slice(-5),
-    ).toEqual([null, null, null, null, null]);
+      }).slice(-9),
+    ).toEqual([null, null, null, null, null, null, null, null, null]);
   });
 
   it("changes the signed payload when any persisted field changes", () => {
@@ -90,6 +115,10 @@ describe("audio cache attestation payloads", () => {
       voiceId: "en-US-AriaNeural",
       promptVersion: "edge-default",
       durationSeconds: 12,
+      byteLength: 2_048,
+      ledgerAssetKey: "asset-1",
+      expectedExistingLedgerAssetKey: "asset-0",
+      ledgerSource: "interactive_article",
     } satisfies AudioCacheSaveAttestationPayload;
     const signedPayload = buildAudioCacheSaveAttestationPayload(original);
     const changes: Array<Partial<AudioCacheSaveAttestationPayload>> = [
@@ -104,6 +133,10 @@ describe("audio cache attestation payloads", () => {
       { voiceId: "different-voice" },
       { promptVersion: "different-prompt" },
       { durationSeconds: 13 },
+      { byteLength: 4_096 },
+      { ledgerAssetKey: "asset-2" },
+      { expectedExistingLedgerAssetKey: "asset-prior" },
+      { ledgerSource: "featured_podcast" },
     ];
 
     for (const change of changes) {

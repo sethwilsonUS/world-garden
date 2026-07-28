@@ -10,8 +10,7 @@ export const mergeHeardRanges = (ranges: HeardRange[]): HeardRange[] => {
 
   const sorted = [...ranges].sort(
     (left, right) =>
-      left.startSecond - right.startSecond ||
-      left.endSecond - right.endSecond,
+      left.startSecond - right.startSecond || left.endSecond - right.endSecond,
   );
 
   const merged: HeardRange[] = [];
@@ -46,7 +45,74 @@ export const normalizeHeardRanges = (
 };
 
 export const sumHeardRangeSeconds = (ranges: HeardRange[]): number =>
-  ranges.reduce((total, range) => total + (range.endSecond - range.startSecond), 0);
+  ranges.reduce(
+    (total, range) => total + (range.endSecond - range.startSecond),
+    0,
+  );
+
+export const calculateNewlyHeardSeconds = ({
+  existingRanges,
+  incomingRanges,
+  durationSeconds,
+}: {
+  existingRanges: HeardRange[];
+  incomingRanges: HeardRange[];
+  durationSeconds: number;
+}): number => {
+  const normalizedExisting = normalizeHeardRanges(
+    existingRanges,
+    durationSeconds,
+  );
+  const merged = normalizeHeardRanges(
+    [...normalizedExisting, ...incomingRanges],
+    durationSeconds,
+  );
+
+  return Math.max(
+    0,
+    sumHeardRangeSeconds(merged) - sumHeardRangeSeconds(normalizedExisting),
+  );
+};
+
+export type MeaningfulUseQualification =
+  | "sixty_unique_heard_seconds"
+  | "eighty_percent_of_item";
+
+export type MeaningfulUseSection = {
+  durationSeconds: number;
+  heardRanges: HeardRange[];
+  countsTowardProgress: boolean;
+};
+
+export const getMeaningfulUseQualification = (
+  sections: MeaningfulUseSection[],
+): MeaningfulUseQualification | null => {
+  const progressSections = sections
+    .filter((section) => section.countsTowardProgress)
+    .map((section) => ({
+      ...section,
+      heardSeconds: sumHeardRangeSeconds(
+        normalizeHeardRanges(section.heardRanges, section.durationSeconds),
+      ),
+    }));
+  const heardSeconds = progressSections.reduce(
+    (total, section) => total + section.heardSeconds,
+    0,
+  );
+
+  if (heardSeconds >= 60) return "sixty_unique_heard_seconds";
+  if (
+    progressSections.some(
+      (section) =>
+        section.durationSeconds >= 15 &&
+        section.heardSeconds / section.durationSeconds >= 0.8,
+    )
+  ) {
+    return "eighty_percent_of_item";
+  }
+
+  return null;
+};
 
 export const detectContinuousPlaybackWindow = (args: {
   previousTime: number | null;

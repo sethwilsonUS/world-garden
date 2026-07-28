@@ -34,7 +34,7 @@ const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-type ReportProgressFn = (args: {
+type ProgressReportArgs = {
   articleId: Id<"articles">;
   wikiPageId: string;
   slug: string;
@@ -43,7 +43,55 @@ type ReportProgressFn = (args: {
   sectionKey: string;
   sectionDurationSeconds: number;
   heardRanges: HeardRange[];
-}) => Promise<unknown>;
+  listeningSessionStartedAt: number;
+  progressStartedAt: number;
+};
+
+type ProgressReportContext = Omit<
+  ProgressReportArgs,
+  "heardRanges" | "listeningSessionStartedAt" | "progressStartedAt"
+>;
+
+type ReportProgressFn = (args: ProgressReportArgs) => Promise<unknown>;
+
+const hasSameProgressTarget = (
+  left: ProgressReportContext | null,
+  right: ProgressReportContext | null,
+): boolean =>
+  left?.articleId === right?.articleId &&
+  left?.wikiPageId === right?.wikiPageId &&
+  left?.slug === right?.slug &&
+  left?.title === right?.title &&
+  left?.sectionKey === right?.sectionKey &&
+  left?.totalDurationSeconds === right?.totalDurationSeconds &&
+  left?.sectionDurationSeconds === right?.sectionDurationSeconds;
+
+const enqueueProgressBatch = (
+  batches: ProgressReportArgs[],
+  batch: ProgressReportArgs,
+): ProgressReportArgs[] => {
+  const existingIndex = batches.findIndex(
+    (existing) =>
+      hasSameProgressTarget(existing, batch) &&
+      existing.listeningSessionStartedAt === batch.listeningSessionStartedAt &&
+      existing.progressStartedAt === batch.progressStartedAt,
+  );
+  if (existingIndex === -1) {
+    return [...batches, batch];
+  }
+
+  return batches.map((existing, index) =>
+    index === existingIndex
+      ? {
+          ...existing,
+          heardRanges: mergeHeardRanges([
+            ...existing.heardRanges,
+            ...batch.heardRanges,
+          ]),
+        }
+      : existing,
+  );
+};
 
 type UseBadgeListenTrackingArgs = {
   articleId?: Id<"articles">;
@@ -122,13 +170,17 @@ export const useBadgeListenTracking = ({
   const enabledRef = useRef(!isLocal && enabled);
   const isPlayingRef = useRef(isPlaying);
   const currentSectionKeyRef = useRef<string | null>(trackingSectionKey);
-  const pendingRangesRef = useRef<HeardRange[]>([]);
+  const pendingBatchRef = useRef<ProgressReportArgs | null>(null);
+  const queuedBatchesRef = useRef<ProgressReportArgs[]>([]);
+  const activeProgressContextRef = useRef<ProgressReportContext | null>(null);
   const lastSampleRef = useRef<{
     currentTime: number;
     observedAt: number;
   } | null>(null);
   const knownDurationsRef = useRef<Record<string, number>>({});
   const previousPlayingRef = useRef(false);
+  const listeningSessionStartedAtRef = useRef<number | null>(null);
+  const progressStartedAtRef = useRef<number | null>(null);
   const narrationTracks = useMemo(
     () =>
       buildArticleNarrationTracks({
@@ -193,91 +245,128 @@ export const useBadgeListenTracking = ({
     ],
   );
 
-  const flushPendingRanges = useCallback(
-    async (sectionKeyOverride?: string | null) => {
-      if (!enabledRef.current) {
-        pendingRangesRef.current = [];
-        lastSampleRef.current = null;
-        return;
-      }
-
-      const sectionKey = sectionKeyOverride ?? currentSectionKeyRef.current;
+  const createProgressContext = useCallback(
+    (sectionKey: string | null): ProgressReportContext | null => {
       if (!articleId || !wikiPageId || !title || !sectionKey) {
-        pendingRangesRef.current = [];
-        return;
+        return null;
       }
 
-      const heardRanges = pendingRangesRef.current;
-      if (heardRanges.length === 0) return;
-
-      pendingRangesRef.current = [];
-      const totalDurationSeconds = resolveTotalDuration();
-
-      try {
-        const rawResult = await reportProgress({
-          articleId,
-          wikiPageId,
-          slug,
-          title,
-          totalDurationSeconds,
-          sectionKey,
-          sectionDurationSeconds: resolveSectionDuration(sectionKey),
-          heardRanges,
-        });
-        const result = coerceBadgeListenProgressResult(
-          rawResult,
-          totalDurationSeconds,
-        );
-        let awardedBadges = result.awardedBadges;
-
-        // Some environments may return the award keys without the expanded
-        // badge payload. Fall back to a query so the UI can still show a toast.
-        if (
-          awardedBadges.length === 0 &&
-          result.awardedBadgeKeys.length > 0 &&
-          resolveAwardedBadges
-        ) {
-          awardedBadges = await resolveAwardedBadges(result.awardedBadgeKeys);
-        }
-
-        if (awardedBadges.length > 0) {
-          onBadgesAwarded?.({
-            articleTitle: title,
-            badges: awardedBadges,
-          });
-        }
-      } catch (error) {
-        if (isUnauthorizedError(error)) {
-          unauthorizedRef.current = true;
-          enabledRef.current = false;
-          pendingRangesRef.current = [];
-          lastSampleRef.current = null;
-          return;
-        }
-
-        pendingRangesRef.current = mergeHeardRanges([
-          ...heardRanges,
-          ...pendingRangesRef.current,
-        ]);
-      }
+      return {
+        articleId,
+        wikiPageId,
+        slug,
+        title,
+        totalDurationSeconds: resolveTotalDuration(),
+        sectionKey,
+        sectionDurationSeconds: resolveSectionDuration(sectionKey),
+      };
     },
     [
       articleId,
-      reportProgress,
       resolveSectionDuration,
       resolveTotalDuration,
       slug,
       title,
       wikiPageId,
-      onBadgesAwarded,
-      resolveAwardedBadges,
     ],
   );
+
+  const flushPendingRanges = useCallback(
+    async (sectionKeyOverride?: string | null) => {
+      if (!enabledRef.current) {
+        pendingBatchRef.current = null;
+        queuedBatchesRef.current = [];
+        lastSampleRef.current = null;
+        listeningSessionStartedAtRef.current = null;
+        progressStartedAtRef.current = null;
+        return;
+      }
+
+      const sectionKey = sectionKeyOverride ?? currentSectionKeyRef.current;
+      if (!sectionKey) return;
+
+      const batches = queuedBatchesRef.current.filter(
+        (batch) => batch.sectionKey === sectionKey,
+      );
+      queuedBatchesRef.current = queuedBatchesRef.current.filter(
+        (batch) => batch.sectionKey !== sectionKey,
+      );
+      const pendingBatch = pendingBatchRef.current;
+      if (pendingBatch?.sectionKey === sectionKey) {
+        batches.push(pendingBatch);
+        pendingBatchRef.current = null;
+      }
+      if (batches.length === 0) return;
+
+      await Promise.all(
+        batches.map(async (batch) => {
+          try {
+            const rawResult = await reportProgress(batch);
+            const result = coerceBadgeListenProgressResult(
+              rawResult,
+              batch.totalDurationSeconds,
+            );
+            let awardedBadges = result.awardedBadges;
+
+            // Some environments may return the award keys without the expanded
+            // badge payload. Fall back to a query so the UI can still show a toast.
+            if (
+              awardedBadges.length === 0 &&
+              result.awardedBadgeKeys.length > 0 &&
+              resolveAwardedBadges
+            ) {
+              awardedBadges = await resolveAwardedBadges(
+                result.awardedBadgeKeys,
+              );
+            }
+
+            if (awardedBadges.length > 0) {
+              onBadgesAwarded?.({
+                articleTitle: batch.title,
+                badges: awardedBadges,
+              });
+            }
+          } catch (error) {
+            if (isUnauthorizedError(error)) {
+              unauthorizedRef.current = true;
+              enabledRef.current = false;
+              pendingBatchRef.current = null;
+              queuedBatchesRef.current = [];
+              lastSampleRef.current = null;
+              listeningSessionStartedAtRef.current = null;
+              progressStartedAtRef.current = null;
+              return;
+            }
+
+            if (enabledRef.current) {
+              queuedBatchesRef.current = enqueueProgressBatch(
+                queuedBatchesRef.current,
+                batch,
+              );
+            }
+          }
+        }),
+      );
+    },
+    [onBadgesAwarded, reportProgress, resolveAwardedBadges],
+  );
+
+  const flushAllPendingRanges = useCallback(async () => {
+    const sectionKeys = new Set(
+      queuedBatchesRef.current.map((batch) => batch.sectionKey),
+    );
+    if (pendingBatchRef.current) {
+      sectionKeys.add(pendingBatchRef.current.sectionKey);
+    }
+    await Promise.all(
+      [...sectionKeys].map((sectionKey) => flushPendingRanges(sectionKey)),
+    );
+  }, [flushPendingRanges]);
 
   const samplePlayback = useCallback(
     (allowPaused = false) => {
       if (!enabledRef.current) {
-        pendingRangesRef.current = [];
+        pendingBatchRef.current = null;
         lastSampleRef.current = null;
         return;
       }
@@ -292,6 +381,10 @@ export const useBadgeListenTracking = ({
       if (!allowPaused && audio.paused) {
         return;
       }
+
+      const startedAt = Date.now();
+      listeningSessionStartedAtRef.current ??= startedAt;
+      progressStartedAtRef.current ??= startedAt;
 
       const observedAt = performance.now();
       const currentTime = audio.currentTime;
@@ -312,10 +405,46 @@ export const useBadgeListenTracking = ({
             durationSeconds,
           );
           if (normalized.length > 0) {
-            pendingRangesRef.current = mergeHeardRanges([
-              ...pendingRangesRef.current,
-              ...normalized,
-            ]);
+            const progressContext = activeProgressContextRef.current;
+            if (progressContext && progressContext.sectionKey === sectionKey) {
+              const pendingBatch = pendingBatchRef.current;
+              const nextBatch = {
+                ...progressContext,
+                heardRanges: normalized,
+                listeningSessionStartedAt:
+                  listeningSessionStartedAtRef.current ?? startedAt,
+                progressStartedAt: progressStartedAtRef.current ?? startedAt,
+              };
+              if (
+                pendingBatch &&
+                hasSameProgressTarget(pendingBatch, nextBatch) &&
+                pendingBatch.listeningSessionStartedAt ===
+                  nextBatch.listeningSessionStartedAt &&
+                pendingBatch.progressStartedAt === nextBatch.progressStartedAt
+              ) {
+                pendingBatchRef.current = {
+                  ...pendingBatch,
+                  heardRanges: mergeHeardRanges([
+                    ...pendingBatch.heardRanges,
+                    ...normalized,
+                  ]),
+                };
+              } else {
+                if (pendingBatch) {
+                  queuedBatchesRef.current = enqueueProgressBatch(
+                    queuedBatchesRef.current,
+                    pendingBatch,
+                  );
+                }
+                pendingBatchRef.current = {
+                  ...progressContext,
+                  heardRanges: normalized,
+                  listeningSessionStartedAt:
+                    listeningSessionStartedAtRef.current ?? startedAt,
+                  progressStartedAt: progressStartedAtRef.current ?? startedAt,
+                };
+              }
+            }
           }
         }
       }
@@ -327,6 +456,14 @@ export const useBadgeListenTracking = ({
     },
     [audioRef, resolveSectionDuration],
   );
+  const flushPendingRangesRef = useRef(flushPendingRanges);
+  const flushAllPendingRangesRef = useRef(flushAllPendingRanges);
+  const samplePlaybackRef = useRef(samplePlayback);
+  useBrowserLayoutEffect(() => {
+    flushPendingRangesRef.current = flushPendingRanges;
+    flushAllPendingRangesRef.current = flushAllPendingRanges;
+    samplePlaybackRef.current = samplePlayback;
+  }, [flushAllPendingRanges, flushPendingRanges, samplePlayback]);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
@@ -340,19 +477,29 @@ export const useBadgeListenTracking = ({
     enabledRef.current = !isLocal && enabled && !unauthorizedRef.current;
 
     if (!enabledRef.current) {
-      pendingRangesRef.current = [];
+      pendingBatchRef.current = null;
+      queuedBatchesRef.current = [];
+      activeProgressContextRef.current = null;
       lastSampleRef.current = null;
+      listeningSessionStartedAtRef.current = null;
+      progressStartedAtRef.current = null;
       return;
     }
 
     const audio = audioRef.current;
     if (isPlaying && currentSectionKeyRef.current && audio) {
+      activeProgressContextRef.current ??= createProgressContext(
+        currentSectionKeyRef.current,
+      );
+      const startedAt = Date.now();
+      listeningSessionStartedAtRef.current ??= startedAt;
+      progressStartedAtRef.current ??= startedAt;
       lastSampleRef.current = {
         currentTime: audio.currentTime,
         observedAt: performance.now(),
       };
     }
-  }, [audioRef, enabled, isPlaying]);
+  }, [audioRef, createProgressContext, enabled, isPlaying]);
 
   useEffect(() => {
     if (!trackingSectionKey || audioDurationSeconds <= 0) return;
@@ -364,13 +511,28 @@ export const useBadgeListenTracking = ({
 
   useEffect(() => {
     const previousSectionKey = currentSectionKeyRef.current;
-    if (trackingSectionKey === previousSectionKey) return;
+    const previousProgressContext = activeProgressContextRef.current;
+    const nextProgressContext = createProgressContext(trackingSectionKey);
+    if (
+      trackingSectionKey === previousSectionKey &&
+      hasSameProgressTarget(previousProgressContext, nextProgressContext)
+    ) {
+      activeProgressContextRef.current = nextProgressContext;
+      return;
+    }
 
     samplePlayback(true);
     void flushPendingRanges(previousSectionKey);
 
-    pendingRangesRef.current = [];
     currentSectionKeyRef.current = trackingSectionKey;
+    activeProgressContextRef.current = nextProgressContext;
+    if (enabledRef.current && trackingSectionKey && isPlayingRef.current) {
+      listeningSessionStartedAtRef.current ??= Date.now();
+    }
+    progressStartedAtRef.current =
+      enabledRef.current && trackingSectionKey && isPlayingRef.current
+        ? Date.now()
+        : null;
 
     const audio = audioRef.current;
     lastSampleRef.current =
@@ -380,7 +542,13 @@ export const useBadgeListenTracking = ({
             observedAt: performance.now(),
           }
         : null;
-  }, [audioRef, flushPendingRanges, samplePlayback, trackingSectionKey]);
+  }, [
+    audioRef,
+    createProgressContext,
+    flushPendingRanges,
+    samplePlayback,
+    trackingSectionKey,
+  ]);
 
   useEffect(() => {
     const wasPlaying = previousPlayingRef.current;
@@ -392,6 +560,9 @@ export const useBadgeListenTracking = ({
     }
 
     if (!wasPlaying && isPlaying) {
+      const startedAt = Date.now();
+      listeningSessionStartedAtRef.current ??= startedAt;
+      progressStartedAtRef.current ??= startedAt;
       const audio = audioRef.current;
       lastSampleRef.current =
         currentSectionKeyRef.current && audio
@@ -406,6 +577,8 @@ export const useBadgeListenTracking = ({
     if (wasPlaying && !isPlaying) {
       samplePlayback(true);
       void flushPendingRanges();
+      listeningSessionStartedAtRef.current = null;
+      progressStartedAtRef.current = null;
     }
   }, [audioRef, flushPendingRanges, isPlaying, samplePlayback]);
 
@@ -428,20 +601,22 @@ export const useBadgeListenTracking = ({
       if (isPlayingRef.current) {
         samplePlayback(false);
       }
-      if (pendingRangesRef.current.length > 0) {
-        void flushPendingRanges();
+      if (pendingBatchRef.current || queuedBatchesRef.current.length > 0) {
+        void flushAllPendingRanges();
       }
     }, FLUSH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [enabled, flushPendingRanges, samplePlayback, trackingSectionKey]);
+  }, [enabled, flushAllPendingRanges, samplePlayback, trackingSectionKey]);
 
   useEffect(() => {
     const handlePageExit = () => {
-      samplePlayback(true);
-      void flushPendingRanges();
+      samplePlaybackRef.current(true);
+      void flushAllPendingRangesRef.current();
+      listeningSessionStartedAtRef.current = null;
+      progressStartedAtRef.current = null;
     };
 
     const handleVisibilityChange = () => {
@@ -458,5 +633,5 @@ export const useBadgeListenTracking = ({
       window.removeEventListener("pagehide", handlePageExit);
       handlePageExit();
     };
-  }, [flushPendingRanges, samplePlayback]);
+  }, []);
 };

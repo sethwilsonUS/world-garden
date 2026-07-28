@@ -111,4 +111,35 @@ describe("PrivacyPage", () => {
       "Anonymous feedback, shared article and audio caches, and aggregated analytics remain",
     );
   });
+
+  it("describes the privacy-minimized AI cost ledger without overstating listening coverage", () => {
+    const markup = renderToStaticMarkup(createElement(PrivacyPage));
+
+    expect(markup).toContain("AI and audio operational records");
+    expect(markup).toContain(
+      "provider attempts, measured usage and response sizes, cache reuse, and aggregate signed-in listening progress",
+    );
+    expect(markup).toContain(
+      "does not store article or narration text, page titles, full URLs, account identifiers, network addresses, or raw provider error messages",
+    );
+    expect(markup).toContain(
+      "Raw provider-attempt, cache, generation-observation, and listening-contribution records are scheduled for deletion after 90 days using bounded cleanup batches",
+    );
+    expect(markup).toContain("a cleanup backlog can retain a record longer");
+    expect(markup).toContain(
+      "does not observe guest listening or listening in external podcast and download clients",
+    );
+    expect(markup).toContain(
+      "temporarily keeps the current signed-in listening session’s exact heard ranges and start time",
+    );
+    expect(markup).toContain(
+      "expires after about two hours without activity in that session",
+    );
+    expect(markup).toContain(
+      "hourly bounded cleanup clears expired session accumulators",
+    );
+    expect(markup).toContain(
+      "A live session accumulator and its expiry are included in your account data export",
+    );
+  });
 });
