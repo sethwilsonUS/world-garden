@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFileCallback);
 const DEFAULT_LIMIT = 50;
 const MAX_EXPORT_ITEMS = 10_000;
+const CONVEX_TIMEOUT_MS = 60_000;
 const PRODUCTION_DEPLOYMENT = "seth-wilson:world-garden:prod";
 const CONVEX_FUNCTION = "productFeedback:listProductFeedbackForOwner";
 const ALLOWED_CHILD_ENV_KEYS = new Set([
@@ -77,7 +78,7 @@ Options:
   --include-contact     Include active contact email in CSV. Requires --output.
   --status <status>     open, reviewing, resolved, dismissed, or all.
   --limit <count>       Maximum number of feedback items.
-  --help                Show this help.
+  --help, -h            Show this help.
 
 Results are newest first. The terminal view defaults to 50 open items.
 CSV exports up to 10000 items to .reports/feedback/<timestamp>.csv by default.
@@ -96,7 +97,7 @@ function pluralize(count, singular, plural = `${singular}s`) {
 
 function quoteCsv(value) {
   let text = value == null ? "" : String(value);
-  if (typeof value === "string" && /^(?:[\t\r\n]|\s*[=+\-@])/.test(text)) {
+  if (typeof value === "string" && /^(?:[\t\r\n]|\s*[=+\-@|])/.test(text)) {
     text = `'${text}`;
   }
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -310,6 +311,11 @@ function validateConvexPage(value) {
 }
 
 function convexReadError(error) {
+  if (error?.killed === true || error?.code === "ETIMEDOUT") {
+    return new Error(
+      "Timed out while reading production feedback from Convex. Check the network connection and try again.",
+    );
+  }
   const diagnostic =
     `${error?.message ?? ""}\n${error?.stderr ?? ""}`.toLowerCase();
   if (
@@ -342,17 +348,40 @@ function convexReadError(error) {
   );
 }
 
+async function createIsolatedConvexWorkspace() {
+  const isolatedCwd = await mkdtemp(
+    path.join(os.tmpdir(), "curio-feedback-cli-"),
+  );
+
+  try {
+    await writeFile(
+      path.join(isolatedCwd, "package.json"),
+      `${JSON.stringify({ private: true, dependencies: { convex: "*" } })}\n`,
+      { encoding: "utf8", flag: "wx", mode: 0o600 },
+    );
+    return isolatedCwd;
+  } catch (error) {
+    try {
+      await rm(isolatedCwd, { recursive: true, force: true });
+    } catch {
+      // Preserve the workspace initialization error.
+    }
+    throw error;
+  }
+}
+
 export async function runConvexFeedbackPage(
   pageOptions,
   {
     cwd = process.cwd(),
     execFile = execFileAsync,
+    isolatedCwd: sharedIsolatedCwd,
     processEnv = process.env,
   } = {},
 ) {
-  const isolatedCwd = await mkdtemp(
-    path.join(os.tmpdir(), "curio-feedback-cli-"),
-  );
+  const ownsWorkspace = sharedIsolatedCwd === undefined;
+  const isolatedCwd =
+    sharedIsolatedCwd ?? (await createIsolatedConvexWorkspace());
   const convexCliPath = path.join(
     cwd,
     "node_modules",
@@ -372,11 +401,6 @@ export async function runConvexFeedbackPage(
   };
 
   try {
-    await writeFile(
-      path.join(isolatedCwd, "package.json"),
-      `${JSON.stringify({ private: true, dependencies: { convex: "*" } })}\n`,
-      { encoding: "utf8", flag: "wx", mode: 0o600 },
-    );
     let result;
     try {
       result = await execFile(
@@ -398,6 +422,8 @@ export async function runConvexFeedbackPage(
           encoding: "utf8",
           env: buildChildEnvironment(processEnv),
           maxBuffer: 10 * 1024 * 1024,
+          timeout: CONVEX_TIMEOUT_MS,
+          killSignal: "SIGKILL",
         },
       );
     } catch (error) {
@@ -415,7 +441,9 @@ export async function runConvexFeedbackPage(
       throw new Error("Convex returned invalid JSON for the feedback query.");
     }
   } finally {
-    await rm(isolatedCwd, { recursive: true, force: true });
+    if (ownsWorkspace) {
+      await rm(isolatedCwd, { recursive: true, force: true });
+    }
   }
 }
 
@@ -425,12 +453,14 @@ export async function main(
   dependencies = {},
 ) {
   const options = parseArgs(args);
+  let isolatedCwd;
   const runConvexPage =
     dependencies.runConvexPage ??
     ((pageOptions) =>
       runConvexFeedbackPage(pageOptions, {
         cwd,
         execFile: dependencies.execFile,
+        isolatedCwd,
         processEnv: dependencies.processEnv,
       }));
   const writeStdout =
@@ -482,8 +512,12 @@ export async function main(
   let isDone = false;
   let snapshotBefore;
   const seenCursors = new Set();
+  let operationError;
 
   try {
+    if (!dependencies.runConvexPage) {
+      isolatedCwd = await createIsolatedConvexWorkspace();
+    }
     while (!isDone && feedback.length < maximumItems) {
       const result = await runConvexPage({
         cursor,
@@ -528,6 +562,7 @@ export async function main(
       outputFile = undefined;
     }
   } catch (error) {
+    operationError = error;
     if (outputFile) {
       try {
         await outputFile.close();
@@ -541,10 +576,24 @@ export async function main(
       } catch {
         throw new Error(
           `Feedback export failed and a partial file may remain at: ${outputPath}`,
+          { cause: error },
         );
       }
     }
     throw error;
+  } finally {
+    if (isolatedCwd) {
+      try {
+        await rm(isolatedCwd, { recursive: true, force: true });
+      } catch (error) {
+        if (!operationError) {
+          throw new Error(
+            "Feedback reporting succeeded, but its temporary Convex workspace could not be removed.",
+            { cause: error },
+          );
+        }
+      }
+    }
   }
 
   if (outputPath) {

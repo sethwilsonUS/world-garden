@@ -3,7 +3,11 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { isDirectInvocation, main } from "./product-feedback-report.mjs";
+import {
+  isDirectInvocation,
+  main,
+  serializeFeedbackCsv,
+} from "./product-feedback-report.mjs";
 
 describe("product feedback report command", () => {
   it("recognizes direct entrypoints whose file URL needs encoding", () => {
@@ -16,6 +20,23 @@ describe("product feedback report command", () => {
     expect(isDirectInvocation(pathToFileURL(entryPath).href, entryPath)).toBe(
       true,
     );
+  });
+
+  it("neutralizes pipe-prefixed spreadsheet payloads in CSV cells", () => {
+    const csv = serializeFeedbackCsv([
+      {
+        id: "feedback-1",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+        status: "open",
+        kind: "technical",
+        message: "|danger",
+        researchOptIn: false,
+        contactAvailable: false,
+      },
+    ]);
+
+    expect(csv).toContain(",'|danger,");
   });
 
   it("prints recent production feedback as screen-reader-friendly labeled blocks", async () => {
@@ -278,6 +299,62 @@ describe("product feedback report command", () => {
     expect(output.join("\n")).not.toContain(writeSecret);
   });
 
+  it("reuses one isolated Convex workspace across paginated reads", async () => {
+    const workspaces = [];
+    let callCount = 0;
+
+    await main([], process.cwd(), {
+      execFile: async (_file, _args, options) => {
+        workspaces.push(options.cwd);
+        callCount += 1;
+        return {
+          stdout: JSON.stringify({
+            page: [],
+            isDone: callCount === 2,
+            continueCursor: callCount === 1 ? "next" : "done",
+            snapshotBefore: 42_000,
+          }),
+          stderr: "",
+        };
+      },
+      processEnv: { HOME: process.env.HOME, PATH: process.env.PATH },
+      writeStdout: () => undefined,
+      writeStderr: () => undefined,
+    });
+
+    expect(workspaces).toHaveLength(2);
+    expect(new Set(workspaces)).toHaveLength(1);
+    await expect(stat(workspaces[0])).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("terminates a stalled Convex read with a timeout-specific diagnostic", async () => {
+    let childOptions;
+
+    await expect(
+      main([], process.cwd(), {
+        execFile: async (_file, _args, options) => {
+          childOptions = options;
+          const error = new Error("Command was killed");
+          error.killed = true;
+          throw error;
+        },
+        processEnv: { HOME: process.env.HOME, PATH: process.env.PATH },
+        writeStdout: () => undefined,
+        writeStderr: () => undefined,
+      }),
+    ).rejects.toThrow(
+      "Timed out while reading production feedback from Convex. Check the network connection and try again.",
+    );
+
+    expect(childOptions).toMatchObject({
+      timeout: 60_000,
+      killSignal: "SIGKILL",
+    });
+    await expect(stat(childOptions.cwd)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("requires an explicit private-file destination before fetching contact email", async () => {
     let queryCalled = false;
 
@@ -331,7 +408,7 @@ describe("product feedback report command", () => {
     const output = [];
     let queryCalled = false;
 
-    await main(["--help"], process.cwd(), {
+    await main(["-h"], process.cwd(), {
       runConvexPage: async () => {
         queryCalled = true;
         throw new Error("should not query");
@@ -348,6 +425,7 @@ describe("product feedback report command", () => {
     expect(help).toContain("--include-contact");
     expect(help).toContain("--status <status>");
     expect(help).toContain("--limit <count>");
+    expect(help).toContain("--help, -h");
     expect(help).toContain(
       "The dedicated contact email field is hidden unless explicitly included",
     );
@@ -635,6 +713,47 @@ describe("product feedback report command", () => {
         }),
       ).rejects.toThrow("simulated write failure");
       expect(removed).toEqual([outputPath]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves the export root cause when partial-file cleanup also fails", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "curio-feedback-"));
+    const outputPath = path.join(directory, "partial.csv");
+    const rootCause = new Error("simulated write failure");
+    let failure;
+
+    try {
+      try {
+        await main(["--csv", "--output", outputPath], process.cwd(), {
+          openFile: async () => ({
+            writeFile: async () => {
+              throw rootCause;
+            },
+            sync: async () => undefined,
+            close: async () => undefined,
+          }),
+          removeFile: async () => {
+            throw new Error("simulated removal failure");
+          },
+          runConvexPage: async () => ({
+            page: [],
+            isDone: true,
+            continueCursor: "done",
+          }),
+          writeStdout: () => undefined,
+          writeStderr: () => undefined,
+        });
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure.message).toBe(
+        `Feedback export failed and a partial file may remain at: ${outputPath}`,
+      );
+      expect(failure.cause).toBe(rootCause);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
