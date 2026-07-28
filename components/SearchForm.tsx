@@ -2,9 +2,13 @@
 
 export const SearchForm = ({
   defaultValue = "",
+  variant = "default",
 }: {
   defaultValue?: string;
+  variant?: "default" | "workbench";
 }) => {
+  const isWorkbench = variant === "workbench";
+
   return (
     <form
       method="GET"
@@ -18,7 +22,11 @@ export const SearchForm = ({
       </label>
 
       <div
-        className="search-bar flex items-center bg-surface-2 border-2 border-accent-border rounded-2xl transition-all duration-200 overflow-hidden"
+        className={`search-bar flex items-center overflow-hidden rounded-2xl border-2 border-accent-border bg-surface-2 transition-all duration-200 ${
+          isWorkbench
+            ? "lg:rounded-[18px] lg:bg-surface lg:shadow-[0_5px_14px_var(--color-accent-glow)]"
+            : ""
+        }`}
       >
         <div
           className="flex items-center pl-[18px] pr-1 text-muted shrink-0"
@@ -46,12 +54,16 @@ export const SearchForm = ({
           defaultValue={defaultValue}
           autoComplete="off"
           required
-          className="flex-1 min-w-0 py-[18px] px-4 bg-transparent border-0 outline-none focus-visible:outline-none text-[1.0625rem] text-foreground"
+          className={`min-w-0 flex-1 border-0 bg-transparent px-4 py-[18px] text-[1.0625rem] text-foreground outline-none focus-visible:outline-none ${
+            isWorkbench ? "lg:py-[21px]" : ""
+          }`}
         />
 
         <button
           type="submit"
-          className="search-submit flex items-center gap-1.5 py-3 px-6 m-1.5 bg-btn-primary text-btn-primary-text border-0 rounded-xl font-semibold text-[0.9375rem] cursor-pointer whitespace-nowrap shrink-0 transition-all duration-200"
+          className={`search-submit m-1.5 flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-xl border-0 bg-btn-primary px-6 py-3 text-[0.9375rem] font-semibold text-btn-primary-text transition-all duration-200 ${
+            isWorkbench ? "lg:rounded-[14px] lg:px-8 lg:py-4" : ""
+          }`}
         >
           Search
         </button>

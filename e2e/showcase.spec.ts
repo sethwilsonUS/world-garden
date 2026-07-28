@@ -534,6 +534,33 @@ test("home presents the product and expands the curated daily preview", async ({
     name: "Start with a short listen",
   });
   await expect(listeningSample).toBeVisible();
+  const searchWorkbench = page.locator("[data-home-search-workbench]");
+  const searchPane = page.locator("[data-home-search-pane]");
+  const homeContent = page.locator("[data-home-content]");
+  const [workbenchBox, searchPaneBox, listeningSampleBox, homeContentBox] =
+    await Promise.all([
+      searchWorkbench.boundingBox(),
+      searchPane.boundingBox(),
+      listeningSample.boundingBox(),
+      homeContent.boundingBox(),
+    ]);
+  expect(workbenchBox).not.toBeNull();
+  expect(searchPaneBox).not.toBeNull();
+  expect(listeningSampleBox).not.toBeNull();
+  expect(homeContentBox).not.toBeNull();
+  expect(searchPaneBox!.x).toBeLessThan(listeningSampleBox!.x);
+  expect(
+    Math.abs(searchPaneBox!.y - listeningSampleBox!.y),
+  ).toBeLessThanOrEqual(1);
+  expect(searchPaneBox!.width / listeningSampleBox!.width).toBeCloseTo(2, 1);
+  expect(workbenchBox!.width).toBeGreaterThan(homeContentBox!.width);
+  const [searchBackground, playerBackground] = await Promise.all([
+    searchPane.evaluate((element) => getComputedStyle(element).backgroundColor),
+    listeningSample.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    ),
+  ]);
+  expect(searchBackground).not.toBe(playerBackground);
   await expect(
     listeningSample.getByText(
       "Hear how a Wikipedia page becomes a clear listening path.",
@@ -573,10 +600,17 @@ test("home presents the product and expands the curated daily preview", async ({
   await expect(speedButton).toBeVisible();
   await expect(progressSlider).toBeVisible();
   await expect(progressSlider).toHaveClass(/article-audio-progress-range/);
-  await expect(samplePlayer.getByText("Synthetic speech audio.")).toBeVisible();
+  await expect(samplePlayer.getByText("Synthetic speech audio.")).toHaveCount(
+    0,
+  );
+  await expect(
+    samplePlayer.getByRole("link", {
+      name: "Download audio for Curio Garden listening sample",
+    }),
+  ).toHaveCount(0);
   await expect(
     samplePlayer.getByText("Listen: Curio Garden in 18 seconds"),
-  ).toBeVisible();
+  ).toHaveCount(0);
 
   const progressStyle = await progressSlider.evaluate((slider) => {
     const style = getComputedStyle(slider);
@@ -674,7 +708,7 @@ test("home presents the product and expands the curated daily preview", async ({
     )
     .toBeCloseTo(resumedPosition, 2);
 
-  await listeningSample.getByText("Transcript", { exact: true }).click();
+  await listeningSample.getByText("Read transcript", { exact: true }).click();
   await expect(
     listeningSample.getByText(
       "Welcome to Curio Garden. A Wikipedia article becomes a listening path:",
@@ -724,6 +758,16 @@ test("home listening sample and search reflow at 320 pixels", async ({
     name: "Start with a short listen",
   });
   await expect(listeningSample).toBeVisible();
+  const searchPane = page.locator("[data-home-search-pane]");
+  const [searchPaneBox, listeningSampleBox] = await Promise.all([
+    searchPane.boundingBox(),
+    listeningSample.boundingBox(),
+  ]);
+  expect(searchPaneBox).not.toBeNull();
+  expect(listeningSampleBox).not.toBeNull();
+  expect(listeningSampleBox!.y).toBeGreaterThan(
+    searchPaneBox!.y + searchPaneBox!.height,
+  );
   const samplePlayer = listeningSample.getByRole("group", {
     name: "Audio player for Curio Garden listening sample",
   });

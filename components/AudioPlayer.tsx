@@ -27,6 +27,9 @@ type AudioPlayerProps = {
   fallbackDuration?: number;
   onPlaying?: () => void;
   onPlaybackError?: () => void;
+  showSyntheticSpeechLabel?: boolean;
+  showDownload?: boolean;
+  showLabel?: boolean;
 };
 
 export { formatTime } from "@/lib/formatTime";
@@ -44,6 +47,9 @@ export const AudioPlayer = ({
   fallbackDuration = 0,
   onPlaying,
   onPlaybackError,
+  showSyntheticSpeechLabel = true,
+  showDownload = true,
+  showLabel = true,
 }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playBtnRef = useRef<HTMLButtonElement>(null);
@@ -226,19 +232,20 @@ export const AudioPlayer = ({
       aria-label={`Audio player for ${title}`}
       className={`w-full max-w-[480px] ${className}`}
     >
-      {/* Now playing label */}
-      <p
-        className="mb-2 flex items-center gap-2 overflow-hidden font-display text-[0.8125rem] font-semibold tracking-[0.01em] text-muted"
-        aria-live="polite"
-      >
-        <span
-          className={`shrink-0 h-2 w-2 rounded-full ${
-            playing ? "audio-pulse bg-accent" : "bg-control-border"
-          }`}
-          aria-hidden="true"
-        />
-        <span className="truncate">{displayLabel}</span>
-      </p>
+      {showLabel ? (
+        <p
+          className="mb-2 flex items-center gap-2 overflow-hidden font-display text-[0.8125rem] font-semibold tracking-[0.01em] text-muted"
+          aria-live="polite"
+        >
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              playing ? "audio-pulse bg-accent" : "bg-control-border"
+            }`}
+            aria-hidden="true"
+          />
+          <span className="truncate">{displayLabel}</span>
+        </p>
+      ) : null}
 
       {/* Main player surface */}
       <div
@@ -401,36 +408,39 @@ export const AudioPlayer = ({
         </div>
       </div>
 
-      <p className="mt-2 text-center text-[0.6875rem] leading-normal text-muted">
-        Synthetic speech audio.
-      </p>
+      {showSyntheticSpeechLabel ? (
+        <p className="mt-2 text-center text-[0.6875rem] leading-normal text-muted">
+          Synthetic speech audio.
+        </p>
+      ) : null}
 
-      {/* Download */}
-      <div className="text-center mt-2">
-        <a
-          href={audioUrl}
-          download
-          aria-label={`Download audio for ${title}`}
-          className="inline-flex items-center gap-1.5 py-1.5 px-[14px] text-xs text-muted no-underline rounded-lg"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            width={13}
-            height={13}
-            aria-hidden="true"
+      {showDownload ? (
+        <div className="mt-2 text-center">
+          <a
+            href={audioUrl}
+            download
+            aria-label={`Download audio for ${title}`}
+            className="inline-flex items-center gap-1.5 rounded-lg px-[14px] py-1.5 text-xs text-muted no-underline"
           >
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Download
-        </a>
-      </div>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={13}
+              height={13}
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download
+          </a>
+        </div>
+      ) : null}
 
       <audio
         ref={audioRef}
