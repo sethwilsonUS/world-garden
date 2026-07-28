@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { isDirectInvocation, main } from "./product-feedback-report.mjs";
 
 describe("product feedback report command", () => {
   it("recognizes direct entrypoints whose file URL needs encoding", () => {
-    expect(
-      isDirectInvocation(
-        "file:///tmp/Curio%20Garden/product-feedback-report.mjs",
-        "/tmp/Curio Garden/product-feedback-report.mjs",
-      ),
-    ).toBe(true);
+    const entryPath = path.join(
+      os.tmpdir(),
+      "Curio Garden",
+      "product-feedback-report.mjs",
+    );
+
+    expect(isDirectInvocation(pathToFileURL(entryPath).href, entryPath)).toBe(
+      true,
+    );
   });
 
   it("prints recent production feedback as screen-reader-friendly labeled blocks", async () => {

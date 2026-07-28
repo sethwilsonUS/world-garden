@@ -75,6 +75,8 @@ export const listProductFeedbackForOwnerForCtx = async (
   ctx: OwnerReadCtx,
   args: {
     paginationOpts: { cursor: string | null; numItems: number };
+    // Intentionally unused by the reader: a unique value per CLI run prevents
+    // Convex from reusing a cached first page whose snapshot depends on Date.now().
     reportRunId: string;
     status?: FeedbackStatus;
     snapshotBefore?: number;

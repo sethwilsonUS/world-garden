@@ -436,9 +436,9 @@ npm run feedback -- --csv --include-contact --output .reports/feedback/contact.c
 Contact-bearing exports live outside Curio Garden's automatic 180-day contact
 cleanup, so delete them when they are no longer needed. The command is pinned
 to the `seth-wilson/world-garden` production deployment and uses a narrow
-internal read query with the existing Convex owner login; it does not load or
-reuse `PRODUCT_FEEDBACK_WRITE_SECRET`. Run `npm run feedback -- --help` for the
-complete command reference.
+internal read query through your existing Convex CLI production-deployment
+access; it does not load or reuse `PRODUCT_FEEDBACK_WRITE_SECRET`. Run
+`npm run feedback -- --help` for the complete command reference.
 
 ## Podcasts
 
