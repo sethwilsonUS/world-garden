@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AudioDownloadButton } from "@/components/AudioDownloadButton";
@@ -17,6 +18,23 @@ import {
   formatPodcastDate,
   formatTrendingDate,
 } from "@/lib/podcast-directory";
+
+const title = "Wikipedia Audio Podcasts — Curio Garden";
+const description =
+  "Listen to Curio Garden's public podcasts: daily Wikipedia featured articles and an AI-generated briefing about today's trending topics.";
+
+export const metadata: Metadata = {
+  title,
+  description,
+  alternates: { canonical: "/podcasts" },
+  openGraph: {
+    title,
+    description,
+    type: "website",
+    siteName: "Curio Garden",
+    url: "/podcasts",
+  },
+};
 
 const PodcastAccordionSection = ({
   accordionId,

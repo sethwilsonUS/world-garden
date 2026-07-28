@@ -1,4 +1,13 @@
+import type { Metadata } from "next";
 import { SignIn } from "@clerk/nextjs";
+
+export const metadata: Metadata = {
+  title: "Sign in — Curio Garden",
+  description:
+    "Sign in to sync Curio Garden bookmarks, playlists, and listening progress across devices.",
+  alternates: { canonical: "/sign-in" },
+  robots: { index: false, follow: true },
+};
 
 export default function SignInPage() {
   return (

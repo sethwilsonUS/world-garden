@@ -19,16 +19,20 @@ export async function generateMetadata({
   const title = article?.title ?? slugToTitle(slug);
   const description =
     article?.extract ?? `Listen to "${title}" on Curio Garden`;
+  const canonicalPath = `/article/${encodeURIComponent(
+    title.replace(/ /gu, "_"),
+  )}`;
 
   return {
     title: `${title} — Curio Garden`,
     description,
+    alternates: { canonical: canonicalPath },
     openGraph: {
       title,
       description,
       type: "article",
       siteName: "Curio Garden",
-      url: `/article/${slug}`,
+      url: canonicalPath,
     },
     twitter: {
       card: "summary_large_image",

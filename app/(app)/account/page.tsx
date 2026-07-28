@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "Account & data — Curio Garden",
   description:
     "Review, export, or permanently delete the information connected to your signed-in Curio Garden account.",
+  alternates: { canonical: "/account" },
   robots: { index: false, follow: false },
 };
 

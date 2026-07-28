@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   title: "Feedback and research — Curio Garden",
   description:
     "Share accessibility or product feedback and volunteer for Curio Garden research conversations.",
+  alternates: { canonical: "/feedback" },
 };
 
 const canDeliverProductFeedback = (): boolean =>

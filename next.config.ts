@@ -3,6 +3,19 @@ import type { NextConfig } from "next";
 const ttsPort = process.env.TTS_PORT ?? "3001";
 
 const nextConfig: NextConfig = {
+  redirects: async () => [
+    {
+      source: "/:path*",
+      has: [
+        {
+          type: "host",
+          value: "www.curiogarden.org",
+        },
+      ],
+      destination: "https://curiogarden.org/:path*",
+      permanent: true,
+    },
+  ],
   outputFileTracingIncludes: {
     "/opengraph-image": ["./app/fonts/**/*"],
     "/twitter-image": ["./app/fonts/**/*"],
