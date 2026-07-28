@@ -3,10 +3,8 @@ import { type Id } from "./_generated/dataModel";
 import { type TtsMetadata } from "../lib/tts-profile";
 import {
   addViewerPlaylistEpisodeBySlug,
-  getEpisodeByTokenAndId,
   getFeedEpisodesByToken,
   getEpisodeForPersonalFeedServer,
-  getViewerFeedToken,
   getViewerFeedState,
   listViewerPlaylistEpisodesForCtx,
   moveViewerPlaylistEpisodeForCtx,
@@ -421,10 +419,6 @@ describe("personal playlist data helpers", () => {
       Record<string, never>,
       { status: string; feedToken: string | null; updatedAt: number | null }
     >(getViewerFeedState, ctx, {});
-    const compatibilityToken = await invokeRegistered<
-      Record<string, never>,
-      string | null
-    >(getViewerFeedToken, ctx, {});
     const publicFeed = await invokeRegistered<{ feedToken: string }, unknown>(
       getFeedEpisodesByToken,
       ctx,
@@ -438,7 +432,6 @@ describe("personal playlist data helpers", () => {
     });
     expect(repeated).toEqual(revoked);
     expect(viewerState).toEqual(revoked);
-    expect(compatibilityToken).toBeNull();
     expect(publicFeed).toBeNull();
     expect(getEpisodes()).toEqual([episode]);
     expect(getFeeds()[0]).toMatchObject({
@@ -600,64 +593,6 @@ describe("personal playlist data helpers", () => {
       }),
     ).rejects.toThrow("valid server attestation");
     expect(getStorageUrl).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the temporary legacy media reader narrow and owner-scoped", async () => {
-    const feedToken = "f".repeat(64);
-    const episode = buildEpisode({
-      _id: "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">,
-      articleId: "article-1" as Id<"articles">,
-      slug: "mars",
-      title: "Mars",
-      status: "ready",
-      storageId: "storage-1" as Id<"_storage">,
-      narrationHash: "private-narration-hash",
-      lastError: "private worker detail",
-      leaseOwner: "worker-secret",
-    });
-    const otherViewerEpisode = buildEpisode({
-      _id: "personalPlaylistEpisodes-2" as Id<"personalPlaylistEpisodes">,
-      viewerTokenIdentifier: "user-2",
-      articleId: "article-2" as Id<"articles">,
-      slug: "venus",
-      title: "Venus",
-      status: "ready",
-      storageId: "storage-2" as Id<"_storage">,
-    });
-    const { ctx } = createCtx({
-      feeds: [
-        {
-          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
-          viewerTokenIdentifier: "user-1",
-          feedToken,
-          createdAt: 1_000,
-          updatedAt: 2_000,
-        },
-      ],
-      episodes: [episode, otherViewerEpisode],
-    });
-
-    const resolved = await invokeRegistered<
-      { feedToken: string; episodeId: Id<"personalPlaylistEpisodes"> },
-      unknown
-    >(getEpisodeByTokenAndId, ctx, {
-      feedToken,
-      episodeId: episode._id,
-    });
-    const crossViewer = await invokeRegistered<
-      { feedToken: string; episodeId: Id<"personalPlaylistEpisodes"> },
-      unknown
-    >(getEpisodeByTokenAndId, ctx, {
-      feedToken,
-      episodeId: otherViewerEpisode._id,
-    });
-
-    expect(resolved).toEqual({
-      title: "Mars",
-      status: "ready",
-      audioUrl: "https://cdn.example.com/storage-1.mp3",
-    });
-    expect(crossViewer).toBeNull();
   });
 
   it("does not create duplicate active episodes for the same article", async () => {
