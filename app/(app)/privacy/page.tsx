@@ -21,12 +21,14 @@ export default function PrivacyPage() {
         <p>
           Curio Garden is an informational reading and listening experience
           built around Wikipedia content. You can browse without an account, or
-          you can sign in to sync bookmarks across devices.
+          you can sign in to sync bookmarks, build a listening playlist, and
+          save listening progress across devices.
         </p>
         <p>
           The service is designed to keep some convenience features on your
           device when you are signed out, while storing signed-in bookmarks on
-          the service so they can follow your account.
+          the service so they can follow your account. The sections below name
+          the other signed-in information Curio Garden stores.
         </p>
       </LegalSection>
 
@@ -43,6 +45,20 @@ export default function PrivacyPage() {
           <li>
             Signed-in bookmark data, including saved article slugs, titles, and
             timestamps, so bookmarks can sync across devices.
+          </li>
+          <li>
+            Personal Playlist data, including playlist order, episode-generation
+            status, generated episode files, and private RSS feed token.
+          </li>
+          <li>
+            Signed-in article listening progress, including heard ranges and
+            qualification timestamps, along with topic-badge credit earned from
+            qualifying listening.
+          </li>
+          <li>
+            Signed-in article-audio export records and generated files, plus
+            account-linked generation quota windows used to limit repeated or
+            unusually heavy audio-generation requests.
           </li>
           <li>
             Browser-stored data for signed-out use, such as guest bookmarks,
@@ -102,11 +118,12 @@ export default function PrivacyPage() {
           Feedback is used to understand what is working, identify barriers, and
           decide what to improve. If you provide an email address, it may be
           used to follow up about your feedback. Curio Garden will use it for
-          research invitations only if you opt in. Curio Garden removes the
-          contact email from stored feedback when it reaches 180 days and turns
-          off the related research opt-in. An hourly cleanup works in bounded
-          batches and immediately schedules additional batches until any backlog
-          is drained. The feedback message and any environment details remain so
+          research invitations only if you opt in. Feedback is not automatically
+          joined to your signed-in account. Curio Garden removes the contact
+          email from stored feedback when it reaches 180 days and turns off the
+          related research opt-in. An hourly cleanup works in bounded batches
+          and immediately schedules additional batches until any backlog is
+          drained. The feedback message and any environment details remain so
           the team can continue to understand product issues and access
           barriers. Article context also remains with article-specific feedback.
           You can share feedback on the{" "}
@@ -141,6 +158,8 @@ export default function PrivacyPage() {
           When you later sign in, guest bookmarks on that device may be imported
           into your account once so they can sync. Local history and similar
           convenience data remain device-local in this version of the app.
+          Device-local information is outside Curio Garden’s server-side account
+          data.
         </p>
       </LegalSection>
 
@@ -152,9 +171,11 @@ export default function PrivacyPage() {
           </li>
           <li>
             Convex stores application data used for signed-in features such as
-            synced bookmarks. It also stores anonymous feedback, any contact or
-            research details you choose to provide, article context attached to
-            feedback, and opaque submission-quota records.
+            synced bookmarks, playlist episodes and audio, private feed access,
+            listening progress, badge credit, and article-audio exports. It also
+            stores anonymous feedback, any contact or research details you
+            choose to provide, article context attached to feedback, and opaque
+            submission-quota records.
           </li>
           <li>
             Hosting and analytics providers may process limited technical data
@@ -169,6 +190,12 @@ export default function PrivacyPage() {
             and trusted personal audio generation.
           </li>
         </ul>
+        <p>
+          Shared article and audio caches and aggregated analytics are not
+          treated as account-owned data. They may remain when an individual
+          account record is removed because they support the public service and
+          do not represent that account’s private playlist or listening history.
+        </p>
       </LegalSection>
 
       <LegalSection id="privacy-choices" title="Your choices">
@@ -181,6 +208,14 @@ export default function PrivacyPage() {
           <li>
             If you sign in, you can remove saved bookmarks from your account in
             the app.
+          </li>
+          <li>
+            A private RSS URL is a revocable bearer credential: anyone who has
+            the address can use it. From the dashboard, you can replace the
+            address or turn the feed off without deleting your playlist.
+            Replacing or turning off the feed stops future access through Curio
+            Garden’s feed and media routes. Previously downloaded, cached, or
+            directly accessed copies cannot be recalled.
           </li>
           <li>
             If you use Google sign-in, you can also manage that connection from

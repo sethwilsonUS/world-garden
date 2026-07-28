@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { TtsMetadata } from "../../lib/tts-profile";
+import {
+  createPersonalFeedToken,
+  isValidPersonalFeedToken,
+} from "../../lib/personal-feed-token";
 import { upsertTtsAudioVariant } from "./ttsAudioVariants";
 
 export type PersonalPlaylistReadCtx = Pick<QueryCtx, "db" | "storage">;
@@ -19,12 +23,59 @@ export type PersonalPodcastFeedDoc = Omit<
   "_creationTime"
 >;
 export type UpsertViewerPlaylistEpisodeResult = {
-  feedToken: string;
   episodeId: Id<"personalPlaylistEpisodes">;
   status: PersonalPlaylistEpisodeDoc["status"];
   added: boolean;
   shouldSchedule: boolean;
 };
+export type ViewerPersonalFeedState =
+  | {
+      status: "not_created";
+      feedToken: null;
+      updatedAt: null;
+    }
+  | {
+      status: "active";
+      feedToken: string;
+      updatedAt: number;
+    }
+  | {
+      status: "revoked";
+      feedToken: null;
+      updatedAt: number;
+    };
+export type PersonalPodcastFeedEpisode = {
+  _id: Id<"personalPlaylistEpisodes">;
+  wikiPageId: string;
+  slug: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  publishedAt: number;
+  updatedAt: number;
+  durationSeconds?: number;
+  byteLength?: number;
+  sourceRevisionId?: string;
+};
+export type ViewerPlaylistEpisode = {
+  _id: Id<"personalPlaylistEpisodes">;
+  slug: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  position: number;
+  publishedAt: number;
+  status: PersonalPlaylistEpisodeDoc["status"];
+  stage?: PersonalPlaylistEpisodeDoc["stage"];
+  sectionCount?: number;
+  completedSectionCount?: number;
+  durationSeconds?: number;
+  byteLength?: number;
+  lastError?: string;
+};
+
+const VIEWER_PLAYLIST_FAILURE_MESSAGE =
+  "Episode generation failed. Retry when ready.";
 
 const readPositiveInteger = (
   environment: Record<string, string | undefined>,
@@ -58,9 +109,6 @@ export const getPersonalPlaylistOpenAiQuotaConfig = (
     DEFAULT_PERSONAL_PLAYLIST_OPENAI_DAILY_WINDOW_MS,
   ),
 });
-
-const createFeedToken = (): string =>
-  `${crypto.randomUUID().replace(/-/g, "")}${crypto.randomUUID().replace(/-/g, "")}`;
 
 const buildPublishedAt = (baseTimestamp: number, position: number): number =>
   baseTimestamp - position * 60_000;
@@ -109,11 +157,61 @@ export const getViewerFeedRecordByToken = async (
   ctx: PersonalPlaylistReadCtx,
   feedToken: string,
 ): Promise<PersonalPodcastFeedDoc | null> => {
-  return await ctx.db
+  if (!isValidPersonalFeedToken(feedToken)) {
+    return null;
+  }
+
+  const feed = await ctx.db
     .query("personalPodcastFeeds")
     .withIndex("by_feedToken", (q) => q.eq("feedToken", feedToken))
     .first();
+
+  return feed?.revokedAt == null ? feed : null;
 };
+
+export const getReadyPersonalPodcastEpisodeForFeed = async (
+  ctx: PersonalPlaylistReadCtx,
+  feed: PersonalPodcastFeedDoc,
+  episodeIdValue: string,
+): Promise<PersonalPlaylistEpisodeDoc | null> => {
+  const episodeId = ctx.db.normalizeId(
+    "personalPlaylistEpisodes",
+    episodeIdValue,
+  );
+  if (!episodeId) {
+    return null;
+  }
+
+  const episode = await ctx.db.get(episodeId);
+  return episode &&
+    episode.viewerTokenIdentifier === feed.viewerTokenIdentifier &&
+    episode.removedAt == null &&
+    episode.status === "ready" &&
+    episode.storageId
+    ? episode
+    : null;
+};
+
+export const getViewerPersonalFeedState = (
+  feed: PersonalPodcastFeedDoc | null,
+): ViewerPersonalFeedState =>
+  feed
+    ? feed.revokedAt == null
+      ? {
+          status: "active",
+          feedToken: feed.feedToken,
+          updatedAt: feed.updatedAt,
+        }
+      : {
+          status: "revoked",
+          feedToken: null,
+          updatedAt: feed.revokedAt,
+        }
+    : {
+        status: "not_created",
+        feedToken: null,
+        updatedAt: null,
+      };
 
 const getViewerEpisodes = async (
   ctx: PersonalPlaylistReadCtx,
@@ -263,7 +361,7 @@ export const ensureViewerPersonalPodcastFeedForCtx = async (
   }
 
   const now = Date.now();
-  const feedToken = createFeedToken();
+  const feedToken = createPersonalFeedToken();
   const feedId = await ctx.db.insert("personalPodcastFeeds", {
     viewerTokenIdentifier,
     feedToken,
@@ -277,6 +375,63 @@ export const ensureViewerPersonalPodcastFeedForCtx = async (
     feedToken,
     createdAt: now,
     updatedAt: now,
+  };
+};
+
+export const rotateViewerPersonalPodcastFeedForCtx = async (
+  ctx: PersonalPlaylistMutationCtx,
+  viewerTokenIdentifier: string,
+): Promise<ViewerPersonalFeedState> => {
+  const existing = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
+  const now = Date.now();
+  const feedToken = createPersonalFeedToken();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      feedToken,
+      revokedAt: undefined,
+      updatedAt: now,
+    });
+  } else {
+    await ctx.db.insert("personalPodcastFeeds", {
+      viewerTokenIdentifier,
+      feedToken,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return {
+    status: "active",
+    feedToken,
+    updatedAt: now,
+  };
+};
+
+export const revokeViewerPersonalPodcastFeedForCtx = async (
+  ctx: PersonalPlaylistMutationCtx,
+  viewerTokenIdentifier: string,
+): Promise<ViewerPersonalFeedState> => {
+  const existing = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
+  if (!existing) {
+    return getViewerPersonalFeedState(null);
+  }
+  if (existing.revokedAt != null) {
+    return getViewerPersonalFeedState(existing);
+  }
+
+  const revokedAt = Date.now();
+  const tombstoneToken = createPersonalFeedToken();
+  await ctx.db.patch(existing._id, {
+    feedToken: tombstoneToken,
+    revokedAt,
+    updatedAt: revokedAt,
+  });
+
+  return {
+    status: "revoked",
+    feedToken: null,
+    updatedAt: revokedAt,
   };
 };
 
@@ -296,10 +451,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
   },
 ): Promise<UpsertViewerPlaylistEpisodeResult> => {
   const now = Date.now();
-  const feed = await ensureViewerPersonalPodcastFeedForCtx(
-    ctx,
-    args.viewerTokenIdentifier,
-  );
+  await ensureViewerPersonalPodcastFeedForCtx(ctx, args.viewerTokenIdentifier);
   const existing = await findViewerEpisodeByArticle(
     ctx,
     args.viewerTokenIdentifier,
@@ -356,7 +508,6 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     });
 
     return {
-      feedToken: feed.feedToken,
       episodeId: existing._id,
       status: narrationChanged ? "queued" : existing.status,
       added: false,
@@ -423,7 +574,6 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     await rewriteActiveViewerQueue(ctx, refreshedEpisodes, now);
 
     return {
-      feedToken: feed.feedToken,
       episodeId: existing._id,
       status: "queued",
       added: true,
@@ -487,7 +637,6 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
   );
 
   return {
-    feedToken: feed.feedToken,
     episodeId,
     status: "queued" as const,
     added: true,
@@ -498,17 +647,69 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
 export const listViewerPlaylistEpisodesForCtx = async (
   ctx: PersonalPlaylistReadCtx,
   viewerTokenIdentifier: string,
-) => {
+): Promise<ViewerPlaylistEpisode[]> => {
   const episodes = await getActiveViewerEpisodes(ctx, viewerTokenIdentifier);
+  return episodes.map((episode) => ({
+    _id: episode._id,
+    slug: episode.slug,
+    title: episode.title,
+    ...(episode.description !== undefined
+      ? { description: episode.description }
+      : {}),
+    ...(episode.imageUrl !== undefined ? { imageUrl: episode.imageUrl } : {}),
+    position: episode.position,
+    publishedAt: episode.publishedAt,
+    status: episode.status,
+    ...(episode.stage !== undefined ? { stage: episode.stage } : {}),
+    ...(episode.sectionCount !== undefined
+      ? { sectionCount: episode.sectionCount }
+      : {}),
+    ...(episode.completedSectionCount !== undefined
+      ? { completedSectionCount: episode.completedSectionCount }
+      : {}),
+    ...(episode.durationSeconds !== undefined
+      ? { durationSeconds: episode.durationSeconds }
+      : {}),
+    ...(episode.byteLength !== undefined
+      ? { byteLength: episode.byteLength }
+      : {}),
+    ...(episode.status === "failed"
+      ? { lastError: VIEWER_PLAYLIST_FAILURE_MESSAGE }
+      : {}),
+  }));
+};
+
+export const listViewerPodcastFeedEpisodesForCtx = async (
+  ctx: PersonalPlaylistReadCtx,
+  viewerTokenIdentifier: string,
+): Promise<PersonalPodcastFeedEpisode[]> => {
+  const readyEpisodes = (
+    await getActiveViewerEpisodes(ctx, viewerTokenIdentifier)
+  ).filter((episode) => episode.status === "ready");
+
   return await Promise.all(
-    episodes.map(async (episode) => {
-      const [episodeWithUrl, article] = await Promise.all([
-        withStorageUrl(ctx, episode),
-        ctx.db.get(episode.articleId),
-      ]);
+    readyEpisodes.map(async (episode) => {
+      const article = await ctx.db.get(episode.articleId);
       return {
-        ...episodeWithUrl,
-        sourceRevisionId: article?.revisionId,
+        _id: episode._id,
+        wikiPageId: episode.wikiPageId,
+        slug: episode.slug,
+        title: episode.title,
+        ...(episode.description == null
+          ? {}
+          : { description: episode.description }),
+        ...(episode.imageUrl == null ? {} : { imageUrl: episode.imageUrl }),
+        publishedAt: episode.publishedAt,
+        updatedAt: episode.updatedAt,
+        ...(episode.durationSeconds == null
+          ? {}
+          : { durationSeconds: episode.durationSeconds }),
+        ...(episode.byteLength == null
+          ? {}
+          : { byteLength: episode.byteLength }),
+        ...(article?.revisionId == null
+          ? {}
+          : { sourceRevisionId: article.revisionId }),
       };
     }),
   );

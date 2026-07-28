@@ -32,16 +32,26 @@ type PlaylistEntry = {
   durationSeconds?: number;
   byteLength?: number;
   lastError?: string;
-  audioUrl?: string | null;
+};
+
+type PersonalFeedStatus = "not_created" | "active" | "revoked";
+
+type PersonalFeedState = {
+  status: PersonalFeedStatus;
+  feedToken: string | null;
+  updatedAt: number | null;
 };
 
 type PersonalPlaylistContextValue = {
   entries: PlaylistEntry[];
-  feedToken: string | null;
+  feedStatus: PersonalFeedStatus;
   feedUrl: string | null;
   isAvailable: boolean;
+  isFeedUpdating: boolean;
   isLoaded: boolean;
   addBySlug: (args: { slug: string; title: string }) => Promise<void>;
+  rotateFeed: () => Promise<void>;
+  revokeFeed: () => Promise<void>;
   remove: (episodeId: string, title: string) => Promise<void>;
   moveUp: (episodeId: string, title: string) => Promise<void>;
   moveDown: (episodeId: string, title: string) => Promise<void>;
@@ -73,6 +83,7 @@ export const PersonalPlaylistProvider = ({
   const canUseAccountApi = Boolean(isSignedIn && isAuthenticated);
 
   const [addingSlugs, setAddingSlugs] = useState<Set<string>>(new Set());
+  const [isFeedUpdating, setIsFeedUpdating] = useState(false);
   const [politeMessage, setPoliteMessage] = useState("");
   const [alertMessage, setAlertMessage] = useState("");
   const personalPlaylistTtsMetadata = useMemo(
@@ -84,10 +95,10 @@ export const PersonalPlaylistProvider = ({
     api.personalPlaylist.listViewerPlaylistEpisodes,
     canUseAccountApi ? {} : "skip",
   ) as PlaylistEntry[] | undefined;
-  const feedToken = useQuery(
-    api.personalPlaylist.getViewerFeedToken,
+  const feedState = useQuery(
+    api.personalPlaylist.getViewerFeedState,
     canUseAccountApi ? {} : "skip",
-  ) as string | null | undefined;
+  ) as PersonalFeedState | undefined;
 
   const addEpisodeBySlug = useAction(
     api.personalPlaylist.addViewerPlaylistEpisodeBySlug,
@@ -100,6 +111,12 @@ export const PersonalPlaylistProvider = ({
   );
   const retryEpisode = useMutation(
     api.personalPlaylist.retryViewerPlaylistEpisode,
+  );
+  const rotateFeedToken = useMutation(
+    api.personalPlaylist.rotateViewerFeedToken,
+  );
+  const revokeFeedToken = useMutation(
+    api.personalPlaylist.revokeViewerFeedToken,
   );
 
   useEffect(() => {
@@ -218,18 +235,73 @@ export const PersonalPlaylistProvider = ({
     [personalPlaylistTtsMetadata, retryEpisode],
   );
 
+  const rotateFeed = useCallback(async () => {
+    if (!canUseAccountApi) {
+      throw new Error("Private feeds are only available for signed-in users.");
+    }
+
+    setIsFeedUpdating(true);
+    try {
+      await rotateFeedToken({});
+      setPoliteMessage(
+        feedState?.status === "active"
+          ? "Your private feed URL was replaced. The old address no longer works. Copy the new address into your podcast app."
+          : "A new private feed URL is ready.",
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not update your private feed URL.";
+      setAlertMessage(message);
+      throw error;
+    } finally {
+      setIsFeedUpdating(false);
+    }
+  }, [canUseAccountApi, feedState, rotateFeedToken]);
+
+  const revokeFeed = useCallback(async () => {
+    if (!canUseAccountApi) {
+      throw new Error("Private feeds are only available for signed-in users.");
+    }
+
+    setIsFeedUpdating(true);
+    try {
+      await revokeFeedToken({});
+      setPoliteMessage(
+        "Your private feed is off. Your playlist is still here.",
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not turn off your private feed.";
+      setAlertMessage(message);
+      throw error;
+    } finally {
+      setIsFeedUpdating(false);
+    }
+  }, [canUseAccountApi, revokeFeedToken]);
+
   const value = useMemo<PersonalPlaylistContextValue>(
     () => ({
       entries: entries ?? [],
-      feedToken: feedToken ?? null,
-      feedUrl: buildFeedUrl(feedToken ?? null),
+      feedStatus: feedState?.status ?? "not_created",
+      feedUrl:
+        feedState?.status === "active"
+          ? buildFeedUrl(feedState.feedToken)
+          : null,
       isAvailable: canUseAccountApi,
+      isFeedUpdating,
       isLoaded:
         isLocal ||
         (isClerkLoaded &&
           !isConvexAuthLoading &&
-          (!canUseAccountApi || entries !== undefined)),
+          (!canUseAccountApi ||
+            (entries !== undefined && feedState !== undefined))),
       addBySlug,
+      rotateFeed,
+      revokeFeed,
       remove,
       moveUp,
       moveDown,
@@ -243,13 +315,16 @@ export const PersonalPlaylistProvider = ({
       addingSlugs,
       canUseAccountApi,
       entries,
-      feedToken,
+      feedState,
       isClerkLoaded,
+      isFeedUpdating,
       isConvexAuthLoading,
       moveDown,
       moveUp,
       remove,
+      revokeFeed,
       retry,
+      rotateFeed,
     ],
   );
 
@@ -279,11 +354,14 @@ export const PersonalPlaylistFallbackProvider = ({
   const value = useMemo<PersonalPlaylistContextValue>(
     () => ({
       entries: [],
-      feedToken: null,
+      feedStatus: "not_created",
       feedUrl: null,
       isAvailable: false,
+      isFeedUpdating: false,
       isLoaded: true,
       addBySlug: async () => {},
+      rotateFeed: async () => {},
+      revokeFeed: async () => {},
       remove: async () => {},
       moveUp: async () => {},
       moveDown: async () => {},

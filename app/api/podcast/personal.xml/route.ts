@@ -1,8 +1,9 @@
 import { anyApi } from "convex/server";
-import { fetchQuery } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
-import type { Doc } from "@/convex/_generated/dataModel";
+import { fetchConvexQueryWithTimeout } from "@/lib/convex-request-timeout";
 import { renderPersonalShowPodcastArtworkPng } from "@/lib/personal-show-podcast-artwork";
+import { isValidPersonalFeedToken } from "@/lib/personal-feed-token";
+import { PERSONAL_PODCAST_PRIVATE_HEADERS } from "@/lib/personal-podcast-response";
 import {
   PERSONAL_PODCAST_DESCRIPTION,
   PERSONAL_PODCAST_SUBTITLE,
@@ -24,21 +25,50 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type PersonalPlaylistEpisode = Doc<"personalPlaylistEpisodes"> & {
-  audioUrl: string | null;
+const PERSONAL_PODCAST_CONVEX_TIMEOUT_MS = 5_000;
+
+type PersonalPlaylistEpisode = {
+  _id: string;
+  wikiPageId: string;
+  slug: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  publishedAt: number;
+  updatedAt: number;
+  durationSeconds?: number;
+  byteLength?: number;
   sourceRevisionId?: string;
 };
 
 export const GET = async (req: NextRequest) => {
-  const feedToken = req.nextUrl.searchParams.get("token")?.trim();
-  if (!feedToken) {
+  const feedToken = req.nextUrl.searchParams.get("token");
+  if (!feedToken || !isValidPersonalFeedToken(feedToken)) {
     return NextResponse.json(
       { error: "Podcast feed not found" },
-      { status: 404, headers: { "Cache-Control": "no-store" } },
+      { status: 404, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },
     );
   }
 
   try {
+    const payload = await fetchConvexQueryWithTimeout(
+      anyApi.personalPlaylist.getFeedEpisodesByToken,
+      {
+        feedToken,
+      },
+      {
+        timeoutMs: PERSONAL_PODCAST_CONVEX_TIMEOUT_MS,
+        message: "Personal podcast feed lookup timed out",
+      },
+    );
+
+    if (!payload) {
+      return NextResponse.json(
+        { error: "Podcast feed not found" },
+        { status: 404, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },
+      );
+    }
+
     const siteUrl = getPodcastSiteUrl(req.nextUrl.origin);
     const feedUrl = `${siteUrl}/api/podcast/personal.xml?token=${encodeURIComponent(feedToken)}`;
     const articleBaseUrl = `${siteUrl}/article`;
@@ -46,16 +76,6 @@ export const GET = async (req: NextRequest) => {
       slug: "personal",
       render: renderPersonalShowPodcastArtworkPng,
     });
-    const payload = await fetchQuery(anyApi.personalPlaylist.getFeedEpisodesByToken, {
-      feedToken,
-    });
-
-    if (!payload) {
-      return NextResponse.json(
-        { error: "Podcast feed not found" },
-        { status: 404, headers: { "Cache-Control": "no-store" } },
-      );
-    }
 
     const episodes = payload.episodes as PersonalPlaylistEpisode[];
     const lastBuildDate = new Date(
@@ -68,7 +88,7 @@ export const GET = async (req: NextRequest) => {
         const articleUrl = `${articleBaseUrl}/${encodeURIComponent(episode.slug)}`;
         const pubDate = new Date(episode.publishedAt).toUTCString();
         const duration = formatPodcastDuration(episode.durationSeconds);
-        const guid = `${siteUrl}/podcast/personal/${episode._id}?token=${encodeURIComponent(feedToken)}`;
+        const guid = `urn:curio-garden:personal:${episode._id}`;
         const summary = getPodcastDescription(episode.description);
         const attributedSummary = getWikipediaEpisodeDescription({
           summary,
@@ -126,19 +146,15 @@ ${itemsXml}
     return new NextResponse(xml, {
       status: 200,
       headers: {
+        ...PERSONAL_PODCAST_PRIVATE_HEADERS,
         "Content-Type": "application/rss+xml; charset=utf-8",
-        "Cache-Control": "no-store, max-age=0",
       },
     });
   } catch (error) {
+    console.error("[personal-podcast-feed] Feed request failed.", error);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to generate personal podcast feed",
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
+      { error: "Personal podcast feed is unavailable" },
+      { status: 500, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },
     );
   }
 };

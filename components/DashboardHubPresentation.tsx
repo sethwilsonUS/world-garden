@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton } from "@clerk/nextjs";
 import { ArticleLink } from "@/components/ArticleLink";
-import { PodcastFeedActions } from "@/components/PodcastFeedActions";
+import { PrivateFeedAccessControls } from "@/components/PrivateFeedAccessControls";
 import { usePersonalPlaylist } from "@/hooks/usePersonalPlaylist";
 
 const SignInCta = ({
@@ -80,7 +80,9 @@ export const DashboardSummaryCard = ({
           {title}
         </h2>
       </div>
-      <p className="mt-4 text-sm leading-[1.8] text-foreground-2">{description}</p>
+      <p className="mt-4 text-sm leading-[1.8] text-foreground-2">
+        {description}
+      </p>
       <div className="mt-4 text-sm leading-[1.7] text-muted">{detail}</div>
       <div className="mt-auto pt-6">{action}</div>
     </article>
@@ -130,7 +132,9 @@ const FeatureCard = ({
         </span>
       </div>
 
-      <p className="mt-4 text-sm leading-[1.8] text-foreground-2">{description}</p>
+      <p className="mt-4 text-sm leading-[1.8] text-foreground-2">
+        {description}
+      </p>
       <p className="mt-4 text-sm leading-[1.7] text-muted">{detail}</p>
       {action ? <div className="mt-6">{action}</div> : null}
     </article>
@@ -230,27 +234,44 @@ const playlistProgressPercent = (entry: {
     0,
     Math.min(
       100,
-      Math.round(((entry.completedSectionCount ?? 0) / entry.sectionCount) * 100),
+      Math.round(
+        ((entry.completedSectionCount ?? 0) / entry.sectionCount) * 100,
+      ),
     ),
   );
 };
 
 type DashboardPlaylistCardProps = Pick<
   ReturnType<typeof usePersonalPlaylist>,
-  "entries" | "feedUrl" | "isAvailable" | "isLoaded" | "moveDown" | "moveUp" | "remove" | "retry"
+  | "entries"
+  | "feedStatus"
+  | "feedUrl"
+  | "isAvailable"
+  | "isFeedUpdating"
+  | "isLoaded"
+  | "moveDown"
+  | "moveUp"
+  | "remove"
+  | "retry"
+  | "revokeFeed"
+  | "rotateFeed"
 > & {
   headingId?: string;
 };
 
 export const DashboardPlaylistCard = ({
   entries,
+  feedStatus,
   feedUrl,
   isAvailable,
+  isFeedUpdating,
   isLoaded,
   moveDown,
   moveUp,
   remove,
   retry,
+  revokeFeed,
+  rotateFeed,
   headingId,
 }: DashboardPlaylistCardProps) => {
   const readyCount = entries.filter((entry) => entry.status === "ready").length;
@@ -270,7 +291,9 @@ export const DashboardPlaylistCard = ({
           </h2>
         </div>
         <span className="inline-flex shrink-0 rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-accent">
-          {entries.length === 0 ? "Ready to plant" : `${entries.length} in queue`}
+          {entries.length === 0
+            ? "Ready to plant"
+            : `${entries.length} in queue`}
         </span>
       </div>
 
@@ -281,7 +304,10 @@ export const DashboardPlaylistCard = ({
       </p>
 
       {!isLoaded ? (
-        <div className="mt-6 rounded-2xl border border-border bg-surface p-5" role="status">
+        <div
+          className="mt-6 rounded-2xl border border-border bg-surface p-5"
+          role="status"
+        >
           <div className="skeleton h-4 w-28" />
           <div className="skeleton mt-3 h-4 w-full" />
           <div className="skeleton mt-2 h-4 w-[82%]" />
@@ -304,7 +330,7 @@ export const DashboardPlaylistCard = ({
           </p>
           <p className="mt-2 text-sm leading-[1.7] text-muted">
             Add articles while browsing and they&apos;ll show up here in order.
-            The first add also creates your personal RSS feed.
+            Private podcast access is managed below.
           </p>
         </div>
       ) : (
@@ -344,7 +370,9 @@ export const DashboardPlaylistCard = ({
                         >
                           <div
                             className="h-full rounded-full bg-accent transition-[width] duration-300"
-                            style={{ width: `${playlistProgressPercent(entry)}%` }}
+                            style={{
+                              width: `${playlistProgressPercent(entry)}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -415,36 +443,32 @@ export const DashboardPlaylistCard = ({
         </ul>
       )}
 
-      <div className="mt-6 border-t border-border pt-6">
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
-            {readyCount} ready episode{readyCount === 1 ? "" : "s"}
-          </span>
-          <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
-            RSS stays in sync with your current queue
-          </span>
-        </div>
+      {isLoaded && isAvailable ? (
+        <div className="mt-6 border-t border-border pt-6">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
+              {readyCount} ready episode{readyCount === 1 ? "" : "s"}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
+              {feedStatus === "active"
+                ? "Private RSS stays in sync with your current queue"
+                : feedStatus === "revoked"
+                  ? "Private RSS feed is off"
+                  : "Private RSS feed is not created"}
+            </span>
+          </div>
 
-        {feedUrl ? (
-          <>
-            <code
-              aria-label="Personal playlist feed URL"
-              className="mt-4 block overflow-x-auto rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground"
-            >
-              {feedUrl}
-            </code>
-            <PodcastFeedActions
+          <div className="mt-4">
+            <PrivateFeedAccessControls
+              feedStatus={feedStatus}
               feedUrl={feedUrl}
-              feedTitle="Personal Playlist"
+              isUpdating={isFeedUpdating}
+              onRotate={rotateFeed}
+              onRevoke={revokeFeed}
             />
-          </>
-        ) : (
-          <p className="mt-4 text-sm leading-[1.7] text-muted">
-            Add your first article to create the personal RSS feed URL you can
-            paste into Apple Podcasts or any app that follows RSS by URL.
-          </p>
-        )}
-      </div>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 };
@@ -558,8 +582,8 @@ export const LocalModeDashboard = () => {
       >
         <div className="garden-bed p-6">
           <p className="text-sm leading-[1.8] text-foreground-2">
-            You can still use the Library route for local bookmarks while working
-            without Clerk or Convex auth.
+            You can still use the Library route for local bookmarks while
+            working without Clerk or Convex auth.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link

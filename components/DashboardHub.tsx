@@ -127,7 +127,10 @@ const SignedInDashboard = () => {
         </div>
       </SectionShell>
 
-      <section aria-label="Dashboard overview" className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <section
+        aria-label="Dashboard overview"
+        className="grid gap-5 md:grid-cols-2 xl:grid-cols-3"
+      >
         <DashboardSummaryCard
           eyebrow="Synced reading"
           title="Library"
@@ -225,13 +228,17 @@ const SignedInDashboard = () => {
       >
         <DashboardPlaylistCard
           entries={personalPlaylist.entries}
+          feedStatus={personalPlaylist.feedStatus}
           feedUrl={personalPlaylist.feedUrl}
           isAvailable={personalPlaylist.isAvailable}
+          isFeedUpdating={personalPlaylist.isFeedUpdating}
           isLoaded={personalPlaylist.isLoaded}
           moveDown={personalPlaylist.moveDown}
           moveUp={personalPlaylist.moveUp}
           remove={personalPlaylist.remove}
           retry={personalPlaylist.retry}
+          revokeFeed={personalPlaylist.revokeFeed}
+          rotateFeed={personalPlaylist.rotateFeed}
           headingId="dashboard-playlist-heading"
         />
       </section>
