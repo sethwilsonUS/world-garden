@@ -97,7 +97,12 @@ function pluralize(count, singular, plural = `${singular}s`) {
 
 function quoteCsv(value) {
   let text = value == null ? "" : String(value);
-  if (typeof value === "string" && /^(?:[\t\r\n]|\s*[=+\-@|])/.test(text)) {
+  if (
+    typeof value === "string" &&
+    /^(?:[\u0000-\u001f\u007f-\u009f]|[\s\u0000-\u001f\u007f-\u009f]*[=+\-@|])/.test(
+      text,
+    )
+  ) {
     text = `'${text}`;
   }
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

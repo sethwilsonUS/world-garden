@@ -22,7 +22,7 @@ describe("product feedback report command", () => {
     );
   });
 
-  it("neutralizes pipe-prefixed spreadsheet payloads in CSV cells", () => {
+  it("neutralizes pipe- and control-prefixed spreadsheet payloads in CSV cells", () => {
     const csv = serializeFeedbackCsv([
       {
         id: "feedback-1",
@@ -34,9 +34,20 @@ describe("product feedback report command", () => {
         researchOptIn: false,
         contactAvailable: false,
       },
+      {
+        id: "feedback-2",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+        status: "open",
+        kind: "technical",
+        message: "\u001bdanger",
+        researchOptIn: false,
+        contactAvailable: false,
+      },
     ]);
 
     expect(csv).toContain(",'|danger,");
+    expect(csv).toContain(",'\u001bdanger,");
   });
 
   it("prints recent production feedback as screen-reader-friendly labeled blocks", async () => {
