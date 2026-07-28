@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "About the project — Curio Garden",
   description:
     "How Curio Garden turns Wikipedia articles into an accessible listening library and podcast experience.",
+  alternates: { canonical: "/about" },
 };
 
 const engineeringHighlights = [

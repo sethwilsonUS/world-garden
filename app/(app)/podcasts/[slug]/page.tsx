@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AudioDownloadButton } from "@/components/AudioDownloadButton";
@@ -18,11 +19,54 @@ import {
   formatTrendingDate,
 } from "@/lib/podcast-directory";
 
+type PodcastDetailPageProps = {
+  params: Promise<{ slug: string }>;
+};
+
+const podcastMetadata = {
+  featured: {
+    title: "Wikipedia Featured Article Podcast — Curio Garden",
+    description:
+      "Listen to daily audio editions of Wikipedia's featured article, with recent episodes and a public podcast feed from Curio Garden.",
+  },
+  trending: {
+    title: "Wikipedia Trending Podcast — Curio Garden",
+    description:
+      "Hear Curio Garden's AI-generated daily audio briefing about trending Wikipedia topics, with recent episodes and a public podcast feed.",
+  },
+} as const;
+
+export async function generateMetadata({
+  params,
+}: PodcastDetailPageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const entry = getPodcastDirectoryEntry(slug);
+
+  if (!entry) {
+    return {
+      title: "Podcast not found — Curio Garden",
+      robots: { index: false, follow: false },
+    };
+  }
+
+  const routeMetadata = podcastMetadata[entry.slug];
+  const canonicalPath = `/podcasts/${entry.slug}`;
+
+  return {
+    ...routeMetadata,
+    alternates: { canonical: canonicalPath },
+    openGraph: {
+      ...routeMetadata,
+      type: "website",
+      siteName: "Curio Garden",
+      url: canonicalPath,
+    },
+  };
+}
+
 export default async function PodcastDetailPage({
   params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+}: PodcastDetailPageProps) {
   const { slug } = await params;
   const entry = getPodcastDirectoryEntry(slug);
 

@@ -5,6 +5,8 @@ export const metadata: Metadata = {
   title: "Dashboard — Curio Garden",
   description:
     "Your Curio Garden account hub for the synced Library, personal podcast Playlist, private feed, and listening progress.",
+  alternates: { canonical: "/dashboard" },
+  robots: { index: false, follow: true },
 };
 
 export default function DashboardPage() {

@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   title: "Privacy Policy — Curio Garden",
   description:
     "How Curio Garden handles account data, bookmarks, browser storage, analytics, and third-party services.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {

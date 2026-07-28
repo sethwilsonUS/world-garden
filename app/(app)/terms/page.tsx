@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   title: "Terms of Use — Curio Garden",
   description:
     "The basic terms for using Curio Garden, including accounts, content sources, acceptable use, and availability.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {

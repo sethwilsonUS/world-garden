@@ -1,9 +1,18 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { SearchForm } from "@/components/SearchForm";
 import { SearchResultsList } from "@/components/SearchResultsList";
 
 type SearchPageProps = {
   searchParams: Promise<{ q?: string }>;
+};
+
+export const metadata: Metadata = {
+  title: "Search Wikipedia — Curio Garden",
+  description:
+    "Search Wikipedia and open an article in Curio Garden's accessible listening experience.",
+  alternates: { canonical: "/search" },
+  robots: { index: false, follow: true },
 };
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {

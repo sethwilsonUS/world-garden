@@ -1,5 +1,4 @@
-"use client";
-
+import type { Metadata } from "next";
 import { SearchForm } from "@/components/SearchForm";
 import { RecentlyOpened } from "@/components/RecentlyOpened";
 import { HomeAuthStatusBanner } from "@/components/HomeAuthStatusBanner";
@@ -8,6 +7,13 @@ import { TodayOnWikipedia } from "@/components/TodayOnWikipedia";
 import { HomeListeningSample } from "@/components/HomeListeningSample";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
+export const metadata: Metadata = {
+  title: "Curio Garden — Listen to Wikipedia",
+  description:
+    "Explore Wikipedia through accessible section-by-section audio, save your place, and follow featured articles and trending stories as podcasts.",
+  alternates: { canonical: "/" },
+};
 
 export default function Home() {
   return (
