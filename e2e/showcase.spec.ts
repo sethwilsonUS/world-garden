@@ -727,7 +727,7 @@ test("home listening sample and search reflow at 320 pixels", async ({
   const samplePlayer = listeningSample.getByRole("group", {
     name: "Audio player for Curio Garden listening sample",
   });
-  const playerControls = [
+  const playerButtons = [
     samplePlayer.getByRole("button", { name: "Skip back 10 seconds" }),
     samplePlayer.getByRole("button", {
       name: "Play: Curio Garden listening sample",
@@ -735,15 +735,24 @@ test("home listening sample and search reflow at 320 pixels", async ({
     }),
     samplePlayer.getByRole("button", { name: "Skip forward 10 seconds" }),
     samplePlayer.getByRole("button", { name: /^Playback speed / }),
-    samplePlayer.getByRole("slider", { name: /^Playback position/ }),
   ];
+  const progressSlider = samplePlayer.getByRole("slider", {
+    name: /^Playback position/,
+  });
+  const playerControls = [...playerButtons, progressSlider];
   for (const control of playerControls) {
     await expect(control).toBeVisible();
     await control.focus();
     await expect(control).toBeFocused();
     await expectVisibleFocusOutline(control);
   }
-  await expect(playerControls[3]).toHaveAccessibleName(
+  for (const button of playerButtons) {
+    const target = await button.boundingBox();
+    expect(target).not.toBeNull();
+    expect(target!.width).toBeGreaterThanOrEqual(44);
+    expect(target!.height).toBeGreaterThanOrEqual(44);
+  }
+  await expect(playerButtons[3]).toHaveAccessibleName(
     "Playback speed 1.5x. Activate to change.",
   );
   expect(runtimeErrors).toEqual([]);
@@ -753,6 +762,83 @@ test("home listening sample and search reflow at 320 pixels", async ({
   );
   expect(horizontalOverflow).toBeLessThanOrEqual(0);
   await expectNoSeriousAxeViolations(page);
+});
+
+test("default audio player controls stay inside a nested mobile surface", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("curio-garden-playback-rate", "1.75");
+  });
+  await mockHomeData(page);
+  await page.unroute("**/api/trending/brief");
+  await page.route("**/api/trending/brief", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        enabled: true,
+        status: "ready",
+        brief: {
+          headline: "Why these topics are trending",
+          summary: "A concise daily briefing.",
+          model: "gpt-test",
+          audioUrl: "/audio/curio-garden-listening-sample-edge-v1.mp3",
+        },
+      }),
+    }),
+  );
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/trending");
+
+  const player = page.getByRole("group", {
+    name: "Audio player for Why these topics are trending",
+  });
+  await expect(player).toBeVisible();
+  const speedButton = player.getByRole("button", {
+    name: "Playback speed 1.75x. Activate to change.",
+  });
+  await expect(speedButton).toBeVisible();
+
+  const buttons = [
+    player.getByRole("button", { name: "Skip back 10 seconds" }),
+    player.getByRole("button", {
+      name: "Play: Why these topics are trending",
+      exact: true,
+    }),
+    player.getByRole("button", { name: "Skip forward 10 seconds" }),
+    speedButton,
+  ];
+  const controls = [
+    ...buttons,
+    player.getByRole("slider", { name: "Playback position" }),
+  ];
+  const surface = player.locator("[data-audio-player-surface]");
+  const surfaceBox = await surface.boundingBox();
+  expect(surfaceBox).not.toBeNull();
+  const layoutRoundingTolerance = 0.5;
+
+  for (const button of buttons) {
+    const target = await button.boundingBox();
+    expect(target).not.toBeNull();
+    expect(target!.width).toBeGreaterThanOrEqual(44);
+    expect(target!.height).toBeGreaterThanOrEqual(44);
+  }
+  for (const control of controls) {
+    const target = await control.boundingBox();
+    expect(target).not.toBeNull();
+    expect(target!.x).toBeGreaterThanOrEqual(
+      surfaceBox!.x - layoutRoundingTolerance,
+    );
+    expect(target!.y).toBeGreaterThanOrEqual(
+      surfaceBox!.y - layoutRoundingTolerance,
+    );
+    expect(target!.x + target!.width).toBeLessThanOrEqual(
+      surfaceBox!.x + surfaceBox!.width + layoutRoundingTolerance,
+    );
+    expect(target!.y + target!.height).toBeLessThanOrEqual(
+      surfaceBox!.y + surfaceBox!.height + layoutRoundingTolerance,
+    );
+  }
 });
 
 test("ordinary editorial photos fill their frames without blurred bars", async ({

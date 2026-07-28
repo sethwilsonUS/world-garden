@@ -242,6 +242,7 @@ export const AudioPlayer = ({
 
       {/* Main player surface */}
       <div
+        data-audio-player-surface=""
         className={`border border-border bg-surface-3 ${
           compact ? "rounded-xl px-3.5 py-3" : "rounded-2xl px-5 py-4"
         }`}
@@ -249,14 +250,14 @@ export const AudioPlayer = ({
         {/* Controls: skip-back, play/pause, skip-forward */}
         <div
           className={`mb-3.5 flex items-center justify-center ${
-            compact ? "gap-3" : "gap-5"
+            compact ? "gap-3" : "gap-3 sm:gap-5"
           }`}
         >
           <button
             type="button"
             onClick={() => skip(-10)}
             aria-label="Skip back 10 seconds"
-            className="flex min-h-10 min-w-10 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
+            className="flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
             <svg
               viewBox="0 0 24 24"
@@ -325,7 +326,7 @@ export const AudioPlayer = ({
             type="button"
             onClick={() => skip(10)}
             aria-label="Skip forward 10 seconds"
-            className="flex min-h-10 min-w-10 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
+            className="flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
             <svg
               viewBox="0 0 24 24"
@@ -349,7 +350,7 @@ export const AudioPlayer = ({
               type="button"
               onClick={cycleSpeed}
               aria-label={`Playback speed ${formatRate(playbackRate)}. Activate to change.`}
-              className={`flex min-h-10 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-2.5 py-1.5 font-mono text-[0.8125rem] font-bold leading-none transition-colors duration-150 hover:bg-accent-bg hover:text-accent ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
+              className={`flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-2.5 py-1.5 font-mono text-[0.8125rem] font-bold leading-none transition-colors duration-150 hover:bg-accent-bg hover:text-accent ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
             >
               {formatRate(playbackRate)}
             </button>
