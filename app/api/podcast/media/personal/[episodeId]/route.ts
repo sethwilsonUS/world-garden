@@ -13,6 +13,7 @@ import {
   PERSONAL_PODCAST_CACHE_CONTROL,
   PERSONAL_PODCAST_PRIVATE_HEADERS,
 } from "@/lib/personal-podcast-response";
+import { withPromiseTimeout } from "@/lib/promise-timeout";
 
 type PersonalPlaylistEpisode = {
   title: string;
@@ -20,6 +21,7 @@ type PersonalPlaylistEpisode = {
 };
 
 const PERSONAL_PODCAST_MEDIA_UPSTREAM_TIMEOUT_MS = 15_000;
+const PERSONAL_PODCAST_CONVEX_TIMEOUT_MS = 5_000;
 
 export const GET = async (
   req: NextRequest,
@@ -40,12 +42,15 @@ export const GET = async (
       feedToken,
       episodeId,
     });
-    const episode = (await fetchMutation(
-      anyApi.personalPlaylist.getEpisodeForPersonalFeedServer,
-      {
+    const episode = (await withPromiseTimeout(
+      fetchMutation(anyApi.personalPlaylist.getEpisodeForPersonalFeedServer, {
         feedToken,
         episodeId,
         attestation,
+      }),
+      {
+        timeoutMs: PERSONAL_PODCAST_CONVEX_TIMEOUT_MS,
+        message: "Personal podcast authorization timed out",
       },
     )) as PersonalPlaylistEpisode | null;
 
@@ -73,7 +78,12 @@ export const GET = async (
         });
     applyPersonalPodcastPrivateHeaders(response.headers);
     return response;
-  } catch {
+  } catch (error) {
+    console.error(
+      "[personal-podcast-media] Private episode request failed.",
+      { episodeId },
+      error,
+    );
     return NextResponse.json(
       { error: "Personal podcast audio is unavailable" },
       { status: 500, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },

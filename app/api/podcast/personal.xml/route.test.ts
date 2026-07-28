@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fetchQuery = vi.fn();
 const getOrCreatePodcastShowArtworkUrl = vi.fn();
@@ -29,6 +29,10 @@ describe("GET /api/podcast/personal.xml", () => {
     getOrCreatePodcastShowArtworkUrl.mockResolvedValue(
       "https://cdn.example.com/personal-show.png",
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns 404 for a missing or invalid feed token", async () => {
@@ -203,5 +207,27 @@ describe("GET /api/podcast/personal.xml", () => {
     expect(body).toContain("Personal podcast feed is unavailable");
     expect(body).not.toContain("Convex deployment");
     expectPrivateFeedHeaders(response);
+  });
+
+  it("returns a generic failure when the Convex feed lookup stalls", async () => {
+    vi.useFakeTimers();
+    fetchQuery.mockImplementation(() => new Promise(() => {}));
+
+    const { GET } = await import("./route");
+    const responsePromise = GET(
+      new NextRequest(
+        `https://curiogarden.org/api/podcast/personal.xml?token=${VALID_FEED_TOKEN}`,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const response = await responsePromise;
+    const body = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(body).toContain("Personal podcast feed is unavailable");
+    expect(body).not.toContain("timed out");
+    expectPrivateFeedHeaders(response);
+    expect(getOrCreatePodcastShowArtworkUrl).not.toHaveBeenCalled();
   });
 });

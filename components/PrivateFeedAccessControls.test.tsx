@@ -73,6 +73,11 @@ describe("PrivateFeedAccessControls", () => {
     expect(container.querySelector("section")?.getAttribute("aria-busy")).toBe(
       "false",
     );
+    const status = Array.from(
+      container.querySelectorAll<HTMLParagraphElement>('p[role="status"]'),
+    ).at(-1);
+    expect(status).toBeInstanceOf(HTMLParagraphElement);
+    expect(status?.textContent).toBe("");
   });
 
   it.each([
@@ -123,6 +128,9 @@ describe("PrivateFeedAccessControls", () => {
     );
     await renderControls({ onRotate });
     const opener = findButton(container, "Replace URL");
+    const updateStatus = Array.from(
+      container.querySelectorAll<HTMLParagraphElement>('p[role="status"]'),
+    ).at(-1);
 
     await act(async () => opener.click());
     const confirm = findButton(container, "Yes, replace URL");
@@ -137,6 +145,12 @@ describe("PrivateFeedAccessControls", () => {
     );
     expect(findButton(container, "Replacing URL…").disabled).toBe(true);
     expect(findButton(container, "Keep current feed").disabled).toBe(true);
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLParagraphElement>('p[role="status"]'),
+      ).at(-1),
+    ).toBe(updateStatus);
+    expect(updateStatus?.textContent).toBe("Updating private feed…");
 
     await act(async () => {
       resolveRotation?.();

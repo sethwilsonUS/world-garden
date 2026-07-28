@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { renderPersonalShowPodcastArtworkPng } from "@/lib/personal-show-podcast-artwork";
 import { isValidPersonalFeedToken } from "@/lib/personal-feed-token";
 import { PERSONAL_PODCAST_PRIVATE_HEADERS } from "@/lib/personal-podcast-response";
+import { withPromiseTimeout } from "@/lib/promise-timeout";
 import {
   PERSONAL_PODCAST_DESCRIPTION,
   PERSONAL_PODCAST_SUBTITLE,
@@ -24,6 +25,8 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const PERSONAL_PODCAST_CONVEX_TIMEOUT_MS = 5_000;
 
 type PersonalPlaylistEpisode = {
   _id: string;
@@ -49,10 +52,13 @@ export const GET = async (req: NextRequest) => {
   }
 
   try {
-    const payload = await fetchQuery(
-      anyApi.personalPlaylist.getFeedEpisodesByToken,
-      {
+    const payload = await withPromiseTimeout(
+      fetchQuery(anyApi.personalPlaylist.getFeedEpisodesByToken, {
         feedToken,
+      }),
+      {
+        timeoutMs: PERSONAL_PODCAST_CONVEX_TIMEOUT_MS,
+        message: "Personal podcast feed lookup timed out",
       },
     );
 
@@ -144,7 +150,8 @@ ${itemsXml}
         "Content-Type": "application/rss+xml; charset=utf-8",
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("[personal-podcast-feed] Feed request failed.", error);
     return NextResponse.json(
       { error: "Personal podcast feed is unavailable" },
       { status: 500, headers: PERSONAL_PODCAST_PRIVATE_HEADERS },

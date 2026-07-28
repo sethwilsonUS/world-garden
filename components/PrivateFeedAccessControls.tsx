@@ -294,11 +294,12 @@ export const PrivateFeedAccessControls = ({
         </section>
       ) : null}
 
-      {isBusy ? (
-        <p className="mt-4 text-sm text-muted" role="status">
-          Updating private feed…
-        </p>
-      ) : null}
+      <p
+        className={isBusy ? "mt-4 text-sm text-muted" : "sr-only"}
+        role="status"
+      >
+        {isBusy ? "Updating private feed…" : ""}
+      </p>
       {errorMessage ? (
         <p className="alert-banner alert-error mt-4 text-sm" role="alert">
           {errorMessage}

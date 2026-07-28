@@ -40,6 +40,7 @@ describe("GET /api/podcast/media/personal/[episodeId]", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -292,5 +293,28 @@ describe("GET /api/podcast/media/personal/[episodeId]", () => {
     expect(body).toContain("Personal podcast audio is unavailable");
     expect(body).not.toContain("Convex deployment");
     expectPrivateMediaHeaders(response);
+  });
+
+  it("fails closed when the Convex authorization lookup stalls", async () => {
+    vi.useFakeTimers();
+    fetchMutation.mockImplementation(() => new Promise(() => {}));
+
+    const { GET } = await import("./route");
+    const responsePromise = GET(
+      new NextRequest(
+        `https://curiogarden.org/api/podcast/media/personal/episode-1?token=${VALID_FEED_TOKEN}`,
+      ),
+      { params: Promise.resolve({ episodeId: "episode-1" }) },
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const response = await responsePromise;
+    const body = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(body).toContain("Personal podcast audio is unavailable");
+    expect(body).not.toContain("timed out");
+    expectPrivateMediaHeaders(response);
+    expect(upstreamFetch).not.toHaveBeenCalled();
   });
 });
