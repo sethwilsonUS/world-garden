@@ -375,7 +375,7 @@ export const POST = async (req: NextRequest) => {
                 Number.isFinite(cachedDurationSeconds) &&
                 cachedDurationSeconds > 0
                   ? cachedDurationSeconds
-                  : 0,
+                  : estimateAudioDurationSeconds(track.text),
             });
             return audioResponse(
               cachedBlob,

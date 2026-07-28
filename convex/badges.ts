@@ -671,12 +671,25 @@ export const cleanupExpiredMeaningfulUseSessionsForCtx = async (
     now: number;
     limit: number;
     cursor: string | null;
+    phase?: "expired" | "legacy";
   },
 ) => {
-  const result = await ctx.db.query("viewerArticleListenProgress").paginate({
-    cursor: args.cursor,
-    numItems: args.limit,
-  });
+  const phase = args.phase ?? "expired";
+  const result = await ctx.db
+    .query("viewerArticleListenProgress")
+    .withIndex("by_meaningfulUseSessionExpiresAt_sessionStartedAt", (q) =>
+      phase === "legacy"
+        ? q
+            .eq("meaningfulUseSessionExpiresAt", undefined)
+            .gt("meaningfulUseSession.startedAt", undefined)
+        : q
+            .gt("meaningfulUseSessionExpiresAt", undefined)
+            .lte("meaningfulUseSessionExpiresAt", args.now),
+    )
+    .paginate({
+      cursor: args.cursor,
+      numItems: args.limit,
+    });
   const expiredSessions = result.page.filter(
     (progress) =>
       progress.meaningfulUseSession !== undefined &&
@@ -697,7 +710,13 @@ export const cleanupExpiredMeaningfulUseSessionsForCtx = async (
     await ctx.scheduler.runAfter(
       0,
       internal.badges.cleanupExpiredMeaningfulUseSessions,
-      { cursor: result.continueCursor },
+      { cursor: result.continueCursor, phase },
+    );
+  } else if (phase === "expired") {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.badges.cleanupExpiredMeaningfulUseSessions,
+      { phase: "legacy" },
     );
   }
 
@@ -727,12 +746,14 @@ export const recordViewerArticleListenProgress = mutation({
 export const cleanupExpiredMeaningfulUseSessions = internalMutation({
   args: {
     cursor: v.optional(v.string()),
+    phase: v.optional(v.union(v.literal("expired"), v.literal("legacy"))),
   },
   handler: async (ctx, args) => {
     const result = await cleanupExpiredMeaningfulUseSessionsForCtx(ctx, {
       now: Date.now(),
       limit: MEANINGFUL_USE_SESSION_CLEANUP_BATCH_SIZE,
       cursor: args.cursor ?? null,
+      phase: args.phase ?? "expired",
     });
     return result;
   },

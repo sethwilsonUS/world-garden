@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -581,6 +581,56 @@ describe("AI cost report CLI", () => {
         message: `Could not remove partial AI cost export: ${outputPath}`,
         cause: { message: "synthetic report failure" },
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a successfully written CSV when closing the export fails", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "curio-ai-costs-"));
+    const outputPath = path.join(directory, "costs.csv");
+    const removeFile = vi.fn().mockResolvedValue(undefined);
+    let closeAttempts = 0;
+
+    try {
+      await expect(
+        main(
+          [
+            "--from",
+            "2026-07-01",
+            "--to",
+            "2026-08-01",
+            "--csv",
+            "--output",
+            outputPath,
+          ],
+          process.cwd(),
+          {
+            fetchReport: async () => sampleReport,
+            loadEnv: async () => undefined,
+            openFile: async () => ({
+              writeFile: async (contents) =>
+                await writeFile(outputPath, contents, {
+                  encoding: "utf8",
+                  mode: 0o600,
+                }),
+              close: async () => {
+                closeAttempts += 1;
+                if (closeAttempts === 1) {
+                  throw new Error("synthetic close failure");
+                }
+              },
+            }),
+            removeFile,
+          },
+        ),
+      ).rejects.toThrow("synthetic close failure");
+
+      expect(removeFile).not.toHaveBeenCalled();
+      expect(closeAttempts).toBe(2);
+      await expect(readFile(outputPath, "utf8")).resolves.toContain(
+        "breakdown,key,estimated_direct_ai_cost_micros",
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

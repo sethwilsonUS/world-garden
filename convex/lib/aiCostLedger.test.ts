@@ -11,6 +11,7 @@ import {
   readAiCostLedgerCoverageStartedAtForCtx,
   recordCacheDecisionForCtx,
   recordListeningContributionForCtx,
+  recordProviderAttemptForCtx,
   resetAiCostLedgerCoverageForCtx,
   resolveProviderAttemptWrite,
   selectGenerationForObservedUse,
@@ -52,6 +53,88 @@ const providerAttempt = (
   isFallbackAttempt: false,
   ...overrides,
 });
+
+type LedgerHarnessRow = Record<string, unknown> & { _id: string };
+
+const createProviderAttemptLedgerHarness = (
+  initialTables: Record<string, LedgerHarnessRow[]>,
+) => {
+  const tables: Record<string, LedgerHarnessRow[]> = {
+    aiCostLedgerCoverage: [
+      {
+        _id: "coverage",
+        key: "observe-v1",
+        epochKey: "implicit.initial-observe-v1",
+        epochVersion: 1,
+        firstObservedAt: 1_700_000_000_000,
+        resetAt: 1_700_000_000_000,
+      },
+    ],
+    aiCostLedgerDeliveries: [],
+    aiCostLedgerEvents: [],
+    aiCostDailyRollups: [],
+    ...initialTables,
+  };
+  const ctx = {
+    db: {
+      query: (table: string) => ({
+        withIndex: (
+          _index: string,
+          callback: (range: {
+            eq: (field: string, value: unknown) => unknown;
+            gt: (field: string, value: unknown) => unknown;
+            lte: (field: string, value: unknown) => unknown;
+          }) => unknown,
+        ) => {
+          let field: string | null = null;
+          let value: unknown;
+          const range = {
+            eq: (nextField: string, nextValue: unknown) => {
+              field = nextField;
+              value = nextValue;
+              return range;
+            },
+            gt: () => range,
+            lte: () => range,
+          };
+          callback(range);
+          const matchingRows = () =>
+            (tables[table] ?? []).filter(
+              (row) => field === null || row[field] === value,
+            );
+          return {
+            unique: async () => matchingRows()[0] ?? null,
+            collect: async () => matchingRows(),
+            take: async (limit: number) => matchingRows().slice(0, limit),
+          };
+        },
+      }),
+      insert: async (table: string, value: Record<string, unknown>) => {
+        const rows = (tables[table] ??= []);
+        const id = `${table}-${rows.length + 1}`;
+        rows.push({ _id: id, ...value });
+        return id;
+      },
+      patch: async (id: unknown, value: Record<string, unknown>) => {
+        const row = Object.values(tables)
+          .flat()
+          .find((candidate) => candidate._id === id);
+        if (!row) throw new Error(`Unknown ledger harness row: ${String(id)}`);
+        Object.assign(row, value);
+      },
+      delete: async (id: unknown) => {
+        for (const rows of Object.values(tables)) {
+          const index = rows.findIndex((row) => row._id === id);
+          if (index !== -1) {
+            rows.splice(index, 1);
+            return;
+          }
+        }
+      },
+    },
+  };
+  return { ctx, tables };
+};
 
 describe("AI cost ledger mutation inputs", () => {
   beforeEach(() => {
@@ -698,6 +781,89 @@ describe("AI cost ledger mutation inputs", () => {
       ),
     ).toBe("stale");
   });
+
+  it("does not seed a missing rollup bucket with a provider-attempt reversal", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    const initial = providerAttempt();
+    const terminal = providerAttempt({
+      lifecycleVersion: 1,
+      state: "succeeded",
+      failureCategory: null,
+      completedAt: initial.dispatchedAt! + 100,
+    });
+    const eventDay = Date.UTC(
+      new Date(initial.dispatchedAt!).getUTCFullYear(),
+      new Date(initial.dispatchedAt!).getUTCMonth(),
+      new Date(initial.dispatchedAt!).getUTCDate(),
+    );
+    const { ctx, tables } = createProviderAttemptLedgerHarness({
+      aiCostLedgerEvents: [
+        {
+          _id: "provider-event",
+          eventKey: initial.eventKey,
+          eventDay,
+          observationEndsAt: null,
+          event: toProviderAttemptEvent(initial, estimateDirectAiCost(initial)),
+        },
+      ],
+      aiCostLedgerDeliveries: [
+        {
+          _id: "provider-delivery",
+          eventKey: initial.eventKey,
+          eventKind: "provider_attempt",
+          latestLifecycleVersion: initial.lifecycleVersion,
+        },
+      ],
+    });
+
+    await expect(
+      recordProviderAttemptForCtx(ctx as never, terminal),
+    ).resolves.toEqual({ recorded: true, disposition: "updated" });
+    expect(tables.aiCostDailyRollups).toHaveLength(1);
+    expect(tables.aiCostDailyRollups[0]).toMatchObject({
+      providerAttempts: 1,
+      successfulAttempts: 1,
+      ambiguousAfterDispatchAttempts: 0,
+      inputCharacters: initial.inputCharacters,
+    });
+  });
+
+  it.each([true, false])(
+    "does not reinsert an existing provider event whose payload cannot be reconstructed (delivery present: %s)",
+    async (hasDelivery) => {
+      vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+      const attempt = providerAttempt();
+      const deliveries: LedgerHarnessRow[] = hasDelivery
+        ? [
+            {
+              _id: "provider-delivery",
+              eventKey: attempt.eventKey,
+              eventKind: "provider_attempt",
+              latestLifecycleVersion: null,
+            },
+          ]
+        : [];
+      const { ctx, tables } = createProviderAttemptLedgerHarness({
+        aiCostLedgerEvents: [
+          {
+            _id: "provider-event",
+            eventKey: attempt.eventKey,
+            eventDay: 1_797_408_000_000,
+            observationEndsAt: null,
+            event: { kind: "provider_attempt" },
+          },
+        ],
+        aiCostLedgerDeliveries: deliveries,
+      });
+
+      await expect(
+        recordProviderAttemptForCtx(ctx as never, attempt),
+      ).resolves.toEqual({ recorded: false, disposition: "stale" });
+      expect(tables.aiCostLedgerEvents).toHaveLength(1);
+      expect(tables.aiCostLedgerDeliveries).toHaveLength(1);
+      expect(tables.aiCostDailyRollups).toHaveLength(0);
+    },
+  );
 
   it("allows only a null-to-count research enrichment after success", () => {
     const succeeded = providerAttempt({

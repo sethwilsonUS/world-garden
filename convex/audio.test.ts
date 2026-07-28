@@ -13,6 +13,7 @@ import {
   hasExternalConsumptionUnknown,
   getAllSectionAudioForServer,
   isQuarantinedContextAudioKey,
+  recordSectionAudioCacheReadResult,
   recordSectionAudioCacheWriteFailure,
   saveSectionAudioRecordInternal,
   selectSectionAudioVariant,
@@ -21,10 +22,12 @@ import {
 } from "./audio";
 import {
   AUDIO_CACHE_READ_ATTESTATION_SCOPE,
+  AUDIO_CACHE_READ_RESULT_ATTESTATION_SCOPE,
   AUDIO_CACHE_SAVE_ATTESTATION_SCOPE,
   AUDIO_CACHE_UPLOAD_ATTESTATION_SCOPE,
   AUDIO_CACHE_WRITE_FAILURE_ATTESTATION_SCOPE,
   buildAudioCacheReadAttestationPayload,
+  buildAudioCacheReadResultAttestationPayload,
   buildAudioCacheWriteFailureAttestationPayload,
   buildAudioCacheUploadAttestationPayload,
 } from "../lib/audio-cache-attestation";
@@ -534,6 +537,47 @@ describe("section audio ledger scheduling", () => {
       misses: 0,
       reusedAssetServes: 1,
       avoidedGeneration: 1,
+    });
+  });
+
+  it("records a legacy cache hit whose byte length is unknown", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const input = {
+      source: "featured_audio_warm" as const,
+      provider: "edge" as const,
+      hit: true,
+      byteLength: 0,
+      durationSeconds: 12,
+    };
+    const attestation = await createServerAttestation({
+      scope: AUDIO_CACHE_READ_RESULT_ATTESTATION_SCOPE,
+      payload: buildAudioCacheReadResultAttestationPayload(input),
+      secret: "server-secret",
+      now: Date.now(),
+      nonce: "legacy-cache-read-result-nonce",
+    });
+    const runAfter = vi.fn().mockResolvedValue("scheduled-legacy-hit");
+    const handler = (
+      recordSectionAudioCacheReadResult as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler({ scheduler: { runAfter } }, { ...input, attestation }),
+    ).resolves.toEqual({ created: true, disposition: "inserted" });
+
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(runAfter.mock.calls[0][2]).toMatchObject({
+      source: "featured_audio_warm",
+      provider: "edge",
+      hits: 1,
+      misses: 0,
+      reusedAssetServes: 1,
+      avoidedGeneration: 1,
+      bytes: 0,
+      seconds: 12,
     });
   });
 

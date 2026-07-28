@@ -270,33 +270,30 @@ describe("calculateListeningLedgerUpdate", () => {
 });
 
 describe("cleanupExpiredMeaningfulUseSessionsForCtx", () => {
-  it("clears expired and legacy sessions in a bounded ledger-independent page", async () => {
+  it("clears expired sessions from a bounded indexed page", async () => {
     vi.stubEnv("AI_COST_LEDGER_MODE", "off");
     const paginate = vi.fn().mockResolvedValue({
       page: [
-        {
-          _id: "legacy-session",
-          meaningfulUseSession: { startedAt: 1, sections: [] },
-        },
         {
           _id: "expired-session",
           meaningfulUseSession: { startedAt: 2, sections: [] },
           meaningfulUseSessionExpiresAt: 10_000,
         },
-        {
-          _id: "live-session",
-          meaningfulUseSession: { startedAt: 3, sections: [] },
-          meaningfulUseSessionExpiresAt: 10_001,
-        },
       ],
       continueCursor: "next-page",
       isDone: false,
+    });
+    const lte = vi.fn().mockReturnValue({});
+    const gt = vi.fn().mockReturnValue({ lte });
+    const withIndex = vi.fn((_indexName, range) => {
+      range({ gt });
+      return { paginate };
     });
     const patch = vi.fn().mockResolvedValue(undefined);
     const runAfter = vi.fn().mockResolvedValue("scheduled");
     const ctx = {
       db: {
-        query: vi.fn(() => ({ paginate })),
+        query: vi.fn(() => ({ withIndex })),
         patch,
       },
       scheduler: { runAfter },
@@ -307,32 +304,134 @@ describe("cleanupExpiredMeaningfulUseSessionsForCtx", () => {
         now: 10_000,
         limit: 3,
         cursor: "current-page",
+        phase: "expired",
       }),
     ).resolves.toEqual({
-      cleared: 2,
+      cleared: 1,
       continueCursor: "next-page",
       isDone: false,
     });
 
+    expect(withIndex).toHaveBeenCalledWith(
+      "by_meaningfulUseSessionExpiresAt_sessionStartedAt",
+      expect.any(Function),
+    );
+    expect(gt).toHaveBeenCalledWith("meaningfulUseSessionExpiresAt", undefined);
+    expect(lte).toHaveBeenCalledWith("meaningfulUseSessionExpiresAt", 10_000);
     expect(paginate).toHaveBeenCalledWith({
       cursor: "current-page",
       numItems: 3,
     });
-    expect(patch).toHaveBeenCalledTimes(2);
-    expect(patch).toHaveBeenCalledWith("legacy-session", {
-      meaningfulUseSession: undefined,
-      meaningfulUseSessionExpiresAt: undefined,
-    });
+    expect(patch).toHaveBeenCalledOnce();
     expect(patch).toHaveBeenCalledWith("expired-session", {
       meaningfulUseSession: undefined,
       meaningfulUseSessionExpiresAt: undefined,
     });
-    expect(patch).not.toHaveBeenCalledWith("live-session", expect.anything());
     expect(runAfter).toHaveBeenCalledOnce();
     expect(getFunctionName(runAfter.mock.calls[0][1])).toBe(
       "badges:cleanupExpiredMeaningfulUseSessions",
     );
-    expect(runAfter.mock.calls[0][2]).toEqual({ cursor: "next-page" });
+    expect(runAfter.mock.calls[0][2]).toEqual({
+      cursor: "next-page",
+      phase: "expired",
+    });
+  });
+
+  it("clears legacy sessions from a bounded session-only index page", async () => {
+    const paginate = vi.fn().mockResolvedValue({
+      page: [
+        {
+          _id: "legacy-session",
+          meaningfulUseSession: { startedAt: 1, sections: [] },
+        },
+      ],
+      continueCursor: "next-legacy-page",
+      isDone: false,
+    });
+    const gt = vi.fn().mockReturnValue({});
+    const eq = vi.fn().mockReturnValue({ gt });
+    const withIndex = vi.fn((_indexName, range) => {
+      range({ eq });
+      return { paginate };
+    });
+    const patch = vi.fn().mockResolvedValue(undefined);
+    const runAfter = vi.fn().mockResolvedValue("scheduled");
+    const ctx = {
+      db: {
+        query: vi.fn(() => ({ withIndex })),
+        patch,
+      },
+      scheduler: { runAfter },
+    };
+
+    await expect(
+      cleanupExpiredMeaningfulUseSessionsForCtx(ctx as never, {
+        now: 10_000,
+        limit: 3,
+        cursor: "legacy-page",
+        phase: "legacy",
+      }),
+    ).resolves.toEqual({
+      cleared: 1,
+      continueCursor: "next-legacy-page",
+      isDone: false,
+    });
+
+    expect(withIndex).toHaveBeenCalledWith(
+      "by_meaningfulUseSessionExpiresAt_sessionStartedAt",
+      expect.any(Function),
+    );
+    expect(eq).toHaveBeenCalledWith("meaningfulUseSessionExpiresAt", undefined);
+    expect(gt).toHaveBeenCalledWith(
+      "meaningfulUseSession.startedAt",
+      undefined,
+    );
+    expect(paginate).toHaveBeenCalledWith({
+      cursor: "legacy-page",
+      numItems: 3,
+    });
+    expect(patch).toHaveBeenCalledOnce();
+    expect(patch).toHaveBeenCalledWith("legacy-session", {
+      meaningfulUseSession: undefined,
+      meaningfulUseSessionExpiresAt: undefined,
+    });
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(runAfter.mock.calls[0][2]).toEqual({
+      cursor: "next-legacy-page",
+      phase: "legacy",
+    });
+  });
+
+  it("starts the defensive legacy phase after indexed expiry cleanup drains", async () => {
+    const paginate = vi.fn().mockResolvedValue({
+      page: [],
+      continueCursor: "",
+      isDone: true,
+    });
+    const lte = vi.fn().mockReturnValue({});
+    const gt = vi.fn().mockReturnValue({ lte });
+    const withIndex = vi.fn((_indexName, range) => {
+      range({ gt });
+      return { paginate };
+    });
+    const runAfter = vi.fn().mockResolvedValue("scheduled");
+    const ctx = {
+      db: {
+        query: vi.fn(() => ({ withIndex })),
+        patch: vi.fn(),
+      },
+      scheduler: { runAfter },
+    };
+
+    await cleanupExpiredMeaningfulUseSessionsForCtx(ctx as never, {
+      now: 10_000,
+      limit: 3,
+      cursor: null,
+      phase: "expired",
+    });
+
+    expect(runAfter).toHaveBeenCalledOnce();
+    expect(runAfter.mock.calls[0][2]).toEqual({ phase: "legacy" });
   });
 });
 

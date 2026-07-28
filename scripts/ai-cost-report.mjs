@@ -541,9 +541,9 @@ export const main = async (
         serializeAiCostReportCsv(report, { limit }),
         "utf8",
       );
+      removePartialExport = false;
       await exportHandle.close();
       exportHandle = undefined;
-      removePartialExport = false;
       writeStdout(
         `Exported ${rows.length} AI cost ${rows.length === 1 ? "row" : "rows"} to ${exportPath}.\n`,
       );

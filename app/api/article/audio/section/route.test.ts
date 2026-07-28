@@ -326,6 +326,54 @@ describe("POST /api/article/audio/section", () => {
     });
   });
 
+  it("estimates reused seconds when a legacy cache entry has no duration", async () => {
+    fetchMutation.mockReset();
+    fetchMutation.mockImplementation(async (functionReference) => {
+      switch (getFunctionName(functionReference)) {
+        case "audio:getAllSectionAudioForServer":
+          return {
+            urls: { summary: "https://storage.example/legacy-summary.mp3" },
+            durations: {},
+            metadata: { summary: edgeMetadata },
+          };
+        case "audio:recordSectionAudioCacheReadResult":
+          return { created: true, disposition: "inserted" };
+        default:
+          throw new Error(
+            `Unexpected mutation: ${getFunctionName(functionReference)}`,
+          );
+      }
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(Uint8Array.of(9, 8, 7), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }),
+    );
+
+    const { POST } = await import("./route");
+    const response = await POST(request("edge"));
+    await Promise.all(pendingAfterTasks);
+
+    expect(response.status).toBe(200);
+    const cacheResultCall = fetchMutation.mock.calls.find(
+      ([functionReference]) =>
+        getFunctionName(functionReference) ===
+        "audio:recordSectionAudioCacheReadResult",
+    );
+    expect(cacheResultCall?.[1]).toEqual({
+      source: "interactive_article",
+      provider: "edge",
+      hit: true,
+      byteLength: 3,
+      durationSeconds: 3,
+      attestation: expect.any(Object),
+    });
+  });
+
   it("records a miss instead of avoided generation when cached bytes are unusable", async () => {
     fetchMutation.mockReset();
     fetchMutation.mockImplementation(async (functionReference) => {

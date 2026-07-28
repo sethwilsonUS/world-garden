@@ -1114,6 +1114,10 @@ export default defineSchema({
     .index("by_viewerTokenIdentifier_articleId", [
       "viewerTokenIdentifier",
       "articleId",
+    ])
+    .index("by_meaningfulUseSessionExpiresAt_sessionStartedAt", [
+      "meaningfulUseSessionExpiresAt",
+      "meaningfulUseSession.startedAt",
     ]),
 
   badgeArticleCredits: defineTable({

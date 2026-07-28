@@ -834,6 +834,7 @@ const addRollupDelta = async (
   },
   delta: RollupDelta,
   now: number,
+  { seedMissingBucket = true }: { seedMissingBucket?: boolean } = {},
 ): Promise<void> => {
   const key = [
     dimensions.bucketStart,
@@ -847,6 +848,7 @@ const addRollupDelta = async (
     .unique()) as LedgerRollupDocument | null;
 
   if (!existing) {
+    if (!seedMissingBucket) return;
     await db.insert("aiCostDailyRollups", {
       key,
       ...dimensions,
@@ -1020,6 +1022,9 @@ export const recordProviderAttemptForCtx = async (
       event: { kind: "provider_attempt" },
     };
   }
+  if (existingDocument && !existingAttempt) {
+    return { recorded: false, disposition: "stale" };
+  }
   const disposition = resolveProviderAttemptWrite(existingAttempt, attempt);
   if (disposition === "duplicate" || disposition === "stale") {
     return { recorded: false, disposition };
@@ -1096,6 +1101,7 @@ export const recordProviderAttemptForCtx = async (
     },
     negateRollupDelta(oldContribution),
     now,
+    { seedMissingBucket: false },
   );
   await addRollupDelta(db, dimensions, contribution, now);
   return { recorded: true, disposition };

@@ -506,9 +506,7 @@ export const recordSectionAudioCacheReadResult = mutation({
     if (
       !Number.isFinite(result.durationSeconds) ||
       result.durationSeconds < 0 ||
-      (!result.hit &&
-        (result.byteLength !== 0 || result.durationSeconds !== 0)) ||
-      (result.hit && result.byteLength === 0)
+      (!result.hit && (result.byteLength !== 0 || result.durationSeconds !== 0))
     ) {
       throw new Error("Audio cache read result is inconsistent.");
     }

@@ -139,6 +139,38 @@ describe("homepage summary audio warmer", () => {
     consoleWarn.mockRestore();
   });
 
+  it("records a legacy cache hit when its byte length is unknown", async () => {
+    const expected = getTtsMetadata(getTtsProfile("edge"));
+    const dependencies = makeDependencies({
+      getCachedSummary: vi.fn(async () => ({
+        url: "https://audio.test/legacy.mp3",
+        metadata: expected,
+        durationSeconds: 12,
+      })),
+    });
+
+    const result = await warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot: snapshot(["Legacy"]),
+      dependencies,
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      reused: 1,
+      generated: 0,
+      failed: 0,
+    });
+    expect(dependencies.recordCacheReadResult).toHaveBeenCalledWith({
+      source: "featured_audio_warm",
+      provider: "edge",
+      hit: true,
+      byteLength: 0,
+      durationSeconds: 12,
+    });
+    expect(dependencies.generateAudio).not.toHaveBeenCalled();
+  });
+
   it("uses the canonical normalized summary text and hash", async () => {
     const article = warmArticleFixture(
       { slug: "Canonical", title: "Canonical" },

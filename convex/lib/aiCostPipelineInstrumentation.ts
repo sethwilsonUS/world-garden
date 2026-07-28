@@ -95,6 +95,7 @@ export const recordPipelineOutcomeBestEffort = async (
   ctx: Pick<ActionCtx, "runMutation">,
   input: AiCostPipelineOutcomeInput,
 ): Promise<void> => {
+  if (getAiCostLedgerMode() !== "observe") return;
   try {
     await ctx.runMutation(recordPipelineOutcomeInternal, input);
   } catch {
@@ -120,6 +121,7 @@ export const recordCacheWriteFailureBestEffort = async (
   ctx: Pick<ActionCtx, "runMutation">,
   input: Pick<AiCostCacheDecisionInput, "eventKey" | "source" | "provider">,
 ): Promise<void> => {
+  if (getAiCostLedgerMode() !== "observe") return;
   try {
     await ctx.runMutation(recordCacheDecisionInternal, {
       ...input,
