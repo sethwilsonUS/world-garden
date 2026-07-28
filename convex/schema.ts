@@ -849,4 +849,13 @@ export default defineSchema({
   })
     .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
     .index("by_storageId", ["storageId"]),
+
+  accountOwnedStorageSweepState: defineTable({
+    key: v.string(),
+    scannedThrough: v.number(),
+    activeCutoff: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
 });

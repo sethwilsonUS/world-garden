@@ -15,4 +15,11 @@ crons.hourly(
   internal.rateLimits.cleanupExpiredRouteQuotas,
 );
 
+crons.hourly(
+  "reconcile account-owned audio storage",
+  { minuteUTC: 53 },
+  internal.accountOwnedStorage.sweepAccountOwnedStorageOrphans,
+  { continuation: false },
+);
+
 export default crons;

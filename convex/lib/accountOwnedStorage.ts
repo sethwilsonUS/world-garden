@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { isAccountOwnedAudioStorageContentType } from "../../lib/account-owned-audio-storage";
 import { isViewerAccountDeletionActiveForCtx } from "./accountDeletionState";
 
 export const accountOwnedStorageKindValidator = v.union(
@@ -29,6 +30,14 @@ const getStorageLedgers = async (
     .query("accountOwnedStorage")
     .withIndex("by_storageId", (query) => query.eq("storageId", storageId))
     .collect();
+
+export const hasAccountOwnedAudioStorageMarkerForCtx = async (
+  ctx: AccountOwnedStorageCtx,
+  storageId: Id<"_storage">,
+): Promise<boolean> => {
+  const metadata = await ctx.db.system.get("_storage", storageId);
+  return isAccountOwnedAudioStorageContentType(metadata?.contentType);
+};
 
 export const deleteAccountOwnedStorageForCtx = async (
   ctx: AccountOwnedStorageCtx,

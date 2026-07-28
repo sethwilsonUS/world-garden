@@ -119,6 +119,7 @@ const createCtx = (seed?: {
   episodes?: EpisodeDoc[];
   quotas?: QuotaDoc[];
   ownedStorage?: AccountOwnedStorageDoc[];
+  storageContentTypes?: Record<string, string | undefined>;
   viewerTokenIdentifier?: string | null;
   deletingViewerTokenIdentifiers?: string[];
 }) => {
@@ -152,6 +153,17 @@ const createCtx = (seed?: {
             },
     },
     db: {
+      system: {
+        get: async (_tableName: "_storage", storageId: Id<"_storage">) => ({
+          _id: storageId,
+          _creationTime: 1,
+          sha256: "sha256",
+          size: 1,
+          contentType:
+            seed?.storageContentTypes?.[String(storageId)] ??
+            "application/vnd.curiogarden.account-audio",
+        }),
+      },
       query: (
         tableName:
           | "personalPodcastFeeds"
@@ -1559,6 +1571,37 @@ describe("personal playlist data helpers", () => {
       }),
     ).resolves.toEqual({ registered: false });
     expect(deleteStorage).toHaveBeenCalledWith("expired-upload");
+  });
+
+  it("rejects an account-owned upload without the exact storage marker", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, deleteStorage, getOwnedStorage } = createCtx({
+      storageContentTypes: { "unmarked-upload": "audio/mpeg" },
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "running",
+          leaseOwner: "worker-current",
+          leaseExpiresAt: Date.now() + 60_000,
+        }),
+      ],
+    });
+
+    await expect(
+      invokeRegistered(registerViewerPlaylistEpisodeStorageInternal, ctx, {
+        episodeId,
+        viewerTokenIdentifier: "user-1",
+        owner: "worker-current",
+        storageId: "unmarked-upload" as Id<"_storage">,
+      }),
+    ).resolves.toEqual({ registered: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("unmarked-upload");
+    expect(getOwnedStorage()).toEqual([]);
   });
 
   it("discards unattached audio without deleting the episode's published blob", async () => {

@@ -3,6 +3,7 @@ import { getFunctionName, type FunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import {
   ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD,
+  ACCOUNT_DELETION_PURGE_SWEEP_RETRY_MS,
   ACCOUNT_DELETION_TOMBSTONE_GRACE_MS,
   initiateAccountDeletionForCtx,
   listPendingClerkDeletions,
@@ -14,6 +15,10 @@ import {
   runAccountDeletionCleanupBatch,
   runAccountDeletionCleanupBatchForCtx,
 } from "./accountDeletion";
+import {
+  ACCOUNT_OWNED_AUDIO_MAX_LATE_ACTION_MS,
+  ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
+} from "../lib/account-owned-audio-storage";
 import {
   createListPendingClerkDeletionsAttestation,
   createMarkClerkDeletionAttestation,
@@ -446,6 +451,12 @@ describe("account deletion lifecycle", () => {
         purgeAfter: 3_000 + ACCOUNT_DELETION_TOMBSTONE_GRACE_MS,
       }),
     );
+    await ctx.db.insert("accountOwnedStorageSweepState", {
+      key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
+      scannedThrough: 1_000 + ACCOUNT_OWNED_AUDIO_MAX_LATE_ACTION_MS,
+      createdAt: 3_000,
+      updatedAt: 3_000,
+    });
 
     await purgeAccountDeletionRequestForCtx(
       ctx as never,
@@ -492,6 +503,56 @@ describe("account deletion lifecycle", () => {
     );
     expect(scheduled).toHaveLength(1);
   });
+
+  it.each([
+    { label: "is missing", scannedThrough: undefined },
+    {
+      label: "is one millisecond behind",
+      scannedThrough: 100 + ACCOUNT_OWNED_AUDIO_MAX_LATE_ACTION_MS - 1,
+    },
+  ])(
+    "retains the deletion tombstone when orphan sweep coverage $label",
+    async ({ scannedThrough }) => {
+      const purgeAfter = 5_000;
+      const { ctx, getTable, scheduled } = createCtx({
+        tables: {
+          accountDeletionRequests: [
+            deletionRequest({
+              status: "clerk_deleted",
+              phase: "grace_period",
+              purgeAfter,
+            }),
+          ],
+          accountOwnedStorageSweepState:
+            scannedThrough === undefined
+              ? []
+              : [
+                  {
+                    _id: "accountOwnedStorageSweepState-1",
+                    key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
+                    scannedThrough,
+                  },
+                ],
+        },
+      });
+
+      await expect(
+        purgeAccountDeletionRequestForCtx(
+          ctx as never,
+          { requestId: "accountDeletionRequests-1" as never },
+          purgeAfter,
+        ),
+      ).resolves.toEqual({ purged: false, cleanupRestarted: false });
+
+      expect(getTable("accountDeletionRequests")).toHaveLength(1);
+      expect(scheduled).toEqual([
+        expect.objectContaining({
+          delay: ACCOUNT_DELETION_PURGE_SWEEP_RETRY_MS,
+          args: { requestId: "accountDeletionRequests-1" },
+        }),
+      ]);
+    },
+  );
 
   it.each([
     {

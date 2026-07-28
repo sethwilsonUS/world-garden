@@ -27,9 +27,14 @@ import {
   getArticleAudioExportQuotaKey,
   getPersonalPlaylistOpenAiQuotaKey,
 } from "./lib/accountQuotaKeys";
+import {
+  ACCOUNT_OWNED_AUDIO_MAX_LATE_ACTION_MS,
+  ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
+} from "../lib/account-owned-audio-storage";
 
 export const ACCOUNT_DELETION_BATCH_SIZE = 25;
 export const ACCOUNT_DELETION_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1_000;
+export const ACCOUNT_DELETION_PURGE_SWEEP_RETRY_MS = 60 * 60 * 1_000;
 // Keep retrying safely, but cap backoff state and emit one durable operator
 // signal after a sustained run of failures.
 export const ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD = 12;
@@ -997,6 +1002,22 @@ export const purgeAccountDeletionRequestForCtx = async (
     });
     await scheduleCleanup(ctx, request._id);
     return { purged: false, cleanupRestarted: true };
+  }
+  const sweepState = await ctx.db
+    .query("accountOwnedStorageSweepState")
+    .withIndex("by_key", (query) =>
+      query.eq("key", ACCOUNT_OWNED_AUDIO_SWEEP_KEY),
+    )
+    .first();
+  const requiredSweepHighWater =
+    request.createdAt + ACCOUNT_OWNED_AUDIO_MAX_LATE_ACTION_MS;
+  if (!sweepState || sweepState.scannedThrough < requiredSweepHighWater) {
+    await schedulePurge(
+      ctx,
+      request._id,
+      ACCOUNT_DELETION_PURGE_SWEEP_RETRY_MS,
+    );
+    return { purged: false, cleanupRestarted: false };
   }
   await ctx.db.delete(request._id);
   return { purged: true, cleanupRestarted: false };

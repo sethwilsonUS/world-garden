@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeStoredAudioContentType } from "@/lib/account-owned-audio-storage";
 
 export const PODCAST_MEDIA_CACHE_CONTROL =
   "public, max-age=300, s-maxage=300, stale-while-revalidate=900";
@@ -74,7 +75,9 @@ const createPodcastMediaProxyResponse = async ({
 
   const headers = new Headers({
     "Cache-Control": isRangeNotSatisfiable ? "private, no-store" : cacheControl,
-    "Content-Type": upstream.headers.get("Content-Type") ?? "audio/mpeg",
+    "Content-Type": normalizeStoredAudioContentType(
+      upstream.headers.get("Content-Type"),
+    ),
     Vary: "Range",
   });
   if (contentDisposition) {

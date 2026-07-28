@@ -72,6 +72,26 @@ describe("createPodcastAttachmentResponse", () => {
     expect(await response.text()).toBe("audio-data");
   });
 
+  it("normalizes private account-owned storage media to MP3", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("private-audio", {
+        headers: {
+          "Content-Type": "application/vnd.curiogarden.account-audio",
+        },
+      }),
+    );
+
+    const response = await createPodcastAttachmentResponse({
+      audioUrl: "https://example.com/private-audio",
+      title: "Private Article",
+      fallbackFilename: "fallback.mp3",
+      cacheControl: "private, no-store",
+      request: new NextRequest("https://example.com/download?download=1"),
+    });
+
+    expect(response.headers.get("Content-Type")).toBe("audio/mpeg");
+  });
+
   it("supports private cache policy for authenticated audio downloads", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("audio-data", {

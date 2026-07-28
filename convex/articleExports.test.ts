@@ -1456,6 +1456,11 @@ describe("article audio export worker leases", () => {
       getHandler(registerArticleAudioExportUpload)(
         {
           db: {
+            system: {
+              get: vi.fn(async () => ({
+                contentType: "application/vnd.curiogarden.account-audio",
+              })),
+            },
             get: vi.fn(async () => ({
               ...queuedRecord,
               status: "running",
@@ -1492,6 +1497,11 @@ describe("article audio export worker leases", () => {
       getHandler(registerArticleAudioExportUpload)(
         {
           db: {
+            system: {
+              get: vi.fn(async () => ({
+                contentType: "application/vnd.curiogarden.account-audio",
+              })),
+            },
             get: vi.fn(async () => ({
               ...queuedRecord,
               status: "running",
@@ -1522,6 +1532,45 @@ describe("article audio export worker leases", () => {
 
     expect(deleteStorage).toHaveBeenCalledWith("expired-upload");
     expect(deleteLedger).toHaveBeenCalledWith("expired-ledger");
+  });
+
+  it("rejects an owned export upload without the exact storage marker", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const viewerTokenIdentifier = "https://clerk.example|upload-owner";
+    const deleteStorage = vi.fn();
+    const insert = vi.fn();
+
+    await expect(
+      getHandler(registerArticleAudioExportUpload)(
+        {
+          db: {
+            system: {
+              get: vi.fn(async () => ({ contentType: "audio/mpeg" })),
+            },
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              ownerTokenIdentifier: viewerTokenIdentifier,
+              leaseOwner: "current-worker",
+              leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+            })),
+            query: vi.fn(() => createEmptyOwnedStorageQueryChain()),
+            insert,
+            patch: vi.fn(),
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          owner: "current-worker",
+          storageId: "unmarked-upload",
+        },
+      ),
+    ).resolves.toEqual({ registered: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("unmarked-upload");
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it("rejects and removes a completion after its matching worker lease expired", async () => {
@@ -1653,6 +1702,11 @@ describe("article audio export worker leases", () => {
       completion: "throw",
     });
 
+    expect(workerMocks.uploadStreamToConvexStorage).toHaveBeenCalledWith(
+      "upload-url",
+      expect.any(ReadableStream),
+      "application/vnd.curiogarden.account-audio",
+    );
     expect(result.discardArgs).toEqual([
       {
         exportId: "export-1",
