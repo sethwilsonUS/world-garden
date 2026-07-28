@@ -77,18 +77,6 @@ const assertRequestedTtsMetadataValid = (
   }
 };
 
-// Deployment bridge for clients released before getViewerFeedState. Remove
-// after the proxy-based personal media release is serving in production.
-export const getViewerFeedToken = query({
-  args: {},
-  async handler(ctx) {
-    const viewerTokenIdentifier =
-      await getAuthenticatedViewerTokenIdentifier(ctx);
-    const feed = await getViewerFeedRecord(ctx, viewerTokenIdentifier);
-    return getViewerPersonalFeedState(feed).feedToken;
-  },
-});
-
 export const getViewerFeedState = query({
   args: {},
   async handler(ctx) {
@@ -271,39 +259,6 @@ export const getFeedEpisodesByToken = query({
       feed: { updatedAt: feed.updatedAt },
       episodes,
     };
-  },
-});
-
-// Deployment bridge for the currently deployed redirecting media route. This
-// remains deliberately narrow and is removed immediately after that route has
-// been replaced by the attested proxy release.
-export const getEpisodeByTokenAndId = query({
-  args: {
-    feedToken: v.string(),
-    episodeId: v.id("personalPlaylistEpisodes"),
-  },
-  async handler(ctx, args) {
-    const feed = await getViewerFeedRecordByToken(ctx, args.feedToken);
-    if (!feed) {
-      return null;
-    }
-    const episode = await getReadyPersonalPodcastEpisodeForFeed(
-      ctx,
-      feed,
-      args.episodeId,
-    );
-    if (!episode?.storageId) {
-      return null;
-    }
-
-    const audioUrl = await ctx.storage.getUrl(episode.storageId);
-    return audioUrl
-      ? {
-          title: episode.title,
-          status: "ready" as const,
-          audioUrl,
-        }
-      : null;
   },
 });
 
