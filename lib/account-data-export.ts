@@ -394,7 +394,9 @@ export const assembleAccountDataExport = async ({
     };
   } catch (error) {
     abortExport(error);
-    throw new Error("Account data export could not be assembled");
+    throw new Error("Account data export could not be assembled", {
+      cause: error,
+    });
   } finally {
     clearTimeout(timeoutId);
     parentSignal?.removeEventListener("abort", abortFromParent);

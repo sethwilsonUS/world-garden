@@ -284,7 +284,9 @@ const SignedInAccountData = () => {
       if (!isMountedRef.current) return;
       if (didTimeout) {
         setExportState("timeout");
-      } else if (!controller.signal.aborted) {
+      } else if (controller.signal.aborted) {
+        setExportState("idle");
+      } else {
         setExportState("error");
       }
     } finally {
@@ -325,7 +327,9 @@ const SignedInAccountData = () => {
           </h3>
           <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-[1.75] text-foreground-2">
             <li>Account profile details available to Curio Garden.</li>
-            <li>Bookmarks, plus Playlist order and episode status.</li>
+            <li>
+              Bookmarks, plus Personal Playlist order and episode status.
+            </li>
             <li>
               Signed-in listening progress, including heard ranges, and
               topic-badge credit earned from qualifying listening.

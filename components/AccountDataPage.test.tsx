@@ -112,7 +112,9 @@ describe("AccountDataPage", () => {
     const markup = renderToStaticMarkup(createElement(AccountDataPage));
 
     expect(markup).toContain("Download account data");
-    expect(markup).toContain("Bookmarks, plus Playlist order");
+    expect(markup).toContain(
+      "Bookmarks, plus Personal Playlist order and episode status",
+    );
     expect(markup).toContain("listening progress, including heard ranges");
     expect(markup).toContain("topic-badge credit");
     expect(markup).toContain("active private RSS feed token");
@@ -394,6 +396,57 @@ describe("AccountDataPage", () => {
     expect(createObjectUrl).not.toHaveBeenCalled();
     expect(anchorClick).not.toHaveBeenCalled();
     expect(revokeObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it("returns to idle when an in-flight export is aborted while the page stays mounted", async () => {
+    authState = "signed-in";
+    const nativeAbortController = globalThis.AbortController;
+
+    class CapturingAbortController extends nativeAbortController {
+      static active: CapturingAbortController | undefined;
+
+      constructor() {
+        super();
+        CapturingAbortController.active = this;
+      }
+    }
+
+    vi.stubGlobal("AbortController", CapturingAbortController);
+    vi.mocked(fetch).mockReturnValue(new Promise<Response>(() => {}));
+
+    await act(async () => {
+      root.render(<AccountDataPage />);
+      await Promise.resolve();
+    });
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[type="button"]',
+    );
+    const status = container.querySelector('[role="status"]');
+    button?.focus();
+
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+    });
+
+    expect(CapturingAbortController.active).toBeInstanceOf(
+      nativeAbortController,
+    );
+    expect(status?.textContent).toBe("Preparing your account data export.");
+
+    await act(async () => {
+      CapturingAbortController.active?.abort();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("");
+    expect(button?.textContent).toContain("Download account data");
+    expect(button?.getAttribute("aria-disabled")).toBe("false");
+    expect(button?.getAttribute("aria-busy")).toBe("false");
+    expect(document.activeElement).toBe(button);
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    expect(anchorClick).not.toHaveBeenCalled();
   });
 
   it("times out a stalled export, preserves focus, and announces the failure", async () => {

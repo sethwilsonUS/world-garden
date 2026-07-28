@@ -71,7 +71,7 @@ describe("PrivacyPage", () => {
       "download a portable JSON copy of your server-side account data",
     );
     expect(markup).toContain(
-      "bookmarks, Playlist order and episode status, listening progress, topic-badge credit",
+      "bookmarks, Personal Playlist order and episode status, listening progress, topic-badge credit",
     );
     expect(markup).toContain(
       "active private RSS feed token is included and remains a bearer credential",

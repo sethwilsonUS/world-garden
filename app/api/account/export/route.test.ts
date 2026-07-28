@@ -258,6 +258,7 @@ describe("POST /api/account/export", () => {
     expect(mocks.getToken).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
       "[/api/account/export] Account export failed",
+      expect.any(Error),
     );
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -296,6 +297,7 @@ describe("POST /api/account/export", () => {
     expect(requestFetch).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
       "[/api/account/export] Account export failed",
+      expect.any(Error),
     );
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -352,6 +354,7 @@ describe("POST /api/account/export", () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(consoleError).toHaveBeenCalledWith(
       "[/api/account/export] Account export failed",
+      expect.any(Error),
     );
   });
 
@@ -409,6 +412,11 @@ describe("POST /api/account/export", () => {
     );
     expect(consoleError).toHaveBeenCalledWith(
       "[/api/account/export] Account export failed",
+      expect.objectContaining({
+        cause: expect.objectContaining({
+          message: "Secret Convex deployment details",
+        }),
+      }),
     );
   });
 });

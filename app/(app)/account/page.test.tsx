@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountPage, { metadata } from "./page";
 
 vi.mock("@clerk/nextjs", () => ({
@@ -10,11 +10,26 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 describe("AccountPage", () => {
+  const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+  });
+
+  afterEach(() => {
+    if (originalLocalMode === undefined) {
+      delete process.env.NEXT_PUBLIC_LOCAL_MODE;
+    } else {
+      process.env.NEXT_PUBLIC_LOCAL_MODE = originalLocalMode;
+    }
+  });
+
   it("publishes account-data metadata and renders the account export route", () => {
     const markup = renderToStaticMarkup(createElement(AccountPage));
 
     expect(metadata.title).toBe("Account & data — Curio Garden");
     expect(metadata.description).toContain("export");
+    expect(metadata.robots).toEqual({ index: false, follow: false });
     expect(markup).toContain("Account &amp; data");
     expect(markup).toContain("Sign in to export your account data");
   });

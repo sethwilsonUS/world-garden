@@ -218,9 +218,10 @@ export default function PrivacyPage() {
               Account &amp; data page
             </Link>
             , you can download a portable JSON copy of your server-side account
-            data. It includes bookmarks, Playlist order and episode status,
-            listening progress, topic-badge credit, personal feed state, and
-            metadata about article-audio exports and generation quota windows.
+            data. It includes bookmarks, Personal Playlist order and episode
+            status, listening progress, topic-badge credit, personal feed
+            state, and metadata about article-audio exports and generation
+            quota windows.
             While the feed URL is active, the active private RSS feed token is
             included and remains a bearer credential, so keep the export
             private. Revoked feed tokens are not included. The export contains

@@ -151,134 +151,140 @@ export const getViewerAccountDataPageForCtx = async (
     await getAuthenticatedViewerTokenIdentifier(ctx);
   const paginationOpts = normalizePaginationOptions(args.paginationOpts);
 
-  if (args.collection === "bookmarks") {
-    const result = await ctx.db
-      .query("bookmarks")
-      .withIndex("by_viewerTokenIdentifier", (q) =>
-        q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
-      )
-      .paginate(paginationOpts);
+  switch (args.collection) {
+    case "bookmarks": {
+      const result = await ctx.db
+        .query("bookmarks")
+        .withIndex("by_viewerTokenIdentifier", (q) =>
+          q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
+        )
+        .paginate(paginationOpts);
 
-    return {
-      ...result,
-      page: result.page.map((bookmark) => ({
-        slug: bookmark.slug,
-        title: bookmark.title,
-        savedAt: bookmark.savedAt,
-        updatedAt: bookmark.updatedAt,
-      })),
-    };
-  }
-
-  if (args.collection === "playlistEpisodes") {
-    const result = await ctx.db
-      .query("personalPlaylistEpisodes")
-      .withIndex("by_viewerTokenIdentifier", (q) =>
-        q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
-      )
-      .paginate(paginationOpts);
-
-    return {
-      ...result,
-      page: result.page.map((episode) => ({
-        slug: episode.slug,
-        title: episode.title,
-        description: episode.description,
-        imageUrl: episode.imageUrl,
-        position: episode.position,
-        publishedAt: episode.publishedAt,
-        removedAt: episode.removedAt,
-        status: episode.status,
-        stage: episode.stage,
-        sectionCount: episode.sectionCount,
-        completedSectionCount: episode.completedSectionCount,
-        durationSeconds: episode.durationSeconds,
-        byteLength: episode.byteLength,
-        provider: episode.provider,
-        model: episode.model,
-        voiceId: episode.voiceId,
-        createdAt: episode.createdAt,
-        updatedAt: episode.updatedAt,
-      })),
-    };
-  }
-
-  if (args.collection === "listeningProgress") {
-    const result = await ctx.db
-      .query("viewerArticleListenProgress")
-      .withIndex("by_viewerTokenIdentifier", (q) =>
-        q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
-      )
-      .paginate(paginationOpts);
-
-    return {
-      ...result,
-      page: result.page.map((progress) => ({
-        wikiPageId: progress.wikiPageId,
-        slug: progress.slug,
-        title: progress.title,
-        totalDurationSeconds: progress.totalDurationSeconds,
-        heardSeconds: progress.heardSeconds,
-        qualifiedAt: progress.qualifiedAt,
-        sections: progress.sections.map((section) => ({
-          sectionKey: section.sectionKey,
-          durationSeconds: section.durationSeconds,
-          heardRanges: section.heardRanges.map((range) => ({
-            startSecond: range.startSecond,
-            endSecond: range.endSecond,
-          })),
+      return {
+        ...result,
+        page: result.page.map((bookmark) => ({
+          slug: bookmark.slug,
+          title: bookmark.title,
+          savedAt: bookmark.savedAt,
+          updatedAt: bookmark.updatedAt,
         })),
-        createdAt: progress.createdAt,
-        updatedAt: progress.updatedAt,
-      })),
-    };
+      };
+    }
+    case "playlistEpisodes": {
+      const result = await ctx.db
+        .query("personalPlaylistEpisodes")
+        .withIndex("by_viewerTokenIdentifier", (q) =>
+          q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
+        )
+        .paginate(paginationOpts);
+
+      return {
+        ...result,
+        page: result.page.map((episode) => ({
+          slug: episode.slug,
+          title: episode.title,
+          description: episode.description,
+          imageUrl: episode.imageUrl,
+          position: episode.position,
+          publishedAt: episode.publishedAt,
+          removedAt: episode.removedAt,
+          status: episode.status,
+          stage: episode.stage,
+          sectionCount: episode.sectionCount,
+          completedSectionCount: episode.completedSectionCount,
+          durationSeconds: episode.durationSeconds,
+          byteLength: episode.byteLength,
+          provider: episode.provider,
+          model: episode.model,
+          voiceId: episode.voiceId,
+          createdAt: episode.createdAt,
+          updatedAt: episode.updatedAt,
+        })),
+      };
+    }
+    case "listeningProgress": {
+      const result = await ctx.db
+        .query("viewerArticleListenProgress")
+        .withIndex("by_viewerTokenIdentifier", (q) =>
+          q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
+        )
+        .paginate(paginationOpts);
+
+      return {
+        ...result,
+        page: result.page.map((progress) => ({
+          wikiPageId: progress.wikiPageId,
+          slug: progress.slug,
+          title: progress.title,
+          totalDurationSeconds: progress.totalDurationSeconds,
+          heardSeconds: progress.heardSeconds,
+          qualifiedAt: progress.qualifiedAt,
+          sections: progress.sections.map((section) => ({
+            sectionKey: section.sectionKey,
+            durationSeconds: section.durationSeconds,
+            heardRanges: section.heardRanges.map((range) => ({
+              startSecond: range.startSecond,
+              endSecond: range.endSecond,
+            })),
+          })),
+          createdAt: progress.createdAt,
+          updatedAt: progress.updatedAt,
+        })),
+      };
+    }
+    case "badgeCredits": {
+      const result = await ctx.db
+        .query("badgeArticleCredits")
+        .withIndex("by_viewerTokenIdentifier", (q) =>
+          q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
+        )
+        .paginate(paginationOpts);
+
+      return {
+        ...result,
+        page: result.page.map((credit) => ({
+          wikiPageId: credit.wikiPageId,
+          slug: credit.slug,
+          title: credit.title,
+          badgeKey: credit.badgeKey,
+          earnedAt: credit.earnedAt,
+        })),
+      };
+    }
+    case "articleAudioExports": {
+      const result = await ctx.db
+        .query("articleAudioExports")
+        .withIndex("by_ownerTokenIdentifier", (q) =>
+          q.eq("ownerTokenIdentifier", viewerTokenIdentifier),
+        )
+        .paginate(paginationOpts);
+
+      return {
+        ...result,
+        page: result.page.map((audioExport) => ({
+          slug: audioExport.slug,
+          title: audioExport.title,
+          status: audioExport.status,
+          stage: audioExport.stage,
+          sectionCount: audioExport.sectionCount,
+          completedSectionCount: audioExport.completedSectionCount,
+          byteLength: audioExport.byteLength,
+          ttsProvider: audioExport.ttsProvider,
+          model: audioExport.requestedTtsMetadata?.model,
+          voiceId: audioExport.requestedTtsMetadata?.voiceId,
+          dismissedAt: audioExport.dismissedAt,
+          createdAt: audioExport.createdAt,
+          updatedAt: audioExport.updatedAt,
+        })),
+      };
+    }
+    default: {
+      const exhaustiveCollection: never = args.collection;
+      throw new Error(
+        `Unsupported account data collection: ${exhaustiveCollection}`,
+      );
+    }
   }
-
-  if (args.collection === "badgeCredits") {
-    const result = await ctx.db
-      .query("badgeArticleCredits")
-      .withIndex("by_viewerTokenIdentifier", (q) =>
-        q.eq("viewerTokenIdentifier", viewerTokenIdentifier),
-      )
-      .paginate(paginationOpts);
-
-    return {
-      ...result,
-      page: result.page.map((credit) => ({
-        wikiPageId: credit.wikiPageId,
-        slug: credit.slug,
-        title: credit.title,
-        badgeKey: credit.badgeKey,
-        earnedAt: credit.earnedAt,
-      })),
-    };
-  }
-
-  const result = await ctx.db
-    .query("articleAudioExports")
-    .withIndex("by_ownerTokenIdentifier", (q) =>
-      q.eq("ownerTokenIdentifier", viewerTokenIdentifier),
-    )
-    .paginate(paginationOpts);
-
-  return {
-    ...result,
-    page: result.page.map((audioExport) => ({
-      slug: audioExport.slug,
-      title: audioExport.title,
-      status: audioExport.status,
-      stage: audioExport.stage,
-      sectionCount: audioExport.sectionCount,
-      completedSectionCount: audioExport.completedSectionCount,
-      byteLength: audioExport.byteLength,
-      ttsProvider: audioExport.ttsProvider,
-      model: audioExport.requestedTtsMetadata?.model,
-      voiceId: audioExport.requestedTtsMetadata?.voiceId,
-      dismissedAt: audioExport.dismissedAt,
-      createdAt: audioExport.createdAt,
-      updatedAt: audioExport.updatedAt,
-    })),
-  };
 };
 
 export const getViewerAccountDataPage = query({

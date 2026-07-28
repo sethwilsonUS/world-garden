@@ -122,6 +122,30 @@ const resolveExportAuthWithDeadline = async (
   }
 };
 
+const resolveWithRouteDeadline = async <Result>(
+  routeSignal: AbortSignal,
+  operation: () => Promise<Result>,
+): Promise<Result> => {
+  if (routeSignal.aborted) {
+    throw routeSignal.reason ?? new Error("Account export cancelled");
+  }
+
+  let rejectOnAbort: (() => void) | undefined;
+  try {
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      rejectOnAbort = () =>
+        reject(routeSignal.reason ?? new Error("Account export cancelled"));
+      routeSignal.addEventListener("abort", rejectOnAbort, { once: true });
+    });
+    const result = Promise.resolve().then(operation);
+    return await Promise.race([result, cancellation]);
+  } finally {
+    if (rejectOnAbort) {
+      routeSignal.removeEventListener("abort", rejectOnAbort);
+    }
+  }
+};
+
 export const POST = async (request: NextRequest) => {
   if (!hasAllowedOrigin(request)) {
     return errorResponse("Request not allowed", 403);
@@ -155,12 +179,16 @@ export const POST = async (request: NextRequest) => {
     }
 
     const exportedAt = new Date();
-    const manifest = await assembleAccountDataExport({
-      clerkUser: exportAuth.clerkUser,
-      convexToken: exportAuth.convexToken,
-      exportedAt,
-      signal: routeController.signal,
-    });
+    const manifest = await resolveWithRouteDeadline(
+      routeController.signal,
+      async () =>
+        await assembleAccountDataExport({
+          clerkUser: exportAuth.clerkUser,
+          convexToken: exportAuth.convexToken,
+          exportedAt,
+          signal: routeController.signal,
+        }),
+    );
     const filename = getAccountDataExportFilename(exportedAt);
 
     return new Response(`${JSON.stringify(manifest, null, 2)}\n`, {
@@ -171,8 +199,8 @@ export const POST = async (request: NextRequest) => {
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
-  } catch {
-    console.error("[/api/account/export] Account export failed");
+  } catch (error) {
+    console.error("[/api/account/export] Account export failed", error);
     return errorResponse(EXPORT_UNAVAILABLE_ERROR, 503);
   } finally {
     clearTimeout(routeTimeoutId);

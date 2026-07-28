@@ -512,7 +512,8 @@ describe("account data export assembler", () => {
 
         bookmarkPage += 1;
         const pageNumber = bookmarkPage;
-        latestBookmarkSignal = init?.signal as AbortSignal;
+        const bookmarkSignal = init?.signal as AbortSignal;
+        latestBookmarkSignal = bookmarkSignal;
         return await new Promise<Response>((resolve, reject) => {
           const responseTimer = setTimeout(() => {
             if (pageNumber === 8) {
@@ -527,11 +528,11 @@ describe("account data export assembler", () => {
               }),
             );
           }, 7_000);
-          latestBookmarkSignal?.addEventListener(
+          bookmarkSignal.addEventListener(
             "abort",
             () => {
               clearTimeout(responseTimer);
-              reject(latestBookmarkSignal?.reason);
+              reject(bookmarkSignal.reason);
             },
             { once: true },
           );
@@ -566,11 +567,12 @@ describe("account data export assembler", () => {
   it("aborts sibling collection requests when any export query fails", async () => {
     vi.useFakeTimers();
     const siblingSignals: AbortSignal[] = [];
+    const overviewError = new Error("Overview failed");
     requestFetch.mockImplementation(
       async (_input: RequestInfo | URL, init?: RequestInit) => {
         const body = JSON.parse(String(init?.body)) as { path: string };
         if (body.path.endsWith("getViewerAccountDataOverview")) {
-          throw new Error("Overview failed");
+          throw overviewError;
         }
 
         const signal = init?.signal as AbortSignal;
@@ -583,15 +585,18 @@ describe("account data export assembler", () => {
       },
     );
 
-    await expect(
-      assembleAccountDataExport({
-        clerkUser,
-        convexToken: "convex-jwt",
-        exportedAt: new Date("2026-07-27T00:00:00.000Z"),
-      }),
-    ).rejects.toThrow("Account data export could not be assembled");
+    const error = await assembleAccountDataExport({
+      clerkUser,
+      convexToken: "convex-jwt",
+      exportedAt: new Date("2026-07-27T00:00:00.000Z"),
+    }).catch((caught: unknown) => caught);
     await vi.advanceTimersByTimeAsync(0);
 
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "Account data export could not be assembled",
+    );
+    expect((error as Error).cause).toBe(overviewError);
     expect(siblingSignals).toHaveLength(5);
     expect(siblingSignals.every((signal) => signal.aborted)).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
