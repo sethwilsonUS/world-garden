@@ -268,13 +268,15 @@ or internal linkage.
 Query a half-open UTC date range of at most 90 days:
 
 ```bash
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --limit 100
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --csv
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --csv --output ./costs.csv
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --json
-npm run analytics:costs -- --help
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01 --limit 100
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01 --csv
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01 --csv --output ./costs.csv
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01 --json
+npm run report:costs -- --help
 ```
+
+`npm run analytics:costs` remains available as a compatibility alias.
 
 The command reads `ANALYTICS_REPORT_SECRET` and the site origin from the process
 environment or `.env.local` without overwriting already-set environment values.

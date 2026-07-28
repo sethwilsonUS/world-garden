@@ -67,10 +67,10 @@ const CSV_HEADERS = [
 const HELP_TEXT = `Curio Garden feedback command
 
 Usage:
-  npm run feedback
-  npm run feedback -- --status all --limit 100
-  npm run feedback -- --csv
-  npm run feedback -- --csv --output <path> --include-contact
+  npm run report:feedback
+  npm run report:feedback -- --status all --limit 100
+  npm run report:feedback -- --csv
+  npm run report:feedback -- --csv --output <path> --include-contact
 
 Options:
   --csv                 Export CSV instead of printing feedback.
@@ -85,6 +85,7 @@ CSV exports up to 10000 items to .reports/feedback/<timestamp>.csv by default.
 The dedicated contact email field is hidden unless explicitly included. All
 feedback can contain volunteered personal information, so handle it carefully.
 Contact exports are outside Curio Garden's automatic 180-day contact cleanup.
+Compatibility alias: npm run feedback.
 `;
 
 function isoDate(value) {

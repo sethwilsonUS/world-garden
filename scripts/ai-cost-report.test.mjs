@@ -380,11 +380,11 @@ describe("AI cost report CLI", () => {
     const help = output.join("");
     expect(envLoaded).toBe(false);
     expect(fetched).toBe(false);
-    expect(help).toContain("npm run analytics:costs");
+    expect(help).toContain("npm run report:costs");
     expect(help).toContain("--csv");
     expect(help).toContain("--output <path>");
     expect(help).toContain("--limit <count>");
-    expect(help).toContain("-h, --help");
+    expect(help).toContain("--help, -h");
     expect(help).toContain(
       "The terminal view defaults to 50 entries per breakdown",
     );

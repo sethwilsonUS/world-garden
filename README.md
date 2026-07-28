@@ -384,9 +384,9 @@ cache behavior, or playback, and a ledger failure is fail-open.
 Run an aggregate owner report over a half-open UTC range of at most 90 days:
 
 ```bash
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --csv
-npm run analytics:costs -- --from 2026-07-01 --to 2026-08-01 --json
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01 --csv
+npm run report:costs -- --from 2026-07-01 --to 2026-08-01 --json
 ```
 
 Set `ANALYTICS_REPORT_SECRET` and `NEXT_PUBLIC_SITE_URL` in the shell or local
@@ -404,7 +404,7 @@ After logging in to the Convex CLI with access to the production deployment,
 view the newest 50 open feedback items with:
 
 ```bash
-npm run feedback
+npm run report:feedback
 ```
 
 The terminal report uses labeled blocks rather than a table and never prints
@@ -413,15 +413,15 @@ still contain personal information volunteered by a reader, so treat terminal
 output and every export as sensitive. Useful views include:
 
 ```bash
-npm run feedback -- --status all
-npm run feedback -- --status resolved --limit 100
+npm run report:feedback -- --status all
+npm run report:feedback -- --status resolved --limit 100
 ```
 
 Export up to 10,000 feedback items to a timestamped CSV under the gitignored
 `.reports/feedback/` directory with:
 
 ```bash
-npm run feedback -- --csv
+npm run report:feedback -- --csv
 ```
 
 Use `--status` or `--limit` to narrow an export. CSV files are created with
@@ -430,7 +430,7 @@ existing file is never overwritten. Active contact email remains excluded
 unless both the sensitive flag and an explicit destination are supplied:
 
 ```bash
-npm run feedback -- --csv --include-contact --output .reports/feedback/contact.csv
+npm run report:feedback -- --csv --include-contact --output .reports/feedback/contact.csv
 ```
 
 Contact-bearing exports live outside Curio Garden's automatic 180-day contact
@@ -438,7 +438,7 @@ cleanup, so delete them when they are no longer needed. The command is pinned
 to the `seth-wilson/world-garden` production deployment and uses a narrow
 internal read query through your existing Convex CLI production-deployment
 access; it does not load or reuse `PRODUCT_FEEDBACK_WRITE_SECRET`. Run
-`npm run feedback -- --help` for the complete command reference.
+`npm run report:feedback -- --help` for the complete command reference.
 
 ## Podcasts
 
@@ -517,8 +517,8 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run dev:python`      | Start Next.js + Convex + Python TTS server                                                                |
 | `npm run local`           | Local mode — no Convex, with Edge speech through the canonical TTS route                                  |
 | `npm run analytics:site`  | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
-| `npm run analytics:costs` | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
-| `npm run feedback`        | View production feedback in Terminal or export a private, spreadsheet-safe CSV                            |
+| `npm run report:costs`    | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
+| `npm run report:feedback` | View production feedback in Terminal or export a private, spreadsheet-safe CSV                            |
 | `npm run build`           | Production build (handles Vercel environments)                                                            |
 | `npm run check`           | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
 | `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |
@@ -528,6 +528,9 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run test:e2e`        | Run Chromium journeys and axe accessibility checks in local mode                                          |
 | `npm run lint`            | ESLint                                                                                                    |
 | `npm run docs:check`      | Validate repository-local Markdown links and heading anchors                                              |
+
+`npm run analytics:costs` and `npm run feedback` remain available as
+compatibility aliases for existing workflows.
 
 ## Validation
 

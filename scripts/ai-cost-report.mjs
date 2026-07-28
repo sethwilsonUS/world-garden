@@ -20,11 +20,11 @@ const CSV_HEADERS = [
 const HELP_TEXT = `Curio Garden AI cost command
 
 Usage:
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --limit 100
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv --output <path>
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --json
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --limit 100
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv --output <path>
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --json
 
 Options:
   --from <date>          First UTC day to include, in YYYY-MM-DD form.
@@ -33,7 +33,7 @@ Options:
   --output <path>        Write CSV to this new file. Existing files are preserved.
   --limit <count>        Maximum entries in each cost breakdown.
   --json                 Print machine-readable JSON instead of the terminal view.
-  -h, --help             Show this help.
+  --help, -h             Show this help.
 
 The date range is half-open [from, to) and is limited to 90 days.
 The terminal view defaults to 50 entries per breakdown. CSV exports up to 10000
@@ -42,6 +42,7 @@ totals are never truncated and always refer to the complete requested period;
 an unavailable total remains unavailable. Provider-reported reconciled spend
 and locally estimated spend remain separately labeled.
 Report requests time out after 60 seconds.
+Compatibility alias: npm run analytics:costs.
 `;
 
 const takeFlagValue = (args, index, flag, noun = "value") => {

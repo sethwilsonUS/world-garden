@@ -520,7 +520,7 @@ describe("product feedback report command", () => {
 
     const help = output.join("\n");
     expect(queryCalled).toBe(false);
-    expect(help).toContain("npm run feedback");
+    expect(help).toContain("npm run report:feedback");
     expect(help).toContain("--csv");
     expect(help).toContain("--output <path>");
     expect(help).toContain("--include-contact");
