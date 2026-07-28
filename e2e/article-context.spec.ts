@@ -16,6 +16,13 @@ const tinyPng = Buffer.from(
   "base64",
 );
 
+const portraitDiagramSvg = Buffer.from(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="600" height="1200" viewBox="0 0 600 1200">
+    <rect width="600" height="1200" fill="#e5e2db" />
+    <path d="M100 100h400v1000H100z" fill="none" stroke="#036b4a" stroke-width="24" />
+  </svg>
+`);
+
 const source = {
   label: "Wikipedia revision 123456789",
   url: "https://en.wikipedia.org/w/index.php?oldid=123456789",
@@ -234,6 +241,30 @@ const contextManifest = {
     },
   ],
 } satisfies ContextManifest;
+
+const portraitDiagramManifest: ContextManifest = {
+  ...contextManifest,
+  blocks: contextManifest.blocks.flatMap((block) =>
+    block.kind === "diagram"
+      ? [
+          {
+            ...block,
+            title: "Portrait system diagram",
+            diagram: {
+              ...block.diagram,
+              image: {
+                ...block.diagram.image,
+                src: "https://upload.wikimedia.org/context/portrait-system-diagram.svg",
+                alt: "A tall system diagram used to verify scrolling.",
+                width: 600,
+                height: 1200,
+              },
+            },
+          },
+        ]
+      : [],
+  ),
+};
 
 const legendManifest = {
   ...contextManifest,
@@ -803,9 +834,15 @@ const mockArticleAndContext = async (
     });
   });
 
-  await page.route("https://upload.wikimedia.org/**", (route) =>
-    route.fulfill({ contentType: "image/png", body: tinyPng }),
-  );
+  await page.route("https://upload.wikimedia.org/**", (route) => {
+    if (route.request().url().endsWith("portrait-system-diagram.svg")) {
+      return route.fulfill({
+        contentType: "image/svg+xml",
+        body: portraitDiagramSvg,
+      });
+    }
+    return route.fulfill({ contentType: "image/png", body: tinyPng });
+  });
 
   await page.route("https://commons.wikimedia.org/w/api.php**", (route) =>
     route.fulfill({
@@ -993,6 +1030,69 @@ test("diagram legends retain textual keys and visible boundaries in forced color
       };
     });
   expect(colors.border).toBe(colors.canvasText);
+});
+
+test("a portrait diagram stays inside its scroll surface and clear of Gallery", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 760 });
+  await mockArticleAndContext(page, { manifest: portraitDiagramManifest });
+  await page.goto("/article/Ada_Lovelace");
+  await openVisualAidsWithKeyboard(page);
+
+  const diagramScroll = page.getByRole("region", {
+    name: "Scrollable diagram: Portrait system diagram",
+  });
+  await diagramScroll.scrollIntoViewIfNeeded();
+  await expect(diagramScroll).toHaveAttribute("tabindex", "0");
+
+  const layout = await diagramScroll.evaluate((scrollRegion) => {
+    const surface = scrollRegion.closest(".context-diagram-surface");
+    const contextLane = scrollRegion.closest("section.context-lane");
+    const galleryHeading = document.querySelector("#gallery-heading");
+    const gallery = galleryHeading?.parentElement;
+    if (!surface || !contextLane || !gallery) {
+      throw new Error(
+        "Expected the diagram surface, context lane, and Gallery",
+      );
+    }
+
+    const scrollRect = scrollRegion.getBoundingClientRect();
+    const surfaceRect = surface.getBoundingClientRect();
+    const contextRect = contextLane.getBoundingClientRect();
+    const galleryRect = gallery.getBoundingClientRect();
+    return {
+      scrollTop: scrollRect.top,
+      scrollBottom: scrollRect.bottom,
+      surfaceTop: surfaceRect.top,
+      surfaceBottom: surfaceRect.bottom,
+      clientHeight: scrollRegion.clientHeight,
+      scrollHeight: scrollRegion.scrollHeight,
+      galleryClearance: galleryRect.top - scrollRect.bottom,
+      contextGalleryGap: galleryRect.top - contextRect.bottom,
+      galleryFollowsContext:
+        contextLane.nextElementSibling?.contains(galleryHeading) ?? false,
+    };
+  });
+
+  expect(layout.scrollTop).toBeGreaterThanOrEqual(layout.surfaceTop - 1);
+  expect(layout.scrollBottom).toBeLessThanOrEqual(layout.surfaceBottom + 1);
+  expect(layout.scrollHeight).toBeGreaterThan(layout.clientHeight);
+  expect(layout.galleryClearance).toBeGreaterThanOrEqual(32);
+  expect(layout.contextGalleryGap).toBeGreaterThanOrEqual(32);
+  expect(layout.galleryFollowsContext).toBe(true);
+
+  await diagramScroll.evaluate((scrollRegion) => {
+    scrollRegion.scrollTop = 0;
+  });
+  await diagramScroll.focus();
+  await expect(diagramScroll).toBeFocused();
+  await page.keyboard.press("PageDown");
+  await expect
+    .poll(() =>
+      diagramScroll.evaluate((scrollRegion) => scrollRegion.scrollTop),
+    )
+    .toBeGreaterThan(0);
 });
 
 test("article context exposes equivalent semantics, provenance, and reporting", async ({
