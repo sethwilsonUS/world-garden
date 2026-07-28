@@ -398,6 +398,48 @@ listening is reported as unknown rather than unused. See the
 privacy exclusions, statement import, pricing sources, retention, rollout, and
 known blind spots.
 
+## Reviewing Product Feedback
+
+After logging in to the Convex CLI with access to the production deployment,
+view the newest 50 open feedback items with:
+
+```bash
+npm run feedback
+```
+
+The terminal report uses labeled blocks rather than a table and never prints
+the dedicated contact-email field. Feedback message or environment text can
+still contain personal information volunteered by a reader, so treat terminal
+output and every export as sensitive. Useful views include:
+
+```bash
+npm run feedback -- --status all
+npm run feedback -- --status resolved --limit 100
+```
+
+Export up to 10,000 feedback items to a timestamped CSV under the gitignored
+`.reports/feedback/` directory with:
+
+```bash
+npm run feedback -- --csv
+```
+
+Use `--status` or `--limit` to narrow an export. CSV files are created with
+owner-only `0600` permissions, spreadsheet formulas are neutralized, and an
+existing file is never overwritten. Active contact email remains excluded
+unless both the sensitive flag and an explicit destination are supplied:
+
+```bash
+npm run feedback -- --csv --include-contact --output .reports/feedback/contact.csv
+```
+
+Contact-bearing exports live outside Curio Garden's automatic 180-day contact
+cleanup, so delete them when they are no longer needed. The command is pinned
+to the `seth-wilson/world-garden` production deployment and uses a narrow
+internal read query with the existing Convex owner login; it does not load or
+reuse `PRODUCT_FEEDBACK_WRITE_SECRET`. Run `npm run feedback -- --help` for the
+complete command reference.
+
 ## Podcasts
 
 Curio Garden can publish multiple RSS feeds:
@@ -476,6 +518,7 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run local`           | Local mode — no Convex, with Edge speech through the canonical TTS route                                  |
 | `npm run analytics:site`  | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
 | `npm run analytics:costs` | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
+| `npm run feedback`        | View production feedback in Terminal or export a private, spreadsheet-safe CSV                            |
 | `npm run build`           | Production build (handles Vercel environments)                                                            |
 | `npm run check`           | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
 | `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |

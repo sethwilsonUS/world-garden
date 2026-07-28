@@ -15,6 +15,7 @@
     "local": "LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true next dev",
     "analytics:site": "node scripts/site-analytics-report.mjs",
     "analytics:costs": "node scripts/ai-cost-report.mjs",
+    "feedback": "node scripts/product-feedback-report.mjs",
     "audit:mediawiki": "tsx scripts/mediawiki-corpus-audit.ts",
     "build": "bash scripts/build.sh",
     "start": "next start",

@@ -1,13 +1,16 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import {
   assertProductFeedbackWriteAuthorized,
   normalizeProductFeedbackInput,
   type ProductFeedbackInput,
 } from "../lib/product-feedback";
 import {
+  internalQuery,
   internalMutation,
   mutation,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 
@@ -18,6 +21,9 @@ export const PRODUCT_FEEDBACK_CONTACT_CLEANUP_BATCH_SIZE = 100;
 
 type WriteCtx = Pick<MutationCtx, "db">;
 type ContactCleanupCtx = Pick<MutationCtx, "db">;
+type OwnerReadCtx = Pick<QueryCtx, "db">;
+
+const PRODUCT_FEEDBACK_OWNER_PAGE_SIZE = 100;
 
 export const submitProductFeedbackForCtx = async (
   ctx: WriteCtx,
@@ -55,6 +61,103 @@ const feedbackKindValidator = v.union(
   v.literal("technical"),
   v.literal("other"),
 );
+
+const feedbackStatusValidator = v.union(
+  v.literal("open"),
+  v.literal("reviewing"),
+  v.literal("resolved"),
+  v.literal("dismissed"),
+);
+
+type FeedbackStatus = "open" | "reviewing" | "resolved" | "dismissed";
+
+export const listProductFeedbackForOwnerForCtx = async (
+  ctx: OwnerReadCtx,
+  args: {
+    paginationOpts: { cursor: string | null; numItems: number };
+    reportRunId: string;
+    status?: FeedbackStatus;
+    snapshotBefore?: number;
+    includeContact: boolean;
+    now?: number;
+  },
+) => {
+  const now = args.now ?? Date.now();
+  const snapshotBefore = args.snapshotBefore ?? now;
+  const requestedPageSize = Number.isFinite(args.paginationOpts.numItems)
+    ? Math.trunc(args.paginationOpts.numItems)
+    : PRODUCT_FEEDBACK_OWNER_PAGE_SIZE;
+  const paginationOpts = {
+    cursor: args.paginationOpts.cursor,
+    numItems: Math.max(
+      1,
+      Math.min(PRODUCT_FEEDBACK_OWNER_PAGE_SIZE, requestedPageSize),
+    ),
+    maximumRowsRead: PRODUCT_FEEDBACK_OWNER_PAGE_SIZE,
+  };
+  const query = args.status
+    ? ctx.db
+        .query("productFeedback")
+        .withIndex("by_status", (range) =>
+          range.eq("status", args.status!).lte("_creationTime", snapshotBefore),
+        )
+        .order("desc")
+    : ctx.db
+        .query("productFeedback")
+        .withIndex("by_creation_time", (range) =>
+          range.lte("_creationTime", snapshotBefore),
+        )
+        .order("desc");
+  const result = await query.paginate(paginationOpts);
+
+  return {
+    ...result,
+    snapshotBefore,
+    page: result.page.map((feedback) => {
+      const contactAvailable =
+        typeof feedback.contactEmail === "string" &&
+        typeof feedback.contactExpiresAt === "number" &&
+        feedback.contactExpiresAt > now;
+
+      return {
+        id: feedback._id,
+        kind: feedback.kind,
+        message: feedback.message,
+        ...(feedback.environment ? { environment: feedback.environment } : {}),
+        researchOptIn: contactAvailable && feedback.researchOptIn,
+        status: feedback.status,
+        contactAvailable,
+        ...(contactAvailable
+          ? { contactExpiresAt: feedback.contactExpiresAt }
+          : {}),
+        ...(contactAvailable && args.includeContact
+          ? { contactEmail: feedback.contactEmail }
+          : {}),
+        ...(feedback.articleTitle
+          ? { articleTitle: feedback.articleTitle }
+          : {}),
+        ...(feedback.articleSlug ? { articleSlug: feedback.articleSlug } : {}),
+        ...(feedback.articleRevisionId
+          ? { articleRevisionId: feedback.articleRevisionId }
+          : {}),
+        createdAt: feedback.createdAt,
+        updatedAt: feedback.updatedAt,
+      };
+    }),
+  };
+};
+
+export const listProductFeedbackForOwner = internalQuery({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    status: v.optional(feedbackStatusValidator),
+    snapshotBefore: v.optional(v.number()),
+    includeContact: v.boolean(),
+    reportRunId: v.string(),
+  },
+  handler: async (ctx, args) =>
+    await listProductFeedbackForOwnerForCtx(ctx, args),
+});
 
 export const submitProductFeedback = mutation({
   args: {
