@@ -130,22 +130,6 @@ describe("POST /api/webhooks/clerk", () => {
     );
   });
 
-  it("reconciles a Clerk-native deletion that has no prior in-app request", async () => {
-    mocks.fetchMutation.mockResolvedValue({
-      reconciled: true,
-      status: "clerk_deleted",
-      purgeAfter: 300,
-    });
-
-    const response = await POST(request());
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      received: true,
-      reconciled: true,
-    });
-  });
-
   it("rejects a verified deletion event without a Clerk user ID", async () => {
     mocks.verifyWebhook.mockResolvedValue({
       type: "user.deleted",

@@ -1007,7 +1007,7 @@ export const completeArticleAudioExport = internalMutation({
         args.storageId,
         args.expectedViewerTokenIdentifier,
       );
-      return { completed: false };
+      return { completed: false, uploadAlreadyDiscarded: true };
     }
 
     if (
@@ -1022,7 +1022,7 @@ export const completeArticleAudioExport = internalMutation({
         args.storageId,
         record.ownerTokenIdentifier,
       );
-      return { completed: false };
+      return { completed: false, uploadAlreadyDiscarded: true };
     }
 
     const exactDuplicate =
@@ -1059,6 +1059,7 @@ export const completeArticleAudioExport = internalMutation({
           args.storageId,
           record.ownerTokenIdentifier,
         );
+        return { completed: false, uploadAlreadyDiscarded: true };
       }
       return { completed: false };
     }
@@ -1071,7 +1072,7 @@ export const completeArticleAudioExport = internalMutation({
         parentId: String(args.exportId),
       });
       if (!registration.registered) {
-        return { completed: false };
+        return { completed: false, uploadAlreadyDiscarded: true };
       }
     }
 
@@ -1471,6 +1472,13 @@ export const processArticleAudioExport = internalAction({
         },
       );
       if (!completion.completed) {
+        if (
+          "uploadAlreadyDiscarded" in completion &&
+          completion.uploadAlreadyDiscarded
+        ) {
+          uploadedCombinedStorageId = null;
+          return;
+        }
         const disposition = await discardCombinedUpload();
         if (disposition === "referenced") {
           await scheduleNextQueuedExport(queueKey, record.clientId);

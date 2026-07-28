@@ -253,13 +253,11 @@ describe("personal playlist worker orchestration", () => {
       }),
       expect.objectContaining({ apiBaseUrl: "https://example.com" }),
     );
-    const registrationArgs = runMutation.mock.calls
-      .map(([, callArgs]) => callArgs)
-      .find(
-        (callArgs) =>
-          callArgs?.viewerTokenIdentifier === "user-1" &&
-          callArgs?.storageId === "combined-storage",
-      );
+    const registrationArgs = runMutation.mock.calls.find(
+      ([reference]) =>
+        getFunctionName(reference) ===
+        "personalPlaylist:registerViewerPlaylistEpisodeStorageInternal",
+    )?.[1];
     expect(registrationArgs).toEqual({
       episodeId,
       viewerTokenIdentifier: "user-1",

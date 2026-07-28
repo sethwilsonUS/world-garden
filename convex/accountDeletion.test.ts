@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import {
+  ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD,
   ACCOUNT_DELETION_TOMBSTONE_GRACE_MS,
   initiateAccountDeletionForCtx,
   listPendingClerkDeletions,
@@ -196,6 +197,7 @@ const invokeRegistered = async <TArgs, TResult>(
 
 describe("account deletion lifecycle", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
@@ -257,6 +259,26 @@ describe("account deletion lifecycle", () => {
     ).rejects.toThrow("Unauthorized");
   });
 
+  it("rejects a Clerk user already linked to another viewer deletion request", async () => {
+    const { ctx } = createCtx({
+      tables: {
+        accountDeletionRequests: [
+          deletionRequest({
+            viewerTokenIdentifier: "https://clerk.example|different-viewer",
+          }),
+        ],
+      },
+    });
+
+    await expect(
+      initiateAccountDeletionForCtx(
+        ctx as never,
+        { clerkUserId: "user_1" },
+        1_000,
+      ),
+    ).rejects.toThrow("Account deletion identity conflict");
+  });
+
   it("revokes active feed tokens before advancing the cleanup phase", async () => {
     const activeFeed = {
       _id: "feed-1",
@@ -277,6 +299,7 @@ describe("account deletion lifecycle", () => {
         accountDeletionRequests: [
           deletionRequest({
             cleanupAttemptCount: 3,
+            needsAttentionAt: 500,
             lastError: "previous transient failure",
           }),
         ],
@@ -306,6 +329,7 @@ describe("account deletion lifecycle", () => {
         phase: "playlist_episodes",
         cleanupAttemptCount: 0,
         lastCleanupAttemptAt: 1_000,
+        needsAttentionAt: undefined,
         lastError: undefined,
       }),
     );
@@ -793,6 +817,60 @@ describe("account deletion lifecycle", () => {
     ).toBe("accountDeletion:runAccountDeletionCleanupBatch");
   });
 
+  it("flags a repeatedly failing cleanup while preserving hourly recovery", async () => {
+    const viewerTokenIdentifier = "https://clerk.example|user_1";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctx, getTable, scheduled } = createCtx({
+      tables: {
+        accountDeletionRequests: [
+          deletionRequest({
+            phase: "playlist_episodes",
+            cleanupAttemptCount:
+              ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD - 1,
+          }),
+        ],
+        personalPlaylistEpisodes: [
+          {
+            _id: "episode-1",
+            viewerTokenIdentifier,
+            storageId: "storage-failing",
+          },
+        ],
+      },
+    });
+    ctx.storage.delete.mockRejectedValue(new Error("storage unavailable"));
+
+    await invokeRegistered(runAccountDeletionCleanupBatch, ctx, {
+      requestId: "accountDeletionRequests-1",
+    });
+    await invokeRegistered(runAccountDeletionCleanupBatch, ctx, {
+      requestId: "accountDeletionRequests-1",
+    });
+
+    expect(getTable("accountDeletionRequests")[0]).toEqual(
+      expect.objectContaining({
+        status: "cleaning",
+        phase: "playlist_episodes",
+        cleanupAttemptCount: ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD,
+        needsAttentionAt: expect.any(Number),
+        lastError: "storage unavailable",
+      }),
+    );
+    expect(scheduled).toEqual([
+      expect.objectContaining({ delay: 3_600_000 }),
+      expect.objectContaining({ delay: 3_600_000 }),
+    ]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[account-deletion] Cleanup needs operator attention",
+      {
+        requestId: "accountDeletionRequests-1",
+        phase: "playlist_episodes",
+        cleanupAttemptCount: ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD,
+      },
+    );
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("lists pending Clerk work with attestation and records retry attempts", async () => {
     const secret = "account-deletion-coordinator-secret";
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", secret);
@@ -970,6 +1048,23 @@ describe("account deletion lifecycle", () => {
       }),
     ]);
     expect(scheduled).toHaveLength(1);
+  });
+
+  it("fails closed when native Clerk deletion reconciliation has no issuer", async () => {
+    const { ctx, getTable, scheduled } = createCtx();
+
+    await expect(
+      reconcileClerkDeletionForCtx(
+        ctx as never,
+        { clerkUserId: "user_native", clerkUserExists: false },
+        1_000,
+        {},
+      ),
+    ).rejects.toThrow(
+      "CLERK_JWT_ISSUER_DOMAIN is required to reconcile Clerk-native account deletion",
+    );
+    expect(getTable("accountDeletionRequests")).toEqual([]);
+    expect(scheduled).toEqual([]);
   });
 
   it("does not create a tombstone when reconciliation says Clerk still exists", async () => {

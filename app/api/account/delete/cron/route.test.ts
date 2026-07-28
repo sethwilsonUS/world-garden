@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   clerkClient: vi.fn(),
@@ -66,6 +66,12 @@ describe("GET /api/account/delete/cron", () => {
         status: "clerk_deleted",
         purgeAfter: 300,
       });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it("rejects unauthorized retries before consulting Convex or Clerk", async () => {
@@ -173,6 +179,97 @@ describe("GET /api/account/delete/cron", () => {
       clerkUserId: "user_later",
       outcome: "retry",
     });
+  });
+
+  it("times out one stalled Clerk deletion, marks retry, and continues", async () => {
+    vi.useFakeTimers();
+    mocks.fetchMutation
+      .mockReset()
+      .mockResolvedValueOnce([
+        pendingRequest("stalled"),
+        pendingRequest("next"),
+      ])
+      .mockResolvedValue({
+        marked: true,
+        status: "pending_clerk",
+        purgeAfter: null,
+      });
+    mocks.deleteUser
+      .mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValueOnce({ deleted: true });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    let settled = false;
+    const responsePromise = GET(request());
+    void responsePromise.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.deleteUser).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      status: "pending",
+      attempted: 2,
+      deleted: 1,
+      pending: 1,
+    });
+    expect(mocks.deleteUser).toHaveBeenCalledTimes(2);
+    expect(mocks.createMarkClerkDeletionAttestation).toHaveBeenCalledWith({
+      requestId: "request_stalled",
+      clerkUserId: "user_stalled",
+      outcome: "retry",
+    });
+    expect(mocks.createMarkClerkDeletionAttestation).toHaveBeenCalledWith({
+      requestId: "request_next",
+      clerkUserId: "user_next",
+      outcome: "deleted",
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[/api/account/delete/cron] Clerk deletion timed out",
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops starting Clerk deletions at the cumulative route-work budget", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    mocks.fetchMutation
+      .mockReset()
+      .mockResolvedValueOnce([
+        pendingRequest("within-budget"),
+        pendingRequest("after-budget"),
+      ])
+      .mockResolvedValueOnce({
+        marked: true,
+        status: "clerk_deleted",
+        purgeAfter: 300,
+      });
+    mocks.deleteUser.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date(50_000));
+      return { deleted: true };
+    });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      status: "pending",
+      attempted: 1,
+      deleted: 1,
+      pending: 1,
+    });
+    expect(mocks.deleteUser).toHaveBeenCalledOnce();
+    expect(mocks.deleteUser).toHaveBeenCalledWith("user_within-budget");
+    expect(mocks.createMarkClerkDeletionAttestation).toHaveBeenCalledOnce();
   });
 
   it("fails safely when listing durable requests is unavailable", async () => {

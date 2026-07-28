@@ -5,6 +5,7 @@ import {
   getViewerBadgeProgressForCtx,
   recordViewerArticleListenProgressForCtx,
 } from "./badges";
+import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
 
 type ArticleDoc = {
   _id: Id<"articles">;
@@ -80,40 +81,40 @@ const createCtx = (seed?: {
             | "viewerArticleListenProgress"
             | "badgeArticleCredits"
             | "accountDeletionRequests",
-        ) => ({
-          withIndex: (
-            _indexName: string,
-            apply: (builder: {
-              eq: (field: string, value: unknown) => unknown;
-            }) => unknown,
-          ) => {
-            const filters: Array<[string, unknown]> = [];
-            const builder = {
-              eq: (field: string, value: unknown) => {
-                filters.push([field, value]);
-                return builder;
-              },
-            };
-            apply(builder);
-            if (tableName === "accountDeletionRequests") {
-              return {
-                first: async () => null,
+        ) => {
+          if (tableName === "accountDeletionRequests") {
+            return createAccountDeletionQueryChain();
+          }
+          return {
+            withIndex: (
+              _indexName: string,
+              apply: (builder: {
+                eq: (field: string, value: unknown) => unknown;
+              }) => unknown,
+            ) => {
+              const filters: Array<[string, unknown]> = [];
+              const builder = {
+                eq: (field: string, value: unknown) => {
+                  filters.push([field, value]);
+                  return builder;
+                },
               };
-            }
-            const docs =
-              tableName === "viewerArticleListenProgress"
-                ? progressDocs
-                : creditDocs;
-            const filtered = docs.filter((doc) =>
-              matchesFilters(doc as Record<string, unknown>, filters),
-            );
+              apply(builder);
+              const docs =
+                tableName === "viewerArticleListenProgress"
+                  ? progressDocs
+                  : creditDocs;
+              const filtered = docs.filter((doc) =>
+                matchesFilters(doc as Record<string, unknown>, filters),
+              );
 
-            return {
-              unique: async () => filtered[0] ?? null,
-              collect: async () => filtered,
-            };
-          },
-        }),
+              return {
+                unique: async () => filtered[0] ?? null,
+                collect: async () => filtered,
+              };
+            },
+          };
+        },
         get: async (id: string) =>
           articles.find((article) => article._id === id) ?? null,
         insert: async (

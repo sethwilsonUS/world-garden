@@ -830,6 +830,7 @@ export default defineSchema({
     cleanupCompletedAt: v.optional(v.number()),
     clerkDeletedAt: v.optional(v.number()),
     purgeAfter: v.optional(v.number()),
+    needsAttentionAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

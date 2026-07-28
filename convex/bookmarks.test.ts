@@ -6,6 +6,7 @@ import {
   removeViewerBookmarkForCtx,
   saveViewerBookmarkForCtx,
 } from "./bookmarks";
+import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
 
 type BookmarkDoc = {
   _id: string;
@@ -36,37 +37,32 @@ const createBookmarkTestDb = (
 
   return {
     db: {
-      query: (tableName: string) => ({
-        withIndex: (
-          _indexName: string,
-          apply: (builder: {
-            eq: (field: string, value: string) => unknown;
-          }) => unknown,
-        ) => {
-          const filters = new Map<string, string>();
-          const builder = {
-            eq: (field: string, value: string) => {
-              filters.set(field, value);
-              return builder;
-            },
-          };
-          apply(builder);
-          if (tableName === "accountDeletionRequests") {
-            const viewerTokenIdentifier =
-              filters.get("viewerTokenIdentifier") ?? "";
-            return {
-              first: async () =>
-                deletingViewers.includes(viewerTokenIdentifier)
-                  ? { _id: "deletion-1", viewerTokenIdentifier }
-                  : null,
+      query: (tableName: string) => {
+        if (tableName === "accountDeletionRequests") {
+          return createAccountDeletionQueryChain(deletingViewers);
+        }
+        return {
+          withIndex: (
+            _indexName: string,
+            apply: (builder: {
+              eq: (field: string, value: string) => unknown;
+            }) => unknown,
+          ) => {
+            const filters = new Map<string, string>();
+            const builder = {
+              eq: (field: string, value: string) => {
+                filters.set(field, value);
+                return builder;
+              },
             };
-          }
-          return {
-            unique: async () => getMatchingBookmarks(filters)[0] ?? null,
-            collect: async () => getMatchingBookmarks(filters),
-          };
-        },
-      }),
+            apply(builder);
+            return {
+              unique: async () => getMatchingBookmarks(filters)[0] ?? null,
+              collect: async () => getMatchingBookmarks(filters),
+            };
+          },
+        };
+      },
       insert: async (
         _tableName: "bookmarks",
         value: Omit<BookmarkDoc, "_id">,

@@ -47,6 +47,7 @@ import {
   selectAccessibleArticleAudioExportCandidates,
 } from "./articleExports";
 import { ACCOUNT_DELETION_IN_PROGRESS } from "./lib/accountDeletionState";
+import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
 import {
   buildTtsCacheKey,
   getTtsMetadata,
@@ -65,32 +66,6 @@ import { createArticleAudioExportReadAttestation } from "../lib/article-audio-ex
 const STALE_TTS_NORM_VERSION = `${TTS_NORM_VERSION}:stale`;
 const ARTICLE_EXPORT_LEASE_MS = 10 * 60 * 1000;
 const ARTICLE_EXPORT_WATCHDOG_GRACE_MS = 1_000;
-
-const createAccountDeletionQueryChain = (
-  deletingViewerTokenIdentifiers: string[] = [],
-) => ({
-  withIndex: (
-    _indexName: string,
-    build: (query: {
-      eq: (field: string, value: string) => unknown;
-    }) => unknown,
-  ) => {
-    let viewerTokenIdentifier = "";
-    const query = {
-      eq: (_field: string, value: string) => {
-        viewerTokenIdentifier = value;
-        return query;
-      },
-    };
-    build(query);
-    return {
-      first: async () =>
-        deletingViewerTokenIdentifiers.includes(viewerTokenIdentifier)
-          ? { _id: "deletion-1", viewerTokenIdentifier }
-          : null,
-    };
-  },
-});
 
 const createOwnedStorageQueryChain = (
   ledgers: Array<Record<string, unknown>> = [],
@@ -696,7 +671,7 @@ describe("article audio export worker leases", () => {
     completion,
   }: {
     registration?: "registered" | "rejected" | "throw";
-    completion: "false" | "throw" | "commit-then-throw";
+    completion: "false" | "already-discarded" | "throw" | "commit-then-throw";
   }) => {
     const viewerTokenIdentifier = "https://clerk.example|upload-owner";
     const metadata = getTtsMetadata(getTtsProfile("openai"));
@@ -746,6 +721,8 @@ describe("article audio export worker leases", () => {
     });
     const runMutation = vi.fn(
       async (_reference: unknown, args: Record<string, unknown>) => {
+        // These argument shapes overlap, so dispatch order is intentional:
+        // completion before registration before discard.
         if ("sectionCount" in args) {
           currentRecord = {
             ...currentRecord,
@@ -762,6 +739,9 @@ describe("article audio export worker leases", () => {
         }
         if ("byteLength" in args) {
           if (completion === "false") return { completed: false };
+          if (completion === "already-discarded") {
+            return { completed: false, uploadAlreadyDiscarded: true };
+          }
           if (completion === "commit-then-throw") {
             currentRecord = {
               ...currentRecord,
@@ -1160,7 +1140,10 @@ describe("article audio export worker leases", () => {
         producedTtsCacheKey: edgeMetadata.ttsCacheKey,
         narrationHash: "narration-1",
       }),
-    ).resolves.toEqual({ completed: false });
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
     await expect(
       getHandler(failArticleAudioExport)(ctx, {
         exportId: "export-1",
@@ -1223,7 +1206,10 @@ describe("article audio export worker leases", () => {
           narrationHash: "narration-1",
         },
       ),
-    ).resolves.toEqual({ completed: false });
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
 
     expect(deleteStorage).toHaveBeenCalledOnce();
     expect(deleteStorage).toHaveBeenCalledWith("late-storage");
@@ -1324,7 +1310,10 @@ describe("article audio export worker leases", () => {
           narrationHash: "narration-1",
         },
       ),
-    ).resolves.toEqual({ completed: false });
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
 
     expect(deleteStorage).toHaveBeenCalledWith("late-storage");
     expect(patch).not.toHaveBeenCalled();
@@ -1364,7 +1353,10 @@ describe("article audio export worker leases", () => {
           narrationHash: "narration-1",
         },
       ),
-    ).resolves.toEqual({ completed: false });
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
 
     expect(deleteStorage).toHaveBeenCalledWith("late-storage");
     expect(deleteLedger).toHaveBeenCalledWith("late-ledger");
@@ -1562,7 +1554,10 @@ describe("article audio export worker leases", () => {
           narrationHash: "narration-1",
         },
       ),
-    ).resolves.toEqual({ completed: false });
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
 
     expect(deleteStorage).toHaveBeenCalledWith("expired-completion");
     expect(patch).not.toHaveBeenCalled();
@@ -1683,6 +1678,15 @@ describe("article audio export worker leases", () => {
 
     expect(result.discardArgs).toHaveLength(1);
     expect(result.deleteStorage).toHaveBeenCalledWith("combined-storage");
+  });
+
+  it("does not discard combined audio twice when completion already removed it", async () => {
+    const result = await runCombinedUploadLifecycle({
+      completion: "already-discarded",
+    });
+
+    expect(result.discardArgs).toEqual([]);
+    expect(result.failureArgs).toEqual([]);
   });
 
   it("discards combined audio when completion throws", async () => {

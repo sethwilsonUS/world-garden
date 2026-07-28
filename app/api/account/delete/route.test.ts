@@ -54,6 +54,44 @@ const request = (
   });
 };
 
+const streamedRequest = (
+  chunks: Uint8Array[],
+  declaredLength?: number,
+  onPull?: () => void,
+): NextRequest => {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    Origin: "https://curiogarden.org",
+  });
+  if (declaredLength !== undefined) {
+    headers.set("Content-Length", String(declaredLength));
+  }
+
+  let chunkIndex = 0;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        onPull?.();
+        const chunk = chunks[chunkIndex];
+        chunkIndex += 1;
+        if (chunk) controller.enqueue(chunk);
+        if (chunkIndex >= chunks.length) controller.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+
+  const init: NonNullable<ConstructorParameters<typeof NextRequest>[1]> & {
+    duplex: "half";
+  } = {
+    method: "POST",
+    headers,
+    body,
+    duplex: "half",
+  };
+  return new NextRequest("https://curiogarden.org/api/account/delete", init);
+};
+
 describe("POST /api/account/delete", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -229,6 +267,58 @@ describe("POST /api/account/delete", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.auth).not.toHaveBeenCalled();
+  });
+
+  it("rejects a declared body larger than 256 bytes before reading it", async () => {
+    const onPull = vi.fn();
+    const oversizedBody = new TextEncoder().encode(
+      '{"confirmation":"DELETE"}'.padEnd(257, " "),
+    );
+    const response = await POST(
+      streamedRequest([oversizedBody], oversizedBody.byteLength, onPull),
+    );
+
+    expect(response.status).toBe(400);
+    expect(onPull).not.toHaveBeenCalled();
+    expect(mocks.auth).not.toHaveBeenCalled();
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("rejects streamed overflow even when Content-Length understates it", async () => {
+    const oversizedBody = new TextEncoder().encode(
+      '{"confirmation":"DELETE"}'.padEnd(300, " "),
+    );
+    const response = await POST(
+      streamedRequest(
+        [oversizedBody.slice(0, 128), oversizedBody.slice(128)],
+        20,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.auth).not.toHaveBeenCalled();
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("accepts a valid streamed confirmation exactly at the 256-byte boundary", async () => {
+    const confirmation = '{"confirmation":"DELETE"}';
+    const body = new TextEncoder().encode(confirmation.padEnd(256, " "));
+
+    const response = await POST(streamedRequest([body], 256));
+
+    expect(response.status).toBe(200);
+    expect(mocks.auth).toHaveBeenCalledOnce();
+    expect(mocks.deleteUser).toHaveBeenCalledOnce();
+  });
+
+  it("rejects invalid UTF-8 bytes before authenticating the account", async () => {
+    const response = await POST(
+      streamedRequest([new Uint8Array([0x7b, 0x22, 0xff, 0x22, 0x7d])]),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.auth).not.toHaveBeenCalled();
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
   });
 
   it("requires a signed-in account", async () => {

@@ -94,11 +94,16 @@ describe("PrivacyPage", () => {
       "Some removal may finish in the background after sign-in ends",
     );
     expect(markup).toContain(
-      "A limited technical deletion record may remain temporarily",
+      "A limited technical deletion record is retained while account-owned cleanup or Clerk deletion is pending",
+    );
+    expect(markup).toContain("including while a failed step is being retried");
+    expect(markup).toContain(
+      "The final 24-hour grace period begins only after account-owned cleanup and Clerk deletion both succeed",
     );
     expect(markup).toContain(
-      "signed-in data is not recreated by an old session or in-progress audio job",
+      "the record is deleted if a final safety check confirms no account-linked data remains",
     );
+    expect(markup).toContain("otherwise cleanup and the grace period restart");
     expect(markup).toContain(
       "Browser-only history and preferences are not removed automatically",
     );

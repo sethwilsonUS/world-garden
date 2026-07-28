@@ -16,6 +16,8 @@ const RETRY_HEADERS = {
   "Retry-After": "60",
 } as const;
 const BATCH_LIMIT = 25;
+const CLERK_DELETION_TIMEOUT_MS = 5_000;
+const ROUTE_WORK_BUDGET_MS = 50_000;
 const UNAVAILABLE_ERROR = "Account deletion retry is temporarily unavailable.";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +33,13 @@ type PendingDeletion = {
   lastClerkAttemptAt: number | null;
 };
 
+class ClerkDeletionTimeoutError extends Error {
+  constructor() {
+    super("Clerk deletion timed out");
+    this.name = "ClerkDeletionTimeoutError";
+  }
+}
+
 const isClerkNotFoundError = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
@@ -43,6 +52,24 @@ const safeErrorKind = (error: unknown): string => {
     return `status-${error.status}`;
   }
   return error instanceof Error ? error.name : "object";
+};
+
+const deleteClerkUserWithTimeout = async (
+  deleteUser: () => Promise<unknown>,
+): Promise<void> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new ClerkDeletionTimeoutError()),
+      CLERK_DELETION_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    await Promise.race([Promise.resolve().then(deleteUser), timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 };
 
 const markDeletionOutcome = async (
@@ -63,6 +90,9 @@ const markDeletionOutcome = async (
 };
 
 export const GET = async (request: NextRequest) => {
+  const workStartedAt = Date.now();
+  // Vercel Cron can inject only the project-wide CRON_SECRET header. This
+  // route can advance HMAC-attested tombstones, but it cannot create one.
   const authError = getPodcastAdminAuthError(
     request.headers.get("authorization"),
   );
@@ -118,7 +148,7 @@ export const GET = async (request: NextRequest) => {
     return NextResponse.json(
       {
         status: "pending",
-        attempted: pendingDeletions.length,
+        attempted: 0,
         deleted: 0,
         pending: pendingDeletions.length,
       },
@@ -128,18 +158,34 @@ export const GET = async (request: NextRequest) => {
 
   let deletedCount = 0;
   let pendingCount = 0;
+  let attemptedCount = 0;
 
-  for (const deletion of pendingDeletions) {
+  for (const [index, deletion] of pendingDeletions.entries()) {
+    if (Date.now() - workStartedAt >= ROUTE_WORK_BUDGET_MS) {
+      pendingCount += pendingDeletions.length - index;
+      console.error(
+        "[/api/account/delete/cron] Route work budget exhausted; remaining deletions stay pending",
+      );
+      break;
+    }
+
+    attemptedCount += 1;
     let outcome: AccountDeletionClerkOutcome = "deleted";
     try {
-      await client.users.deleteUser(deletion.clerkUserId);
+      await deleteClerkUserWithTimeout(async () =>
+        client.users.deleteUser(deletion.clerkUserId),
+      );
     } catch (error) {
       if (!isClerkNotFoundError(error)) {
         outcome = "retry";
-        console.error(
-          "[/api/account/delete/cron] Clerk deletion remains pending",
-          safeErrorKind(error),
-        );
+        if (error instanceof ClerkDeletionTimeoutError) {
+          console.error("[/api/account/delete/cron] Clerk deletion timed out");
+        } else {
+          console.error(
+            "[/api/account/delete/cron] Clerk deletion remains pending",
+            safeErrorKind(error),
+          );
+        }
       }
     }
 
@@ -163,7 +209,7 @@ export const GET = async (request: NextRequest) => {
   return NextResponse.json(
     {
       status: hasPending ? "pending" : "complete",
-      attempted: pendingDeletions.length,
+      attempted: attemptedCount,
       deleted: deletedCount,
       pending: pendingCount,
     },

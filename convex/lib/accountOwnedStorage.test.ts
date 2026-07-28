@@ -55,11 +55,14 @@ const createCtx = ({
       db: {
         query: (tableName: string) => ({
           withIndex: (
-            _indexName: string,
+            indexName: string,
             build: (query: {
               eq: (field: string, value: unknown) => unknown;
             }) => unknown,
           ) => {
+            if (tableName === "accountOwnedStorage") {
+              expect(indexName).toBe("by_storageId");
+            }
             let field = "";
             let value: unknown;
             build({

@@ -30,6 +30,9 @@ import {
 
 export const ACCOUNT_DELETION_BATCH_SIZE = 25;
 export const ACCOUNT_DELETION_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1_000;
+// Keep retrying safely, but cap backoff state and emit one durable operator
+// signal after a sustained run of failures.
+export const ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD = 12;
 const ACCOUNT_DELETION_RETRY_BASE_MS = 60_000;
 const ACCOUNT_DELETION_RETRY_MAX_MS = 60 * 60 * 1_000;
 const MAX_IDENTITY_LENGTH = 512;
@@ -266,6 +269,7 @@ const advanceCleanup = async (
   if (processed === ACCOUNT_DELETION_BATCH_SIZE) {
     await ctx.db.patch(request._id, {
       cleanupAttemptCount: 0,
+      needsAttentionAt: undefined,
       lastError: undefined,
       updatedAt: now,
     });
@@ -278,6 +282,7 @@ const advanceCleanup = async (
     await ctx.db.patch(request._id, {
       phase: nextPhase,
       cleanupAttemptCount: 0,
+      needsAttentionAt: undefined,
       lastError: undefined,
       updatedAt: now,
     });
@@ -296,6 +301,7 @@ const advanceCleanup = async (
       phase: "pending_clerk",
       cleanupCompletedAt: now,
       cleanupAttemptCount: 0,
+      needsAttentionAt: undefined,
       lastError: undefined,
       updatedAt: now,
     });
@@ -312,6 +318,7 @@ const advanceCleanup = async (
     phase: "grace_period",
     cleanupCompletedAt: now,
     cleanupAttemptCount: 0,
+    needsAttentionAt: undefined,
     purgeAfter,
     lastError: undefined,
     updatedAt: now,
@@ -609,7 +616,7 @@ const sanitizeCleanupError = (error: unknown): string => {
 const getCleanupRetryDelay = (attemptCount: number): number =>
   Math.min(
     ACCOUNT_DELETION_RETRY_MAX_MS,
-    ACCOUNT_DELETION_RETRY_BASE_MS * 2 ** Math.min(5, attemptCount),
+    ACCOUNT_DELETION_RETRY_BASE_MS * 2 ** Math.min(6, attemptCount),
   );
 
 const recordCleanupFailureForCtx = async (
@@ -620,29 +627,47 @@ const recordCleanupFailureForCtx = async (
   },
   now: number,
   incrementAttempt: boolean,
-): Promise<{ recorded: boolean }> => {
+): Promise<{ recorded: boolean; needsAttention: boolean }> => {
   const request = await ctx.db.get(args.requestId);
   if (
     !request ||
     request.status === "pending_clerk" ||
     request.phase === "grace_period"
   ) {
-    return { recorded: false };
+    return { recorded: false, needsAttention: false };
   }
-  const cleanupAttemptCount =
-    request.cleanupAttemptCount + (incrementAttempt ? 1 : 0);
+  const cleanupAttemptCount = Math.min(
+    request.cleanupAttemptCount + (incrementAttempt ? 1 : 0),
+    ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD,
+  );
+  const needsAttention =
+    cleanupAttemptCount >= ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD;
+  const newlyNeedsAttention =
+    needsAttention && request.needsAttentionAt === undefined;
   await ctx.db.patch(request._id, {
+    ...(newlyNeedsAttention
+      ? {
+          needsAttentionAt: now,
+        }
+      : {}),
     cleanupAttemptCount,
     lastCleanupAttemptAt: now,
     lastError: args.lastError.slice(0, MAX_STORED_ERROR_LENGTH),
     updatedAt: now,
   });
+  if (newlyNeedsAttention) {
+    console.error("[account-deletion] Cleanup needs operator attention", {
+      requestId: request._id,
+      phase: request.phase,
+      cleanupAttemptCount,
+    });
+  }
   await scheduleCleanup(
     ctx,
     request._id,
     getCleanupRetryDelay(cleanupAttemptCount),
   );
-  return { recorded: true };
+  return { recorded: true, needsAttention };
 };
 
 export const recordAccountDeletionCleanupFailure = internalMutation({
@@ -650,7 +675,10 @@ export const recordAccountDeletionCleanupFailure = internalMutation({
     requestId: v.id("accountDeletionRequests"),
     lastError: v.string(),
   },
-  async handler(ctx, args): Promise<{ recorded: boolean }> {
+  async handler(
+    ctx,
+    args,
+  ): Promise<{ recorded: boolean; needsAttention: boolean }> {
     return await recordCleanupFailureForCtx(ctx, args, Date.now(), true);
   },
 });
@@ -747,6 +775,8 @@ export const markClerkDeletionForCtx = async (
     clerkDeletionAttemptCount: request.clerkDeletionAttemptCount + 1,
     lastClerkAttemptAt: now,
     clerkDeletedAt: now,
+    cleanupAttemptCount: 0,
+    needsAttentionAt: undefined,
     purgeAfter: undefined,
     lastError: undefined,
     updatedAt: now,

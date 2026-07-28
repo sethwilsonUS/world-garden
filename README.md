@@ -168,6 +168,12 @@ Convex data, then asks Clerk to delete the identity. A
 scheduled retry will continue the Clerk step; it is not a rollback or a failed
 confirmation.
 
+Cleanup failures leave the account tombstoned and the technical deletion record
+retained while safe hourly retries continue. The record is not eligible for its
+final grace-period purge until account-owned cleanup and Clerk deletion both
+succeed. After that completion it enters a 24-hour grace period; if the final
+safety sweep finds account-linked data, cleanup and the grace period restart.
+
 For every deployed Clerk environment that supports account deletion:
 
 1. In the Clerk dashboard, create a webhook endpoint at
@@ -181,6 +187,12 @@ For every deployed Clerk environment that supports account deletion:
    root secret.
 5. Set `CRON_SECRET` in Vercel so the hourly `/api/account/delete/cron` retry
    route can authenticate Vercel Cron.
+
+Vercel supplies one project-wide `CRON_SECRET` authorization header to its
+configured cron routes rather than a different credential per job. The account
+deletion retry route can only advance bounded requests that are already durable;
+it cannot nominate an account for deletion, and every Convex transition it makes
+also requires a domain-separated HMAC attestation.
 
 The verified webhook also covers a user deleted directly in Clerk. Convex derives
 the account's internal token identifier from its configured

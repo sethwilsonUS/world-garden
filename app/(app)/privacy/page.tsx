@@ -241,13 +241,19 @@ export default function PrivacyPage() {
             background after sign-in ends.
           </li>
           <li>
-            A limited technical deletion record may remain temporarily so
-            cleanup can finish and signed-in data is not recreated by an old
-            session or in-progress audio job. Browser-only history and
-            preferences are not removed automatically. Files already downloaded
-            to a device or podcast app cannot be recalled. Anonymous feedback,
-            shared article and audio caches, and aggregated analytics remain
-            because Curio Garden does not treat them as account-owned data.
+            A limited technical deletion record is retained while account-owned
+            cleanup or Clerk deletion is pending, including while a failed step
+            is being retried. The final 24-hour grace period begins only after
+            account-owned cleanup and Clerk deletion both succeed. At the end of
+            that period, the record is deleted if a final safety check confirms
+            no account-linked data remains; otherwise cleanup and the grace
+            period restart. This temporary record prevents signed-in data from
+            being recreated by an old session or in-progress audio job.
+            Browser-only history and preferences are not removed automatically.
+            Files already downloaded to a device or podcast app cannot be
+            recalled. Anonymous feedback, shared article and audio caches, and
+            aggregated analytics remain because Curio Garden does not treat them
+            as account-owned data.
           </li>
           <li>
             A private RSS URL is a revocable bearer credential: anyone who has

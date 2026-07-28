@@ -201,7 +201,12 @@ const createCtx = (seed?: {
                 ? episodes
                 : tableName === "routeQuotas"
                   ? quotas
-                  : ownedStorage;
+                  : tableName === "accountOwnedStorage"
+                    ? ownedStorage
+                    : null;
+          if (docs === null) {
+            throw new Error(`Unexpected table: ${tableName}`);
+          }
           const filtered = docs.filter((doc) =>
             matchesFilters(doc as Record<string, unknown>, filters),
           );
@@ -231,11 +236,13 @@ const createCtx = (seed?: {
           episodes.push({ _id: id, ...(value as Omit<EpisodeDoc, "_id">) });
         } else if (tableName === "routeQuotas") {
           quotas.push({ _id: id, ...(value as Omit<QuotaDoc, "_id">) });
-        } else {
+        } else if (tableName === "accountOwnedStorage") {
           ownedStorage.push({
             _id: id,
             ...(value as Omit<AccountOwnedStorageDoc, "_id">),
           });
+        } else {
+          throw new Error(`Unexpected table: ${tableName}`);
         }
         return id;
       },
