@@ -12,6 +12,7 @@ import {
 import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
 import { TTS_NORM_VERSION } from "../../lib/tts-normalize";
 import { getAudioGenerationBaseUrl } from "../../lib/audio-generation-url";
+import { getCombinedAudioStorageContentType } from "../../lib/account-owned-audio-storage";
 
 const PERSONAL_PODCAST_ALBUM_TITLE = "Curio Garden Personal Playlist";
 
@@ -218,7 +219,7 @@ export const processViewerPlaylistEpisodeForCtx = async (
         const upload = await uploadStreamToConvexStorage(
           uploadUrl,
           stream,
-          contentType,
+          getCombinedAudioStorageContentType(contentType, true),
         );
         pendingCombinedStorageId = upload.storageId;
         let registration: { registered: boolean };

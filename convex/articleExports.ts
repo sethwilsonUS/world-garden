@@ -28,6 +28,7 @@ import {
 } from "../lib/tts-profile";
 import { buildArticleNarrationHash } from "../lib/section-narration";
 import { getAudioGenerationBaseUrl } from "../lib/audio-generation-url";
+import { getCombinedAudioStorageContentType } from "../lib/account-owned-audio-storage";
 import {
   ARTICLE_AUDIO_EXPORT_READ_ATTESTATION_SCOPE,
   buildArticleAudioExportReadAttestationPayload,
@@ -40,6 +41,7 @@ import {
 } from "./lib/accountDeletionState";
 import {
   deleteAccountOwnedStorageForCtx,
+  hasAccountOwnedAudioStorageMarkerForCtx,
   registerAccountOwnedStorageForCtx,
 } from "./lib/accountOwnedStorage";
 
@@ -1150,6 +1152,15 @@ export const registerArticleAudioExportUpload = internalMutation({
       return { registered: true };
     }
 
+    if (!(await hasAccountOwnedAudioStorageMarkerForCtx(ctx, args.storageId))) {
+      await deleteAccountOwnedStorageForCtx(
+        ctx,
+        args.storageId,
+        record.ownerTokenIdentifier,
+      );
+      return { registered: false };
+    }
+
     return await registerAccountOwnedStorageForCtx(ctx, {
       viewerTokenIdentifier: record.ownerTokenIdentifier,
       storageId: args.storageId,
@@ -1422,7 +1433,10 @@ export const processArticleAudioExport = internalAction({
           const upload = await uploadStreamToConvexStorage(
             uploadUrl,
             stream,
-            contentType,
+            getCombinedAudioStorageContentType(
+              contentType,
+              record.ownerTokenIdentifier !== undefined,
+            ),
           );
           uploadedCombinedStorageId = upload.storageId;
           const registration = await ctx.runMutation(

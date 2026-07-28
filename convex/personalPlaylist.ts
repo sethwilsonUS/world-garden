@@ -23,6 +23,7 @@ import {
 } from "./lib/accountDeletionState";
 import {
   deleteAccountOwnedStorageForCtx,
+  hasAccountOwnedAudioStorageMarkerForCtx,
   registerAccountOwnedStorageForCtx,
 } from "./lib/accountOwnedStorage";
 import {
@@ -433,6 +434,15 @@ export const registerViewerPlaylistEpisodeStorageInternal = internalMutation({
           args.viewerTokenIdentifier,
         );
       }
+      return { registered: false };
+    }
+
+    if (!(await hasAccountOwnedAudioStorageMarkerForCtx(ctx, args.storageId))) {
+      await deleteAccountOwnedStorageForCtx(
+        ctx,
+        args.storageId,
+        args.viewerTokenIdentifier,
+      );
       return { registered: false };
     }
 

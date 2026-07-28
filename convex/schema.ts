@@ -830,6 +830,8 @@ export default defineSchema({
     cleanupCompletedAt: v.optional(v.number()),
     clerkDeletedAt: v.optional(v.number()),
     purgeAfter: v.optional(v.number()),
+    purgeSweepRetryCount: v.optional(v.number()),
+    lastPurgeSweepRetryAt: v.optional(v.number()),
     needsAttentionAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     createdAt: v.number(),
@@ -849,4 +851,13 @@ export default defineSchema({
   })
     .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
     .index("by_storageId", ["storageId"]),
+
+  accountOwnedStorageSweepState: defineTable({
+    key: v.string(),
+    scannedThrough: v.number(),
+    activeCutoff: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
 });

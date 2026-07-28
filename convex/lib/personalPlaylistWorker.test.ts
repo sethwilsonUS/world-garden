@@ -215,6 +215,7 @@ describe("personal playlist worker orchestration", () => {
         blob: new Blob([Uint8Array.of(0xff, 0xfb)], { type: "audio/mpeg" }),
         metadata: requestedTtsMetadata,
       });
+    let combinedUploadContentType: string | null = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -223,6 +224,9 @@ describe("personal playlist worker orchestration", () => {
           return Response.json({ storageId: "section-storage" });
         }
         if (url === "https://upload.test/combined") {
+          combinedUploadContentType = new Headers(init?.headers).get(
+            "Content-Type",
+          );
           await new Response(init?.body as BodyInit).arrayBuffer();
           return Response.json({ storageId: "combined-storage" });
         }
@@ -264,6 +268,9 @@ describe("personal playlist worker orchestration", () => {
       owner: "00000000-0000-4000-8000-000000000001",
       storageId: "combined-storage",
     });
+    expect(combinedUploadContentType).toBe(
+      "application/vnd.curiogarden.account-audio",
+    );
     const completionArgs = runMutation.mock.calls
       .map(([, callArgs]) => callArgs)
       .find((callArgs) => callArgs?.ttsCacheKey && callArgs?.episodeId);

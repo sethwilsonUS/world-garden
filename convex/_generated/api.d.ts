@@ -10,6 +10,7 @@
 
 import type * as accountData from "../accountData.js";
 import type * as accountDeletion from "../accountDeletion.js";
+import type * as accountOwnedStorage from "../accountOwnedStorage.js";
 import type * as analyticsRollups from "../analyticsRollups.js";
 import type * as articleContextCache from "../articleContextCache.js";
 import type * as articleContextModeration from "../articleContextModeration.js";
@@ -51,6 +52,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   accountData: typeof accountData;
   accountDeletion: typeof accountDeletion;
+  accountOwnedStorage: typeof accountOwnedStorage;
   analyticsRollups: typeof analyticsRollups;
   articleContextCache: typeof articleContextCache;
   articleContextModeration: typeof articleContextModeration;
