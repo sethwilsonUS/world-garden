@@ -380,11 +380,11 @@ describe("AI cost report CLI", () => {
     const help = output.join("");
     expect(envLoaded).toBe(false);
     expect(fetched).toBe(false);
-    expect(help).toContain("npm run analytics:costs");
+    expect(help).toContain("npm run report:costs");
     expect(help).toContain("--csv");
     expect(help).toContain("--output <path>");
     expect(help).toContain("--limit <count>");
-    expect(help).toContain("-h, --help");
+    expect(help).toContain("--help, -h");
     expect(help).toContain(
       "The terminal view defaults to 50 entries per breakdown",
     );
@@ -548,6 +548,10 @@ describe("AI cost report CLI", () => {
   it("keeps the original operation error as the cause if cleanup fails", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "curio-ai-costs-"));
     const outputPath = path.join(directory, "costs.csv");
+    const operationError = new Error("synthetic report failure");
+    const cleanupError = Object.assign(new Error("synthetic cleanup failure"), {
+      code: "EACCES",
+    });
 
     try {
       let caught;
@@ -565,11 +569,11 @@ describe("AI cost report CLI", () => {
           process.cwd(),
           {
             fetchReport: async () => {
-              throw new Error("synthetic report failure");
+              throw operationError;
             },
             loadEnv: async () => undefined,
             removeFile: async () => {
-              throw new Error("synthetic cleanup failure");
+              throw cleanupError;
             },
           },
         );
@@ -577,10 +581,16 @@ describe("AI cost report CLI", () => {
         caught = error;
       }
 
-      expect(caught).toMatchObject({
-        message: `Could not remove partial AI cost export: ${outputPath}`,
-        cause: { message: "synthetic report failure" },
-      });
+      expect(caught).toBeInstanceOf(AggregateError);
+      expect(caught).toMatchObject({ cause: operationError });
+      expect(caught.message).toContain("synthetic report failure");
+      expect(caught.message).toContain("synthetic cleanup failure");
+      expect(caught.message).toContain("EACCES");
+      expect(caught.errors[0]).toBe(operationError);
+      expect(caught.errors[1]).toMatchObject({ cause: cleanupError });
+      expect(caught.errors[1].message).toContain(
+        `Could not remove partial AI cost export: ${outputPath}`,
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

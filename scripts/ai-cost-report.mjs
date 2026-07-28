@@ -20,11 +20,11 @@ const CSV_HEADERS = [
 const HELP_TEXT = `Curio Garden AI cost command
 
 Usage:
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --limit 100
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv --output <path>
-  npm run analytics:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --json
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --limit 100
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --csv --output <path>
+  npm run report:costs -- --from YYYY-MM-DD --to YYYY-MM-DD --json
 
 Options:
   --from <date>          First UTC day to include, in YYYY-MM-DD form.
@@ -33,7 +33,7 @@ Options:
   --output <path>        Write CSV to this new file. Existing files are preserved.
   --limit <count>        Maximum entries in each cost breakdown.
   --json                 Print machine-readable JSON instead of the terminal view.
-  -h, --help             Show this help.
+  --help, -h             Show this help.
 
 The date range is half-open [from, to) and is limited to 90 days.
 The terminal view defaults to 50 entries per breakdown. CSV exports up to 10000
@@ -42,6 +42,7 @@ totals are never truncated and always refer to the complete requested period;
 an unavailable total remains unavailable. Provider-reported reconciled spend
 and locally estimated spend remain separately labeled.
 Report requests time out after 60 seconds.
+Compatibility alias: npm run analytics:costs.
 `;
 
 const takeFlagValue = (args, index, flag, noun = "value") => {
@@ -349,6 +350,18 @@ const quoteCsv = (value) => {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 
+const describeError = (error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const code =
+    error && typeof error === "object" && typeof error.code === "string"
+      ? error.code
+      : undefined;
+  return code && !message.includes(code) ? `${message} (${code})` : message;
+};
+
+const exportCleanupError = (message, error) =>
+  new Error(`${message}: ${describeError(error)}`, { cause: error });
+
 const buildCostCsvRows = (report, limit) => {
   const costs = report?.costs ?? {};
   const rows = [
@@ -564,24 +577,37 @@ export const main = async (
       })}\n`,
     );
   } catch (error) {
-    let cleanupError;
+    const cleanupErrors = [];
     if (exportHandle) {
       try {
         await exportHandle.close();
       } catch (closeError) {
-        cleanupError = closeError;
+        cleanupErrors.push(
+          exportCleanupError(
+            `Could not close AI cost export: ${exportPath ?? "unknown path"}`,
+            closeError,
+          ),
+        );
       }
     }
     if (removePartialExport && exportPath) {
       try {
         await removeFile(exportPath, { force: true });
       } catch (removeError) {
-        cleanupError ??= removeError;
+        cleanupErrors.push(
+          exportCleanupError(
+            `Could not remove partial AI cost export: ${exportPath}`,
+            removeError,
+          ),
+        );
       }
     }
-    if (cleanupError) {
-      throw new Error(
-        `Could not remove partial AI cost export: ${exportPath ?? "unknown path"}`,
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        `${describeError(error)} AI cost export cleanup also failed: ${cleanupErrors
+          .map((cleanupError) => cleanupError.message)
+          .join(" ")}`,
         { cause: error },
       );
     }

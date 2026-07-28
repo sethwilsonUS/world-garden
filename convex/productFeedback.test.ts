@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PRODUCT_FEEDBACK_CONTACT_RETENTION_MS,
   assertProductFeedbackWriteAuthorized,
+  listProductFeedbackForOwnerForCtx,
   scrubExpiredProductFeedbackContactsForCtx,
   shouldContinueProductFeedbackContactCleanup,
   submitProductFeedbackForCtx,
@@ -24,6 +25,7 @@ const createCtx = () => {
 
 type StoredFeedback = {
   _id: string;
+  _creationTime?: number;
   kind: "accessibility" | "product" | "technical" | "other";
   message: string;
   environment?: string;
@@ -37,6 +39,53 @@ type StoredFeedback = {
   createdAt: number;
   updatedAt: number;
 };
+
+const createOwnerReadCtx = (records: StoredFeedback[]) => ({
+  db: {
+    query: (tableName: string) => {
+      expect(tableName).toBe("productFeedback");
+      return {
+        withIndex: (
+          indexName: string,
+          buildRange: (range: {
+            lte: (fieldName: string, value: number) => unknown;
+          }) => unknown,
+        ) => {
+          expect(indexName).toBe("by_creation_time");
+          let snapshotBefore = Number.POSITIVE_INFINITY;
+          buildRange({
+            lte: (fieldName, value) => {
+              expect(fieldName).toBe("_creationTime");
+              snapshotBefore = value;
+              return {};
+            },
+          });
+          return {
+            order: (direction: string) => {
+              expect(direction).toBe("desc");
+              return {
+                paginate: async (paginationOpts: {
+                  cursor: string | null;
+                  numItems: number;
+                }) => ({
+                  page: records
+                    .filter(
+                      (record) =>
+                        (record._creationTime ?? record.createdAt) <=
+                        snapshotBefore,
+                    )
+                    .slice(0, paginationOpts.numItems),
+                  isDone: true,
+                  continueCursor: "done",
+                }),
+              };
+            },
+          };
+        },
+      };
+    },
+  },
+});
 
 const createCleanupCtx = (records: StoredFeedback[]) => {
   const stored = new Map(records.map((record) => [record._id, { ...record }]));
@@ -246,6 +295,184 @@ describe("submitProductFeedbackForCtx", () => {
       }),
     ).rejects.toThrow("Article title and slug are required together");
     expect(inserted).toEqual([]);
+  });
+});
+
+describe("listProductFeedbackForOwnerForCtx", () => {
+  it("projects owner fields while suppressing expired and unrequested contact email", async () => {
+    const active: StoredFeedback = {
+      _id: "active-feedback",
+      _creationTime: 9_000,
+      kind: "accessibility",
+      message: "The focus moved unexpectedly.",
+      environment: "VoiceOver and Safari",
+      contactEmail: "active@example.com",
+      researchOptIn: true,
+      status: "open",
+      contactExpiresAt: 10_001,
+      articleTitle: "Moria",
+      articleSlug: "Moria",
+      articleRevisionId: "123",
+      createdAt: 9_000,
+      updatedAt: 9_500,
+    };
+    const expired: StoredFeedback = {
+      ...active,
+      _id: "expired-feedback",
+      _creationTime: 8_000,
+      contactEmail: "expired@example.com",
+      contactExpiresAt: 10_000,
+      createdAt: 8_000,
+      updatedAt: 8_500,
+    };
+
+    const result = await listProductFeedbackForOwnerForCtx(
+      createOwnerReadCtx([active, expired]) as never,
+      {
+        paginationOpts: { cursor: null, numItems: 1000 },
+        reportRunId: "projection-test",
+        snapshotBefore: 10_000,
+        includeContact: false,
+        now: 10_000,
+      },
+    );
+
+    expect(result.page).toEqual([
+      {
+        id: "active-feedback",
+        kind: "accessibility",
+        message: "The focus moved unexpectedly.",
+        environment: "VoiceOver and Safari",
+        researchOptIn: true,
+        status: "open",
+        contactAvailable: true,
+        contactExpiresAt: 10_001,
+        articleTitle: "Moria",
+        articleSlug: "Moria",
+        articleRevisionId: "123",
+        createdAt: 9_000,
+        updatedAt: 9_500,
+      },
+      {
+        id: "expired-feedback",
+        kind: "accessibility",
+        message: "The focus moved unexpectedly.",
+        environment: "VoiceOver and Safari",
+        researchOptIn: false,
+        status: "open",
+        contactAvailable: false,
+        articleTitle: "Moria",
+        articleSlug: "Moria",
+        articleRevisionId: "123",
+        createdAt: 8_000,
+        updatedAt: 8_500,
+      },
+    ]);
+    expect(result.page).not.toContainEqual(
+      expect.objectContaining({ contactEmail: expect.any(String) }),
+    );
+
+    const contactResult = await listProductFeedbackForOwnerForCtx(
+      createOwnerReadCtx([active, expired]) as never,
+      {
+        paginationOpts: { cursor: null, numItems: 100 },
+        reportRunId: "contact-test",
+        snapshotBefore: 10_000,
+        includeContact: true,
+        now: 10_000,
+      },
+    );
+    expect(contactResult.page[0]).toMatchObject({
+      id: "active-feedback",
+      contactEmail: "active@example.com",
+      contactAvailable: true,
+    });
+    expect(contactResult.page[1]).not.toHaveProperty("contactEmail");
+  });
+
+  it("chooses a server-time snapshot for the first page", async () => {
+    const record: StoredFeedback = {
+      _id: "visible-feedback",
+      _creationTime: 9_000,
+      kind: "product",
+      message: "Visible at the snapshot.",
+      researchOptIn: false,
+      status: "open",
+      createdAt: 9_000,
+      updatedAt: 9_000,
+    };
+
+    const result = await listProductFeedbackForOwnerForCtx(
+      createOwnerReadCtx([record]) as never,
+      {
+        paginationOpts: { cursor: null, numItems: 100 },
+        reportRunId: "snapshot-test",
+        includeContact: false,
+        now: 10_000,
+      } as never,
+    );
+
+    expect(result.snapshotBefore).toBe(10_000);
+    expect(result.page).toHaveLength(1);
+  });
+
+  it("uses the status index and clamps owner page reads", async () => {
+    let paginationOpts: Record<string, unknown> | undefined;
+    const ctx = {
+      db: {
+        query: () => ({
+          withIndex: (
+            indexName: string,
+            buildRange: (range: {
+              eq: (
+                fieldName: string,
+                value: string,
+              ) => {
+                lte: (fieldName: string, value: number) => unknown;
+              };
+            }) => unknown,
+          ) => {
+            expect(indexName).toBe("by_status");
+            buildRange({
+              eq: (fieldName, value) => {
+                expect(fieldName).toBe("status");
+                expect(value).toBe("resolved");
+                return {
+                  lte: (creationField, snapshotBefore) => {
+                    expect(creationField).toBe("_creationTime");
+                    expect(snapshotBefore).toBe(20_000);
+                    return {};
+                  },
+                };
+              },
+            });
+            return {
+              order: () => ({
+                paginate: async (options: Record<string, unknown>) => {
+                  paginationOpts = options;
+                  return { page: [], isDone: true, continueCursor: "done" };
+                },
+              }),
+            };
+          },
+        }),
+      },
+    };
+
+    await listProductFeedbackForOwnerForCtx(ctx as never, {
+      paginationOpts: { cursor: null, numItems: 10_000 },
+      reportRunId: "status-test",
+      status: "resolved",
+      snapshotBefore: 20_000,
+      includeContact: false,
+      now: 20_000,
+    });
+
+    expect(paginationOpts).toEqual({
+      cursor: null,
+      numItems: 100,
+      maximumRowsRead: 100,
+    });
   });
 });
 
