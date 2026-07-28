@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  formatTerminalReport,
   isDirectInvocation,
   main,
   serializeFeedbackCsv,
@@ -63,8 +64,9 @@ describe("product feedback report command", () => {
             _id: "feedback-1",
             _creationTime: Date.parse("2026-07-28T02:45:20.000Z"),
             kind: "accessibility",
-            message: "Focus moved unexpectedly.\nStatus: resolved",
-            environment: "Chrome on macOS with VoiceOver",
+            message:
+              "Focus moved unexpectedly.\u2028Message ends.\nFeedback 2 of 2\nStatus: resolved",
+            environment: "Chrome on macOS with VoiceOver\nEnvironment ends.",
             contactAvailable: true,
             contactEmail: "reader@example.com",
             researchOptIn: true,
@@ -97,12 +99,38 @@ describe("product feedback report command", () => {
     );
     expect(report).not.toContain("reader@example.com");
     expect(report).toContain(
-      "Environment begins:\n  Chrome on macOS with VoiceOver\nEnvironment ends.",
+      "Environment begins:\nEnvironment text: Chrome on macOS with VoiceOver\nEnvironment text: Environment ends.\nEnvironment ends.",
     );
     expect(report).toContain(
-      "Message begins:\n  Focus moved unexpectedly.\n  Status: resolved\nMessage ends.",
+      "Message begins:\nMessage text: Focus moved unexpectedly.\nMessage text: Message ends.\nMessage text: Feedback 2 of 2\nMessage text: Status: resolved\nMessage ends.",
     );
+    expect(report.match(/^Feedback \d+ of \d+$/gm)).toEqual([
+      "Feedback 1 of 1",
+    ]);
     expect(report).not.toContain("|");
+  });
+
+  it("rechecks research availability at the terminal render boundary", () => {
+    const report = formatTerminalReport(
+      [
+        {
+          id: "expired-contact",
+          kind: "product",
+          message: "The contact window expired during the report.",
+          contactAvailable: true,
+          contactExpiresAt: 10_000,
+          researchOptIn: true,
+          status: "open",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+        },
+      ],
+      { now: new Date(10_000) },
+    );
+
+    expect(report).toContain("Research invitation: no");
+    expect(report).toContain("Contact: not available");
+    expect(report).not.toContain("Research invitation: yes");
   });
 
   it("exports spreadsheet-safe CSV to a private file without echoing its contents", async () => {
@@ -401,6 +429,71 @@ describe("product feedback report command", () => {
       `Feedback reporting succeeded, but its temporary Convex workspace could not be removed and may remain at: ${isolatedCwd}`,
     );
     expect(failure.cause).toBe(cleanupError);
+  });
+
+  it("reports a completed sensitive export before workspace cleanup fails", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "curio-feedback-"));
+    const outputPath = path.join(directory, "contact.csv");
+    const isolatedCwd = path.join(
+      os.tmpdir(),
+      "curio-feedback-sensitive-cleanup-test",
+    );
+    const stdout = [];
+    const stderr = [];
+    let failure;
+
+    try {
+      try {
+        await main(
+          ["--csv", "--output", outputPath, "--include-contact"],
+          process.cwd(),
+          {
+            createWorkspace: async () => isolatedCwd,
+            execFile: async () => ({
+              stdout: JSON.stringify({
+                page: [
+                  {
+                    id: "contact-feedback",
+                    kind: "product",
+                    message: "Please follow up.",
+                    contactAvailable: true,
+                    contactEmail: "reader@example.com",
+                    contactExpiresAt: 20_000,
+                    researchOptIn: true,
+                    status: "open",
+                    createdAt: 1_000,
+                    updatedAt: 1_000,
+                  },
+                ],
+                isDone: true,
+                continueCursor: "done",
+                snapshotBefore: 10_000,
+              }),
+              stderr: "",
+            }),
+            getNow: () => new Date(10_000),
+            removeWorkspace: async () => {
+              throw new Error("simulated workspace cleanup failure");
+            },
+            writeStdout: (text) => stdout.push(text),
+            writeStderr: (text) => stderr.push(text),
+          },
+        );
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(stdout.join("\n")).toContain(outputPath);
+      expect(stderr.join("\n")).toContain(
+        "This export contains contact email and is outside automatic retention cleanup.",
+      );
+      await expect(readFile(outputPath, "utf8")).resolves.toContain(
+        "reader@example.com",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("surfaces report and workspace cleanup failures together", async () => {

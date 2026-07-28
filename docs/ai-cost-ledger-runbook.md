@@ -103,8 +103,8 @@ An unavailable measurement is `null` or `unknown`, never a guessed zero.
   A verified persisted asset is a hit/reuse. A miss is generation only after
   new response bytes exist. The atomic persistence result distinguishes the
   unique winner, an idempotent retry, a concurrent race, and a failed write.
-- Article-audio pipeline generated/reused section counters feed the same bounded
-  daily rollup. Provider attempts and cache-persistence outcomes remain the
+- The article-audio pipeline's generated/reused section counters feed the same
+  bounded daily rollup. Provider attempts and cache-persistence outcomes remain the
   accounting authority; pipeline counters are operational diagnostics.
 - Listening reuses the existing anti-seek browser sampler and batched Convex
   progress mutation. Convex merges unique integer media ranges and contributes

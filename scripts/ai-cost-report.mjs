@@ -350,6 +350,18 @@ const quoteCsv = (value) => {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 
+const describeError = (error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const code =
+    error && typeof error === "object" && typeof error.code === "string"
+      ? error.code
+      : undefined;
+  return code && !message.includes(code) ? `${message} (${code})` : message;
+};
+
+const exportCleanupError = (message, error) =>
+  new Error(`${message}: ${describeError(error)}`, { cause: error });
+
 const buildCostCsvRows = (report, limit) => {
   const costs = report?.costs ?? {};
   const rows = [
@@ -565,24 +577,37 @@ export const main = async (
       })}\n`,
     );
   } catch (error) {
-    let cleanupError;
+    const cleanupErrors = [];
     if (exportHandle) {
       try {
         await exportHandle.close();
       } catch (closeError) {
-        cleanupError = closeError;
+        cleanupErrors.push(
+          exportCleanupError(
+            `Could not close AI cost export: ${exportPath ?? "unknown path"}`,
+            closeError,
+          ),
+        );
       }
     }
     if (removePartialExport && exportPath) {
       try {
         await removeFile(exportPath, { force: true });
       } catch (removeError) {
-        cleanupError ??= removeError;
+        cleanupErrors.push(
+          exportCleanupError(
+            `Could not remove partial AI cost export: ${exportPath}`,
+            removeError,
+          ),
+        );
       }
     }
-    if (cleanupError) {
-      throw new Error(
-        `Could not remove partial AI cost export: ${exportPath ?? "unknown path"}`,
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        `${describeError(error)} AI cost export cleanup also failed: ${cleanupErrors
+          .map((cleanupError) => cleanupError.message)
+          .join(" ")}`,
         { cause: error },
       );
     }

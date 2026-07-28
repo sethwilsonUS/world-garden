@@ -221,25 +221,29 @@ function formatArticle(item) {
   return details.length > 0 ? `${title} (${details.join(", ")})` : title;
 }
 
-function formatContact(item, now) {
+function hasActiveContact(item, now) {
   const expiresAt = item.contactExpiresAt;
-  const isAvailable =
+  return (
     item.contactAvailable === true &&
     typeof expiresAt === "number" &&
-    expiresAt > now.getTime();
+    expiresAt > now.getTime()
+  );
+}
 
+function formatContact(item, isAvailable) {
   return isAvailable
-    ? `available but hidden (expires ${isoDate(expiresAt)})`
+    ? `available but hidden (expires ${isoDate(item.contactExpiresAt)})`
     : "not available";
 }
 
-function indentUntrustedText(value) {
+function labelUntrustedText(value, label) {
   return String(value)
     .replace(/\r\n?/g, "\n")
+    .replace(/[\u2028\u2029]/g, "\n")
     .replace(/\t/g, "    ")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "")
     .split("\n")
-    .map((line) => `  ${line}`)
+    .map((line) => `${label} text: ${line || "[blank line]"}`)
     .join("\n");
 }
 
@@ -261,6 +265,7 @@ export function formatTerminalReport(
   }
 
   for (const [index, item] of items.entries()) {
+    const contactAvailable = hasActiveContact(item, now);
     lines.push(
       "",
       `Feedback ${index + 1} of ${items.length}`,
@@ -268,21 +273,21 @@ export function formatTerminalReport(
       `Status: ${item.status}`,
       `Kind: ${item.kind}`,
       `Article: ${formatArticle(item)}`,
-      `Research invitation: ${item.researchOptIn ? "yes" : "no"}`,
-      `Contact: ${formatContact(item, now)}`,
+      `Research invitation: ${contactAvailable && item.researchOptIn ? "yes" : "no"}`,
+      `Contact: ${formatContact(item, contactAvailable)}`,
     );
 
     if (item.environment) {
       lines.push(
         "Environment begins:",
-        indentUntrustedText(item.environment),
+        labelUntrustedText(item.environment, "Environment"),
         "Environment ends.",
       );
     }
 
     lines.push(
       "Message begins:",
-      indentUntrustedText(item.message),
+      labelUntrustedText(item.message, "Message"),
       "Message ends.",
     );
   }
@@ -610,12 +615,6 @@ export async function main(
   if (operationError) {
     throw operationError;
   }
-  if (workspaceCleanupError) {
-    throw new Error(
-      `Feedback reporting succeeded, but its temporary Convex workspace could not be removed and may remain at: ${isolatedCwd}`,
-      { cause: workspaceCleanupError },
-    );
-  }
 
   if (outputPath) {
     writeStdout(
@@ -631,16 +630,22 @@ export async function main(
         "Warning: This CSV is incomplete; more matching feedback is available. Increase --limit and export to a new path.\n",
       );
     }
-    return;
+  } else {
+    writeStdout(
+      formatTerminalReport(feedback, {
+        hasMore: !isDone,
+        now: getNow(),
+        status,
+      }),
+    );
   }
 
-  writeStdout(
-    formatTerminalReport(feedback, {
-      hasMore: !isDone,
-      now: getNow(),
-      status,
-    }),
-  );
+  if (workspaceCleanupError) {
+    throw new Error(
+      `Feedback reporting succeeded, but its temporary Convex workspace could not be removed and may remain at: ${isolatedCwd}`,
+      { cause: workspaceCleanupError },
+    );
+  }
 }
 
 export function isDirectInvocation(moduleUrl, argvEntry) {

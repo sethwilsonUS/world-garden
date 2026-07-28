@@ -97,6 +97,10 @@ export const listProductFeedbackForOwnerForCtx = async (
     ),
     maximumRowsRead: PRODUCT_FEEDBACK_OWNER_PAGE_SIZE,
   };
+  // Feedback status is write-once in application code today: submission sets
+  // `open`, and no application mutation changes it. Keep status reads on the
+  // bounded index. Any future status-transition feature must add versioned
+  // status history before relying on this cursor contract.
   const query = args.status
     ? ctx.db
         .query("productFeedback")
