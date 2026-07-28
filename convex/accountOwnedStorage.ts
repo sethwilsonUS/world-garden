@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import {
   ACCOUNT_OWNED_AUDIO_ORPHAN_GRACE_MS,
@@ -13,6 +14,30 @@ type AccountOwnedStorageSweepCtx = Pick<
   MutationCtx,
   "db" | "scheduler" | "storage"
 >;
+
+type AccountOwnedStorageSweepStateUpdate = {
+  scannedThrough: number;
+  activeCutoff?: number;
+  cursor?: string;
+  updatedAt: number;
+};
+
+const upsertSweepState = async (
+  ctx: Pick<AccountOwnedStorageSweepCtx, "db">,
+  state: Doc<"accountOwnedStorageSweepState"> | null,
+  update: AccountOwnedStorageSweepStateUpdate,
+  now: number,
+): Promise<void> => {
+  if (state) {
+    await ctx.db.patch(state._id, update);
+    return;
+  }
+  await ctx.db.insert("accountOwnedStorageSweepState", {
+    key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
+    ...update,
+    createdAt: now,
+  });
+};
 
 export const sweepAccountOwnedStorageOrphansForCtx = async (
   ctx: AccountOwnedStorageSweepCtx,
@@ -86,20 +111,12 @@ export const sweepAccountOwnedStorageOrphansForCtx = async (
 
   if (!result.isDone) {
     const nextState = {
-      key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
       scannedThrough,
       activeCutoff,
       cursor: result.continueCursor,
       updatedAt: now,
     };
-    if (state) {
-      await ctx.db.patch(state._id, nextState);
-    } else {
-      await ctx.db.insert("accountOwnedStorageSweepState", {
-        ...nextState,
-        createdAt: now,
-      });
-    }
+    await upsertSweepState(ctx, state, nextState, now);
     await ctx.scheduler.runAfter(
       0,
       internal.accountOwnedStorage.sweepAccountOwnedStorageOrphans,
@@ -121,15 +138,7 @@ export const sweepAccountOwnedStorageOrphansForCtx = async (
     cursor: undefined,
     updatedAt: now,
   };
-  if (state) {
-    await ctx.db.patch(state._id, completedState);
-  } else {
-    await ctx.db.insert("accountOwnedStorageSweepState", {
-      key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
-      ...completedState,
-      createdAt: now,
-    });
-  }
+  await upsertSweepState(ctx, state, completedState, now);
   return {
     status: "complete" as const,
     scanned: result.page.length,

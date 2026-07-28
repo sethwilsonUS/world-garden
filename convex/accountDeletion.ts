@@ -35,6 +35,7 @@ import {
 export const ACCOUNT_DELETION_BATCH_SIZE = 25;
 export const ACCOUNT_DELETION_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1_000;
 export const ACCOUNT_DELETION_PURGE_SWEEP_RETRY_MS = 60 * 60 * 1_000;
+export const ACCOUNT_DELETION_PURGE_SWEEP_ATTENTION_THRESHOLD = 12;
 // Keep retrying safely, but cap backoff state and emit one durable operator
 // signal after a sustained run of failures.
 export const ACCOUNT_DELETION_CLEANUP_ATTENTION_THRESHOLD = 12;
@@ -42,6 +43,8 @@ const ACCOUNT_DELETION_RETRY_BASE_MS = 60_000;
 const ACCOUNT_DELETION_RETRY_MAX_MS = 60 * 60 * 1_000;
 const MAX_IDENTITY_LENGTH = 512;
 const MAX_STORED_ERROR_LENGTH = 500;
+const ACCOUNT_DELETION_PURGE_SWEEP_WAIT_ERROR =
+  "Account-owned audio sweep coverage is behind the deletion tombstone.";
 
 type AccountDeletionStatus = Doc<"accountDeletionRequests">["status"];
 type AccountDeletionPhase = Doc<"accountDeletionRequests">["phase"];
@@ -323,6 +326,8 @@ const advanceCleanup = async (
     phase: "grace_period",
     cleanupCompletedAt: now,
     cleanupAttemptCount: 0,
+    purgeSweepRetryCount: 0,
+    lastPurgeSweepRetryAt: undefined,
     needsAttentionAt: undefined,
     purgeAfter,
     lastError: undefined,
@@ -998,6 +1003,10 @@ export const purgeAccountDeletionRequestForCtx = async (
     await ctx.db.patch(request._id, {
       phase: "revoke_feeds",
       purgeAfter: undefined,
+      purgeSweepRetryCount: 0,
+      lastPurgeSweepRetryAt: undefined,
+      needsAttentionAt: undefined,
+      lastError: undefined,
       updatedAt: now,
     });
     await scheduleCleanup(ctx, request._id);
@@ -1012,6 +1021,37 @@ export const purgeAccountDeletionRequestForCtx = async (
   const requiredSweepHighWater =
     request.createdAt + ACCOUNT_OWNED_AUDIO_MAX_LATE_ACTION_MS;
   if (!sweepState || sweepState.scannedThrough < requiredSweepHighWater) {
+    const entersNewRetryWindow =
+      request.lastPurgeSweepRetryAt === undefined ||
+      now - request.lastPurgeSweepRetryAt >=
+        ACCOUNT_DELETION_PURGE_SWEEP_RETRY_MS;
+    const purgeSweepRetryCount = Math.min(
+      (request.purgeSweepRetryCount ?? 0) + (entersNewRetryWindow ? 1 : 0),
+      ACCOUNT_DELETION_PURGE_SWEEP_ATTENTION_THRESHOLD,
+    );
+    const shouldSignalAttention =
+      purgeSweepRetryCount >=
+        ACCOUNT_DELETION_PURGE_SWEEP_ATTENTION_THRESHOLD &&
+      request.needsAttentionAt === undefined;
+    await ctx.db.patch(request._id, {
+      purgeSweepRetryCount,
+      ...(entersNewRetryWindow ? { lastPurgeSweepRetryAt: now } : {}),
+      ...(shouldSignalAttention ? { needsAttentionAt: now } : {}),
+      lastError: ACCOUNT_DELETION_PURGE_SWEEP_WAIT_ERROR,
+      updatedAt: now,
+    });
+    if (shouldSignalAttention) {
+      console.error(
+        "[account-deletion] Storage sweep needs operator attention",
+        {
+          requestId: request._id,
+          viewerTokenIdentifier: request.viewerTokenIdentifier,
+          purgeSweepRetryCount,
+          scannedThrough: sweepState?.scannedThrough ?? null,
+          requiredSweepHighWater,
+        },
+      );
+    }
     await schedulePurge(
       ctx,
       request._id,

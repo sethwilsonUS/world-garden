@@ -7,7 +7,7 @@ import {
 } from "../lib/account-owned-audio-storage";
 import {
   ACCOUNT_OWNED_STORAGE_SWEEP_PAGE_SIZE,
-  sweepAccountOwnedStorageOrphans,
+  sweepAccountOwnedStorageOrphansForCtx,
 } from "./accountOwnedStorage";
 
 type StorageDoc = {
@@ -31,13 +31,6 @@ type PageResult = {
   isDone: boolean;
   continueCursor: string;
 };
-
-const getHandler = <TArgs, TResult>(registeredFunction: unknown) =>
-  (
-    registeredFunction as {
-      _handler: (ctx: unknown, args: TArgs) => Promise<TResult>;
-    }
-  )._handler;
 
 const createCtx = ({
   state = null,
@@ -197,7 +190,6 @@ describe("account-owned storage orphan sweep", () => {
 
   it("deletes only old, exactly marked, unledgered storage", async () => {
     const now = 20_000_000;
-    vi.spyOn(Date, "now").mockReturnValue(now);
     const cutoff = now - ACCOUNT_OWNED_AUDIO_ORPHAN_GRACE_MS;
     const state: SweepState = {
       _id: "sweep-state-1",
@@ -237,9 +229,11 @@ describe("account-owned storage orphan sweep", () => {
     });
 
     await expect(
-      getHandler<{ continuation: boolean }, Record<string, unknown>>(
-        sweepAccountOwnedStorageOrphans,
-      )(harness.ctx, { continuation: false }),
+      sweepAccountOwnedStorageOrphansForCtx(
+        harness.ctx as never,
+        { continuation: false },
+        now,
+      ),
     ).resolves.toEqual(
       expect.objectContaining({
         status: "complete",
@@ -276,7 +270,6 @@ describe("account-owned storage orphan sweep", () => {
 
   it("persists a fixed cutoff and cursor before scheduling a bounded continuation", async () => {
     const now = 30_000_000;
-    vi.spyOn(Date, "now").mockReturnValue(now);
     const cutoff = now - ACCOUNT_OWNED_AUDIO_ORPHAN_GRACE_MS;
     const harness = createCtx({
       pageResult: {
@@ -287,9 +280,11 @@ describe("account-owned storage orphan sweep", () => {
     });
 
     await expect(
-      getHandler<{ continuation: boolean }, Record<string, unknown>>(
-        sweepAccountOwnedStorageOrphans,
-      )(harness.ctx, { continuation: false }),
+      sweepAccountOwnedStorageOrphansForCtx(
+        harness.ctx as never,
+        { continuation: false },
+        now,
+      ),
     ).resolves.toEqual(
       expect.objectContaining({ status: "continued", scannedThrough: 0 }),
     );
@@ -319,7 +314,6 @@ describe("account-owned storage orphan sweep", () => {
 
   it("resumes an active fixed range even when invoked by cron", async () => {
     const now = 40_000_000;
-    vi.spyOn(Date, "now").mockReturnValue(now);
     const state: SweepState = {
       _id: "sweep-state-1",
       key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
@@ -334,9 +328,11 @@ describe("account-owned storage orphan sweep", () => {
       pageResult: { page: [], isDone: true, continueCursor: "done" },
     });
 
-    await getHandler<{ continuation: boolean }, Record<string, unknown>>(
-      sweepAccountOwnedStorageOrphans,
-    )(harness.ctx, { continuation: false });
+    await sweepAccountOwnedStorageOrphansForCtx(
+      harness.ctx as never,
+      { continuation: false },
+      now,
+    );
 
     expect(harness.range.upperValue).toBe(state.activeCutoff);
     expect(harness.paginate).toHaveBeenCalledWith(
@@ -364,9 +360,11 @@ describe("account-owned storage orphan sweep", () => {
     });
 
     await expect(
-      getHandler<{ continuation: boolean }, Record<string, unknown>>(
-        sweepAccountOwnedStorageOrphans,
-      )(harness.ctx, { continuation: true }),
+      sweepAccountOwnedStorageOrphansForCtx(
+        harness.ctx as never,
+        { continuation: true },
+        30_000,
+      ),
     ).resolves.toEqual(
       expect.objectContaining({ status: "stale", scannedThrough: 10_000 }),
     );
@@ -379,7 +377,6 @@ describe("account-owned storage orphan sweep", () => {
 
   it("does not advance or schedule when deleting an orphan fails", async () => {
     const now = 20_000_000;
-    vi.spyOn(Date, "now").mockReturnValue(now);
     const state: SweepState = {
       _id: "sweep-state-1",
       key: ACCOUNT_OWNED_AUDIO_SWEEP_KEY,
@@ -404,9 +401,11 @@ describe("account-owned storage orphan sweep", () => {
     });
 
     await expect(
-      getHandler<{ continuation: boolean }, Record<string, unknown>>(
-        sweepAccountOwnedStorageOrphans,
-      )(harness.ctx, { continuation: false }),
+      sweepAccountOwnedStorageOrphansForCtx(
+        harness.ctx as never,
+        { continuation: false },
+        now,
+      ),
     ).rejects.toThrow("storage unavailable");
 
     expect(harness.patch).not.toHaveBeenCalled();
