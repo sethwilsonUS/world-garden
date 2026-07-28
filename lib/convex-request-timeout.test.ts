@@ -106,4 +106,72 @@ describe("abortable Convex HTTP requests", () => {
     expect(init.signal?.aborted).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("preserves a server-resolved Clerk token on an abortable query", async () => {
+    requestFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: "success",
+          value: { feed: null, quotas: [] },
+          logLines: [],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await fetchConvexQueryWithTimeout(
+      anyApi.accountData.getViewerAccountDataOverview,
+      {},
+      {
+        timeoutMs: 5_000,
+        message: "Account data lookup timed out",
+        token: "clerk-convex-jwt",
+      },
+    );
+
+    const [, init] = requestFetch.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get("Authorization")).toBe(
+      "Bearer clerk-convex-jwt",
+    );
+  });
+
+  it("links a parent cancellation to the underlying request and clears its timer", async () => {
+    let requestSignal: AbortSignal | undefined;
+    requestFetch.mockImplementation(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          requestSignal = init?.signal as AbortSignal;
+          requestSignal.addEventListener(
+            "abort",
+            () => reject(requestSignal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    const parent = new AbortController();
+
+    const request = fetchConvexQueryWithTimeout(
+      anyApi.accountData.getViewerAccountDataOverview,
+      {},
+      {
+        timeoutMs: 5_000,
+        message: "Account data lookup timed out",
+        signal: parent.signal,
+        token: "clerk-convex-jwt",
+      },
+    ).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(0);
+    parent.abort(new Error("Account export cancelled"));
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const error = await request;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("Account export cancelled");
+    expect(requestSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

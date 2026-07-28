@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as accountData from "../accountData.js";
 import type * as analyticsRollups from "../analyticsRollups.js";
 import type * as articleContextCache from "../articleContextCache.js";
 import type * as articleContextModeration from "../articleContextModeration.js";
@@ -22,6 +23,7 @@ import type * as badges from "../badges.js";
 import type * as bookmarks from "../bookmarks.js";
 import type * as crons from "../crons.js";
 import type * as didYouKnow from "../didYouKnow.js";
+import type * as lib_accountQuotaKeys from "../lib/accountQuotaKeys.js";
 import type * as lib_articleAudioPipeline from "../lib/articleAudioPipeline.js";
 import type * as lib_personalPlaylistPersistence from "../lib/personalPlaylistPersistence.js";
 import type * as lib_personalPlaylistWorker from "../lib/personalPlaylistWorker.js";
@@ -44,6 +46,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountData: typeof accountData;
   analyticsRollups: typeof analyticsRollups;
   articleContextCache: typeof articleContextCache;
   articleContextModeration: typeof articleContextModeration;
@@ -58,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   bookmarks: typeof bookmarks;
   crons: typeof crons;
   didYouKnow: typeof didYouKnow;
+  "lib/accountQuotaKeys": typeof lib_accountQuotaKeys;
   "lib/articleAudioPipeline": typeof lib_articleAudioPipeline;
   "lib/personalPlaylistPersistence": typeof lib_personalPlaylistPersistence;
   "lib/personalPlaylistWorker": typeof lib_personalPlaylistWorker;

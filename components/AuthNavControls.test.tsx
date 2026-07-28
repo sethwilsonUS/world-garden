@@ -15,7 +15,23 @@ vi.mock("@clerk/nextjs", () => ({
   }) => (when === authState ? createElement("div", null, children) : null),
   SignInButton: ({ children }: { children: ReactNode }) =>
     createElement("div", { "data-clerk-button": "sign-in" }, children),
-  UserButton: () => createElement("div", null, "User menu"),
+  UserButton: Object.assign(
+    ({ children }: { children?: ReactNode }) =>
+      createElement("div", null, "User menu", children),
+    {
+      MenuItems: ({ children }: { children: ReactNode }) =>
+        createElement("div", { "data-clerk-menu-items": true }, children),
+      Link: ({
+        href,
+        label,
+        labelIcon,
+      }: {
+        href: string;
+        label: string;
+        labelIcon: ReactNode;
+      }) => createElement("a", { href }, labelIcon, label),
+    },
+  ),
 }));
 
 describe("AuthNavControls", () => {
@@ -45,5 +61,10 @@ describe("AuthNavControls", () => {
     const markup = renderToStaticMarkup(createElement(AuthNavControls));
 
     expect(markup).toContain("User menu");
+    expect(markup).toContain("Account &amp; data");
+    expect(markup).toContain('href="/account"');
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain('width="16"');
+    expect(markup).toContain('height="16"');
   });
 });
