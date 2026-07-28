@@ -469,6 +469,9 @@ export async function main(
     dependencies.writeStderr ?? ((text) => process.stderr.write(text));
   const openFile = dependencies.openFile ?? open;
   const removeFile = dependencies.removeFile ?? rm;
+  const createWorkspace =
+    dependencies.createWorkspace ?? createIsolatedConvexWorkspace;
+  const removeWorkspace = dependencies.removeWorkspace ?? rm;
   const getNow = dependencies.getNow ?? (() => dependencies.now ?? new Date());
   const now = getNow();
   const reportRunId = dependencies.reportRunId ?? randomUUID();
@@ -513,10 +516,11 @@ export async function main(
   let snapshotBefore;
   const seenCursors = new Set();
   let operationError;
+  let workspaceCleanupError;
 
   try {
     if (!dependencies.runConvexPage) {
-      isolatedCwd = await createIsolatedConvexWorkspace();
+      isolatedCwd = await createWorkspace();
     }
     while (!isDone && feedback.length < maximumItems) {
       const result = await runConvexPage({
@@ -574,26 +578,37 @@ export async function main(
       try {
         await removeFile(outputPath, { force: true });
       } catch {
-        throw new Error(
+        operationError = new Error(
           `Feedback export failed and a partial file may remain at: ${outputPath}`,
           { cause: error },
         );
       }
     }
-    throw error;
   } finally {
     if (isolatedCwd) {
       try {
-        await rm(isolatedCwd, { recursive: true, force: true });
+        await removeWorkspace(isolatedCwd, { recursive: true, force: true });
       } catch (error) {
-        if (!operationError) {
-          throw new Error(
-            "Feedback reporting succeeded, but its temporary Convex workspace could not be removed.",
-            { cause: error },
-          );
-        }
+        workspaceCleanupError = error;
       }
     }
+  }
+
+  if (operationError && workspaceCleanupError) {
+    throw new AggregateError(
+      [operationError, workspaceCleanupError],
+      `${operationError.message} Temporary Convex workspace cleanup also failed; the temporary directory may remain at: ${isolatedCwd}`,
+      { cause: operationError },
+    );
+  }
+  if (operationError) {
+    throw operationError;
+  }
+  if (workspaceCleanupError) {
+    throw new Error(
+      `Feedback reporting succeeded, but its temporary Convex workspace could not be removed and may remain at: ${isolatedCwd}`,
+      { cause: workspaceCleanupError },
+    );
   }
 
   if (outputPath) {

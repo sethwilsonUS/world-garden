@@ -355,6 +355,96 @@ describe("product feedback report command", () => {
     });
   });
 
+  it("reports a temporary workspace cleanup failure after a successful read", async () => {
+    const isolatedCwd = path.join(
+      os.tmpdir(),
+      "curio-feedback-workspace-cleanup-test",
+    );
+    const cleanupError = new Error("simulated workspace cleanup failure");
+    let failure;
+
+    try {
+      await main([], process.cwd(), {
+        createWorkspace: async () => isolatedCwd,
+        execFile: async () => ({
+          stdout: JSON.stringify({
+            page: [],
+            isDone: true,
+            continueCursor: "done",
+            snapshotBefore: 42_000,
+          }),
+          stderr: "",
+        }),
+        removeWorkspace: async () => {
+          throw cleanupError;
+        },
+        writeStdout: () => undefined,
+        writeStderr: () => undefined,
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toBe(
+      `Feedback reporting succeeded, but its temporary Convex workspace could not be removed and may remain at: ${isolatedCwd}`,
+    );
+    expect(failure.cause).toBe(cleanupError);
+  });
+
+  it("surfaces report and workspace cleanup failures together", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "curio-feedback-"));
+    const outputPath = path.join(directory, "feedback.csv");
+    const isolatedCwd = path.join(
+      os.tmpdir(),
+      "curio-feedback-workspace-double-failure-test",
+    );
+    const reportError = new Error("simulated report failure");
+    const cleanupError = new Error("simulated workspace cleanup failure");
+    let failure;
+
+    try {
+      try {
+        await main(["--csv", "--output", outputPath], process.cwd(), {
+          createWorkspace: async () => isolatedCwd,
+          execFile: async () => ({
+            stdout: JSON.stringify({
+              page: [],
+              isDone: true,
+              continueCursor: "done",
+              snapshotBefore: 42_000,
+            }),
+            stderr: "",
+          }),
+          openFile: async () => ({
+            writeFile: async () => {
+              throw reportError;
+            },
+            sync: async () => undefined,
+            close: async () => undefined,
+          }),
+          removeFile: async () => undefined,
+          removeWorkspace: async () => {
+            throw cleanupError;
+          },
+          writeStdout: () => undefined,
+          writeStderr: () => undefined,
+        });
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect(failure.message).toBe(
+        `simulated report failure Temporary Convex workspace cleanup also failed; the temporary directory may remain at: ${isolatedCwd}`,
+      );
+      expect(failure.cause).toBe(reportError);
+      expect(failure.errors).toEqual([reportError, cleanupError]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("requires an explicit private-file destination before fetching contact email", async () => {
     let queryCalled = false;
 
