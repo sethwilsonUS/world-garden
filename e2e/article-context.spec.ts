@@ -2179,3 +2179,25 @@ test("article context reflows at a narrow viewport and honors reduced motion", a
   );
   await expectNoSeriousAxeViolations(page);
 });
+
+test("article playback speed has a touch-friendly target at a narrow viewport", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await mockArticleAndContext(page);
+  await page.goto("/article/Ada_Lovelace");
+
+  const speedButton = page.getByRole("button", {
+    name: /^Playback speed /,
+  });
+  await expect(speedButton).toBeVisible();
+  const target = await speedButton.boundingBox();
+  expect(target).not.toBeNull();
+  expect(target!.width).toBeGreaterThanOrEqual(44);
+  expect(target!.height).toBeGreaterThanOrEqual(44);
+
+  const horizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  expect(horizontalOverflow).toBeLessThanOrEqual(0);
+});
