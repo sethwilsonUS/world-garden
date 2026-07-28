@@ -18,6 +18,14 @@ import { buildArticleNarrationHash } from "../lib/section-narration";
 import { isTtsMetadataValid, type TtsMetadata } from "../lib/tts-profile";
 import { verifyPersonalFeedMediaReadAttestation } from "../lib/personal-feed-media-attestation";
 import {
+  assertViewerAccountActiveForCtx,
+  isViewerAccountDeletionActiveForCtx,
+} from "./lib/accountDeletionState";
+import {
+  deleteAccountOwnedStorageForCtx,
+  registerAccountOwnedStorageForCtx,
+} from "./lib/accountOwnedStorage";
+import {
   completeViewerPlaylistEpisodeForCtx,
   ensureViewerPersonalPodcastFeedForCtx,
   failViewerPlaylistEpisodeForCtx,
@@ -137,6 +145,10 @@ export const addViewerPlaylistEpisodeBySlug = action({
     assertRequestedTtsMetadataValid(args.ttsMetadata);
 
     const viewerTokenIdentifier = identity.tokenIdentifier;
+    await ctx.runQuery(
+      internal.personalPlaylist.assertViewerPlaylistAccountActiveInternal,
+      { viewerTokenIdentifier },
+    );
     const article = (await ctx.runAction(api.articles.fetchAndCacheBySlug, {
       slug: args.slug,
     })) as ArticleAudioSource & {
@@ -249,6 +261,11 @@ export const getFeedEpisodesByToken = query({
     if (!feed) {
       return null;
     }
+    if (
+      await isViewerAccountDeletionActiveForCtx(ctx, feed.viewerTokenIdentifier)
+    ) {
+      return null;
+    }
 
     const episodes = await listViewerPodcastFeedEpisodesForCtx(
       ctx,
@@ -282,6 +299,11 @@ export const getEpisodeForPersonalFeedServer = mutation({
 
     const feed = await getViewerFeedRecordByToken(ctx, args.feedToken);
     if (!feed) {
+      return null;
+    }
+    if (
+      await isViewerAccountDeletionActiveForCtx(ctx, feed.viewerTokenIdentifier)
+    ) {
       return null;
     }
     const episode = await getReadyPersonalPodcastEpisodeForFeed(
@@ -323,6 +345,16 @@ export const getPersonalPlaylistEpisodeInternal = internalQuery({
     return (await ctx.db.get(
       args.episodeId,
     )) as PersonalPlaylistEpisodeDoc | null;
+  },
+});
+
+export const assertViewerPlaylistAccountActiveInternal = internalQuery({
+  args: {
+    viewerTokenIdentifier: v.string(),
+  },
+  async handler(ctx, args) {
+    await assertViewerAccountActiveForCtx(ctx, args.viewerTokenIdentifier);
+    return { active: true as const };
   },
 });
 
@@ -369,9 +401,74 @@ export const completeViewerPlaylistEpisodeInternal = internalMutation({
     promptVersion: v.string(),
     ttsNormVersion: v.string(),
     narrationHash: v.string(),
+    viewerTokenIdentifier: v.optional(v.string()),
   },
   async handler(ctx, args) {
     return await completeViewerPlaylistEpisodeForCtx(ctx, args);
+  },
+});
+
+export const registerViewerPlaylistEpisodeStorageInternal = internalMutation({
+  args: {
+    episodeId: v.id("personalPlaylistEpisodes"),
+    viewerTokenIdentifier: v.string(),
+    owner: v.string(),
+    storageId: v.id("_storage"),
+  },
+  async handler(ctx, args) {
+    const episode = await ctx.db.get(args.episodeId);
+    const now = Date.now();
+    if (
+      !episode ||
+      episode.removedAt != null ||
+      episode.viewerTokenIdentifier !== args.viewerTokenIdentifier ||
+      episode.status !== "running" ||
+      episode.leaseOwner !== args.owner ||
+      (episode.leaseExpiresAt ?? 0) <= now
+    ) {
+      if (episode?.storageId !== args.storageId) {
+        await deleteAccountOwnedStorageForCtx(
+          ctx,
+          args.storageId,
+          args.viewerTokenIdentifier,
+        );
+      }
+      return { registered: false };
+    }
+
+    return await registerAccountOwnedStorageForCtx(ctx, {
+      viewerTokenIdentifier: args.viewerTokenIdentifier,
+      storageId: args.storageId,
+      kind: "personal_playlist_episode",
+      parentId: String(args.episodeId),
+    });
+  },
+});
+
+export const discardViewerPlaylistEpisodeStorageInternal = internalMutation({
+  args: {
+    episodeId: v.id("personalPlaylistEpisodes"),
+    viewerTokenIdentifier: v.string(),
+    storageId: v.id("_storage"),
+  },
+  async handler(ctx, args) {
+    const episode = await ctx.db.get(args.episodeId);
+    if (
+      episode &&
+      episode.viewerTokenIdentifier !== args.viewerTokenIdentifier
+    ) {
+      return { discarded: false, referenced: false };
+    }
+    if (episode?.storageId === args.storageId) {
+      return { discarded: false, referenced: true };
+    }
+
+    await deleteAccountOwnedStorageForCtx(
+      ctx,
+      args.storageId,
+      args.viewerTokenIdentifier,
+    );
+    return { discarded: true, referenced: false };
   },
 });
 

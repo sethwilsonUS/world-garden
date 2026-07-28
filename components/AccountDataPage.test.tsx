@@ -10,12 +10,16 @@ import { AccountDataPage } from "./AccountDataPage";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
-const clerkMocks = vi.hoisted(() => ({ useAuth: vi.fn() }));
+const clerkMocks = vi.hoisted(() => ({
+  useAuth: vi.fn(),
+  useReverification: vi.fn(),
+}));
 
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
     createElement("div", { "data-clerk-button": "sign-in" }, children),
   useAuth: clerkMocks.useAuth,
+  useReverification: clerkMocks.useReverification,
 }));
 
 const deferred = <Value,>() => {
@@ -41,6 +45,9 @@ describe("AccountDataPage", () => {
       isLoaded: authState !== "loading",
       isSignedIn: authState === "signed-in",
     }));
+    clerkMocks.useReverification.mockImplementation(
+      (request: (...args: unknown[]) => unknown) => request,
+    );
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -80,7 +87,7 @@ describe("AccountDataPage", () => {
 
     const markup = renderToStaticMarkup(createElement(AccountDataPage));
 
-    expect(markup).toContain("Account data is unavailable in local mode");
+    expect(markup).toContain("Account management is unavailable in local mode");
     expect(markup).toContain('href="/"');
     expect(markup).not.toContain("Download account data");
     expect(clerkMocks.useAuth).not.toHaveBeenCalled();
@@ -101,7 +108,7 @@ describe("AccountDataPage", () => {
 
     const markup = renderToStaticMarkup(createElement(AccountDataPage));
 
-    expect(markup).toContain("Sign in to export your account data");
+    expect(markup).toContain("Sign in to manage your account data");
     expect(markup).toContain("Sign in");
     expect(markup).not.toContain("Download account data");
   });
@@ -124,19 +131,21 @@ describe("AccountDataPage", () => {
     );
     expect(markup).toContain("metadata, not the generated audio files");
     expect(markup).toContain("Device-local history and preferences");
-    expect(markup).toContain("feedback, shared caches, and aggregated analytics");
+    expect(markup).toContain(
+      "feedback, shared caches, and aggregated analytics",
+    );
     expect(markup).toContain('href="/privacy"');
+    expect(markup).toContain("Delete account");
+    expect(markup).toContain("Permanent action");
+    expect(markup).toContain("download an export first");
+    expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain('aria-live="polite"');
     expect(markup).toContain('aria-atomic="true"');
-    expect(markup).toContain(
-      'id="account-export-active-feed-warning"',
-    );
+    expect(markup).toContain('id="account-export-active-feed-warning"');
     expect(markup).toContain(
       'aria-labelledby="account-export-active-feed-warning-heading"',
     );
-    expect(markup).toContain(
-      'id="account-export-active-feed-warning-heading"',
-    );
+    expect(markup).toContain('id="account-export-active-feed-warning-heading"');
     expect(markup).toContain(
       'aria-describedby="account-export-active-feed-warning"',
     );
@@ -337,7 +346,9 @@ describe("AccountDataPage", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('button[type="button"]')?.click();
+      container
+        .querySelector<HTMLButtonElement>('button[type="button"]')
+        ?.click();
       await Promise.resolve();
     });
 
@@ -364,7 +375,9 @@ describe("AccountDataPage", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('button[type="button"]')?.click();
+      container
+        .querySelector<HTMLButtonElement>('button[type="button"]')
+        ?.click();
       await Promise.resolve();
     });
 
@@ -516,7 +529,9 @@ describe("AccountDataPage", () => {
       root.render(<AccountDataPage />);
       await Promise.resolve();
     });
-    button = container.querySelector<HTMLButtonElement>('button[type="button"]');
+    button = container.querySelector<HTMLButtonElement>(
+      'button[type="button"]',
+    );
     await act(async () => {
       button?.click();
       await Promise.resolve();

@@ -25,6 +25,38 @@ export type TtsAudioVariantInput = {
   ttsNormVersion?: string;
 };
 
+export const getSupersededTtsAudioStorageIds = ({
+  previousPrimaryStorageId,
+  previousVariants,
+  nextPrimaryStorageId,
+  nextVariants,
+}: {
+  previousPrimaryStorageId?: Id<"_storage">;
+  previousVariants?: TtsAudioVariant[];
+  nextPrimaryStorageId?: Id<"_storage">;
+  nextVariants?: TtsAudioVariant[];
+}): Id<"_storage">[] => {
+  const previousStorageIds = new Set<Id<"_storage">>();
+  if (previousPrimaryStorageId) {
+    previousStorageIds.add(previousPrimaryStorageId);
+  }
+  for (const variant of previousVariants ?? []) {
+    previousStorageIds.add(variant.storageId);
+  }
+
+  const nextStorageIds = new Set<Id<"_storage">>();
+  if (nextPrimaryStorageId) {
+    nextStorageIds.add(nextPrimaryStorageId);
+  }
+  for (const variant of nextVariants ?? []) {
+    nextStorageIds.add(variant.storageId);
+  }
+
+  return [...previousStorageIds].filter(
+    (storageId) => !nextStorageIds.has(storageId),
+  );
+};
+
 export const upsertTtsAudioVariant = (
   existingVariants: TtsAudioVariant[] | undefined,
   input: TtsAudioVariantInput,

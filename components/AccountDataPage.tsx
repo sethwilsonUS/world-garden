@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton, useAuth } from "@clerk/nextjs";
+import { AccountDeletionPanel } from "@/components/AccountDeletionPanel";
 
 const EXPORT_FILENAME_PATTERN =
   /^curio-garden-account-data-\d{4}-\d{2}-\d{2}\.json$/;
@@ -66,12 +67,12 @@ const AccountDataFrame = ({ children }: { children: ReactNode }) => (
           Account &amp; data
         </h1>
         <p className="mt-4 max-w-2xl text-[1.02rem] leading-[1.75] text-foreground-2">
-          Take a portable copy of the Curio Garden information connected to
-          your signed-in account.
+          Manage the Curio Garden information connected to your signed-in
+          account, take a portable copy, or permanently delete it.
         </p>
       </header>
 
-      <div className="mt-8">{children}</div>
+      <div className="mt-8 space-y-8">{children}</div>
     </div>
   </div>
 );
@@ -89,12 +90,12 @@ const LocalAccountData = () => (
         id="local-account-data-heading"
         className="mt-2 font-display text-[1.35rem] font-semibold text-foreground"
       >
-        Account data is unavailable in local mode
+        Account management is unavailable in local mode
       </h2>
       <p className="mt-4 text-sm leading-[1.8] text-foreground-2">
         Local mode does not connect a Curio Garden account, so there is no
-        server-side account export to prepare here. Browser-stored data remains
-        on this device.
+        server-side account information to export or delete here. Browser-stored
+        data remains on this device.
       </p>
       <Link
         href="/"
@@ -133,12 +134,12 @@ const SignedOutAccountData = () => (
         id="signed-out-account-data-heading"
         className="mt-2 font-display text-[1.35rem] font-semibold text-foreground"
       >
-        Sign in to export your account data
+        Sign in to manage your account data
       </h2>
       <p className="mt-4 text-sm leading-[1.8] text-foreground-2">
-        Curio Garden needs an active account session before it can assemble a
-        private export. Browsing and device-local guest features still work
-        without signing in.
+        Curio Garden needs an active account session before it can prepare a
+        private export or delete the account. Browsing and device-local guest
+        features still work without signing in.
       </p>
       <SignInButton>
         <button
@@ -316,8 +317,8 @@ const SignedInAccountData = () => {
             Download account data
           </h2>
           <p className="mt-4 text-sm leading-[1.8] text-foreground-2">
-            The export is a readable JSON file containing the account data
-            Curio Garden can connect to you.
+            The export is a readable JSON file containing the account data Curio
+            Garden can connect to you.
           </p>
         </div>
 
@@ -327,9 +328,7 @@ const SignedInAccountData = () => {
           </h3>
           <ul className="mt-4 list-disc space-y-2.5 pl-5 text-sm leading-[1.75] text-foreground-2">
             <li>Account profile details available to Curio Garden.</li>
-            <li>
-              Bookmarks, plus Personal Playlist order and episode status.
-            </li>
+            <li>Bookmarks, plus Personal Playlist order and episode status.</li>
             <li>
               Signed-in listening progress, including heard ranges, and
               topic-badge credit earned from qualifying listening.
@@ -368,10 +367,10 @@ const SignedInAccountData = () => {
             Not included
           </h3>
           <p className="mt-3 text-sm leading-[1.75] text-foreground-2">
-            Device-local history and preferences stay in this browser.
-            Anonymous feedback, shared caches, and aggregated analytics are not
-            treated as account-owned export data. Generated audio files are not
-            embedded in this metadata export.
+            Device-local history and preferences stay in this browser. Anonymous
+            feedback, shared caches, and aggregated analytics are not treated as
+            account-owned export data. Generated audio files are not embedded in
+            this metadata export.
           </p>
 
           <div className="mt-7 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
@@ -408,6 +407,8 @@ const SignedInAccountData = () => {
           </p>
         </div>
       </section>
+
+      <AccountDeletionPanel />
     </AccountDataFrame>
   );
 };

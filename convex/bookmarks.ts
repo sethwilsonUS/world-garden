@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import {
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import { assertViewerAccountActiveForCtx } from "./lib/accountDeletionState";
 
 type BookmarkEntry = {
   slug: string;
@@ -13,7 +19,9 @@ type BookmarkDoc = BookmarkEntry & {
   updatedAt: number;
 };
 
-type ViewerAuthCtx = Pick<QueryCtx, "auth"> | Pick<MutationCtx, "auth">;
+type ViewerAuthCtx =
+  | Pick<QueryCtx, "auth" | "db">
+  | Pick<MutationCtx, "auth" | "db">;
 
 type BookmarkQueryCtx = Pick<QueryCtx, "auth" | "db">;
 type BookmarkMutationCtx = Pick<MutationCtx, "auth" | "db">;
@@ -24,7 +32,9 @@ const bookmarkEntryValidator = v.object({
   savedAt: v.number(),
 });
 
-const normalizeBookmarkEntries = (entries: BookmarkEntry[]): BookmarkEntry[] => {
+const normalizeBookmarkEntries = (
+  entries: BookmarkEntry[],
+): BookmarkEntry[] => {
   const deduped = new Map<string, BookmarkEntry>();
 
   for (const entry of [...entries].sort((a, b) => b.savedAt - a.savedAt)) {
@@ -54,6 +64,7 @@ export const getAuthenticatedViewerTokenIdentifier = async (
     throw new Error("Unauthorized");
   }
 
+  await assertViewerAccountActiveForCtx(ctx, identity.tokenIdentifier);
   return identity.tokenIdentifier;
 };
 
@@ -73,7 +84,8 @@ const getExistingBookmark = async (
 export const listViewerBookmarksForCtx = async (
   ctx: BookmarkQueryCtx,
 ): Promise<BookmarkEntry[]> => {
-  const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+  const viewerTokenIdentifier =
+    await getAuthenticatedViewerTokenIdentifier(ctx);
   const bookmarks = (await ctx.db
     .query("bookmarks")
     .withIndex("by_viewerTokenIdentifier", (q) =>
@@ -93,9 +105,14 @@ export const saveViewerBookmarkForCtx = async (
     title: string;
   },
 ): Promise<BookmarkEntry> => {
-  const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+  const viewerTokenIdentifier =
+    await getAuthenticatedViewerTokenIdentifier(ctx);
   const now = Date.now();
-  const existing = await getExistingBookmark(ctx, viewerTokenIdentifier, args.slug);
+  const existing = await getExistingBookmark(
+    ctx,
+    viewerTokenIdentifier,
+    args.slug,
+  );
 
   if (existing) {
     await ctx.db.patch(existing._id as never, {
@@ -131,8 +148,13 @@ export const removeViewerBookmarkForCtx = async (
     slug: string;
   },
 ): Promise<{ removed: boolean }> => {
-  const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
-  const existing = await getExistingBookmark(ctx, viewerTokenIdentifier, args.slug);
+  const viewerTokenIdentifier =
+    await getAuthenticatedViewerTokenIdentifier(ctx);
+  const existing = await getExistingBookmark(
+    ctx,
+    viewerTokenIdentifier,
+    args.slug,
+  );
 
   if (!existing) {
     return { removed: false };
@@ -148,12 +170,17 @@ export const importGuestBookmarksForCtx = async (
     entries: BookmarkEntry[];
   },
 ): Promise<{ importedCount: number }> => {
-  const viewerTokenIdentifier = await getAuthenticatedViewerTokenIdentifier(ctx);
+  const viewerTokenIdentifier =
+    await getAuthenticatedViewerTokenIdentifier(ctx);
   const entries = normalizeBookmarkEntries(args.entries);
   let importedCount = 0;
 
   for (const entry of entries) {
-    const existing = await getExistingBookmark(ctx, viewerTokenIdentifier, entry.slug);
+    const existing = await getExistingBookmark(
+      ctx,
+      viewerTokenIdentifier,
+      entry.slug,
+    );
     if (existing) {
       continue;
     }

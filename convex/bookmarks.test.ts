@@ -16,7 +16,10 @@ type BookmarkDoc = {
   updatedAt: number;
 };
 
-const createBookmarkTestDb = (seed: BookmarkDoc[] = []) => {
+const createBookmarkTestDb = (
+  seed: BookmarkDoc[] = [],
+  deletingViewers: string[] = [],
+) => {
   let docs = [...seed];
   let idCounter = seed.length;
 
@@ -33,10 +36,12 @@ const createBookmarkTestDb = (seed: BookmarkDoc[] = []) => {
 
   return {
     db: {
-      query: () => ({
+      query: (tableName: string) => ({
         withIndex: (
           _indexName: string,
-          apply: (builder: { eq: (field: string, value: string) => unknown }) => unknown,
+          apply: (builder: {
+            eq: (field: string, value: string) => unknown;
+          }) => unknown,
         ) => {
           const filters = new Map<string, string>();
           const builder = {
@@ -46,13 +51,26 @@ const createBookmarkTestDb = (seed: BookmarkDoc[] = []) => {
             },
           };
           apply(builder);
+          if (tableName === "accountDeletionRequests") {
+            const viewerTokenIdentifier =
+              filters.get("viewerTokenIdentifier") ?? "";
+            return {
+              first: async () =>
+                deletingViewers.includes(viewerTokenIdentifier)
+                  ? { _id: "deletion-1", viewerTokenIdentifier }
+                  : null,
+            };
+          }
           return {
             unique: async () => getMatchingBookmarks(filters)[0] ?? null,
             collect: async () => getMatchingBookmarks(filters),
           };
         },
       }),
-      insert: async (_tableName: "bookmarks", value: Omit<BookmarkDoc, "_id">) => {
+      insert: async (
+        _tableName: "bookmarks",
+        value: Omit<BookmarkDoc, "_id">,
+      ) => {
         idCounter += 1;
         const _id = `bookmark-${idCounter}`;
         docs.push({ _id, ...value });
@@ -72,8 +90,9 @@ const createBookmarkTestDb = (seed: BookmarkDoc[] = []) => {
 const createCtx = (
   docs: BookmarkDoc[] = [],
   tokenIdentifier = "user-1",
+  deletingViewers: string[] = [],
 ) => {
-  const { db, getDocs } = createBookmarkTestDb(docs);
+  const { db, getDocs } = createBookmarkTestDb(docs, deletingViewers);
 
   return {
     ctx: {
@@ -93,6 +112,14 @@ describe("getAuthenticatedViewerTokenIdentifier", () => {
         auth: { getUserIdentity: vi.fn().mockResolvedValue(null) },
       } as never),
     ).rejects.toThrow("Unauthorized");
+  });
+
+  it("blocks a stale signed-in identity after account deletion starts", async () => {
+    const { ctx } = createCtx([], "user-1", ["user-1"]);
+
+    await expect(
+      getAuthenticatedViewerTokenIdentifier(ctx as never),
+    ).rejects.toThrow("ACCOUNT_DELETION_IN_PROGRESS");
   });
 });
 

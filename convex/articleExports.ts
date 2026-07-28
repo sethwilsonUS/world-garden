@@ -34,6 +34,14 @@ import {
 } from "../lib/article-audio-export-attestation";
 import { verifyServerAttestation } from "../lib/server-attestation";
 import { getArticleAudioExportQuotaKey } from "./lib/accountQuotaKeys";
+import {
+  assertViewerAccountActiveForCtx,
+  isViewerAccountDeletionActiveForCtx,
+} from "./lib/accountDeletionState";
+import {
+  deleteAccountOwnedStorageForCtx,
+  registerAccountOwnedStorageForCtx,
+} from "./lib/accountOwnedStorage";
 
 type ArticleExportStage = "queued" | "rendering_audio" | "packaging";
 
@@ -339,6 +347,9 @@ export const getRecentArticleAudioExports = query({
     const limit = normalizeRecentArticleAudioExportLimit(args.limit);
     const identity = await ctx.auth.getUserIdentity();
     const viewerTokenIdentifier = identity?.tokenIdentifier ?? null;
+    if (viewerTokenIdentifier) {
+      await assertViewerAccountActiveForCtx(ctx, viewerTokenIdentifier);
+    }
     const records = await ctx.db
       .query("articleAudioExports")
       .withIndex("by_clientId_updatedAt", (q) =>
@@ -400,12 +411,15 @@ export const getArticleAudioExportById = query({
     ttsCacheKey: v.string(),
   },
   async handler(ctx, args) {
+    const identity = await ctx.auth.getUserIdentity();
+    const viewerTokenIdentifier = identity?.tokenIdentifier ?? null;
+    if (viewerTokenIdentifier) {
+      await assertViewerAccountActiveForCtx(ctx, viewerTokenIdentifier);
+    }
+
     const record = await ctx.db.get(args.exportId);
     if (!record) return null;
-    const identity = await ctx.auth.getUserIdentity();
-    if (
-      !canAccessArticleAudioExport(record, identity?.tokenIdentifier ?? null)
-    ) {
+    if (!canAccessArticleAudioExport(record, viewerTokenIdentifier)) {
       return null;
     }
     const article = await ctx.db.get(record.articleId);
@@ -445,6 +459,12 @@ export const getArticleAudioExportForServer = mutation({
       );
     }
 
+    const identity = await ctx.auth.getUserIdentity();
+    const viewerTokenIdentifier = identity?.tokenIdentifier ?? null;
+    if (viewerTokenIdentifier) {
+      await assertViewerAccountActiveForCtx(ctx, viewerTokenIdentifier);
+    }
+
     const record = await ctx.db.get(args.exportId);
     const ttsProvider = normalizeArticleAudioExportProvider(
       record?.ttsProvider,
@@ -458,10 +478,7 @@ export const getArticleAudioExportForServer = mutation({
       return null;
     }
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (
-      !canAccessArticleAudioExport(record, identity?.tokenIdentifier ?? null)
-    ) {
+    if (!canAccessArticleAudioExport(record, viewerTokenIdentifier)) {
       return null;
     }
 
@@ -495,6 +512,12 @@ export const getArticleAudioExportDownloadIdentity = query({
     exportId: v.string(),
   },
   async handler(ctx, args) {
+    const identity = await ctx.auth.getUserIdentity();
+    const viewerTokenIdentifier = identity?.tokenIdentifier ?? null;
+    if (viewerTokenIdentifier) {
+      await assertViewerAccountActiveForCtx(ctx, viewerTokenIdentifier);
+    }
+
     const exportId = ctx.db.normalizeId("articleAudioExports", args.exportId);
     if (!exportId) return null;
 
@@ -511,10 +534,7 @@ export const getArticleAudioExportDownloadIdentity = query({
     ) {
       return null;
     }
-    const identity = await ctx.auth.getUserIdentity();
-    if (
-      !canAccessArticleAudioExport(record, identity?.tokenIdentifier ?? null)
-    ) {
+    if (!canAccessArticleAudioExport(record, viewerTokenIdentifier)) {
       return null;
     }
     const article = await ctx.db.get(record.articleId);
@@ -541,13 +561,17 @@ export const startArticleAudioExport = mutation({
     ),
   },
   async handler(ctx, args) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity) {
+      await assertViewerAccountActiveForCtx(ctx, identity.tokenIdentifier);
+    }
+    const ownerTokenIdentifier = identity?.tokenIdentifier.trim() || undefined;
+
     const article = await ctx.db.get(args.articleId);
     if (!article) {
       throw new Error("Article not found");
     }
 
-    const identity = await ctx.auth.getUserIdentity();
-    const ownerTokenIdentifier = identity?.tokenIdentifier.trim() || undefined;
     const ttsProvider = getArticleAudioExportProvider(
       ownerTokenIdentifier != null,
     );
@@ -699,12 +723,17 @@ export const dismissArticleAudioExport = mutation({
     clientId: v.string(),
   },
   async handler(ctx, args) {
-    const record = await ctx.db.get(args.exportId);
     const identity = await ctx.auth.getUserIdentity();
+    const viewerTokenIdentifier = identity?.tokenIdentifier ?? null;
+    if (viewerTokenIdentifier) {
+      await assertViewerAccountActiveForCtx(ctx, viewerTokenIdentifier);
+    }
+
+    const record = await ctx.db.get(args.exportId);
     if (
       !record ||
       record.clientId !== args.clientId ||
-      !canAccessArticleAudioExport(record, identity?.tokenIdentifier ?? null)
+      !canAccessArticleAudioExport(record, viewerTokenIdentifier)
     ) {
       return { dismissed: false };
     }
@@ -811,6 +840,15 @@ export const markArticleAudioExportRunning = internalMutation({
       record.dismissedAt != null ||
       record.status === "ready" ||
       record.status === "failed"
+    ) {
+      return { claimed: false };
+    }
+    if (
+      record.ownerTokenIdentifier &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        record.ownerTokenIdentifier,
+      ))
     ) {
       return { claimed: false };
     }
@@ -927,6 +965,15 @@ export const updateArticleAudioExportProgress = internalMutation({
     ) {
       return { updated: false };
     }
+    if (
+      record.ownerTokenIdentifier &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        record.ownerTokenIdentifier,
+      ))
+    ) {
+      return { updated: false };
+    }
 
     const now = Date.now();
     await ctx.db.patch(args.exportId, {
@@ -945,18 +992,87 @@ export const completeArticleAudioExport = internalMutation({
     exportId: v.id("articleAudioExports"),
     owner: v.string(),
     storageId: v.id("_storage"),
+    expectedViewerTokenIdentifier: v.optional(v.string()),
     byteLength: v.number(),
     producedTtsCacheKey: v.string(),
     narrationHash: v.string(),
   },
   async handler(ctx, args) {
     const record = await ctx.db.get(args.exportId);
-    if (
-      !record ||
-      record.status !== "running" ||
-      record.leaseOwner !== args.owner
-    ) {
+    const now = Date.now();
+
+    if (!record) {
+      await deleteAccountOwnedStorageForCtx(
+        ctx,
+        args.storageId,
+        args.expectedViewerTokenIdentifier,
+      );
       return { completed: false };
+    }
+
+    if (
+      record.ownerTokenIdentifier &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        record.ownerTokenIdentifier,
+      ))
+    ) {
+      await deleteAccountOwnedStorageForCtx(
+        ctx,
+        args.storageId,
+        record.ownerTokenIdentifier,
+      );
+      return { completed: false };
+    }
+
+    const exactDuplicate =
+      record.status === "ready" &&
+      record.storageId === args.storageId &&
+      record.byteLength === args.byteLength &&
+      record.producedTtsCacheKey === args.producedTtsCacheKey &&
+      record.narrationHash === args.narrationHash &&
+      record.completedSectionCount === record.sectionCount;
+
+    if (exactDuplicate) {
+      if (record.ownerTokenIdentifier) {
+        const registration = await registerAccountOwnedStorageForCtx(ctx, {
+          viewerTokenIdentifier: record.ownerTokenIdentifier,
+          storageId: args.storageId,
+          kind: "article_audio_export",
+          parentId: String(args.exportId),
+        });
+        if (!registration.registered) {
+          return { completed: false };
+        }
+      }
+      return { completed: true };
+    }
+
+    if (
+      record.status !== "running" ||
+      record.leaseOwner !== args.owner ||
+      (record.leaseExpiresAt ?? 0) <= now
+    ) {
+      if (record.storageId !== args.storageId) {
+        await deleteAccountOwnedStorageForCtx(
+          ctx,
+          args.storageId,
+          record.ownerTokenIdentifier,
+        );
+      }
+      return { completed: false };
+    }
+
+    if (record.ownerTokenIdentifier) {
+      const registration = await registerAccountOwnedStorageForCtx(ctx, {
+        viewerTokenIdentifier: record.ownerTokenIdentifier,
+        storageId: args.storageId,
+        kind: "article_audio_export",
+        parentId: String(args.exportId),
+      });
+      if (!registration.registered) {
+        return { completed: false };
+      }
     }
 
     await ctx.db.patch(args.exportId, {
@@ -969,9 +1085,76 @@ export const completeArticleAudioExport = internalMutation({
       completedSectionCount: record.sectionCount,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     return { completed: true };
+  },
+});
+
+export const discardArticleAudioExportUpload = internalMutation({
+  args: {
+    exportId: v.id("articleAudioExports"),
+    storageId: v.id("_storage"),
+    expectedViewerTokenIdentifier: v.optional(v.string()),
+  },
+  async handler(ctx, args) {
+    const record = await ctx.db.get(args.exportId);
+    if (record?.storageId === args.storageId) {
+      return { discarded: false, referenced: true };
+    }
+
+    if (
+      record &&
+      args.expectedViewerTokenIdentifier !== undefined &&
+      record.ownerTokenIdentifier !== args.expectedViewerTokenIdentifier
+    ) {
+      throw new Error("Article audio export upload owner mismatch.");
+    }
+
+    await deleteAccountOwnedStorageForCtx(
+      ctx,
+      args.storageId,
+      record?.ownerTokenIdentifier ?? args.expectedViewerTokenIdentifier,
+    );
+    return { discarded: true, referenced: false };
+  },
+});
+
+export const registerArticleAudioExportUpload = internalMutation({
+  args: {
+    exportId: v.id("articleAudioExports"),
+    owner: v.string(),
+    storageId: v.id("_storage"),
+  },
+  async handler(ctx, args) {
+    const record = await ctx.db.get(args.exportId);
+    const now = Date.now();
+    if (
+      !record ||
+      record.status !== "running" ||
+      record.leaseOwner !== args.owner ||
+      (record.leaseExpiresAt ?? 0) <= now
+    ) {
+      if (record?.storageId !== args.storageId) {
+        await deleteAccountOwnedStorageForCtx(
+          ctx,
+          args.storageId,
+          record?.ownerTokenIdentifier,
+        );
+      }
+      return { registered: false };
+    }
+
+    if (!record.ownerTokenIdentifier) {
+      return { registered: true };
+    }
+
+    return await registerAccountOwnedStorageForCtx(ctx, {
+      viewerTokenIdentifier: record.ownerTokenIdentifier,
+      storageId: args.storageId,
+      kind: "article_audio_export",
+      parentId: String(args.exportId),
+    });
   },
 });
 
@@ -991,6 +1174,15 @@ export const failArticleAudioExport = internalMutation({
       (record.status === "running" &&
         record.leaseOwner !== args.owner &&
         (record.leaseExpiresAt ?? 0) > now)
+    ) {
+      return { failed: false };
+    }
+    if (
+      record.ownerTokenIdentifier &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        record.ownerTokenIdentifier,
+      ))
     ) {
       return { failed: false };
     }
@@ -1132,6 +1324,42 @@ export const processArticleAudioExport = internalAction({
       return;
     }
 
+    let uploadedCombinedStorageId: Id<"_storage"> | null = null;
+    const discardCombinedUpload = async () => {
+      if (!uploadedCombinedStorageId) return "none" as const;
+      try {
+        const discard = await ctx.runMutation(
+          internal.articleExports.discardArticleAudioExportUpload,
+          {
+            exportId: args.exportId,
+            storageId: uploadedCombinedStorageId,
+            ...(record.ownerTokenIdentifier
+              ? {
+                  expectedViewerTokenIdentifier: record.ownerTokenIdentifier,
+                }
+              : {}),
+          },
+        );
+        if (discard.referenced) {
+          uploadedCombinedStorageId = null;
+          return "referenced" as const;
+        }
+        if (discard.discarded) {
+          uploadedCombinedStorageId = null;
+          return "discarded" as const;
+        }
+        return "failed" as const;
+      } catch (discardError) {
+        console.error(
+          "[article-export] Combined upload discard failed",
+          discardError instanceof Error
+            ? discardError.name
+            : typeof discardError,
+        );
+        return "failed" as const;
+      }
+    };
+
     try {
       const result = await assembleArticleAudio({
         preferredProvider: ttsProvider,
@@ -1190,11 +1418,25 @@ export const processArticleAudioExport = internalAction({
             internal.audio.generateUploadUrlInternal,
             {},
           );
-          return await uploadStreamToConvexStorage(
+          const upload = await uploadStreamToConvexStorage(
             uploadUrl,
             stream,
             contentType,
           );
+          uploadedCombinedStorageId = upload.storageId;
+          const registration = await ctx.runMutation(
+            internal.articleExports.registerArticleAudioExportUpload,
+            {
+              exportId: args.exportId,
+              owner,
+              storageId: upload.storageId,
+            },
+          );
+          if (!registration.registered) {
+            uploadedCombinedStorageId = null;
+            throw new Error("Article audio export lease was lost.");
+          }
+          return upload;
         },
         onProgress: async ({ completedSectionCount, stage }) => {
           const progress = await ctx.runMutation(
@@ -1218,15 +1460,31 @@ export const processArticleAudioExport = internalAction({
           exportId: args.exportId,
           owner,
           storageId: result.storageId,
+          ...(record.ownerTokenIdentifier
+            ? {
+                expectedViewerTokenIdentifier: record.ownerTokenIdentifier,
+              }
+            : {}),
           byteLength: result.byteLength,
           producedTtsCacheKey: result.metadata.ttsCacheKey,
           narrationHash: result.narrationHash,
         },
       );
-      if (completion.completed) {
-        await scheduleNextQueuedExport(queueKey, record.clientId);
+      if (!completion.completed) {
+        const disposition = await discardCombinedUpload();
+        if (disposition === "referenced") {
+          await scheduleNextQueuedExport(queueKey, record.clientId);
+        }
+        return;
       }
+      uploadedCombinedStorageId = null;
+      await scheduleNextQueuedExport(queueKey, record.clientId);
     } catch (error) {
+      const disposition = await discardCombinedUpload();
+      if (disposition === "referenced") {
+        await scheduleNextQueuedExport(queueKey, record.clientId);
+        return;
+      }
       const failure = await ctx.runMutation(
         internal.articleExports.failArticleAudioExport,
         {

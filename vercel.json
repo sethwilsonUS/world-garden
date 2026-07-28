@@ -13,9 +13,8 @@
     { "path": "/api/picture-of-day/audio/cron", "schedule": "50 0 * * *" },
     { "path": "/api/featured/audio-warm/cron", "schedule": "55 0 * * *" },
     { "path": "/api/podcast/trending/cron", "schedule": "45 4 * * *" },
-    { "path": "/api/podcast/trending/cron", "schedule": "15 5 * * *" }
+    { "path": "/api/podcast/trending/cron", "schedule": "15 5 * * *" },
+    { "path": "/api/account/delete/cron", "schedule": "17 * * * *" }
   ],
-  "routes": [
-    { "src": "/api/tts/edge", "dest": "_python/tts.py" }
-  ]
+  "routes": [{ "src": "/api/tts/edge", "dest": "_python/tts.py" }]
 }

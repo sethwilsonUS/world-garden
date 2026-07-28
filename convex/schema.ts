@@ -61,6 +61,31 @@ const articleAudioExportStatus = v.union(
   v.literal("failed"),
 );
 
+const accountDeletionStatus = v.union(
+  v.literal("cleaning"),
+  v.literal("pending_clerk"),
+  v.literal("clerk_deleted"),
+);
+
+const accountDeletionPhase = v.union(
+  v.literal("revoke_feeds"),
+  v.literal("playlist_episodes"),
+  v.literal("article_audio_exports"),
+  v.literal("owned_storage"),
+  v.literal("bookmarks"),
+  v.literal("listening_progress"),
+  v.literal("badge_credits"),
+  v.literal("account_quotas"),
+  v.literal("feeds"),
+  v.literal("pending_clerk"),
+  v.literal("grace_period"),
+);
+
+const accountOwnedStorageKind = v.union(
+  v.literal("personal_playlist_episode"),
+  v.literal("article_audio_export"),
+);
+
 const personalPlaylistEpisodeStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -792,4 +817,35 @@ export default defineSchema({
       "wikiPageId",
       "badgeKey",
     ]),
+
+  accountDeletionRequests: defineTable({
+    viewerTokenIdentifier: v.string(),
+    clerkUserId: v.string(),
+    status: accountDeletionStatus,
+    phase: accountDeletionPhase,
+    cleanupAttemptCount: v.number(),
+    clerkDeletionAttemptCount: v.number(),
+    lastCleanupAttemptAt: v.optional(v.number()),
+    lastClerkAttemptAt: v.optional(v.number()),
+    cleanupCompletedAt: v.optional(v.number()),
+    clerkDeletedAt: v.optional(v.number()),
+    purgeAfter: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_clerkUserId", ["clerkUserId"])
+    .index("by_status_updatedAt", ["status", "updatedAt"]),
+
+  accountOwnedStorage: defineTable({
+    viewerTokenIdentifier: v.string(),
+    storageId: v.id("_storage"),
+    kind: accountOwnedStorageKind,
+    parentId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_viewerTokenIdentifier", ["viewerTokenIdentifier"])
+    .index("by_storageId", ["storageId"]),
 });

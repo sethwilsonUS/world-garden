@@ -78,11 +78,14 @@ const createCtx = (seed?: {
         query: (
           tableName:
             | "viewerArticleListenProgress"
-            | "badgeArticleCredits",
+            | "badgeArticleCredits"
+            | "accountDeletionRequests",
         ) => ({
           withIndex: (
             _indexName: string,
-            apply: (builder: { eq: (field: string, value: unknown) => unknown }) => unknown,
+            apply: (builder: {
+              eq: (field: string, value: unknown) => unknown;
+            }) => unknown,
           ) => {
             const filters: Array<[string, unknown]> = [];
             const builder = {
@@ -92,6 +95,11 @@ const createCtx = (seed?: {
               },
             };
             apply(builder);
+            if (tableName === "accountDeletionRequests") {
+              return {
+                first: async () => null,
+              };
+            }
             const docs =
               tableName === "viewerArticleListenProgress"
                 ? progressDocs
@@ -115,16 +123,19 @@ const createCtx = (seed?: {
           idCounter += 1;
           const id = `${tableName}-${idCounter}` as never;
           if (tableName === "viewerArticleListenProgress") {
-            progressDocs.push({ _id: id, ...(value as Omit<ListenProgressDoc, "_id">) });
+            progressDocs.push({
+              _id: id,
+              ...(value as Omit<ListenProgressDoc, "_id">),
+            });
           } else {
-            creditDocs.push({ _id: id, ...(value as Omit<BadgeCreditDoc, "_id">) });
+            creditDocs.push({
+              _id: id,
+              ...(value as Omit<BadgeCreditDoc, "_id">),
+            });
           }
           return id;
         },
-        patch: async (
-          id: string,
-          value: Partial<ListenProgressDoc>,
-        ) => {
+        patch: async (id: string, value: Partial<ListenProgressDoc>) => {
           progressDocs = progressDocs.map((doc) =>
             doc._id === id ? { ...doc, ...value } : doc,
           );
@@ -365,7 +376,9 @@ describe("getViewerBadgeProgressForCtx", () => {
       ],
     });
 
-    await expect(getViewerBadgeProgressForCtx(ctx as never)).resolves.toMatchObject({
+    await expect(
+      getViewerBadgeProgressForCtx(ctx as never),
+    ).resolves.toMatchObject({
       totalExp: 2,
       unlockedBadgeCount: 0,
       badgeCredits: expect.arrayContaining([

@@ -48,7 +48,12 @@ const createOverviewCtx = (seed?: {
       ),
     },
     db: {
-      query: (tableName: "personalPodcastFeeds" | "routeQuotas") => ({
+      query: (
+        tableName:
+          | "personalPodcastFeeds"
+          | "routeQuotas"
+          | "accountDeletionRequests",
+      ) => ({
         withIndex: (
           _indexName: string,
           apply: (builder: {
@@ -63,7 +68,12 @@ const createOverviewCtx = (seed?: {
             },
           };
           apply(builder);
-          const docs = tableName === "personalPodcastFeeds" ? feeds : quotas;
+          const docs =
+            tableName === "personalPodcastFeeds"
+              ? feeds
+              : tableName === "routeQuotas"
+                ? quotas
+                : [];
           const filtered = docs.filter((doc) =>
             matchesFilters(doc as unknown as Record<string, unknown>, filters),
           );
@@ -105,6 +115,28 @@ const createPageCtx = (seed: {
       },
       db: {
         query: (tableName: string) => {
+          if (tableName === "accountDeletionRequests") {
+            return {
+              withIndex: (
+                _indexName: string,
+                apply: (builder: {
+                  eq: (field: string, value: unknown) => unknown;
+                }) => unknown,
+              ) => {
+                const builder = {
+                  eq: (field: string, value: unknown) => {
+                    void field;
+                    void value;
+                    return builder;
+                  },
+                };
+                apply(builder);
+                return {
+                  first: async () => null,
+                };
+              },
+            };
+          }
           if (tableName !== seed.tableName) {
             throw new Error(`Unexpected table ${tableName}`);
           }

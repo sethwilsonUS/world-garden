@@ -83,5 +83,27 @@ describe("PrivacyPage", () => {
     expect(markup).toContain(
       "Device-local history and preferences, anonymous feedback, shared caches, and aggregated analytics are excluded",
     );
+    expect(markup).toContain(
+      "you can permanently delete your Curio Garden account",
+    );
+    expect(markup).toContain(
+      "Personal Playlist records and account-linked generated episode files",
+    );
+    expect(markup).toContain("Private RSS access is turned off");
+    expect(markup).toContain(
+      "Some removal may finish in the background after sign-in ends",
+    );
+    expect(markup).toContain(
+      "A limited technical deletion record may remain temporarily",
+    );
+    expect(markup).toContain(
+      "signed-in data is not recreated by an old session or in-progress audio job",
+    );
+    expect(markup).toContain(
+      "Browser-only history and preferences are not removed automatically",
+    );
+    expect(markup).toContain(
+      "Anonymous feedback, shared article and audio caches, and aggregated analytics remain",
+    );
   });
 });
