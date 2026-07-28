@@ -15,8 +15,8 @@ const expectPrivateFeedHeaders = (response: Response) => {
   );
 };
 
-vi.mock("convex/nextjs", () => ({
-  fetchQuery,
+vi.mock("@/lib/convex-request-timeout", () => ({
+  fetchConvexQueryWithTimeout: fetchQuery,
 }));
 
 vi.mock("@/lib/podcast-show-artwork-cache", () => ({
@@ -80,7 +80,14 @@ describe("GET /api/podcast/personal.xml", () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "Podcast feed not found" });
     expectPrivateFeedHeaders(response);
-    expect(fetchQuery).toHaveBeenCalledTimes(1);
+    expect(fetchQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      { feedToken: VALID_FEED_TOKEN },
+      {
+        timeoutMs: 5_000,
+        message: "Personal podcast feed lookup timed out",
+      },
+    );
     expect(getOrCreatePodcastShowArtworkUrl).not.toHaveBeenCalled();
   });
 
@@ -209,19 +216,17 @@ describe("GET /api/podcast/personal.xml", () => {
     expectPrivateFeedHeaders(response);
   });
 
-  it("returns a generic failure when the Convex feed lookup stalls", async () => {
-    vi.useFakeTimers();
-    fetchQuery.mockImplementation(() => new Promise(() => {}));
+  it("returns a generic failure when the Convex feed deadline expires", async () => {
+    fetchQuery.mockRejectedValue(
+      new Error("Personal podcast feed lookup timed out"),
+    );
 
     const { GET } = await import("./route");
-    const responsePromise = GET(
+    const response = await GET(
       new NextRequest(
         `https://curiogarden.org/api/podcast/personal.xml?token=${VALID_FEED_TOKEN}`,
       ),
     );
-
-    await vi.advanceTimersByTimeAsync(5_000);
-    const response = await responsePromise;
     const body = await response.text();
 
     expect(response.status).toBe(500);

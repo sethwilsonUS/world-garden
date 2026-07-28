@@ -1,6 +1,6 @@
 import { anyApi } from "convex/server";
-import { fetchMutation } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
+import { fetchConvexMutationWithTimeout } from "@/lib/convex-request-timeout";
 import {
   createPodcastAttachmentResponse,
   createPodcastInlineResponse,
@@ -13,7 +13,6 @@ import {
   PERSONAL_PODCAST_CACHE_CONTROL,
   PERSONAL_PODCAST_PRIVATE_HEADERS,
 } from "@/lib/personal-podcast-response";
-import { withPromiseTimeout } from "@/lib/promise-timeout";
 
 type PersonalPlaylistEpisode = {
   title: string;
@@ -42,12 +41,13 @@ export const GET = async (
       feedToken,
       episodeId,
     });
-    const episode = (await withPromiseTimeout(
-      fetchMutation(anyApi.personalPlaylist.getEpisodeForPersonalFeedServer, {
+    const episode = (await fetchConvexMutationWithTimeout(
+      anyApi.personalPlaylist.getEpisodeForPersonalFeedServer,
+      {
         feedToken,
         episodeId,
         attestation,
-      }),
+      },
       {
         timeoutMs: PERSONAL_PODCAST_CONVEX_TIMEOUT_MS,
         message: "Personal podcast authorization timed out",

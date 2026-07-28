@@ -1,10 +1,9 @@
 import { anyApi } from "convex/server";
-import { fetchQuery } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
+import { fetchConvexQueryWithTimeout } from "@/lib/convex-request-timeout";
 import { renderPersonalShowPodcastArtworkPng } from "@/lib/personal-show-podcast-artwork";
 import { isValidPersonalFeedToken } from "@/lib/personal-feed-token";
 import { PERSONAL_PODCAST_PRIVATE_HEADERS } from "@/lib/personal-podcast-response";
-import { withPromiseTimeout } from "@/lib/promise-timeout";
 import {
   PERSONAL_PODCAST_DESCRIPTION,
   PERSONAL_PODCAST_SUBTITLE,
@@ -52,10 +51,11 @@ export const GET = async (req: NextRequest) => {
   }
 
   try {
-    const payload = await withPromiseTimeout(
-      fetchQuery(anyApi.personalPlaylist.getFeedEpisodesByToken, {
+    const payload = await fetchConvexQueryWithTimeout(
+      anyApi.personalPlaylist.getFeedEpisodesByToken,
+      {
         feedToken,
-      }),
+      },
       {
         timeoutMs: PERSONAL_PODCAST_CONVEX_TIMEOUT_MS,
         message: "Personal podcast feed lookup timed out",

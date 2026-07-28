@@ -24,8 +24,8 @@ const expectPrivateMediaHeaders = (response: Response) => {
   expect(response.headers.get("Location")).toBeNull();
 };
 
-vi.mock("convex/nextjs", () => ({
-  fetchMutation,
+vi.mock("@/lib/convex-request-timeout", () => ({
+  fetchConvexMutationWithTimeout: fetchMutation,
 }));
 
 vi.mock("@/lib/personal-feed-media-attestation", () => ({
@@ -108,11 +108,18 @@ describe("GET /api/podcast/media/personal/[episodeId]", () => {
       feedToken: VALID_FEED_TOKEN,
       episodeId: "episode-1",
     });
-    expect(fetchMutation).toHaveBeenCalledWith(expect.anything(), {
-      feedToken: VALID_FEED_TOKEN,
-      episodeId: "episode-1",
-      attestation: ATTESTATION,
-    });
+    expect(fetchMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        feedToken: VALID_FEED_TOKEN,
+        episodeId: "episode-1",
+        attestation: ATTESTATION,
+      },
+      {
+        timeoutMs: 5_000,
+        message: "Personal podcast authorization timed out",
+      },
+    );
     const [upstreamUrl, upstreamOptions] = upstreamFetch.mock.calls[0] as [
       string,
       RequestInit,
@@ -295,20 +302,18 @@ describe("GET /api/podcast/media/personal/[episodeId]", () => {
     expectPrivateMediaHeaders(response);
   });
 
-  it("fails closed when the Convex authorization lookup stalls", async () => {
-    vi.useFakeTimers();
-    fetchMutation.mockImplementation(() => new Promise(() => {}));
+  it("fails closed when the Convex authorization deadline expires", async () => {
+    fetchMutation.mockRejectedValue(
+      new Error("Personal podcast authorization timed out"),
+    );
 
     const { GET } = await import("./route");
-    const responsePromise = GET(
+    const response = await GET(
       new NextRequest(
         `https://curiogarden.org/api/podcast/media/personal/episode-1?token=${VALID_FEED_TOKEN}`,
       ),
       { params: Promise.resolve({ episodeId: "episode-1" }) },
     );
-
-    await vi.advanceTimersByTimeAsync(5_000);
-    const response = await responsePromise;
     const body = await response.text();
 
     expect(response.status).toBe(500);
