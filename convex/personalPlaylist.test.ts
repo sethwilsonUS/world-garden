@@ -3,12 +3,14 @@ import { type Id } from "./_generated/dataModel";
 import { type TtsMetadata } from "../lib/tts-profile";
 import {
   addViewerPlaylistEpisodeBySlug,
+  discardViewerPlaylistEpisodeStorageInternal,
   getFeedEpisodesByToken,
   getEpisodeForPersonalFeedServer,
   getViewerFeedState,
   listViewerPlaylistEpisodesForCtx,
   moveViewerPlaylistEpisodeForCtx,
   removeViewerPlaylistEpisodeForCtx,
+  registerViewerPlaylistEpisodeStorageInternal,
   revokeViewerFeedToken,
   retryViewerPlaylistEpisode,
   rotateViewerFeedToken,
@@ -82,6 +84,16 @@ type QuotaDoc = {
   updatedAt: number;
 };
 
+type AccountOwnedStorageDoc = {
+  _id: Id<"accountOwnedStorage">;
+  viewerTokenIdentifier: string;
+  storageId: Id<"_storage">;
+  kind: "personal_playlist_episode" | "article_audio_export";
+  parentId: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 type ArticleDoc = {
   _id: Id<"articles">;
   revisionId: string;
@@ -106,17 +118,24 @@ const createCtx = (seed?: {
   feeds?: FeedDoc[];
   episodes?: EpisodeDoc[];
   quotas?: QuotaDoc[];
+  ownedStorage?: AccountOwnedStorageDoc[];
   viewerTokenIdentifier?: string | null;
+  deletingViewerTokenIdentifiers?: string[];
 }) => {
   const articles = [...(seed?.articles ?? [])];
   let feeds = [...(seed?.feeds ?? [])];
   let episodes = [...(seed?.episodes ?? [])];
   let quotas = [...(seed?.quotas ?? [])];
-  let idCounter = feeds.length + episodes.length + quotas.length;
+  let ownedStorage = [...(seed?.ownedStorage ?? [])];
+  let idCounter =
+    feeds.length + episodes.length + quotas.length + ownedStorage.length;
   const getStorageUrl = vi.fn(
     async (storageId: Id<"_storage">) =>
       `https://cdn.example.com/${storageId}.mp3`,
   );
+  const deleteStorage = vi.fn(async (storageId: Id<"_storage">) => {
+    void storageId;
+  });
 
   const matchesFilters = (
     doc: Record<string, unknown>,
@@ -137,7 +156,9 @@ const createCtx = (seed?: {
         tableName:
           | "personalPodcastFeeds"
           | "personalPlaylistEpisodes"
-          | "routeQuotas",
+          | "routeQuotas"
+          | "accountDeletionRequests"
+          | "accountOwnedStorage",
       ) => ({
         withIndex: (
           _indexName: string,
@@ -153,12 +174,39 @@ const createCtx = (seed?: {
             },
           };
           apply(builder);
+          if (tableName === "accountDeletionRequests") {
+            const viewerTokenIdentifier = filters.find(
+              ([field]) => field === "viewerTokenIdentifier",
+            )?.[1];
+            const deleting =
+              typeof viewerTokenIdentifier === "string" &&
+              (seed?.deletingViewerTokenIdentifiers ?? []).includes(
+                viewerTokenIdentifier,
+              );
+            return {
+              first: async () =>
+                deleting
+                  ? { _id: "account-deletion-1", viewerTokenIdentifier }
+                  : null,
+              collect: async () =>
+                deleting
+                  ? [{ _id: "account-deletion-1", viewerTokenIdentifier }]
+                  : [],
+            };
+          }
           const docs =
             tableName === "personalPodcastFeeds"
               ? feeds
               : tableName === "personalPlaylistEpisodes"
                 ? episodes
-                : quotas;
+                : tableName === "routeQuotas"
+                  ? quotas
+                  : tableName === "accountOwnedStorage"
+                    ? ownedStorage
+                    : null;
+          if (docs === null) {
+            throw new Error(`Unexpected table: ${tableName}`);
+          }
           const filtered = docs.filter((doc) =>
             matchesFilters(doc as Record<string, unknown>, filters),
           );
@@ -172,11 +220,13 @@ const createCtx = (seed?: {
         tableName:
           | "personalPodcastFeeds"
           | "personalPlaylistEpisodes"
-          | "routeQuotas",
+          | "routeQuotas"
+          | "accountOwnedStorage",
         value:
           | Omit<FeedDoc, "_id">
           | Omit<EpisodeDoc, "_id">
-          | Omit<QuotaDoc, "_id">,
+          | Omit<QuotaDoc, "_id">
+          | Omit<AccountOwnedStorageDoc, "_id">,
       ) => {
         idCounter += 1;
         const id = `${tableName}-${idCounter}` as never;
@@ -184,8 +234,15 @@ const createCtx = (seed?: {
           feeds.push({ _id: id, ...(value as Omit<FeedDoc, "_id">) });
         } else if (tableName === "personalPlaylistEpisodes") {
           episodes.push({ _id: id, ...(value as Omit<EpisodeDoc, "_id">) });
-        } else {
+        } else if (tableName === "routeQuotas") {
           quotas.push({ _id: id, ...(value as Omit<QuotaDoc, "_id">) });
+        } else if (tableName === "accountOwnedStorage") {
+          ownedStorage.push({
+            _id: id,
+            ...(value as Omit<AccountOwnedStorageDoc, "_id">),
+          });
+        } else {
+          throw new Error(`Unexpected table: ${tableName}`);
         }
         return id;
       },
@@ -199,12 +256,24 @@ const createCtx = (seed?: {
         quotas = quotas.map((doc) =>
           doc._id === id ? ({ ...doc, ...value } as QuotaDoc) : doc,
         );
+        ownedStorage = ownedStorage.map((doc) =>
+          doc._id === id
+            ? ({ ...doc, ...value } as AccountOwnedStorageDoc)
+            : doc,
+        );
+      },
+      delete: async (id: string) => {
+        feeds = feeds.filter((doc) => doc._id !== id);
+        episodes = episodes.filter((doc) => doc._id !== id);
+        quotas = quotas.filter((doc) => doc._id !== id);
+        ownedStorage = ownedStorage.filter((doc) => doc._id !== id);
       },
       get: async (id: string) => {
         return (
           episodes.find((doc) => doc._id === id) ??
           feeds.find((doc) => doc._id === id) ??
           quotas.find((doc) => doc._id === id) ??
+          ownedStorage.find((doc) => doc._id === id) ??
           articles.find((doc) => doc._id === id) ??
           null
         );
@@ -217,6 +286,7 @@ const createCtx = (seed?: {
     },
     storage: {
       getUrl: getStorageUrl,
+      delete: deleteStorage,
     },
   } as unknown as PersonalPlaylistMutationCtx;
 
@@ -225,7 +295,9 @@ const createCtx = (seed?: {
     getFeeds: () => feeds,
     getEpisodes: () => episodes,
     getQuotas: () => quotas,
+    getOwnedStorage: () => ownedStorage,
     getStorageUrl,
+    deleteStorage,
   };
 };
 
@@ -287,6 +359,36 @@ describe("personal playlist data helpers", () => {
     expect(retryArgs.value.baseUrl).toEqual(legacyBaseUrlValidator);
   });
 
+  it("checks the durable deletion barrier before fetching an article", async () => {
+    const runAction = vi.fn(async () => {
+      throw new Error("Article fetch should not run");
+    });
+    const runQuery = vi
+      .fn()
+      .mockRejectedValue(new Error("ACCOUNT_DELETION_IN_PROGRESS"));
+
+    await expect(
+      invokeRegistered(
+        addViewerPlaylistEpisodeBySlug,
+        {
+          auth: {
+            getUserIdentity: vi.fn().mockResolvedValue({
+              tokenIdentifier: "user-1",
+            }),
+          },
+          runQuery,
+          runAction,
+        },
+        { slug: "mars" },
+      ),
+    ).rejects.toThrow("ACCOUNT_DELETION_IN_PROGRESS");
+
+    expect(runQuery).toHaveBeenCalledWith(expect.anything(), {
+      viewerTokenIdentifier: "user-1",
+    });
+    expect(runAction).not.toHaveBeenCalled();
+  });
+
   it("creates a feed token and queued episode on first add", async () => {
     const { ctx, getFeeds, getEpisodes } = createCtx();
 
@@ -319,6 +421,26 @@ describe("personal playlist data helpers", () => {
         requestedTtsMetadata,
       }),
     ]);
+  });
+
+  it("rejects a late internal playlist upsert after deletion starts", async () => {
+    const { ctx, getEpisodes, getFeeds } = createCtx({
+      deletingViewerTokenIdentifiers: ["user-1"],
+    });
+
+    await expect(
+      upsertViewerPlaylistEpisodeForCtx(ctx, {
+        viewerTokenIdentifier: "user-1",
+        articleId: "article-1" as Id<"articles">,
+        wikiPageId: "wiki-1",
+        slug: "mars",
+        title: "Mars",
+        sectionCount: 4,
+        narrationHash,
+      }),
+    ).rejects.toThrow("ACCOUNT_DELETION_IN_PROGRESS");
+    expect(getEpisodes()).toEqual([]);
+    expect(getFeeds()).toEqual([]);
   });
 
   it("rotates the signed-in viewer's feed token and invalidates the old URL", async () => {
@@ -542,6 +664,49 @@ describe("personal playlist data helpers", () => {
         },
       ],
     });
+    expect(getStorageUrl).not.toHaveBeenCalled();
+  });
+
+  it("invalidates an otherwise active private feed as soon as deletion starts", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "personal-media-server-secret");
+    const feedToken = "f".repeat(64);
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, getStorageUrl } = createCtx({
+      deletingViewerTokenIdentifiers: ["user-1"],
+      feeds: [
+        {
+          _id: "personalPodcastFeeds-1" as Id<"personalPodcastFeeds">,
+          viewerTokenIdentifier: "user-1",
+          feedToken,
+          createdAt: 1_000,
+          updatedAt: 2_000,
+        },
+      ],
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "ready",
+          storageId: "storage-1" as Id<"_storage">,
+        }),
+      ],
+    });
+
+    await expect(
+      invokeRegistered(getFeedEpisodesByToken, ctx, { feedToken }),
+    ).resolves.toBeNull();
+
+    const identity = { feedToken, episodeId };
+    const attestation = await createPersonalFeedMediaReadAttestation(identity);
+    await expect(
+      invokeRegistered(getEpisodeForPersonalFeedServer, ctx, {
+        ...identity,
+        attestation,
+      }),
+    ).resolves.toBeNull();
     expect(getStorageUrl).not.toHaveBeenCalled();
   });
 
@@ -961,6 +1126,62 @@ describe("personal playlist data helpers", () => {
     });
   });
 
+  it("deletes audio that becomes unreferenced when narration changes", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, deleteStorage } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "ready",
+          narrationHash: "narration-v1",
+          storageId: "primary-old" as Id<"_storage">,
+          audioVariants: [
+            {
+              storageId: "primary-old",
+              ttsCacheKey: "voice-a",
+              provider: "openai",
+              model: "gpt-4o-mini-tts",
+              voiceId: "sage",
+              promptVersion: "v1",
+              ttsNormVersion: "v1",
+              createdAt: 1,
+            },
+            {
+              storageId: "alternate-old",
+              ttsCacheKey: "voice-b",
+              provider: "openai",
+              model: "gpt-4o-mini-tts",
+              voiceId: "cedar",
+              promptVersion: "v1",
+              ttsNormVersion: "v1",
+              createdAt: 1,
+            },
+          ],
+        }),
+      ],
+    });
+
+    await upsertViewerPlaylistEpisodeForCtx(ctx, {
+      viewerTokenIdentifier: "user-1",
+      articleId: "article-1" as Id<"articles">,
+      wikiPageId: "wiki-mars",
+      slug: "mars",
+      title: "Mars",
+      sectionCount: 4,
+      narrationHash: "narration-v2",
+      requestedTtsMetadata,
+    });
+
+    expect(deleteStorage.mock.calls.map(([id]) => id).sort()).toEqual([
+      "alternate-old",
+      "primary-old",
+    ]);
+  });
+
   it("soft-removes and later restores the same episode record in queued state", async () => {
     const { ctx, getEpisodes } = createCtx();
     const args = {
@@ -1184,6 +1405,196 @@ describe("personal playlist data helpers", () => {
       leaseOwner: "worker-b",
       leaseExpiresAt: Date.now() + 8 * 60 * 1_000,
     });
+  });
+
+  it("blocks playlist workers and deletes a late upload after deletion starts", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, deleteStorage, getEpisodes } = createCtx({
+      deletingViewerTokenIdentifiers: ["user-1"],
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "running",
+          stage: "packaging",
+          leaseOwner: "worker-a",
+          leaseExpiresAt: Date.now() + 60_000,
+        }),
+      ],
+    });
+
+    await expect(
+      markViewerPlaylistEpisodeRunningForCtx(ctx, {
+        episodeId,
+        owner: "worker-b",
+      }),
+    ).resolves.toEqual({ claimed: false, viewerTokenIdentifier: null });
+    await expect(
+      completeViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        storageId: "late-upload" as Id<"_storage">,
+        durationSeconds: 120,
+        byteLength: 12_000,
+        ttsCacheKey: "voice-a",
+        provider: "openai",
+        model: "gpt-4o-mini-tts",
+        voiceId: "sage",
+        promptVersion: "v1",
+        ttsNormVersion: "v1",
+        narrationHash,
+      }),
+    ).resolves.toEqual({ completed: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("late-upload");
+    expect(getEpisodes()[0]).toMatchObject({ status: "running" });
+    expect(getEpisodes()[0]).not.toHaveProperty("storageId");
+  });
+
+  it("rejects duplicate completion after deletion starts and removes its ledgered blob", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const storageId = "ready-storage" as Id<"_storage">;
+    const { ctx, deleteStorage, getOwnedStorage } = createCtx({
+      deletingViewerTokenIdentifiers: ["user-1"],
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "ready",
+          storageId,
+        }),
+      ],
+      ownedStorage: [
+        {
+          _id: "accountOwnedStorage-1" as Id<"accountOwnedStorage">,
+          viewerTokenIdentifier: "user-1",
+          storageId,
+          kind: "personal_playlist_episode",
+          parentId: String(episodeId),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ],
+    });
+
+    await expect(
+      completeViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        storageId,
+        durationSeconds: 120,
+        byteLength: 12_000,
+        ttsCacheKey: "voice-a",
+        provider: "openai",
+        model: "gpt-4o-mini-tts",
+        voiceId: "sage",
+        promptVersion: "v1",
+        ttsNormVersion: "v1",
+        narrationHash,
+        viewerTokenIdentifier: "user-1",
+      }),
+    ).resolves.toEqual({ completed: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith(storageId);
+    expect(getOwnedStorage()).toEqual([]);
+  });
+
+  it("binds combined-upload registration to the current unexpired lease", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, deleteStorage, getOwnedStorage } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "running",
+          leaseOwner: "worker-current",
+          leaseExpiresAt: Date.now() + 60_000,
+        }),
+      ],
+    });
+
+    await expect(
+      invokeRegistered(registerViewerPlaylistEpisodeStorageInternal, ctx, {
+        episodeId,
+        viewerTokenIdentifier: "user-1",
+        owner: "worker-stale",
+        storageId: "stale-upload" as Id<"_storage">,
+      }),
+    ).resolves.toEqual({ registered: false });
+    expect(deleteStorage).toHaveBeenCalledWith("stale-upload");
+    expect(getOwnedStorage()).toEqual([]);
+
+    await expect(
+      invokeRegistered(registerViewerPlaylistEpisodeStorageInternal, ctx, {
+        episodeId,
+        viewerTokenIdentifier: "user-1",
+        owner: "worker-current",
+        storageId: "current-upload" as Id<"_storage">,
+      }),
+    ).resolves.toEqual({ registered: true });
+    expect(getOwnedStorage()).toEqual([
+      expect.objectContaining({
+        viewerTokenIdentifier: "user-1",
+        storageId: "current-upload",
+        parentId: String(episodeId),
+      }),
+    ]);
+
+    vi.advanceTimersByTime(60_001);
+    await expect(
+      invokeRegistered(registerViewerPlaylistEpisodeStorageInternal, ctx, {
+        episodeId,
+        viewerTokenIdentifier: "user-1",
+        owner: "worker-current",
+        storageId: "expired-upload" as Id<"_storage">,
+      }),
+    ).resolves.toEqual({ registered: false });
+    expect(deleteStorage).toHaveBeenCalledWith("expired-upload");
+  });
+
+  it("discards unattached audio without deleting the episode's published blob", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const currentStorageId = "current-storage" as Id<"_storage">;
+    const { ctx, deleteStorage } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "ready",
+          storageId: currentStorageId,
+        }),
+      ],
+    });
+
+    await expect(
+      invokeRegistered(discardViewerPlaylistEpisodeStorageInternal, ctx, {
+        episodeId,
+        viewerTokenIdentifier: "user-1",
+        storageId: currentStorageId,
+      }),
+    ).resolves.toEqual({ discarded: false, referenced: true });
+    expect(deleteStorage).not.toHaveBeenCalled();
+
+    await expect(
+      invokeRegistered(discardViewerPlaylistEpisodeStorageInternal, ctx, {
+        episodeId,
+        viewerTokenIdentifier: "user-1",
+        storageId: "unattached-storage" as Id<"_storage">,
+      }),
+    ).resolves.toEqual({ discarded: true, referenced: false });
+    expect(deleteStorage).toHaveBeenCalledWith("unattached-storage");
   });
 
   it("reclaims an expired running episode and rejects the stale owner", async () => {
@@ -1654,6 +2065,72 @@ describe("personal playlist data helpers", () => {
         storageId: "storage-1",
         ttsCacheKey: "tts-key",
       }),
+    ]);
+  });
+
+  it("deletes only the audio variant superseded by a successful completion", async () => {
+    const episodeId =
+      "personalPlaylistEpisodes-1" as Id<"personalPlaylistEpisodes">;
+    const { ctx, deleteStorage, getEpisodes } = createCtx({
+      episodes: [
+        buildEpisode({
+          _id: episodeId,
+          articleId: "article-1" as Id<"articles">,
+          slug: "mars",
+          title: "Mars",
+          status: "running",
+          stage: "packaging",
+          leaseOwner: "worker-a",
+          leaseExpiresAt: Date.now() + 60_000,
+          storageId: "voice-a-old" as Id<"_storage">,
+          audioVariants: [
+            {
+              storageId: "voice-a-old",
+              ttsCacheKey: "voice-a",
+              provider: "openai",
+              model: "gpt-4o-mini-tts",
+              voiceId: "sage",
+              promptVersion: "v1",
+              ttsNormVersion: "v1",
+              createdAt: 1,
+            },
+            {
+              storageId: "voice-b-keep",
+              ttsCacheKey: "voice-b",
+              provider: "openai",
+              model: "gpt-4o-mini-tts",
+              voiceId: "cedar",
+              promptVersion: "v1",
+              ttsNormVersion: "v1",
+              createdAt: 1,
+            },
+          ],
+        }),
+      ],
+    });
+
+    await expect(
+      completeViewerPlaylistEpisodeForCtx(ctx, {
+        episodeId,
+        owner: "worker-a",
+        storageId: "voice-a-new" as Id<"_storage">,
+        durationSeconds: 120,
+        byteLength: 12_000,
+        ttsCacheKey: "voice-a",
+        provider: "openai",
+        model: "gpt-4o-mini-tts",
+        voiceId: "sage",
+        promptVersion: "v1",
+        ttsNormVersion: "v1",
+        narrationHash,
+      }),
+    ).resolves.toEqual({ completed: true });
+
+    expect(deleteStorage).toHaveBeenCalledOnce();
+    expect(deleteStorage).toHaveBeenCalledWith("voice-a-old");
+    expect(getEpisodes()[0].audioVariants).toEqual([
+      expect.objectContaining({ storageId: "voice-b-keep" }),
+      expect.objectContaining({ storageId: "voice-a-new" }),
     ]);
   });
 

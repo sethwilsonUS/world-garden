@@ -5,6 +5,7 @@ import {
   getViewerBadgeProgressForCtx,
   recordViewerArticleListenProgressForCtx,
 } from "./badges";
+import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
 
 type ArticleDoc = {
   _id: Id<"articles">;
@@ -78,34 +79,42 @@ const createCtx = (seed?: {
         query: (
           tableName:
             | "viewerArticleListenProgress"
-            | "badgeArticleCredits",
-        ) => ({
-          withIndex: (
-            _indexName: string,
-            apply: (builder: { eq: (field: string, value: unknown) => unknown }) => unknown,
-          ) => {
-            const filters: Array<[string, unknown]> = [];
-            const builder = {
-              eq: (field: string, value: unknown) => {
-                filters.push([field, value]);
-                return builder;
-              },
-            };
-            apply(builder);
-            const docs =
-              tableName === "viewerArticleListenProgress"
-                ? progressDocs
-                : creditDocs;
-            const filtered = docs.filter((doc) =>
-              matchesFilters(doc as Record<string, unknown>, filters),
-            );
+            | "badgeArticleCredits"
+            | "accountDeletionRequests",
+        ) => {
+          if (tableName === "accountDeletionRequests") {
+            return createAccountDeletionQueryChain();
+          }
+          return {
+            withIndex: (
+              _indexName: string,
+              apply: (builder: {
+                eq: (field: string, value: unknown) => unknown;
+              }) => unknown,
+            ) => {
+              const filters: Array<[string, unknown]> = [];
+              const builder = {
+                eq: (field: string, value: unknown) => {
+                  filters.push([field, value]);
+                  return builder;
+                },
+              };
+              apply(builder);
+              const docs =
+                tableName === "viewerArticleListenProgress"
+                  ? progressDocs
+                  : creditDocs;
+              const filtered = docs.filter((doc) =>
+                matchesFilters(doc as Record<string, unknown>, filters),
+              );
 
-            return {
-              unique: async () => filtered[0] ?? null,
-              collect: async () => filtered,
-            };
-          },
-        }),
+              return {
+                unique: async () => filtered[0] ?? null,
+                collect: async () => filtered,
+              };
+            },
+          };
+        },
         get: async (id: string) =>
           articles.find((article) => article._id === id) ?? null,
         insert: async (
@@ -115,16 +124,19 @@ const createCtx = (seed?: {
           idCounter += 1;
           const id = `${tableName}-${idCounter}` as never;
           if (tableName === "viewerArticleListenProgress") {
-            progressDocs.push({ _id: id, ...(value as Omit<ListenProgressDoc, "_id">) });
+            progressDocs.push({
+              _id: id,
+              ...(value as Omit<ListenProgressDoc, "_id">),
+            });
           } else {
-            creditDocs.push({ _id: id, ...(value as Omit<BadgeCreditDoc, "_id">) });
+            creditDocs.push({
+              _id: id,
+              ...(value as Omit<BadgeCreditDoc, "_id">),
+            });
           }
           return id;
         },
-        patch: async (
-          id: string,
-          value: Partial<ListenProgressDoc>,
-        ) => {
+        patch: async (id: string, value: Partial<ListenProgressDoc>) => {
           progressDocs = progressDocs.map((doc) =>
             doc._id === id ? { ...doc, ...value } : doc,
           );
@@ -365,7 +377,9 @@ describe("getViewerBadgeProgressForCtx", () => {
       ],
     });
 
-    await expect(getViewerBadgeProgressForCtx(ctx as never)).resolves.toMatchObject({
+    await expect(
+      getViewerBadgeProgressForCtx(ctx as never),
+    ).resolves.toMatchObject({
       totalExp: 2,
       unlockedBadgeCount: 0,
       badgeCredits: expect.arrayContaining([

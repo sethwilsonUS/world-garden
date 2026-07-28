@@ -3,6 +3,7 @@ import {
   getViewerAccountDataOverviewForCtx,
   getViewerAccountDataPageForCtx,
 } from "./accountData";
+import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
 
 type FeedDoc = {
   _id: string;
@@ -48,30 +49,43 @@ const createOverviewCtx = (seed?: {
       ),
     },
     db: {
-      query: (tableName: "personalPodcastFeeds" | "routeQuotas") => ({
-        withIndex: (
-          _indexName: string,
-          apply: (builder: {
-            eq: (field: string, value: unknown) => unknown;
-          }) => unknown,
-        ) => {
-          const filters: Array<[string, unknown]> = [];
-          const builder = {
-            eq: (field: string, value: unknown) => {
-              filters.push([field, value]);
-              return builder;
-            },
-          };
-          apply(builder);
-          const docs = tableName === "personalPodcastFeeds" ? feeds : quotas;
-          const filtered = docs.filter((doc) =>
-            matchesFilters(doc as unknown as Record<string, unknown>, filters),
-          );
-          return {
-            first: async () => filtered[0] ?? null,
-          };
-        },
-      }),
+      query: (
+        tableName:
+          | "personalPodcastFeeds"
+          | "routeQuotas"
+          | "accountDeletionRequests",
+      ) => {
+        if (tableName === "accountDeletionRequests") {
+          return createAccountDeletionQueryChain();
+        }
+        return {
+          withIndex: (
+            _indexName: string,
+            apply: (builder: {
+              eq: (field: string, value: unknown) => unknown;
+            }) => unknown,
+          ) => {
+            const filters: Array<[string, unknown]> = [];
+            const builder = {
+              eq: (field: string, value: unknown) => {
+                filters.push([field, value]);
+                return builder;
+              },
+            };
+            apply(builder);
+            const docs = tableName === "personalPodcastFeeds" ? feeds : quotas;
+            const filtered = docs.filter((doc) =>
+              matchesFilters(
+                doc as unknown as Record<string, unknown>,
+                filters,
+              ),
+            );
+            return {
+              first: async () => filtered[0] ?? null,
+            };
+          },
+        };
+      },
     },
   };
 };
@@ -105,6 +119,9 @@ const createPageCtx = (seed: {
       },
       db: {
         query: (tableName: string) => {
+          if (tableName === "accountDeletionRequests") {
+            return createAccountDeletionQueryChain();
+          }
           if (tableName !== seed.tableName) {
             throw new Error(`Unexpected table ${tableName}`);
           }

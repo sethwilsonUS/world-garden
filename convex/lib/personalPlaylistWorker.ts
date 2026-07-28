@@ -81,6 +81,35 @@ export const processViewerPlaylistEpisodeForCtx = async (
     );
   };
 
+  let pendingCombinedStorageId: Id<"_storage"> | null = null;
+  const discardPendingCombinedStorage = async (): Promise<
+    "none" | "discarded" | "referenced" | "unknown"
+  > => {
+    const storageId = pendingCombinedStorageId;
+    if (!storageId) return "none";
+
+    try {
+      const result = await ctx.runMutation(
+        internal.personalPlaylist.discardViewerPlaylistEpisodeStorageInternal,
+        {
+          episodeId: args.episodeId,
+          viewerTokenIdentifier: claim.viewerTokenIdentifier!,
+          storageId,
+        },
+      );
+      if (result.discarded || result.referenced) {
+        pendingCombinedStorageId = null;
+      }
+      return result.referenced
+        ? "referenced"
+        : result.discarded
+          ? "discarded"
+          : "unknown";
+    } catch {
+      return "unknown";
+    }
+  };
+
   let shouldRetryCurrentAfterLease = false;
   try {
     const generationEpisode = await ctx.runQuery(
@@ -186,11 +215,35 @@ export const processViewerPlaylistEpisodeForCtx = async (
           internal.audio.generateUploadUrlInternal,
           {},
         );
-        return await uploadStreamToConvexStorage(
+        const upload = await uploadStreamToConvexStorage(
           uploadUrl,
           stream,
           contentType,
         );
+        pendingCombinedStorageId = upload.storageId;
+        let registration: { registered: boolean };
+        try {
+          registration = await ctx.runMutation(
+            internal.personalPlaylist
+              .registerViewerPlaylistEpisodeStorageInternal,
+            {
+              episodeId: args.episodeId,
+              viewerTokenIdentifier: claim.viewerTokenIdentifier!,
+              owner,
+              storageId: upload.storageId,
+            },
+          );
+        } catch (error) {
+          await discardPendingCombinedStorage();
+          throw error;
+        }
+        if (!registration.registered) {
+          pendingCombinedStorageId = null;
+          throw new Error(
+            "Personal playlist episode was removed before audio could be attached.",
+          );
+        }
+        return upload;
       },
       onProgress: async ({ completedSectionCount, sectionCount, stage }) => {
         const progress = await ctx.runMutation(
@@ -223,25 +276,34 @@ export const processViewerPlaylistEpisodeForCtx = async (
         promptVersion: result.metadata.promptVersion,
         ttsNormVersion: result.metadata.ttsNormVersion,
         narrationHash: result.narrationHash,
+        viewerTokenIdentifier: claim.viewerTokenIdentifier,
       },
     );
+    if (completion.completed) {
+      pendingCombinedStorageId = null;
+    } else {
+      await discardPendingCombinedStorage();
+    }
     shouldRetryCurrentAfterLease = !completion.completed;
   } catch (error) {
-    try {
-      const failure = await ctx.runMutation(
-        internal.personalPlaylist.failViewerPlaylistEpisodeInternal,
-        {
-          episodeId: args.episodeId,
-          owner,
-          lastError:
-            error instanceof Error
-              ? error.message
-              : "Personal playlist episode generation failed.",
-        },
-      );
-      shouldRetryCurrentAfterLease = !failure.failed;
-    } catch {
-      shouldRetryCurrentAfterLease = true;
+    const discardDisposition = await discardPendingCombinedStorage();
+    if (discardDisposition !== "referenced") {
+      try {
+        const failure = await ctx.runMutation(
+          internal.personalPlaylist.failViewerPlaylistEpisodeInternal,
+          {
+            episodeId: args.episodeId,
+            owner,
+            lastError:
+              error instanceof Error
+                ? error.message
+                : "Personal playlist episode generation failed.",
+          },
+        );
+        shouldRetryCurrentAfterLease = !failure.failed;
+      } catch {
+        shouldRetryCurrentAfterLease = true;
+      }
     }
   } finally {
     try {

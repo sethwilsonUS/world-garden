@@ -7,6 +7,7 @@ vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
     createElement("div", null, children),
   useAuth: () => ({ isLoaded: true, isSignedIn: false }),
+  useReverification: (request: unknown) => request,
 }));
 
 describe("AccountPage", () => {
@@ -24,13 +25,14 @@ describe("AccountPage", () => {
     }
   });
 
-  it("publishes account-data metadata and renders the account export route", () => {
+  it("publishes private account-management metadata and renders the route", () => {
     const markup = renderToStaticMarkup(createElement(AccountPage));
 
     expect(metadata.title).toBe("Account & data — Curio Garden");
     expect(metadata.description).toContain("export");
+    expect(metadata.description).toContain("permanently delete");
     expect(metadata.robots).toEqual({ index: false, follow: false });
     expect(markup).toContain("Account &amp; data");
-    expect(markup).toContain("Sign in to export your account data");
+    expect(markup).toContain("Sign in to manage your account data");
   });
 });

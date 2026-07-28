@@ -159,7 +159,49 @@ API URL for the same Clerk Preview instance configured in Vercel. Convex copies
 Preview defaults only when it creates a deployment, so update an existing
 Preview directly or recreate it after changing those defaults.
 
-### 4. Run the development server
+### 4. Configure account deletion reconciliation
+
+Account deletion is deliberately coordinated across Convex and Clerk. The app
+first tombstones the account and durably schedules cleanup of account-owned
+Convex data, then asks Clerk to delete the identity. A
+`202 {"status":"pending"}` response means the durable request exists and the
+scheduled retry will continue the Clerk step; it is not a rollback or a failed
+confirmation.
+
+Cleanup failures leave the account tombstoned and the technical deletion record
+retained while safe hourly retries continue. The record is not eligible for its
+final grace-period purge until account-owned cleanup and Clerk deletion both
+succeed. After that completion it enters a 24-hour grace period; if the final
+safety sweep finds account-linked data, cleanup and the grace period restart.
+
+For every deployed Clerk environment that supports account deletion:
+
+1. In the Clerk dashboard, create a webhook endpoint at
+   `https://your-app.example/api/webhooks/clerk`.
+2. Subscribe the endpoint to `user.deleted`.
+3. Copy its signing secret to `CLERK_WEBHOOK_SIGNING_SECRET` in the matching
+   Vercel environment. Preview and Production endpoints have separate secrets.
+4. Set `TTS_QUOTA_BYPASS_SECRET` to the same random value in Vercel and the
+   matching Convex deployment. Account-deletion retry and reconciliation calls
+   use short-lived, domain-separated HMAC attestations derived from this shared
+   root secret.
+5. Set `CRON_SECRET` in Vercel so the hourly `/api/account/delete/cron` retry
+   route can authenticate Vercel Cron.
+
+Vercel supplies one project-wide `CRON_SECRET` authorization header to its
+configured cron routes rather than a different credential per job. The account
+deletion retry route can only advance bounded requests that are already durable;
+it cannot nominate an account for deletion, and every Convex transition it makes
+also requires a domain-separated HMAC attestation.
+
+The verified webhook also covers a user deleted directly in Clerk. Convex derives
+the account's internal token identifier from its configured
+`CLERK_JWT_ISSUER_DOMAIN` and the verified Clerk user ID, creates a deletion
+tombstone, and runs the same cleanup and grace-period purge. If the issuer is
+missing, reconciliation fails retryably instead of acknowledging incomplete
+cleanup.
+
+### 5. Run the development server
 
 ```bash
 npm run dev
@@ -202,7 +244,8 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `CONVEX_DEPLOY_KEY`                            | Vercel builds           | Use a production key for Production and a Preview-only key beginning <code>preview:seth-wilson:world-garden&#124;</code> for this project's Previews; other key types and scopes fail closed                    |
 | `CLERK_JWT_ISSUER_DOMAIN`                      | Convex mode             | Clerk Frontend API URL configured in Convex for JWT verification; set the matching Clerk Preview issuer as a Convex Preview environment-variable default before creating isolated Previews                      |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`            | No                      | Clerk publishable key for a claimed local/prod app; required for sign-in, dashboard, and playlist features once you move past keyless local boot                                                                |
-| `CLERK_SECRET_KEY`                             | No                      | Clerk secret key for a claimed local/prod app; required for sign-in, dashboard, and playlist features in local/prod environments                                                                                |
+| `CLERK_SECRET_KEY`                             | Account deletion        | Clerk secret key for a claimed local/prod app; required for sign-in and for the server-side account deletion coordinator                                                                                        |
+| `CLERK_WEBHOOK_SIGNING_SECRET`                 | Account deletion        | Signing secret for the matching Clerk `/api/webhooks/clerk` endpoint; subscribe that endpoint to `user.deleted`                                                                                                 |
 | `LOCAL_MODE`                                   | No                      | Server-only flag used by `npm run local` to bypass Clerk middleware outside production                                                                                                                          |
 | `NEXT_PUBLIC_LOCAL_MODE`                       | No                      | Public client/server-render flag used by `npm run local` to run without Convex or account UI                                                                                                                    |
 | `OPENAI_API_KEY`                               | Yes for OpenAI features | Direct OpenAI API key for speech, Trending generation, and optional context-description enhancement                                                                                                             |
@@ -220,7 +263,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS`            | No                      | Authenticated OpenAI TTS burst window (legacy variable name); defaults to `600000` ms                                                                                                                           |
 | `TTS_PUBLIC_OPENAI_DAILY_LIMIT`                | No                      | Authenticated OpenAI TTS daily quota per IP (legacy variable name); defaults to `800` requests                                                                                                                  |
 | `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS`            | No                      | Authenticated OpenAI TTS daily window (legacy variable name); defaults to `86400000` ms                                                                                                                         |
-| `TTS_QUOTA_BYPASS_SECRET`                      | Deployed audio          | Shared Vercel/Convex root secret used to sign short-lived, domain-scoped quota/cache attestations, private-feed media reads, and trusted OpenAI requests; the raw value is never sent as the TTS bypass header  |
+| `TTS_QUOTA_BYPASS_SECRET`                      | Audio/account deletion  | Shared Vercel/Convex root secret used to sign short-lived, domain-scoped quota/cache, private-feed, trusted OpenAI, and account-deletion attestations; the raw value is never sent as a bearer header           |
 | `AUDIO_GENERATION_BASE_URL`                    | Convex audio workers    | Trusted HTTPS app origin used by Convex audio workers; Vercel Preview builds set the exact isolated Preview origin automatically, while other worker deployments default to production                          |
 | `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_LIMIT`      | No                      | New signed-in OpenAI article exports allowed per account window; defaults to `5` (reused exports do not count)                                                                                                  |
 | `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_WINDOW_MS`  | No                      | Rolling account allowance window for new OpenAI article exports; defaults to `86400000` ms                                                                                                                      |
@@ -237,7 +280,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS`            | No                      | Browser timeout for each TTS request; defaults to `65000` ms                                                                                                                                                    |
 | `NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY`            | No                      | Maximum concurrent browser TTS chunks; defaults to `2`                                                                                                                                                          |
 | `NEXT_PUBLIC_ARTICLE_SECTION_AUDIO_TIMEOUT_MS` | No                      | Browser timeout for canonical cached article-section requests; defaults to `180000` ms                                                                                                                          |
-| `CRON_SECRET`                                  | No                      | Bearer token expected by the scheduled podcast cron routes and manual sync routes                                                                                                                               |
+| `CRON_SECRET`                                  | Scheduled jobs          | Bearer token expected by scheduled routes, including account-deletion retries, and manual podcast sync routes                                                                                                   |
 | `ARTICLE_CONTEXT_WRITE_SECRET`                 | Context persistence     | Dedicated production secret for context caches, reports, and moderation; use a value distinct from `CRON_SECRET` and set it identically in Vercel and Convex (development alone may fall back to `CRON_SECRET`) |
 | `PRODUCT_FEEDBACK_WRITE_SECRET`                | Outside local mode      | Dedicated random secret for anonymous feedback writes; keep it distinct from every other secret and set the exact same value in the Next.js/Vercel environment and the matching Convex deployment               |
 | `ARTICLE_CONTEXT_CACHE_TTL_MS`                 | No                      | In-process article-context cache lifetime; defaults to `86400000` ms                                                                                                                                            |
@@ -365,7 +408,7 @@ To enable scheduled generation in production:
 2. Deploy the app.
 3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and production Convex so signed quota checks, shared Edge cache writes, and trusted Personal Playlist/export generation work. The Preview build securely copies the Vercel value into only its named Convex Preview.
 4. For a protected Preview, enable Vercel's **Protection Bypass for Automation**. Vercel automatically injects the `VERCEL_AUTOMATION_BYPASS_SECRET` system environment variable; do not create a separate ordinary variable with that name. The Preview build copies it into the named Convex Preview and sets that worker deployment's `AUDIO_GENERATION_BASE_URL` to the exact generated Vercel hostname.
-5. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, and `/api/podcast/trending/cron` using the schedules in `vercel.json`.
+5. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, `/api/podcast/trending/cron`, and `/api/account/delete/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
@@ -374,6 +417,7 @@ The default schedules are:
 - `20 0 * * *` and `50 0 * * *` for Picture of the Day audio (`00:20 UTC` primary run, `00:50 UTC` retry)
 - `25 0 * * *` and `55 0 * * *` for homepage article summary audio (`00:25 UTC` primary run, `00:55 UTC` retry)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
+- `17 * * * *` for durable account-deletion retries (`17` minutes past each UTC hour)
 
 ### Local podcast testing
 

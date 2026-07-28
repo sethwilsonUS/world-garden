@@ -6,7 +6,18 @@ import {
   isValidPersonalFeedToken,
 } from "../../lib/personal-feed-token";
 import { getPersonalPlaylistOpenAiQuotaKey } from "./accountQuotaKeys";
-import { upsertTtsAudioVariant } from "./ttsAudioVariants";
+import {
+  getSupersededTtsAudioStorageIds,
+  upsertTtsAudioVariant,
+} from "./ttsAudioVariants";
+import {
+  deleteAccountOwnedStorageForCtx,
+  registerAccountOwnedStorageForCtx,
+} from "./accountOwnedStorage";
+import {
+  assertViewerAccountActiveForCtx,
+  isViewerAccountDeletionActiveForCtx,
+} from "./accountDeletionState";
 
 export type PersonalPlaylistReadCtx = Pick<QueryCtx, "db" | "storage">;
 export type PersonalPlaylistMutationCtx = Pick<MutationCtx, "db" | "storage">;
@@ -318,6 +329,30 @@ const rewriteActiveViewerQueue = async (
   }
 };
 
+const deleteSupersededEpisodeAudioForCtx = async (
+  ctx: PersonalPlaylistMutationCtx,
+  episode: PersonalPlaylistEpisodeDoc,
+  next?: {
+    primaryStorageId?: Id<"_storage">;
+    audioVariants?: PersonalPlaylistEpisodeDoc["audioVariants"];
+  },
+): Promise<void> => {
+  const supersededStorageIds = getSupersededTtsAudioStorageIds({
+    previousPrimaryStorageId: episode.storageId,
+    previousVariants: episode.audioVariants,
+    nextPrimaryStorageId: next?.primaryStorageId,
+    nextVariants: next?.audioVariants,
+  });
+
+  for (const storageId of supersededStorageIds) {
+    await deleteAccountOwnedStorageForCtx(
+      ctx,
+      storageId,
+      episode.viewerTokenIdentifier,
+    );
+  }
+};
+
 const findViewerEpisodeByArticle = async (
   ctx: PersonalPlaylistReadCtx,
   viewerTokenIdentifier: string,
@@ -447,6 +482,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
     requestedTtsMetadata?: TtsMetadata;
   },
 ): Promise<UpsertViewerPlaylistEpisodeResult> => {
+  await assertViewerAccountActiveForCtx(ctx, args.viewerTokenIdentifier);
   const now = Date.now();
   await ensureViewerPersonalPodcastFeedForCtx(ctx, args.viewerTokenIdentifier);
   const existing = await findViewerEpisodeByArticle(
@@ -473,6 +509,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
         increasesActiveCount: reactivatesGeneration,
         countsTowardDailyLimit: reactivatesGeneration && args.sectionCount > 0,
       });
+      await deleteSupersededEpisodeAudioForCtx(ctx, existing);
     }
     await ctx.db.patch(existing._id, {
       articleId: args.articleId,
@@ -519,6 +556,7 @@ export const upsertViewerPlaylistEpisodeForCtx = async (
       increasesActiveCount: true,
       countsTowardDailyLimit: args.sectionCount > 0,
     });
+    await deleteSupersededEpisodeAudioForCtx(ctx, existing);
     await ctx.db.patch(existing._id, {
       articleId: args.articleId,
       wikiPageId: args.wikiPageId,
@@ -842,6 +880,11 @@ export const getNextQueuedEpisodeForViewerForCtx = async (
     excludeEpisodeId?: Id<"personalPlaylistEpisodes">;
   },
 ): Promise<PersonalPlaylistEpisodeDoc | null> => {
+  if (
+    await isViewerAccountDeletionActiveForCtx(ctx, args.viewerTokenIdentifier)
+  ) {
+    return null;
+  }
   const episodes = await getActiveViewerEpisodes(
     ctx,
     args.viewerTokenIdentifier,
@@ -876,6 +919,14 @@ export const markViewerPlaylistEpisodeRunningForCtx = async (
 ) => {
   const episode = await ctx.db.get(args.episodeId);
   if (!episode || episode.removedAt != null) {
+    return { claimed: false, viewerTokenIdentifier: null };
+  }
+  if (
+    await isViewerAccountDeletionActiveForCtx(
+      ctx,
+      episode.viewerTokenIdentifier,
+    )
+  ) {
     return { claimed: false, viewerTokenIdentifier: null };
   }
 
@@ -938,11 +989,46 @@ export const completeViewerPlaylistEpisodeForCtx = async (
     promptVersion: string;
     ttsNormVersion: string;
     narrationHash: string;
+    viewerTokenIdentifier?: string;
   },
 ) => {
   const episode = await ctx.db.get(args.episodeId);
   const now = Date.now();
-  if (!hasActiveEpisodeLease(episode, args.owner, now)) {
+  if (episode?.status === "ready" && episode.storageId === args.storageId) {
+    const registration = await registerAccountOwnedStorageForCtx(ctx, {
+      viewerTokenIdentifier: episode.viewerTokenIdentifier,
+      storageId: args.storageId,
+      kind: "personal_playlist_episode",
+      parentId: String(episode._id),
+    });
+    if (!registration.registered) {
+      return { completed: false };
+    }
+    return { completed: true };
+  }
+  if (
+    !hasActiveEpisodeLease(episode, args.owner, now) ||
+    (episode &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        episode.viewerTokenIdentifier,
+      )))
+  ) {
+    await deleteAccountOwnedStorageForCtx(
+      ctx,
+      args.storageId,
+      episode?.viewerTokenIdentifier ?? args.viewerTokenIdentifier,
+    );
+    return { completed: false };
+  }
+
+  const registration = await registerAccountOwnedStorageForCtx(ctx, {
+    viewerTokenIdentifier: episode.viewerTokenIdentifier,
+    storageId: args.storageId,
+    kind: "personal_playlist_episode",
+    parentId: String(episode._id),
+  });
+  if (!registration.registered) {
     return { completed: false };
   }
 
@@ -962,6 +1048,10 @@ export const completeViewerPlaylistEpisodeForCtx = async (
     now,
   );
 
+  await deleteSupersededEpisodeAudioForCtx(ctx, episode, {
+    primaryStorageId: args.storageId,
+    audioVariants,
+  });
   await ctx.db.patch(args.episodeId, {
     status: "ready",
     stage: undefined,
@@ -997,7 +1087,14 @@ export const failViewerPlaylistEpisodeForCtx = async (
 ) => {
   const episode = await ctx.db.get(args.episodeId);
   const now = Date.now();
-  if (!hasActiveEpisodeLease(episode, args.owner, now)) {
+  if (
+    !hasActiveEpisodeLease(episode, args.owner, now) ||
+    (episode &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        episode.viewerTokenIdentifier,
+      )))
+  ) {
     return { failed: false };
   }
 
@@ -1025,7 +1122,14 @@ export const updateViewerPlaylistEpisodeProgressForCtx = async (
 ) => {
   const episode = await ctx.db.get(args.episodeId);
   const now = Date.now();
-  if (!hasActiveEpisodeLease(episode, args.owner, now)) {
+  if (
+    !hasActiveEpisodeLease(episode, args.owner, now) ||
+    (episode &&
+      (await isViewerAccountDeletionActiveForCtx(
+        ctx,
+        episode.viewerTokenIdentifier,
+      )))
+  ) {
     return { updated: false };
   }
 

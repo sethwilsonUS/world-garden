@@ -219,15 +219,41 @@ export default function PrivacyPage() {
             </Link>
             , you can download a portable JSON copy of your server-side account
             data. It includes bookmarks, Personal Playlist order and episode
-            status, listening progress, topic-badge credit, personal feed
-            state, and metadata about article-audio exports and generation
-            quota windows.
-            While the feed URL is active, the active private RSS feed token is
-            included and remains a bearer credential, so keep the export
-            private. Revoked feed tokens are not included. The export contains
-            metadata about article-audio exports, not the generated audio files
-            themselves. Device-local history and preferences, anonymous
-            feedback, shared caches, and aggregated analytics are excluded.
+            status, listening progress, topic-badge credit, personal feed state,
+            and metadata about article-audio exports and generation quota
+            windows. While the feed URL is active, the active private RSS feed
+            token is included and remains a bearer credential, so keep the
+            export private. Revoked feed tokens are not included. The export
+            contains metadata about article-audio exports, not the generated
+            audio files themselves. Device-local history and preferences,
+            anonymous feedback, shared caches, and aggregated analytics are
+            excluded.
+          </li>
+          <li>
+            From the same Account &amp; data page, you can permanently delete
+            your Curio Garden account. Deletion removes the Clerk sign-in and
+            profile Curio Garden uses, signed-in bookmarks, Personal Playlist
+            records and account-linked generated episode files, private RSS feed
+            access, signed-in listening progress, topic-badge credit,
+            account-linked article-audio export records and generated files, and
+            related generation quota windows. Private RSS access is turned off
+            as the deletion is accepted. Some removal may finish in the
+            background after sign-in ends.
+          </li>
+          <li>
+            A limited technical deletion record is retained while account-owned
+            cleanup or Clerk deletion is pending, including while a failed step
+            is being retried. The final 24-hour grace period begins only after
+            account-owned cleanup and Clerk deletion both succeed. At the end of
+            that period, the record is deleted if a final safety check confirms
+            no account-linked data remains; otherwise cleanup and the grace
+            period restart. This temporary record prevents signed-in data from
+            being recreated by an old session or in-progress audio job.
+            Browser-only history and preferences are not removed automatically.
+            Files already downloaded to a device or podcast app cannot be
+            recalled. Anonymous feedback, shared article and audio caches, and
+            aggregated analytics remain because Curio Garden does not treat them
+            as account-owned data.
           </li>
           <li>
             A private RSS URL is a revocable bearer credential: anyone who has

@@ -1,6 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const workerMocks = vi.hoisted(() => ({
+  assembleArticleAudio: vi.fn(),
+  uploadStreamToConvexStorage: vi.fn(),
+}));
+
+vi.mock("./lib/articleAudioPipeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/articleAudioPipeline")>()),
+  assembleArticleAudio: workerMocks.assembleArticleAudio,
+}));
+
+vi.mock("./lib/storageUpload", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./lib/storageUpload")>()),
+  uploadStreamToConvexStorage: workerMocks.uploadStreamToConvexStorage,
+}));
+
 import {
   completeArticleAudioExport,
+  discardArticleAudioExportUpload,
+  dismissArticleAudioExport,
   evaluateArticleAudioExportAllowance,
   canAccessArticleAudioExport,
   failArticleAudioExport,
@@ -17,6 +35,7 @@ import {
   MAX_RECENT_EXPORT_CANDIDATES,
   normalizeRecentArticleAudioExportLimit,
   processArticleAudioExport,
+  registerArticleAudioExportUpload,
   resolveRequestedArticleExportTtsMetadata,
   startArticleAudioExport,
   updateArticleAudioExportProgress,
@@ -27,6 +46,8 @@ import {
   resolveArticleAudioExportBaseUrl,
   selectAccessibleArticleAudioExportCandidates,
 } from "./articleExports";
+import { ACCOUNT_DELETION_IN_PROGRESS } from "./lib/accountDeletionState";
+import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
 import {
   buildTtsCacheKey,
   getTtsMetadata,
@@ -46,9 +67,34 @@ const STALE_TTS_NORM_VERSION = `${TTS_NORM_VERSION}:stale`;
 const ARTICLE_EXPORT_LEASE_MS = 10 * 60 * 1000;
 const ARTICLE_EXPORT_WATCHDOG_GRACE_MS = 1_000;
 
+const createOwnedStorageQueryChain = (
+  ledgers: Array<Record<string, unknown>> = [],
+) => ({
+  withIndex: (
+    _indexName: string,
+    build: (query: {
+      eq: (field: string, value: string) => unknown;
+    }) => unknown,
+  ) => {
+    const query = {
+      eq: (field: string, value: string) => {
+        void field;
+        void value;
+        return query;
+      },
+    };
+    build(query);
+    return { collect: async () => ledgers };
+  },
+});
+
+const createEmptyOwnedStorageQueryChain = () => createOwnedStorageQueryChain();
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  workerMocks.assembleArticleAudio.mockReset();
+  workerMocks.uploadStreamToConvexStorage.mockReset();
 });
 
 describe("getArticleExportSections", () => {
@@ -334,7 +380,10 @@ describe("startArticleAudioExport provider expectation", () => {
     "rejects an $expectedTtsProvider request when current auth resolves differently",
     async ({ expectedTtsProvider, identity }) => {
       const collect = vi.fn(async () => []);
-      const query = vi.fn(() => {
+      const query = vi.fn((tableName: string) => {
+        if (tableName === "accountDeletionRequests") {
+          return createAccountDeletionQueryChain();
+        }
         const chain = {
           withIndex: vi.fn(() => chain),
           collect,
@@ -372,7 +421,12 @@ describe("startArticleAudioExport provider expectation", () => {
         ),
       ).rejects.toThrow(/voice access changed/i);
 
-      expect(query).not.toHaveBeenCalled();
+      if (identity) {
+        expect(query).toHaveBeenCalledOnce();
+        expect(query).toHaveBeenCalledWith("accountDeletionRequests");
+      } else {
+        expect(query).not.toHaveBeenCalled();
+      }
       expect(insert).not.toHaveBeenCalled();
     },
   );
@@ -459,6 +513,99 @@ describe("startArticleAudioExport provider expectation", () => {
   );
 });
 
+describe("article audio export account deletion barriers", () => {
+  const viewerTokenIdentifier = "https://clerk.example|deleting-user";
+
+  const createDeletingContext = () => {
+    const get = vi.fn();
+    const patch = vi.fn();
+    const query = vi.fn((tableName: string) => {
+      expect(tableName).toBe("accountDeletionRequests");
+      return createAccountDeletionQueryChain([viewerTokenIdentifier]);
+    });
+    return {
+      ctx: {
+        db: { get, patch, query },
+        auth: {
+          getUserIdentity: vi.fn(async () => ({
+            tokenIdentifier: viewerTokenIdentifier,
+          })),
+        },
+        storage: { getUrl: vi.fn() },
+      },
+      get,
+      patch,
+      query,
+    };
+  };
+
+  it("blocks signed-in reads before touching export data", async () => {
+    const { ctx, get, query } = createDeletingContext();
+    const handler = (
+      getArticleAudioExportById as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(ctx, {
+        exportId: "export-1",
+        ttsCacheKey: "tts:openai:profile",
+      }),
+    ).rejects.toThrow(ACCOUNT_DELETION_IN_PROGRESS);
+
+    expect(query).toHaveBeenCalledOnce();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("blocks signed-in public mutations before touching export data", async () => {
+    const { ctx, get, patch } = createDeletingContext();
+    const handler = (
+      dismissArticleAudioExport as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(ctx, { exportId: "export-1", clientId: "client-1" }),
+    ).rejects.toThrow(ACCOUNT_DELETION_IN_PROGRESS);
+
+    expect(get).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the guest Edge dismissal path usable without a tombstone read", async () => {
+    const patch = vi.fn();
+    const query = vi.fn();
+    const handler = (
+      dismissArticleAudioExport as unknown as {
+        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
+      }
+    )._handler;
+
+    await expect(
+      handler(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              _id: "export-1",
+              clientId: "client-1",
+              ttsProvider: "edge",
+            })),
+            patch,
+            query,
+          },
+          auth: { getUserIdentity: vi.fn(async () => null) },
+        },
+        { exportId: "export-1", clientId: "client-1" },
+      ),
+    ).resolves.toEqual({ dismissed: true });
+
+    expect(query).not.toHaveBeenCalled();
+    expect(patch).toHaveBeenCalledOnce();
+  });
+});
+
 describe("article audio export worker leases", () => {
   const now = 1_000_000;
   const edgeMetadata = getTtsMetadata(getTtsProfile("edge"));
@@ -517,6 +664,158 @@ describe("article audio export worker leases", () => {
     completedSectionCount: 0,
     createdAt: 1,
     updatedAt: 1,
+  };
+
+  const runCombinedUploadLifecycle = async ({
+    registration = "registered",
+    completion,
+  }: {
+    registration?: "registered" | "rejected" | "throw";
+    completion: "false" | "already-discarded" | "throw" | "commit-then-throw";
+  }) => {
+    const viewerTokenIdentifier = "https://clerk.example|upload-owner";
+    const metadata = getTtsMetadata(getTtsProfile("openai"));
+    let currentRecord: Record<string, unknown> = {
+      ...queuedRecord,
+      articleId: "article-1",
+      slug: "upload-lifecycle",
+      status: "queued",
+      ttsProvider: "openai",
+      ownerTokenIdentifier: viewerTokenIdentifier,
+      queueKey: `owner:${viewerTokenIdentifier}`,
+      requestedTtsMetadata: metadata,
+    };
+    const article = {
+      _id: "article-1",
+      title: "Upload lifecycle",
+      slug: "upload-lifecycle",
+      summary: "A narrated summary for the upload lifecycle test.",
+      sections: [],
+    };
+    const deleteStorage = vi.fn();
+    const db = {
+      get: vi.fn(async () => currentRecord),
+      query: vi.fn((tableName: string) => {
+        if (tableName === "accountOwnedStorage") {
+          return createEmptyOwnedStorageQueryChain();
+        }
+        if (tableName === "accountDeletionRequests") {
+          return createAccountDeletionQueryChain();
+        }
+        throw new Error(`Unexpected table: ${tableName}`);
+      }),
+      delete: vi.fn(),
+    };
+    const discardArgs: Array<Record<string, unknown>> = [];
+    const failureArgs: Array<Record<string, unknown>> = [];
+    let nextQueueLookups = 0;
+    const discardHandler = getHandler(discardArticleAudioExportUpload);
+    const runQuery = vi.fn(async (_reference: unknown, args: object) => {
+      if ("articleId" in args) return article;
+      if ("queueKey" in args) {
+        nextQueueLookups += 1;
+        return null;
+      }
+      if ("exportId" in args) return currentRecord;
+      throw new Error("Unexpected article export worker query.");
+    });
+    const runMutation = vi.fn(
+      async (_reference: unknown, args: Record<string, unknown>) => {
+        // These argument shapes overlap, so dispatch order is intentional:
+        // completion before registration before discard.
+        if ("sectionCount" in args) {
+          currentRecord = {
+            ...currentRecord,
+            status: "running",
+            leaseOwner: args.owner,
+            leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+          };
+          return { claimed: true };
+        }
+        if (Object.keys(args).length === 0) return "upload-url";
+        if ("lastError" in args) {
+          failureArgs.push(args);
+          return { failed: false };
+        }
+        if ("byteLength" in args) {
+          if (completion === "false") return { completed: false };
+          if (completion === "already-discarded") {
+            return { completed: false, uploadAlreadyDiscarded: true };
+          }
+          if (completion === "commit-then-throw") {
+            currentRecord = {
+              ...currentRecord,
+              status: "ready",
+              storageId: args.storageId,
+              leaseOwner: undefined,
+              leaseExpiresAt: undefined,
+            };
+          }
+          throw new Error("Completion response was unavailable.");
+        }
+        if ("owner" in args) {
+          if (registration === "throw") {
+            throw new Error("Registration response was unavailable.");
+          }
+          if (registration === "rejected") {
+            return { registered: false };
+          }
+          return { registered: true };
+        }
+        if ("storageId" in args) {
+          discardArgs.push(args);
+          return await discardHandler(
+            {
+              db,
+              storage: { delete: deleteStorage },
+            },
+            args,
+          );
+        }
+        throw new Error("Unexpected article export worker mutation.");
+      },
+    );
+
+    workerMocks.uploadStreamToConvexStorage.mockResolvedValue({
+      storageId: "combined-storage",
+      byteLength: 123,
+    });
+    workerMocks.assembleArticleAudio.mockImplementation(
+      async (options: {
+        saveCombinedAudio(args: {
+          stream: ReadableStream<Uint8Array>;
+          contentType: string;
+        }): Promise<{ storageId: string; byteLength: number }>;
+      }) => {
+        const upload = await options.saveCombinedAudio({
+          stream: new ReadableStream<Uint8Array>(),
+          contentType: "audio/mpeg",
+        });
+        return {
+          ...upload,
+          metadata,
+          narrationHash: "narration-1",
+        };
+      },
+    );
+
+    await getHandler(processArticleAudioExport)(
+      {
+        runQuery,
+        runMutation,
+        scheduler: { runAfter: vi.fn() },
+        storage: { getUrl: vi.fn() },
+      },
+      { exportId: "export-1" },
+    );
+
+    return {
+      deleteStorage,
+      discardArgs,
+      failureArgs,
+      getCurrentRecord: () => currentRecord,
+      getNextQueueLookups: () => nextQueueLookups,
+    };
   };
 
   it("reclaims the same running export after its worker lease expires", async () => {
@@ -751,6 +1050,59 @@ describe("article audio export worker leases", () => {
     );
   });
 
+  it("refuses owned claim, progress, and failure work after deletion begins", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const viewerTokenIdentifier = "https://clerk.example|deleting-user";
+    const record = {
+      ...queuedRecord,
+      ttsProvider: "openai",
+      ownerTokenIdentifier: viewerTokenIdentifier,
+      queueKey: `owner:${viewerTokenIdentifier}`,
+      status: "running",
+      leaseOwner: "current-worker",
+      leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+    };
+    const patch = vi.fn();
+    const runAfter = vi.fn();
+    const ctx = {
+      db: {
+        get: vi.fn(async () => record),
+        query: vi.fn(() =>
+          createAccountDeletionQueryChain([viewerTokenIdentifier]),
+        ),
+        patch,
+      },
+      scheduler: { runAfter },
+    };
+
+    await expect(
+      getHandler(markArticleAudioExportRunning)(ctx, {
+        exportId: "export-1",
+        owner: "current-worker",
+        sectionCount: 1,
+        ttsMetadata: getTtsMetadata(getTtsProfile("openai")),
+      }),
+    ).resolves.toEqual({ claimed: false });
+    await expect(
+      getHandler(updateArticleAudioExportProgress)(ctx, {
+        exportId: "export-1",
+        owner: "current-worker",
+        completedSectionCount: 1,
+        stage: "packaging",
+      }),
+    ).resolves.toEqual({ updated: false });
+    await expect(
+      getHandler(failArticleAudioExport)(ctx, {
+        exportId: "export-1",
+        owner: "current-worker",
+        lastError: "Worker woke after deletion began.",
+      }),
+    ).resolves.toEqual({ failed: false });
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(runAfter).not.toHaveBeenCalled();
+  });
+
   it("rejects progress, completion, and failure from a superseded worker", async () => {
     vi.spyOn(Date, "now").mockReturnValue(now);
     const record = {
@@ -760,11 +1112,15 @@ describe("article audio export worker leases", () => {
       leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
     };
     const patch = vi.fn();
+    const deleteStorage = vi.fn();
     const ctx = {
       db: {
         get: vi.fn(async () => record),
+        query: vi.fn(() => createEmptyOwnedStorageQueryChain()),
         patch,
+        delete: vi.fn(),
       },
+      storage: { delete: deleteStorage },
     };
 
     await expect(
@@ -784,7 +1140,10 @@ describe("article audio export worker leases", () => {
         producedTtsCacheKey: edgeMetadata.ttsCacheKey,
         narrationHash: "narration-1",
       }),
-    ).resolves.toEqual({ completed: false });
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
     await expect(
       getHandler(failArticleAudioExport)(ctx, {
         exportId: "export-1",
@@ -794,6 +1153,562 @@ describe("article audio export worker leases", () => {
     ).resolves.toEqual({ failed: false });
 
     expect(patch).not.toHaveBeenCalled();
+    expect(deleteStorage).toHaveBeenCalledOnce();
+    expect(deleteStorage).toHaveBeenCalledWith("storage-1");
+  });
+
+  it("deletes a late completion upload when its account is tombstoned", async () => {
+    const viewerTokenIdentifier = "https://clerk.example|deleting-user";
+    const patch = vi.fn();
+    const insert = vi.fn();
+    const deleteLedger = vi.fn();
+    const deleteStorage = vi.fn();
+    const query = vi.fn((tableName: string) => {
+      if (tableName === "accountDeletionRequests") {
+        return createAccountDeletionQueryChain([viewerTokenIdentifier]);
+      }
+      if (tableName === "accountOwnedStorage") {
+        return createOwnedStorageQueryChain([
+          {
+            _id: "late-ledger",
+            viewerTokenIdentifier,
+            storageId: "late-storage",
+          },
+        ]);
+      }
+      throw new Error(`Unexpected table: ${tableName}`);
+    });
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              ttsProvider: "openai",
+              ownerTokenIdentifier: viewerTokenIdentifier,
+              leaseOwner: "current-worker",
+            })),
+            query,
+            patch,
+            insert,
+            delete: deleteLedger,
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          owner: "current-worker",
+          storageId: "late-storage",
+          byteLength: 10,
+          producedTtsCacheKey: "tts-openai",
+          narrationHash: "narration-1",
+        },
+      ),
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
+
+    expect(deleteStorage).toHaveBeenCalledOnce();
+    expect(deleteStorage).toHaveBeenCalledWith("late-storage");
+    expect(deleteLedger).toHaveBeenCalledWith("late-ledger");
+    expect(insert).not.toHaveBeenCalled();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("registers owned combined audio before publishing the export as ready", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const viewerTokenIdentifier = "https://clerk.example|active-user";
+    const patch = vi.fn();
+    const insert = vi.fn(async () => "ledger-1");
+    const deleteStorage = vi.fn();
+    const query = vi.fn((tableName: string) => {
+      if (tableName === "accountDeletionRequests") {
+        return createAccountDeletionQueryChain();
+      }
+      if (tableName === "accountOwnedStorage") {
+        return createEmptyOwnedStorageQueryChain();
+      }
+      throw new Error(`Unexpected table: ${tableName}`);
+    });
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              ttsProvider: "openai",
+              ownerTokenIdentifier: viewerTokenIdentifier,
+              leaseOwner: "current-worker",
+              leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+            })),
+            query,
+            patch,
+            insert,
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          owner: "current-worker",
+          storageId: "owned-storage",
+          byteLength: 10,
+          producedTtsCacheKey: "tts-openai",
+          narrationHash: "narration-1",
+        },
+      ),
+    ).resolves.toEqual({ completed: true });
+
+    expect(insert).toHaveBeenCalledWith(
+      "accountOwnedStorage",
+      expect.objectContaining({
+        viewerTokenIdentifier,
+        storageId: "owned-storage",
+        kind: "article_audio_export",
+        parentId: "export-1",
+      }),
+    );
+    expect(patch).toHaveBeenCalledWith(
+      "export-1",
+      expect.objectContaining({
+        status: "ready",
+        storageId: "owned-storage",
+      }),
+    );
+    expect(insert.mock.invocationCallOrder[0]).toBeLessThan(
+      patch.mock.invocationCallOrder[0]!,
+    );
+    expect(deleteStorage).not.toHaveBeenCalled();
+  });
+
+  it("deletes an uploaded blob when its export row disappeared", async () => {
+    const deleteStorage = vi.fn();
+    const patch = vi.fn();
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => null),
+            query: vi.fn(() => createEmptyOwnedStorageQueryChain()),
+            patch,
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "missing-export",
+          owner: "late-worker",
+          storageId: "late-storage",
+          byteLength: 10,
+          producedTtsCacheKey: "tts-edge",
+          narrationHash: "narration-1",
+        },
+      ),
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
+
+    expect(deleteStorage).toHaveBeenCalledWith("late-storage");
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("uses the expected account owner to remove a registered upload after its export disappeared", async () => {
+    const viewerTokenIdentifier = "https://clerk.example|upload-owner";
+    const deleteStorage = vi.fn();
+    const deleteLedger = vi.fn();
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => null),
+            query: vi.fn(() =>
+              createOwnedStorageQueryChain([
+                {
+                  _id: "late-ledger",
+                  viewerTokenIdentifier,
+                  storageId: "late-storage",
+                },
+              ]),
+            ),
+            patch: vi.fn(),
+            delete: deleteLedger,
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "missing-export",
+          owner: "late-worker",
+          storageId: "late-storage",
+          expectedViewerTokenIdentifier: viewerTokenIdentifier,
+          byteLength: 10,
+          producedTtsCacheKey: "tts-openai",
+          narrationHash: "narration-1",
+        },
+      ),
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
+
+    expect(deleteStorage).toHaveBeenCalledWith("late-storage");
+    expect(deleteLedger).toHaveBeenCalledWith("late-ledger");
+  });
+
+  it("preserves a foreign account upload when the export row disappeared", async () => {
+    const deleteStorage = vi.fn();
+    const deleteLedger = vi.fn();
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => null),
+            query: vi.fn(() =>
+              createOwnedStorageQueryChain([
+                {
+                  _id: "foreign-ledger",
+                  viewerTokenIdentifier:
+                    "https://clerk.example|different-account",
+                  storageId: "foreign-storage",
+                },
+              ]),
+            ),
+            patch: vi.fn(),
+            delete: deleteLedger,
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "missing-export",
+          owner: "late-worker",
+          storageId: "foreign-storage",
+          expectedViewerTokenIdentifier:
+            "https://clerk.example|original-account",
+          byteLength: 10,
+          producedTtsCacheKey: "tts-openai",
+          narrationHash: "narration-1",
+        },
+      ),
+    ).rejects.toThrow("Storage is owned by another account");
+
+    expect(deleteStorage).not.toHaveBeenCalled();
+    expect(deleteLedger).not.toHaveBeenCalled();
+  });
+
+  it("treats an exact duplicate completion as idempotent", async () => {
+    const patch = vi.fn();
+    const storage = { delete: vi.fn() };
+    const readyRecord = {
+      ...queuedRecord,
+      status: "ready",
+      storageId: "storage-1",
+      byteLength: 10,
+      producedTtsCacheKey: edgeMetadata.ttsCacheKey,
+      narrationHash: "narration-1",
+      completedSectionCount: queuedRecord.sectionCount,
+    };
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: { get: vi.fn(async () => readyRecord), patch },
+          storage,
+        },
+        {
+          exportId: "export-1",
+          owner: "original-worker",
+          storageId: "storage-1",
+          byteLength: 10,
+          producedTtsCacheKey: edgeMetadata.ttsCacheKey,
+          narrationHash: "narration-1",
+        },
+      ),
+    ).resolves.toEqual({ completed: true });
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(storage.delete).not.toHaveBeenCalled();
+  });
+
+  it("deletes an immediately registered upload if deletion wins the race", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const viewerTokenIdentifier = "https://clerk.example|deleting-user";
+    const deleteStorage = vi.fn();
+    const insert = vi.fn();
+    const query = vi.fn((tableName: string) => {
+      if (tableName === "accountDeletionRequests") {
+        return createAccountDeletionQueryChain([viewerTokenIdentifier]);
+      }
+      if (tableName === "accountOwnedStorage") {
+        return createEmptyOwnedStorageQueryChain();
+      }
+      throw new Error(`Unexpected table: ${tableName}`);
+    });
+
+    await expect(
+      getHandler(registerArticleAudioExportUpload)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              ownerTokenIdentifier: viewerTokenIdentifier,
+              leaseOwner: "current-worker",
+              leaseExpiresAt: now + ARTICLE_EXPORT_LEASE_MS,
+            })),
+            query,
+            insert,
+            patch: vi.fn(),
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          owner: "current-worker",
+          storageId: "late-storage",
+        },
+      ),
+    ).resolves.toEqual({ registered: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("late-storage");
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects and removes an upload registered after its worker lease expired", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const viewerTokenIdentifier = "https://clerk.example|expired-owner";
+    const deleteStorage = vi.fn();
+    const deleteLedger = vi.fn();
+
+    await expect(
+      getHandler(registerArticleAudioExportUpload)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              leaseOwner: "late-worker",
+              leaseExpiresAt: now,
+              ownerTokenIdentifier: viewerTokenIdentifier,
+            })),
+            query: vi.fn(() =>
+              createOwnedStorageQueryChain([
+                {
+                  _id: "expired-ledger",
+                  viewerTokenIdentifier,
+                  storageId: "expired-upload",
+                },
+              ]),
+            ),
+            delete: deleteLedger,
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          owner: "late-worker",
+          storageId: "expired-upload",
+        },
+      ),
+    ).resolves.toEqual({ registered: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("expired-upload");
+    expect(deleteLedger).toHaveBeenCalledWith("expired-ledger");
+  });
+
+  it("rejects and removes a completion after its matching worker lease expired", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const patch = vi.fn();
+    const deleteStorage = vi.fn();
+
+    await expect(
+      getHandler(completeArticleAudioExport)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "running",
+              leaseOwner: "late-worker",
+              leaseExpiresAt: now,
+            })),
+            query: vi.fn(() => createEmptyOwnedStorageQueryChain()),
+            patch,
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          owner: "late-worker",
+          storageId: "expired-completion",
+          byteLength: 10,
+          producedTtsCacheKey: edgeMetadata.ttsCacheKey,
+          narrationHash: "narration-1",
+        },
+      ),
+    ).resolves.toEqual({
+      completed: false,
+      uploadAlreadyDiscarded: true,
+    });
+
+    expect(deleteStorage).toHaveBeenCalledWith("expired-completion");
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("discards a fresh unattached upload with its expected account owner", async () => {
+    const viewerTokenIdentifier = "https://clerk.example|upload-owner";
+    const deleteStorage = vi.fn();
+
+    await expect(
+      getHandler(discardArticleAudioExportUpload)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              ownerTokenIdentifier: viewerTokenIdentifier,
+              storageId: "published-storage",
+            })),
+            query: vi.fn(() => createEmptyOwnedStorageQueryChain()),
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          storageId: "fresh-upload",
+          expectedViewerTokenIdentifier: viewerTokenIdentifier,
+        },
+      ),
+    ).resolves.toEqual({ discarded: true, referenced: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("fresh-upload");
+  });
+
+  it("discards an unattached guest Edge upload without inventing an owner", async () => {
+    const deleteStorage = vi.fn();
+
+    await expect(
+      getHandler(discardArticleAudioExportUpload)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              ttsProvider: "edge",
+              storageId: undefined,
+            })),
+            query: vi.fn(() => createEmptyOwnedStorageQueryChain()),
+            delete: vi.fn(),
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          storageId: "guest-upload",
+        },
+      ),
+    ).resolves.toEqual({ discarded: true, referenced: false });
+
+    expect(deleteStorage).toHaveBeenCalledWith("guest-upload");
+  });
+
+  it("refuses to discard the storage currently published by the export", async () => {
+    const deleteStorage = vi.fn();
+    const query = vi.fn();
+
+    await expect(
+      getHandler(discardArticleAudioExportUpload)(
+        {
+          db: {
+            get: vi.fn(async () => ({
+              ...queuedRecord,
+              status: "ready",
+              storageId: "published-storage",
+            })),
+            query,
+          },
+          storage: { delete: deleteStorage },
+        },
+        {
+          exportId: "export-1",
+          storageId: "published-storage",
+        },
+      ),
+    ).resolves.toEqual({ discarded: false, referenced: true });
+
+    expect(query).not.toHaveBeenCalled();
+    expect(deleteStorage).not.toHaveBeenCalled();
+  });
+
+  it("compensates an uploaded combined blob when registration throws", async () => {
+    const result = await runCombinedUploadLifecycle({
+      registration: "throw",
+      completion: "throw",
+    });
+
+    expect(result.discardArgs).toEqual([
+      {
+        exportId: "export-1",
+        storageId: "combined-storage",
+        expectedViewerTokenIdentifier: "https://clerk.example|upload-owner",
+      },
+    ]);
+    expect(result.deleteStorage).toHaveBeenCalledWith("combined-storage");
+  });
+
+  it("does not discard an upload twice when registration already rejected it", async () => {
+    const result = await runCombinedUploadLifecycle({
+      registration: "rejected",
+      completion: "throw",
+    });
+
+    expect(result.discardArgs).toEqual([]);
+    expect(result.failureArgs).toHaveLength(1);
+  });
+
+  it("discards combined audio when completion returns false", async () => {
+    const result = await runCombinedUploadLifecycle({ completion: "false" });
+
+    expect(result.discardArgs).toHaveLength(1);
+    expect(result.deleteStorage).toHaveBeenCalledWith("combined-storage");
+  });
+
+  it("does not discard combined audio twice when completion already removed it", async () => {
+    const result = await runCombinedUploadLifecycle({
+      completion: "already-discarded",
+    });
+
+    expect(result.discardArgs).toEqual([]);
+    expect(result.failureArgs).toEqual([]);
+  });
+
+  it("discards combined audio when completion throws", async () => {
+    const result = await runCombinedUploadLifecycle({ completion: "throw" });
+
+    expect(result.discardArgs).toHaveLength(1);
+    expect(result.deleteStorage).toHaveBeenCalledWith("combined-storage");
+  });
+
+  it("preserves a published blob when completion committed but its response was lost", async () => {
+    const result = await runCombinedUploadLifecycle({
+      completion: "commit-then-throw",
+    });
+
+    expect(result.discardArgs).toHaveLength(1);
+    expect(result.getCurrentRecord()).toMatchObject({
+      status: "ready",
+      storageId: "combined-storage",
+    });
+    expect(result.deleteStorage).not.toHaveBeenCalled();
+    expect(result.failureArgs).toEqual([]);
+    expect(result.getNextQueueLookups()).toBe(1);
   });
 
   it("allows a recovery worker to fail a running export after its old lease expires", async () => {
@@ -1039,7 +1954,10 @@ describe("getRecentArticleAudioExports", () => {
       },
     ].map((record) => ({ ...record, ttsProvider: "edge" }));
     const take = vi.fn(async () => records);
-    const query = vi.fn(() => {
+    const query = vi.fn((tableName: string) => {
+      if (tableName === "accountDeletionRequests") {
+        return createAccountDeletionQueryChain();
+      }
       const chain = {
         withIndex: vi.fn(() => chain),
         filter: vi.fn(() => chain),
@@ -1132,7 +2050,10 @@ describe("getRecentArticleAudioExports", () => {
       },
     ];
     const take = vi.fn(async () => records);
-    const query = vi.fn(() => {
+    const query = vi.fn((tableName: string) => {
+      if (tableName === "accountDeletionRequests") {
+        return createAccountDeletionQueryChain();
+      }
       const chain = {
         withIndex: vi.fn(() => chain),
         filter: vi.fn(() => chain),
@@ -1213,6 +2134,7 @@ describe("getArticleAudioExportById", () => {
           get: vi.fn(async (id: string) =>
             id === record._id ? record : article,
           ),
+          query: vi.fn(() => createAccountDeletionQueryChain()),
         },
         auth: {
           getUserIdentity: vi.fn(async () => ({
@@ -1269,6 +2191,7 @@ describe("getArticleAudioExportForServer", () => {
             get: vi.fn(async (id: string) =>
               id === record._id ? record : article,
             ),
+            query: vi.fn(() => createAccountDeletionQueryChain()),
           },
           auth: {
             getUserIdentity: vi.fn(async () => ({
@@ -1392,6 +2315,7 @@ describe("getArticleAudioExportForServer", () => {
                 ttsProvider,
                 ownerTokenIdentifier,
               })),
+              query: vi.fn(() => createAccountDeletionQueryChain()),
             },
             auth: {
               getUserIdentity: vi.fn(async () => ({
@@ -1420,7 +2344,10 @@ describe("getArticleAudioExportDownloadIdentity", () => {
 
     await expect(
       handler(
-        { db: { normalizeId, get } },
+        {
+          db: { normalizeId, get },
+          auth: { getUserIdentity: vi.fn(async () => null) },
+        },
         { exportId: "definitely-not-a-convex-id" },
       ),
     ).resolves.toBeNull();
@@ -1462,6 +2389,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
             get: vi.fn(async (id: string) =>
               id === record._id ? record : article,
             ),
+            query: vi.fn(() => createAccountDeletionQueryChain()),
           },
           auth: { getUserIdentity: vi.fn(async () => null) },
         },
@@ -1504,6 +2432,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
             get: vi.fn(async (id: string) =>
               id === record._id ? record : article,
             ),
+            query: vi.fn(() => createAccountDeletionQueryChain()),
           },
           auth: {
             getUserIdentity: vi.fn(async () =>
@@ -1553,6 +2482,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
             db: {
               normalizeId: vi.fn(() => record._id),
               get,
+              query: vi.fn(() => createAccountDeletionQueryChain()),
             },
             auth: {
               getUserIdentity: vi.fn(async () => ({
