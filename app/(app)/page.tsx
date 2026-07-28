@@ -21,11 +21,8 @@ export default function Home() {
       {!isLocal ? <HomeAuthStatusBanner /> : null}
 
       <div className="container mx-auto px-4 pt-16 pb-[100px] sm:pt-[88px]">
-        <section
-          className="max-w-xl mx-auto text-center"
-          aria-labelledby="hero-heading"
-        >
-          <div className="animate-fade-in-up mb-12">
+        <section className="mx-auto text-center" aria-labelledby="hero-heading">
+          <div className="animate-fade-in-up mx-auto mb-12 max-w-xl">
             <h1
               id="hero-heading"
               className="font-display text-[clamp(2.75rem,7vw,5rem)] font-semibold leading-[1.05] mb-6 text-foreground tracking-[-0.02em]"
@@ -39,16 +36,56 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="animate-fade-in-up-delay-1 mx-auto max-w-[480px]">
-            <SearchForm />
-            <div className="mt-3">
-              <RandomArticleButton />
+          <div className="animate-fade-in-up-delay-1 mx-auto max-w-[75rem]">
+            <div
+              data-home-search-workbench=""
+              className="lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)] lg:overflow-hidden lg:rounded-3xl lg:border lg:border-border lg:bg-surface lg:text-left lg:shadow-[0_14px_36px_rgba(0,0,0,0.08)]"
+            >
+              <section
+                data-home-search-pane=""
+                aria-labelledby="home-search-heading"
+                className="mx-auto max-w-[480px] text-center lg:mx-0 lg:min-h-[26rem] lg:max-w-none lg:bg-surface-2 lg:px-9 lg:py-8 lg:text-left xl:px-11 xl:py-10"
+              >
+                <div className="hidden lg:block">
+                  <p className="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-accent">
+                    Your next curiosity
+                  </p>
+                  <h2
+                    id="home-search-heading"
+                    className="mt-2 font-display text-4xl font-semibold leading-[1.12] tracking-[-0.015em] text-foreground"
+                  >
+                    Find a topic. Follow the thread.
+                  </h2>
+                  <p
+                    id="home-search-description"
+                    className="mt-3 max-w-2xl text-base leading-[1.65] text-foreground-2"
+                  >
+                    Search any Wikipedia article, then choose the sections you
+                    want to hear.
+                  </p>
+                </div>
+
+                <div className="lg:mt-7">
+                  <SearchForm variant="workbench" />
+                </div>
+
+                <div className="mt-3 lg:flex lg:items-center lg:gap-4">
+                  <RandomArticleButton />
+                  <p className="hidden text-xs leading-5 text-muted lg:block">
+                    No account needed to begin.
+                  </p>
+                </div>
+              </section>
+
+              <HomeListeningSample />
             </div>
-            <HomeListeningSample />
           </div>
         </section>
 
-        <div className="max-w-5xl mx-auto animate-fade-in-up-delay-2">
+        <div
+          data-home-content=""
+          className="mx-auto max-w-5xl animate-fade-in-up-delay-2"
+        >
           <TodayOnWikipedia />
         </div>
 

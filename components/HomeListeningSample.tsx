@@ -41,9 +41,9 @@ export const HomeListeningSample = () => {
   return (
     <section
       aria-labelledby="listening-sample-heading"
-      className="garden-bed mt-6 overflow-hidden text-left"
+      className="home-workbench-player garden-bed mt-6 overflow-hidden text-left"
     >
-      <div className="px-4 pt-4 sm:px-5 sm:pt-5">
+      <div className="px-4 pt-4 sm:px-5 sm:pt-5 lg:px-7 lg:pt-7">
         <div className="flex items-start gap-3">
           <span
             className="grid size-10 shrink-0 place-items-center rounded-full border border-accent-border bg-accent-bg text-accent"
@@ -92,6 +92,9 @@ export const HomeListeningSample = () => {
           onPlaying={handlePlaying}
           onEnded={handleEnded}
           onPlaybackError={handlePlaybackFailure}
+          showSyntheticSpeechLabel={false}
+          showDownload={false}
+          showLabel={false}
           variant="compact"
           className="mt-4 max-w-full"
         />
@@ -103,24 +106,33 @@ export const HomeListeningSample = () => {
             aria-atomic="true"
             className="mt-3 rounded-lg border border-critical/40 bg-surface px-3 py-2 text-sm leading-[1.6] text-critical"
           >
-            {playbackError} Try again, or{" "}
-            <a
-              href={HOME_LISTENING_SAMPLE_URL}
-              download
-              className="font-semibold text-accent underline underline-offset-2"
-            >
-              download sample audio
-            </a>
-            .
+            {playbackError} Try again, or read the transcript below.
           </p>
         ) : null}
       </div>
 
-      <details className="mt-3 border-t border-border px-4 pb-3 text-sm text-foreground-2 sm:px-5">
-        <summary className="flex min-h-11 cursor-pointer items-center rounded-lg py-2 font-semibold text-foreground transition-colors duration-150 hover:text-accent">
-          Transcript
+      <details className="group mt-1 px-4 pb-4 text-center text-sm text-foreground-2 sm:px-5 lg:px-7">
+        <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-2 font-semibold text-muted transition-colors duration-150 hover:text-accent">
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            width={16}
+            height={16}
+            aria-hidden="true"
+            focusable="false"
+            className="shrink-0 transition-transform duration-150 group-open:rotate-90"
+          >
+            <path d="m7 4 6 6-6 6" />
+          </svg>
+          Read transcript
         </summary>
-        <p className="pb-2 leading-[1.7]">{HOME_LISTENING_SAMPLE_TRANSCRIPT}</p>
+        <p className="mt-1 rounded-xl border border-border bg-surface px-3 py-3 text-left leading-[1.7]">
+          {HOME_LISTENING_SAMPLE_TRANSCRIPT}
+        </p>
       </details>
     </section>
   );

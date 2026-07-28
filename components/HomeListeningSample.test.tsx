@@ -101,8 +101,12 @@ describe("HomeListeningSample", () => {
     expect(markup).not.toContain(' controls=""');
     expect(markup).not.toContain("autoplay");
     expect(markup).not.toContain("autofocus");
-    expect(markup).toContain("Synthetic speech audio.");
-    expect(markup).toContain("Transcript");
+    expect(markup).not.toContain("Synthetic speech audio.");
+    expect(markup).not.toContain("Listen: Curio Garden in 18 seconds");
+    expect(markup).not.toContain(
+      'aria-label="Download audio for Curio Garden listening sample"',
+    );
+    expect(markup).toContain("Read transcript");
     expect(markup).toContain(HOME_LISTENING_SAMPLE_TRANSCRIPT);
   });
 
@@ -120,13 +124,9 @@ describe("HomeListeningSample", () => {
 
     act(() => buttonNamed("Play: Curio Garden listening sample").click());
     expect(playbackError()?.textContent).toContain(
-      "Try again, or download sample audio",
+      "Try again, or read the transcript below.",
     );
-    expect(
-      playbackError()?.querySelector(
-        `a[href="${HOME_LISTENING_SAMPLE_URL}"][download]`,
-      ),
-    ).not.toBeNull();
+    expect(playbackError()?.querySelector("a[download]")).toBeNull();
 
     await act(async () => {
       buttonNamed("Play: Curio Garden listening sample").click();
@@ -147,7 +147,7 @@ describe("HomeListeningSample", () => {
     expect(analyticsMocks.listeningSampleCompleted).not.toHaveBeenCalled();
   });
 
-  it("announces an audio resource failure and offers the download fallback", async () => {
+  it("announces an audio resource failure and points to the transcript", async () => {
     const audio = await renderSample();
 
     act(() => audio.dispatchEvent(new Event("error")));
@@ -155,11 +155,8 @@ describe("HomeListeningSample", () => {
     expect(playbackError()?.textContent).toContain(
       "The listening sample could not start.",
     );
-    expect(
-      playbackError()?.querySelector(
-        `a[href="${HOME_LISTENING_SAMPLE_URL}"][download]`,
-      ),
-    ).not.toBeNull();
+    expect(playbackError()?.textContent).toContain("read the transcript below");
+    expect(playbackError()?.querySelector("a[download]")).toBeNull();
   });
 
   it("records a start only after the media element reports actual playback", async () => {
