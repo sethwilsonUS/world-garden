@@ -10,12 +10,12 @@ export const metadata: Metadata = {
 
 export default function OnThisDayPage() {
   return (
-    <div className="container mx-auto px-4 pb-20 pt-10">
+    <div className="on-this-day-page container mx-auto px-4 pb-20 pt-10">
       <div className="mx-auto max-w-5xl">
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-sm text-muted no-underline"
+            className="on-this-day-back-link inline-flex items-center gap-1 text-sm text-muted no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -39,7 +39,7 @@ export default function OnThisDayPage() {
           <h1 className="font-display text-[clamp(2rem,6vw,3.75rem)] font-bold leading-none text-foreground">
             On This Day
           </h1>
-          <p className="mt-3 max-w-3xl text-base leading-relaxed text-muted">
+          <p className="on-this-day-page-intro mt-3 max-w-3xl text-base leading-relaxed text-muted">
             Follow today across centuries through Wikipedia&apos;s curated
             highlights, events, notable lives, and holidays. Choose a category,
             then explore at your own pace.

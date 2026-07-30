@@ -51,6 +51,7 @@ export type WikimediaMediaRequest = {
 export type WikimediaMediaDetails = {
   repository: WikimediaMediaRepository;
   attribution: WikimediaMediaAttribution;
+  altText?: string;
   originalSrc?: string;
   lightboxSrc?: string;
   lightboxWidth?: number;
@@ -266,6 +267,9 @@ const fetchImageInfoBatch = async (
       : "url|extmetadata",
     titles: sourceTitles.join("|"),
     origin: "*",
+    iiextmetadatalanguage: "en",
+    iiextmetadatafilter:
+      "ImageDescription|Artist|Credit|LicenseShortName|UsageTerms|LicenseUrl",
   });
   if (options.includeRendition) {
     params.set("iiurlwidth", String(LIGHTBOX_RENDITION_WIDTH));
@@ -439,6 +443,7 @@ export const fetchWikimediaMediaDetails = async (
           info,
           projectHost,
         );
+        const altText = metadataText(info.extmetadata, "ImageDescription");
         const originalSrc = normalizeHttpUrl(info.url);
         const originalWidth = positiveDimension(info.width);
         const originalHeight = positiveDimension(info.height);
@@ -484,6 +489,7 @@ export const fetchWikimediaMediaDetails = async (
           results.set(imageUrl, {
             repository,
             attribution,
+            ...(altText ? { altText } : {}),
             ...(originalSrc ? { originalSrc } : {}),
             ...(lightboxSrc && lightboxWidth && lightboxHeight
               ? { lightboxSrc, lightboxWidth, lightboxHeight }

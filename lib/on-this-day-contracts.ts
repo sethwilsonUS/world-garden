@@ -22,6 +22,7 @@ export type OnThisDayImage = {
   width: number;
   height: number;
   articleTitle: string;
+  altText?: string;
   attribution?: WikimediaMediaAttribution;
 };
 

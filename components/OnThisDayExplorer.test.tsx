@@ -78,6 +78,41 @@ describe("OnThisDayExplorer", () => {
     vi.restoreAllMocks();
   });
 
+  it("uses Wikimedia's human-authored description as the image alternative", async () => {
+    fetchMock.mockImplementationOnce(async (input: string | URL | Request) => {
+      const response = responseFor(String(input));
+      return {
+        ok: true,
+        json: async () => ({
+          ...response,
+          items: response.items.map((item, index) =>
+            index === 0
+              ? {
+                  ...item,
+                  image: {
+                    source:
+                      "https://upload.wikimedia.org/wikipedia/commons/apollo.jpg",
+                    width: 640,
+                    height: 480,
+                    articleTitle: "Apollo 11",
+                    altText:
+                      "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
+                  },
+                }
+              : item,
+          ),
+        }),
+      };
+    });
+
+    await act(async () => root.render(<OnThisDayExplorer />));
+    await act(async () => undefined);
+
+    expect(container.querySelector("img")?.getAttribute("alt")).toBe(
+      "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
+    );
+  });
+
   it("uses manual keyboard tabs and progressively reveals a cached category", async () => {
     await act(async () => root.render(<OnThisDayExplorer />));
     await act(async () => undefined);

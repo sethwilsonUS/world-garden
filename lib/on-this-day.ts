@@ -56,9 +56,14 @@ export type OnThisDayProvider = {
   fetchAll(date: { month: string; day: string }): Promise<OnThisDayFeedPayload>;
 };
 
+export type OnThisDayResolvedImage = {
+  attribution: WikimediaMediaAttribution;
+  altText?: string;
+};
+
 export type OnThisDayImageResolver = (
   requests: WikimediaMediaRequest[],
-) => Promise<Map<string, WikimediaMediaAttribution>>;
+) => Promise<Map<string, OnThisDayResolvedImage>>;
 
 export const wikifeedsOnThisDayProvider: OnThisDayProvider = {
   async fetchAll({ month, day }) {
@@ -87,7 +92,13 @@ export const wikifeedsOnThisDayProvider: OnThisDayProvider = {
 const resolveImagesWithWikimedia: OnThisDayImageResolver = async (requests) => {
   const details = await fetchWikimediaMediaDetails(requests);
   return new Map(
-    [...details].map(([imageUrl, detail]) => [imageUrl, detail.attribution]),
+    [...details].map(([imageUrl, detail]) => [
+      imageUrl,
+      {
+        attribution: detail.attribution,
+        ...(detail.altText ? { altText: detail.altText } : {}),
+      },
+    ]),
   );
 };
 
@@ -248,10 +259,10 @@ export const buildOnThisDaySnapshot = async ({
     imageUrl: source,
     sourceTitle,
   }));
-  let attributions = new Map<string, WikimediaMediaAttribution>();
+  let imageMetadata = new Map<string, OnThisDayResolvedImage>();
   if (requests.length > 0) {
     try {
-      attributions = await resolveImages(requests);
+      imageMetadata = await resolveImages(requests);
     } catch {
       // A usable source-page fallback is attached below. Metadata enrichment
       // must never discard an otherwise valid historical event.
@@ -263,8 +274,10 @@ export const buildOnThisDaySnapshot = async ({
       const candidate = candidates.get(event.image.source);
       if (!candidate) continue;
       const repository = getWikimediaMediaRepositoryFromUrl(candidate.source);
+      const resolved = imageMetadata.get(event.image.source);
+      if (resolved?.altText) event.image.altText = resolved.altText;
       event.image.attribution =
-        attributions.get(event.image.source) ??
+        resolved?.attribution ??
         buildWikimediaSourceFallback(
           candidate.sourceTitle,
           repository === "enwiki"

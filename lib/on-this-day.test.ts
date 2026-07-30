@@ -54,10 +54,14 @@ describe("On This Day snapshot", () => {
         [
           "https://upload.wikimedia.org/apollo.jpg",
           {
-            sourceTitle: "File:Apollo.jpg",
-            sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
-            creator: "NASA",
-            licenseName: "Public domain",
+            altText:
+              "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
+            attribution: {
+              sourceTitle: "File:Apollo.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+              creator: "NASA",
+              licenseName: "Public domain",
+            },
           },
         ],
       ]),
@@ -104,6 +108,8 @@ describe("On This Day snapshot", () => {
         width: 330,
         height: 220,
         articleTitle: "Apollo 11",
+        altText:
+          "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
         attribution: {
           creator: "NASA",
           licenseName: "Public domain",

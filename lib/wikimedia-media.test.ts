@@ -203,6 +203,10 @@ describe("Wikimedia media attribution", () => {
                     descriptionurl:
                       "https://commons.wikimedia.org/wiki/File:Example.jpg",
                     extmetadata: {
+                      ImageDescription: {
+                        value:
+                          "A monarch butterfly resting on a purple coneflower.",
+                      },
                       LicenseShortName: { value: "CC BY-SA 4.0" },
                     },
                   },
@@ -227,6 +231,7 @@ describe("Wikimedia media attribution", () => {
         "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1600px-Example.jpg",
       lightboxWidth: 1600,
       lightboxHeight: 1200,
+      altText: "A monarch butterfly resting on a purple coneflower.",
       attribution: {
         licenseName: "CC BY-SA 4.0",
         sourceUrl: "https://commons.wikimedia.org/wiki/File:Example.jpg",

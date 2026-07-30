@@ -73,7 +73,7 @@ const TimelineEventContent = ({ event }: { event: OnThisDayEvent }) => (
       <div className="on-this-day-event-image">
         <AdaptiveImageFrame
           src={event.image.source}
-          alt=""
+          alt={event.image.altText ?? ""}
           width={event.image.width}
           height={event.image.height}
           sizes="(min-width: 640px) 160px, 112px"
