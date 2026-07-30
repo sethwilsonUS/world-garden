@@ -80,6 +80,13 @@ const onThisDayResponse = (requestUrl: string) => {
 const mockOnThisDay = async (page: Page, requests: string[]) => {
   await page.route("**/api/on-this-day?**", async (route) => {
     requests.push(route.request().url());
+    const url = new URL(route.request().url());
+    if (
+      url.searchParams.get("category") === "events" &&
+      url.searchParams.get("offset") === "0"
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify(onThisDayResponse(route.request().url())),
@@ -136,7 +143,29 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   await mockOnThisDay(page, requests);
   await page.goto("/on-this-day");
 
+  await expect(page.getByRole("main")).toHaveCount(1);
+  await expect(page).toHaveTitle(/On This Day — Curio Garden/u);
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByRole("heading", { level: 1, name: "On This Day" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Explore the day in history",
+    }),
+  ).toBeAttached();
+  const localNotice = page.getByRole("button", {
+    name: "Dismiss local mode notice",
+  });
+  await page.keyboard.press("Tab");
+  await expect(localNotice).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(localNotice).toBeHidden();
+  const skipLink = page.getByRole("link", { name: "Skip to main content" });
+  await page.keyboard.press("Tab");
+  await expect(skipLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
+
   const tabs = page.getByRole("tab");
   await expect(tabs).toHaveCount(5);
   await expect(page.getByRole("tab", { name: /Highlights/ })).toHaveAttribute(
@@ -150,11 +179,24 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   );
   await expect(page.getByRole("link", { name: "Related article 1" }).first()).toBeVisible();
   await expect(
-    page.getByRole("link", { name: /source \(opens in new tab\)/ }).first(),
+    page.getByRole("link", { name: /File:On this day.jpg/ }).first(),
   ).toBeVisible();
 
-  await page.getByRole("tab", { name: /Events/ }).click();
+  const highlightsTab = page.getByRole("tab", { name: /Highlights/ });
+  const eventsTab = page.getByRole("tab", { name: /Events/ });
+  await highlightsTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(eventsTab).toBeFocused();
+  await expect(eventsTab).toHaveAttribute("aria-selected", "false");
+  await page.keyboard.press("Enter");
+  await expect(eventsTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#on-this-day-live-status")).toHaveText(
+    "Loading events…",
+  );
   await expect(page.locator("ol.timeline-list > li")).toHaveCount(25);
+  await expect(page.locator("#on-this-day-live-status")).toHaveText(
+    "Showing 25 of 30 events, newest first.",
+  );
 
   const showMore = page.locator(".on-this-day-show-more");
   await expect(showMore).toHaveText(/Show 5 more events/);
@@ -176,10 +218,56 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   expect(requests).toHaveLength(4);
 
   const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
+});
+
+test("reflows with text spacing and preserves forced-color focus", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+  await mockOnThisDay(page, requests);
+  await page.goto("/on-this-day");
+  await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
+  await page.addStyleTag({
+    content: `
+      p, li { line-height: 1.5 !important; }
+      * { letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
+      p { margin-bottom: 2em !important; }
+    `,
+  });
+
+  const highlightsTab = page.getByRole("tab", { name: /Highlights/ });
+  await highlightsTab.focus();
+  await expect
+    .poll(() =>
+      highlightsTab.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0;
+      }),
+    )
+    .toBe(true);
   expect(
-    results.violations.filter(
-      (violation) =>
-        violation.impact === "critical" || violation.impact === "serious",
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth,
     ),
-  ).toEqual([]);
+  ).toBe(true);
+  await expect(page.getByRole("tabpanel")).toBeVisible();
+});
+
+test("has no automated accessibility violations in dark mode", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  await mockOnThisDay(page, requests);
+  await page.goto("/on-this-day");
+  await expect(page.locator("html")).toHaveClass(/dark/u);
+  await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
+
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(results.violations).toEqual([]);
 });

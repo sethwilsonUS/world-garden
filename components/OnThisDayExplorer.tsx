@@ -29,6 +29,17 @@ const CATEGORY_LABELS: Record<OnThisDayCategory, string> = {
   holidays: "Holidays",
 };
 
+const CATEGORY_NOUNS: Record<
+  OnThisDayCategory,
+  { singular: string; plural: string }
+> = {
+  selected: { singular: "highlight", plural: "highlights" },
+  events: { singular: "event", plural: "events" },
+  births: { singular: "birth", plural: "births" },
+  deaths: { singular: "death", plural: "deaths" },
+  holidays: { singular: "holiday", plural: "holidays" },
+};
+
 const cacheKey = (
   category: OnThisDayCategory,
   order: OnThisDayOrder,
@@ -233,7 +244,9 @@ export const OnThisDayExplorer = () => {
         start: {
           display: displayYear(item.year),
           dateTime:
-            item.year != null && item.year >= 0 ? String(item.year) : undefined,
+            item.year != null && item.year >= 0
+              ? String(item.year).padStart(4, "0")
+              : undefined,
           sortKey:
             activeCategory === "holidays" || activeOrder === "oldest"
               ? index
@@ -251,12 +264,31 @@ export const OnThisDayExplorer = () => {
   const remaining = response ? response.total - response.items.length : 0;
   const editionLabel = formatUtcCalendarDate(metadata?.requestedDate);
   const snapshotLabel = formatUtcCalendarDate(metadata?.snapshotDate);
+  const categoryNouns = CATEGORY_NOUNS[activeCategory];
+  const categoryNoun =
+    response?.total === 1 ? categoryNouns.singular : categoryNouns.plural;
+  const liveStatusMessage = isLoading
+    ? `Loading ${categoryNouns.plural}…`
+    : error
+      ? error
+      : response
+        ? `Showing ${response.items.length} of ${response.total} ${categoryNoun}${activeCategory === "holidays" ? "." : `, ${activeOrder} first.`}`
+        : "";
 
   return (
     <section aria-labelledby="on-this-day-explorer-heading">
       <h2 id="on-this-day-explorer-heading" className="sr-only">
         Explore the day in history
       </h2>
+      <p
+        id="on-this-day-live-status"
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {liveStatusMessage}
+      </p>
       {metadata ? (
         <div className="on-this-day-edition">
           <p>
@@ -286,6 +318,11 @@ export const OnThisDayExplorer = () => {
               id={`on-this-day-tab-${category}`}
               aria-controls="on-this-day-tabpanel"
               aria-selected={selected}
+              aria-label={
+                metadata
+                  ? `${CATEGORY_LABELS[category]}, ${metadata.counts[category]} ${metadata.counts[category] === 1 ? "item" : "items"}`
+                  : CATEGORY_LABELS[category]
+              }
               tabIndex={selected ? 0 : -1}
               disabled={!available}
               onClick={() => activateCategory(category)}
@@ -293,9 +330,6 @@ export const OnThisDayExplorer = () => {
             >
               <span>{CATEGORY_LABELS[category]}</span>
               {metadata ? <span aria-hidden="true">{metadata.counts[category]}</span> : null}
-              {metadata ? (
-                <span className="sr-only">, {metadata.counts[category]} items</span>
-              ) : null}
             </button>
           );
         })}
@@ -310,13 +344,13 @@ export const OnThisDayExplorer = () => {
         tabIndex={0}
       >
         {!response && isLoading ? (
-          <div className="on-this-day-loading" role="status">
+          <div className="on-this-day-loading">
             Loading {CATEGORY_LABELS[activeCategory].toLowerCase()}…
           </div>
         ) : null}
         {!response && error ? (
           <div className="on-this-day-error">
-            <p role="status">{error}</p>
+            <p>{error}</p>
             <button
               type="button"
               className="btn-secondary"
@@ -335,11 +369,6 @@ export const OnThisDayExplorer = () => {
         ) : null}
         {response ? (
           <>
-            {isLoading ? (
-              <p className="sr-only" role="status">
-                Loading {CATEGORY_LABELS[activeCategory].toLowerCase()}…
-              </p>
-            ) : null}
             <AccessibleTimeline
               items={timelineItems}
               defaultOrder={timelineOrder}
@@ -347,6 +376,7 @@ export const OnThisDayExplorer = () => {
               categoryFilter="none"
               showSort={activeCategory !== "holidays"}
               totalCount={response.total}
+              announceStatus={false}
               onOrderChange={(order) => {
                 if (activeCategory === "holidays") return;
                 setOrders((current) => ({
@@ -355,7 +385,7 @@ export const OnThisDayExplorer = () => {
                 }));
               }}
             />
-            <p className="on-this-day-visible-count" role="status">
+            <p className="on-this-day-visible-count">
               Showing {response.items.length} of {response.total}{" "}
               {CATEGORY_LABELS[activeCategory].toLowerCase()}.
             </p>
@@ -383,7 +413,7 @@ export const OnThisDayExplorer = () => {
             ) : null}
             {error ? (
               <div className="on-this-day-recoverable-error">
-                <p role="status">{error}</p>
+                <p>{error}</p>
                 <button
                   type="button"
                   className="btn-secondary"

@@ -31,6 +31,7 @@ export const AccessibleTimeline = ({
   categoryFilter = "auto",
   showSort = true,
   totalCount,
+  announceStatus = true,
 }: {
   items: AccessibleTimelineItem[];
   defaultOrder: TimelineOrder;
@@ -39,6 +40,7 @@ export const AccessibleTimeline = ({
   categoryFilter?: "auto" | "none";
   showSort?: boolean;
   totalCount?: number;
+  announceStatus?: boolean;
 }) => {
   const categories = useMemo(
     () =>
@@ -108,7 +110,12 @@ export const AccessibleTimeline = ({
           ) : null}
         </div>
       )}
-      <p className="context-status" role="status" aria-live="polite">
+      <p
+        className="context-status"
+        role={announceStatus ? "status" : undefined}
+        aria-live={announceStatus ? "polite" : undefined}
+        aria-atomic={announceStatus ? "true" : undefined}
+      >
         {statusCount} {statusCount === 1 ? "event" : "events"}
         {showSort ? `, ${order} first` : ""}
       </p>

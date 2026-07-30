@@ -94,6 +94,11 @@ describe("OnThisDayExplorer", () => {
     ]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(container.textContent).toContain("selected item 1");
+    const statuses = container.querySelectorAll('[role="status"]');
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].textContent).toBe(
+      "Showing 1 of 1 highlight, newest first.",
+    );
 
     tabs[0].focus();
     await act(async () =>
@@ -211,5 +216,45 @@ describe("OnThisDayExplorer", () => {
     expect(aborted).toBe(true);
     expect(highlightsTab.getAttribute("aria-selected")).toBe("true");
     expect(container.textContent).toContain("selected item 1");
+  });
+
+  it("exposes selected-only fallback categories as unavailable native tabs", async () => {
+    fetchMock.mockImplementationOnce(async (input: string | URL | Request) => ({
+      ok: true,
+      json: async () => ({
+        ...responseFor(String(input)),
+        counts: {
+          selected: 1,
+          events: 0,
+          births: 0,
+          deaths: 0,
+          holidays: 0,
+        },
+        availableCategories: {
+          selected: true,
+          events: false,
+          births: false,
+          deaths: false,
+          holidays: false,
+        },
+      }),
+    }));
+    await act(async () => root.render(<OnThisDayExplorer />));
+    await act(async () => undefined);
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    );
+    expect(tabs[0].disabled).toBe(false);
+    expect(tabs.slice(1).every((tab) => tab.disabled)).toBe(true);
+    expect(tabs[1].getAttribute("aria-label")).toBe("Events, 0 items");
+
+    tabs[0].focus();
+    await act(async () =>
+      tabs[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    );
+    expect(document.activeElement).toBe(tabs[0]);
   });
 });

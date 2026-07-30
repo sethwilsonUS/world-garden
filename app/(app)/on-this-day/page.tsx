@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function OnThisDayPage() {
   return (
-    <main className="container mx-auto px-4 pb-20 pt-10">
+    <div className="container mx-auto px-4 pb-20 pt-10">
       <div className="mx-auto max-w-5xl">
         <nav aria-label="Back navigation" className="mb-5">
           <Link
@@ -48,6 +48,6 @@ export default function OnThisDayPage() {
 
         <OnThisDayExplorer />
       </div>
-    </main>
+    </div>
   );
 }
