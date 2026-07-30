@@ -432,7 +432,7 @@ const BLOCKED_DYK_PREFIXES = [
   "Wikipedia:",
 ] as const;
 
-const decodeHtmlEntities = (value: string): string =>
+export const decodeHtmlEntities = (value: string): string =>
   value
     .replace(/&#(\d+);/g, (_, dec) =>
       String.fromCodePoint(Number.parseInt(dec, 10)),

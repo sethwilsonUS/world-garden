@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildOnThisDaySnapshot,
   paginateOnThisDaySnapshot,
+  WIKIFEEDS_REQUEST_TIMEOUT_MS,
+  wikifeedsOnThisDayProvider,
   type OnThisDayFeedPayload,
   type OnThisDayProvider,
 } from "./on-this-day";
@@ -127,6 +129,67 @@ describe("On This Day snapshot", () => {
     expect(rebuilt.categories.selected[0].id).toBe(
       snapshot.categories.selected[0].id,
     );
+  });
+
+  it("decodes Wikimedia HTML entities in event and article text", async () => {
+    const encodedProvider: OnThisDayProvider = {
+      fetchAll: vi.fn(async () => ({
+        selected: [
+          {
+            year: 2026,
+            text: "Rock &amp; roll&nbsp;reached &#169; and &#x1F680;.",
+            pages: [{ title: "History &lt;today&gt;" }],
+          },
+        ],
+        events: [],
+        births: [],
+        deaths: [],
+        holidays: [],
+      })),
+    };
+
+    const snapshot = await buildOnThisDaySnapshot({
+      feedDate: "2026-07-30",
+      provider: encodedProvider,
+    });
+
+    expect(snapshot.categories.selected[0]).toMatchObject({
+      text: "Rock & roll reached © and 🚀.",
+      pages: [{ title: "History <today>", slug: "History_<today>" }],
+    });
+  });
+
+  it("bounds live Wikifeeds requests so a visitor cannot wait indefinitely", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const request = wikifeedsOnThisDayProvider.fetchAll({
+        month: "07",
+        day: "30",
+      });
+      const rejection = expect(request).rejects.toMatchObject({
+        name: "AbortError",
+      });
+
+      await vi.advanceTimersByTimeAsync(WIKIFEEDS_REQUEST_TIMEOUT_MS);
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all/07/30",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("paginates from the correct end while preserving holiday source order", () => {

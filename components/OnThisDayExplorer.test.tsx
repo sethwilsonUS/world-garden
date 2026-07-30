@@ -147,8 +147,30 @@ describe("OnThisDayExplorer", () => {
     const sortButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Oldest first",
     ) as HTMLButtonElement;
+    let resolveOldestRequest: (() => void) | undefined;
+    fetchMock.mockImplementationOnce(
+      async (input: string | URL | Request) =>
+        await new Promise((resolve) => {
+          resolveOldestRequest = () =>
+            resolve({
+              ok: true,
+              json: async () => responseFor(String(input)),
+            });
+        }),
+    );
     sortButton.focus();
     await act(async () => sortButton.click());
+
+    expect(document.activeElement).toBe(sortButton);
+    expect(sortButton.textContent).toBe("Oldest first");
+    expect(container.querySelector("ol.timeline-list time")?.textContent).toBe(
+      "2000",
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Loading events…",
+    );
+
+    await act(async () => resolveOldestRequest?.());
     await act(async () => undefined);
 
     expect(document.activeElement).toBe(sortButton);

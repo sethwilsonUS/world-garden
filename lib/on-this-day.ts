@@ -18,12 +18,16 @@ import {
   type OnThisDayPageResponse,
   type OnThisDaySnapshot,
 } from "@/lib/on-this-day-contracts";
-import type { WikipediaOnThisDayItem } from "@/lib/featured-article";
+import {
+  decodeHtmlEntities,
+  type WikipediaOnThisDayItem,
+} from "@/lib/featured-article";
 
 const WIKIFEEDS_ON_THIS_DAY =
   "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all";
 const USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
+export const WIKIFEEDS_REQUEST_TIMEOUT_MS = 10_000;
 
 type FeedThumbnail = {
   source?: string;
@@ -58,16 +62,25 @@ export type OnThisDayImageResolver = (
 
 export const wikifeedsOnThisDayProvider: OnThisDayProvider = {
   async fetchAll({ month, day }) {
-    const response = await fetch(
-      `${WIKIFEEDS_ON_THIS_DAY}/${month}/${day}`,
-      { headers: { "User-Agent": USER_AGENT } },
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      WIKIFEEDS_REQUEST_TIMEOUT_MS,
     );
-    if (!response.ok) {
-      throw new Error(
-        `Wikimedia On This Day returned ${response.status} for ${month}-${day}`,
-      );
+    try {
+      const response = await fetch(`${WIKIFEEDS_ON_THIS_DAY}/${month}/${day}`, {
+        headers: { "User-Agent": USER_AGENT },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Wikimedia On This Day returned ${response.status} for ${month}-${day}`,
+        );
+      }
+      return (await response.json()) as OnThisDayFeedPayload;
+    } finally {
+      clearTimeout(timeout);
     }
-    return (await response.json()) as OnThisDayFeedPayload;
   },
 };
 
@@ -79,11 +92,9 @@ const resolveImagesWithWikimedia: OnThisDayImageResolver = async (requests) => {
 };
 
 const normalizeText = (value: unknown): string =>
-  (typeof value === "string" ? value : "")
-    .replace(/<[^>]*>/gu, " ")
-    .replace(/&amp;/gu, "&")
-    .replace(/&quot;/gu, '"')
-    .replace(/&#0?39;|&apos;/gu, "'")
+  decodeHtmlEntities(
+    (typeof value === "string" ? value : "").replace(/<[^>]*>/gu, " "),
+  )
     .replace(/\s+/gu, " ")
     .trim();
 

@@ -248,23 +248,26 @@ export const OnThisDayExplorer = () => {
               ? String(item.year).padStart(4, "0")
               : undefined,
           sortKey:
-            activeCategory === "holidays" || activeOrder === "oldest"
+            response?.category === "holidays" || response?.order === "oldest"
               ? index
               : -index,
         },
         content: <TimelineEventContent event={item} />,
       })),
-    [activeCategory, activeOrder, response?.items],
+    [response?.category, response?.items, response?.order],
   );
 
   const timelineOrder: TimelineOrder =
-    activeCategory === "holidays" ? "oldest" : activeOrder;
+    response?.category === "holidays"
+      ? "oldest"
+      : (response?.order ?? activeOrder);
   const isLoading = loadingKey === activeKey;
   const error = errorByKey[activeKey];
   const remaining = response ? response.total - response.items.length : 0;
   const editionLabel = formatUtcCalendarDate(metadata?.requestedDate);
   const snapshotLabel = formatUtcCalendarDate(metadata?.snapshotDate);
-  const categoryNouns = CATEGORY_NOUNS[activeCategory];
+  const responseCategory = response?.category ?? activeCategory;
+  const categoryNouns = CATEGORY_NOUNS[responseCategory];
   const categoryNoun =
     response?.total === 1 ? categoryNouns.singular : categoryNouns.plural;
   const liveStatusMessage = isLoading
@@ -272,7 +275,7 @@ export const OnThisDayExplorer = () => {
     : error
       ? error
       : response
-        ? `Showing ${response.items.length} of ${response.total} ${categoryNoun}${activeCategory === "holidays" ? "." : `, ${activeOrder} first.`}`
+        ? `Showing ${response.items.length} of ${response.total} ${categoryNoun}${response.category === "holidays" ? "." : `, ${response.order} first.`}`
         : "";
 
   return (
