@@ -337,4 +337,25 @@ describe("TodayOnWikipediaContent", () => {
     expect(markup).toContain("Picture audio is not available right now");
     expect(markup).not.toContain("Audio: Picture of the Day description");
   });
+
+  it("previews three On This Day highlights and links to the full timeline", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TodayOnWikipediaContent, {
+        data: {
+          onThisDay: Array.from({ length: 4 }, (_, index) => ({
+            year: 2000 + index,
+            text: `Historical highlight ${index + 1}`,
+            pages: [],
+          })),
+        },
+      }),
+    );
+
+    expect(markup).toContain("Historical highlight 1");
+    expect(markup).toContain("Historical highlight 2");
+    expect(markup).toContain("Historical highlight 3");
+    expect(markup).not.toContain("Historical highlight 4");
+    expect(markup).toContain('href="/on-this-day"');
+    expect(markup).toContain("Explore all 4 highlights");
+  });
 });

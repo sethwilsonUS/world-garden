@@ -57,6 +57,17 @@ describe("SiteNavLinks", () => {
     expect(markup).toContain("Library");
   });
 
+  it("links to On This Day from every navigation variant", () => {
+    for (const variant of ["desktop", "mobile", "footer"] as const) {
+      const markup = renderToStaticMarkup(
+        createElement(SiteNavLinks, { variant, authEnabled: false }),
+      );
+
+      expect(markup).toContain('href="/on-this-day"');
+      expect(markup).toContain("On This Day");
+    }
+  });
+
   it("does not expose Did You Know as a standalone navigation item", () => {
     const markup = renderToStaticMarkup(
       createElement(SiteNavLinks, { variant: "desktop", authEnabled: false }),

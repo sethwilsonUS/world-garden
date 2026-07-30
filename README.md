@@ -18,7 +18,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
-**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, a small On This Day entry, and a compact Trending teaser. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
+**Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, three On This Day highlights, and a compact Trending teaser. The dedicated On This Day page expands the daily edition into accessible timelines for highlights, events, births, deaths, and holidays. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
 **Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through the OpenAI Responses API with web search, narrated publicly with Edge TTS, and cached in Convex.
 
@@ -440,6 +440,31 @@ internal read query through your existing Convex CLI production-deployment
 access; it does not load or reuse `PRODUCT_FEEDBACK_WRITE_SECRET`. Run
 `npm run report:feedback -- --help` for the complete command reference.
 
+## On This Day snapshots
+
+The homepage keeps a lightweight three-highlight preview in the existing Today
+on Wikipedia snapshot. The dedicated `/on-this-day` page reads complete daily
+editions from the separate `onThisDaySnapshots` collection through
+`GET /api/on-this-day`. Category payloads are requested lazily and paginated in
+groups of 25.
+
+`GET /api/on-this-day/cron` is the protected, idempotent daily sync. It fetches
+the five Wikifeeds categories once, normalizes the results, resolves compact
+Wikimedia image attribution in batches, and stores image CDN references rather
+than copying image binaries. If the full feed fails, it can persist the curated
+homepage highlights as an exact-date fallback. Set `CRON_SECRET` as described
+below; after the first deployment, prime the current edition with:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://curiogarden.org/api/on-this-day/cron
+```
+
+Wikifeeds-specific parsing lives behind `OnThisDayProvider` because Wikimedia
+has announced that the service is being deprecated. Run the opt-in external
+contract smoke test with `WIKIMEDIA_ON_THIS_DAY_LIVE_TEST=1 npm test --
+--run lib/on-this-day-live.test.ts`; ordinary CI uses fixtures and never depends
+on the external feed.
+
 ## Podcasts
 
 Curio Garden can publish multiple RSS feeds:
@@ -476,11 +501,12 @@ To enable scheduled generation in production:
 2. Deploy the app.
 3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and production Convex so signed quota checks, shared Edge cache writes, and trusted Personal Playlist/export generation work. The Preview build securely copies the Vercel value into only its named Convex Preview.
 4. For a protected Preview, enable Vercel's **Protection Bypass for Automation**. Vercel automatically injects the `VERCEL_AUTOMATION_BYPASS_SECRET` system environment variable; do not create a separate ordinary variable with that name. The Preview build copies it into the named Convex Preview and sets that worker deployment's `AUDIO_GENERATION_BASE_URL` to the exact generated Vercel hostname.
-5. Vercel will call `/api/featured/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, `/api/podcast/trending/cron`, and `/api/account/delete/cron` using the schedules in `vercel.json`.
+5. Vercel will call `/api/featured/cron`, `/api/on-this-day/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, `/api/podcast/trending/cron`, and `/api/account/delete/cron` using the schedules in `vercel.json`.
 
 The default schedules are:
 
 - `5 0 * * *` and `35 0 * * *` for the Today on Wikipedia snapshot (`00:05 UTC` primary run, `00:35 UTC` retry shortly after Wikipedia's daily UTC rollover)
+- `7 0 * * *` and `37 0 * * *` for the complete On This Day snapshot (`00:07 UTC` primary run, `00:37 UTC` retry)
 - `10 0 * * *` and `40 0 * * *` for the featured podcast (`00:10 UTC` primary run, `00:40 UTC` retry shortly after Wikipedia's daily UTC rollover)
 - `20 0 * * *` and `50 0 * * *` for Picture of the Day audio (`00:20 UTC` primary run, `00:50 UTC` retry)
 - `25 0 * * *` and `55 0 * * *` for homepage article summary audio (`00:25 UTC` primary run, `00:55 UTC` retry)
