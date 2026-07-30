@@ -39,11 +39,10 @@ export const TodayOnWikipediaContent = ({
     return null;
   }
 
-  const firstOnThisDay = onThisDay[0];
   const hasPrimaryRail =
     Boolean(featured) || didYouKnow.length > 0;
   const hasSupportRail =
-    Boolean(picture) || news.length > 0 || Boolean(firstOnThisDay);
+    Boolean(picture) || news.length > 0 || onThisDay.length > 0;
   const hasTwoRails = hasPrimaryRail && hasSupportRail;
 
   return (
@@ -78,7 +77,7 @@ export const TodayOnWikipediaContent = ({
           <div className={`space-y-4 ${hasTwoRails ? "" : "lg:col-span-2"}`}>
             {picture && <PictureOfDayFigure picture={picture} />}
             <NewsCard news={news} />
-            <OnThisDayCard item={firstOnThisDay} />
+            <OnThisDayCard items={onThisDay} />
           </div>
         )}
 

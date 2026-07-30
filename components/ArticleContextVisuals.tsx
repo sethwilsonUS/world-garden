@@ -19,6 +19,7 @@ import {
   useNearViewport,
   type VisualLoadPhase,
 } from "./ArticleContextVisualShared";
+import { AccessibleTimeline } from "./AccessibleTimeline";
 
 export {
   ContextMapView,
@@ -38,93 +39,43 @@ export const ContextTimelineView = ({
   caption: string;
   captionId: string;
 }) => {
-  const categories = useMemo(
+  const events = useMemo(
     () =>
-      Array.from(
-        new Set(
-          block.timeline.events
-            .map((event) => event.category)
-            .filter((value): value is string => Boolean(value)),
+      block.timeline.events.map((event) => ({
+        id: event.id,
+        start: {
+          display: event.start.display,
+          dateTime: event.start.iso,
+          sortKey: event.start.sortKey,
+        },
+        ...(event.end
+          ? {
+              end: {
+                display: event.end.display,
+                dateTime: event.end.iso,
+              },
+            }
+          : {}),
+        category: event.category,
+        content: (
+          <>
+            <strong>{event.label}</strong>
+            {event.category ? (
+              <span className="context-category">{event.category}</span>
+            ) : null}
+            {event.description ? <p>{event.description}</p> : null}
+          </>
         ),
-      ),
+      })),
     [block.timeline.events],
   );
-  const [category, setCategory] = useState("all");
-  const [ascending, setAscending] = useState(block.timeline.chronological);
-  const events = useMemo(() => {
-    const selected =
-      category === "all"
-        ? block.timeline.events
-        : block.timeline.events.filter((event) => event.category === category);
-    return [...selected].sort((a, b) =>
-      ascending
-        ? a.start.sortKey - b.start.sortKey
-        : b.start.sortKey - a.start.sortKey,
-    );
-  }, [ascending, block.timeline.events, category]);
 
   return (
     <div className="context-kind-view">
-      <div className="context-timeline-controls">
-        {categories.length > 1 ? (
-          <label>
-            Show category
-            <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-            >
-              <option value="all">All categories</option>
-              {categories.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => setAscending((value) => !value)}
-        >
-          {ascending ? "Newest first" : "Oldest first"}
-        </button>
-      </div>
-      <p className="context-status" role="status" aria-live="polite">
-        {events.length} {events.length === 1 ? "event" : "events"},{" "}
-        {ascending ? "oldest first" : "newest first"}
-      </p>
-      <ol className="context-timeline-list">
-        {events.map((event) => (
-          <li key={event.id}>
-            <div className="context-timeline-date">
-              {event.start.iso ? (
-                <time dateTime={event.start.iso}>{event.start.display}</time>
-              ) : (
-                <span>{event.start.display}</span>
-              )}
-              {event.end ? (
-                <>
-                  <span aria-hidden="true"> — </span>
-                  <span className="sr-only"> through </span>
-                  {event.end.iso ? (
-                    <time dateTime={event.end.iso}>{event.end.display}</time>
-                  ) : (
-                    <span>{event.end.display}</span>
-                  )}
-                </>
-              ) : null}
-            </div>
-            <div className="context-timeline-copy">
-              <strong>{event.label}</strong>
-              {event.category ? (
-                <span className="context-category">{event.category}</span>
-              ) : null}
-              {event.description ? <p>{event.description}</p> : null}
-            </div>
-          </li>
-        ))}
-      </ol>
+      <AccessibleTimeline
+        items={events}
+        defaultOrder={block.timeline.chronological ? "oldest" : "newest"}
+      />
       <p id={captionId} className="context-visual-caption">
         {caption}
       </p>

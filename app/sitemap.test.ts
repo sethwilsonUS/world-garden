@@ -18,6 +18,7 @@ describe("sitemap", () => {
     expect(sitemap()).toEqual(
       [
         "/",
+        "/on-this-day",
         "/trending",
         "/podcasts",
         "/podcasts/featured",

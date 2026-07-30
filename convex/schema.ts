@@ -613,6 +613,17 @@ export default defineSchema({
     .index("by_feedDate", ["feedDate"])
     .index("by_updatedAt", ["updatedAt"]),
 
+  onThisDaySnapshots: defineTable({
+    feedDate: v.string(),
+    monthDay: v.string(),
+    data: v.any(),
+    generatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate", ["feedDate"])
+    .index("by_monthDay_updatedAt", ["monthDay", "updatedAt"]),
+
   didYouKnowAudio: defineTable({
     feedDate: v.string(),
     status: didYouKnowAudioStatus,

@@ -36,6 +36,9 @@ export const MediaAttribution = ({
           className={linkClass}
         >
           source
+          {attribution.sourceTitle ? (
+            <span className="sr-only">: {attribution.sourceTitle}</span>
+          ) : null}
           <span className="sr-only"> (opens in new tab)</span>
         </a>
       </p>

@@ -7,6 +7,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const indexablePaths = [
     "",
+    "/on-this-day",
     "/trending",
     "/podcasts",
     "/podcasts/featured",

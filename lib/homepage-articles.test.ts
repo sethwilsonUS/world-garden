@@ -55,6 +55,8 @@ describe("collectHomepageArticleRefs", () => {
       onThisDay: [
         { text: "Event", pages: [link("On day 0"), link("On day 1"), link("On day 2"), link("Hidden day")] },
         { text: "Not rendered", pages: [link("Second event")] },
+        { text: "Also rendered", pages: [link("Third event")] },
+        { text: "Not rendered", pages: [link("Fourth event")] },
       ],
       trending: Array.from({ length: 6 }, (_, index) => ({
         title: `Trending ${index}`,
@@ -73,6 +75,9 @@ describe("collectHomepageArticleRefs", () => {
     expect(titles).toContain("Trending 3");
     expect(titles).not.toContain("DYK 0-3");
     expect(titles).not.toContain("Hidden day");
+    expect(titles).toContain("Second event");
+    expect(titles).toContain("Third event");
+    expect(titles).not.toContain("Fourth event");
     expect(titles).not.toContain("Trending 4");
     expect(titles.indexOf("Trending 3")).toBeLessThan(titles.indexOf("DYK 3-0"));
     expect(titles.indexOf("Trending 3")).toBeLessThan(titles.indexOf("News 2-0"));

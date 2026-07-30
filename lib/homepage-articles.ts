@@ -4,6 +4,7 @@ export const HOMEPAGE_PREVIEW_LIMITS = {
   didYouKnowItems: 3,
   newsItems: 2,
   articleLinksPerItem: 3,
+  onThisDayItems: 3,
   trendingArticles: 4,
   warmedArticles: 30,
 } as const;
@@ -86,10 +87,12 @@ export const collectHomepageArticleRefs = (
     );
   });
 
-  const firstOnThisDay = data.onThisDay[0];
-  if (firstOnThisDay) {
+  for (const onThisDayItem of data.onThisDay.slice(
+    0,
+    HOMEPAGE_PREVIEW_LIMITS.onThisDayItems,
+  )) {
     initiallyVisible.push(
-      ...firstOnThisDay.pages
+      ...onThisDayItem.pages
         .slice(0, linkLimit)
         .map((link) => fromLink(link, "on-this-day")),
     );

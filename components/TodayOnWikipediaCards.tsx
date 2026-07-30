@@ -119,6 +119,7 @@ export type TodayOnWikipediaData = {
 const MAX_DID_YOU_KNOW_ITEMS = HOMEPAGE_PREVIEW_LIMITS.didYouKnowItems;
 const MAX_NEWS_ITEMS = HOMEPAGE_PREVIEW_LIMITS.newsItems;
 const MAX_TRENDING_ARTICLES = HOMEPAGE_PREVIEW_LIMITS.trendingArticles;
+const MAX_ON_THIS_DAY_ITEMS = HOMEPAGE_PREVIEW_LIMITS.onThisDayItems;
 const MAX_ARTICLE_LINKS_PER_ITEM =
   HOMEPAGE_PREVIEW_LIMITS.articleLinksPerItem;
 
@@ -136,6 +137,9 @@ const formatViews = (views: number): string => {
   if (views >= 1_000) return `${Math.round(views / 1_000)} thousand`;
   return views.toLocaleString();
 };
+
+const formatOnThisDayYear = (year: number): string =>
+  year < 0 ? `${Math.abs(year)} BCE` : String(year);
 
 const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
   if (links.length === 0) return null;
@@ -343,34 +347,62 @@ export const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
   );
 };
 
-export const OnThisDayCard = ({ item }: { item?: OnThisDayItem }) => {
-  if (!item) return null;
-  const imageLink = getFirstLinkedImage(item.pages);
-  const image = imageLink?.thumbnail;
+export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
+  if (items.length === 0) return null;
+  const visibleItems = items.slice(0, MAX_ON_THIS_DAY_ITEMS);
 
   return (
-    <aside className="rounded-2xl border border-border bg-surface-2 px-5 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+    <section
+      aria-labelledby="today-on-this-day-heading"
+      className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
+    >
+      <h3
+        id="today-on-this-day-heading"
+        className="text-xs font-semibold uppercase tracking-[0.16em] text-muted"
+      >
         On This Day
-      </p>
-      <div className={image ? "mt-2 flex gap-3" : undefined}>
-        {imageLink && image && <LinkedItemThumbnail link={imageLink} />}
-        <div className="min-w-0">
-          <p className="text-sm leading-[1.7] text-foreground-2">
-            {item.year ? (
-              <span className="font-semibold text-foreground">{item.year}: </span>
-            ) : null}
-            {item.text}
-          </p>
-          <ArticleLinkList links={item.pages} />
-          {image?.attribution ? (
-            <div className="mt-2">
-              <MediaAttribution attribution={image.attribution} compact />
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </aside>
+      </h3>
+      <ol className="m-0 mt-2 list-none divide-y divide-border p-0">
+        {visibleItems.map((item, index) => {
+          const imageLink = getFirstLinkedImage(item.pages);
+          const image = imageLink?.thumbnail;
+          return (
+            <li
+              key={`${item.year ?? "annual"}-${item.text}-${index}`}
+              className="py-3 first:pt-0 last:pb-0"
+            >
+              <div className={image ? "flex gap-3" : undefined}>
+                {imageLink && image ? <LinkedItemThumbnail link={imageLink} /> : null}
+                <div className="min-w-0">
+                  <p className="text-sm leading-[1.7] text-foreground-2">
+                    {item.year != null ? (
+                      <span className="font-semibold text-foreground">
+                        {formatOnThisDayYear(item.year)}: {" "}
+                      </span>
+                    ) : null}
+                    {item.text}
+                  </p>
+                  <ArticleLinkList links={item.pages} />
+                  {image?.attribution ? (
+                    <div className="mt-2">
+                      <MediaAttribution attribution={image.attribution} compact />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <Link
+        href="/on-this-day"
+        className="linked-article-link mt-4 inline-flex min-h-8 items-center rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground-2 no-underline"
+      >
+        {items.length > MAX_ON_THIS_DAY_ITEMS
+          ? `Explore all ${items.length} highlights`
+          : "Explore On This Day"}
+      </Link>
+    </section>
   );
 };
 

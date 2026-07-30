@@ -11,6 +11,7 @@ export const PUBLIC_AUDIO_WRITE_ATTESTATION_SCOPE = "public-audio:write";
 export type PublicAudioPipeline =
   | "did-you-know"
   | "featured"
+  | "on-this-day"
   | "picture-of-day"
   | "today"
   | "trending";
