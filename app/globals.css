@@ -1906,6 +1906,37 @@ body {
 }
 
 @media (max-width: 640px) {
+  .on-this-day-back-link,
+  .on-this-day-page-intro,
+  .on-this-day-event-text {
+    font-size: 1rem !important;
+  }
+
+  .on-this-day-page-header .eyebrow,
+  .on-this-day-tabs [role="tab"] > span:nth-child(2) {
+    font-size: 0.75rem;
+  }
+
+  .on-this-day-edition,
+  .on-this-day-tabs [role="tab"],
+  .on-this-day-tabpanel .context-status,
+  .on-this-day-tabpanel .context-timeline-controls .btn-secondary,
+  .on-this-day-event-links a,
+  .on-this-day-event-image > p,
+  .on-this-day-visible-count,
+  .on-this-day-recoverable-error p,
+  .on-this-day-recoverable-error .btn-secondary,
+  .on-this-day-source-note,
+  .on-this-day-page .context-timeline-date {
+    font-size: 0.875rem;
+  }
+
+  .on-this-day-event-image > p {
+    display: block !important;
+    overflow: visible !important;
+    -webkit-line-clamp: unset !important;
+  }
+
   .on-this-day-event.has-image {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1920,6 +1951,45 @@ body {
 
   .on-this-day-tabpanel {
     border-radius: 0 0 16px 16px;
+  }
+}
+
+@supports (font: -apple-system-body) {
+  @media (max-width: 640px) {
+    .on-this-day-page {
+      font: -apple-system-body;
+      -webkit-text-size-adjust: auto;
+    }
+
+    .on-this-day-back-link,
+    .on-this-day-page-intro,
+    .on-this-day-event-text {
+      font-size: max(1rem, 1em) !important;
+    }
+
+    .on-this-day-edition,
+    .on-this-day-tabs [role="tab"],
+    .on-this-day-tabpanel .context-status,
+    .on-this-day-tabpanel .context-timeline-controls .btn-secondary,
+    .on-this-day-event-links a,
+    .on-this-day-event-image > p,
+    .on-this-day-visible-count,
+    .on-this-day-recoverable-error p,
+    .on-this-day-recoverable-error .btn-secondary,
+    .on-this-day-source-note,
+    .on-this-day-page .context-timeline-date {
+      font-size: max(0.875rem, 0.875em);
+    }
+
+    .on-this-day-page-header .eyebrow,
+    .on-this-day-tabs [role="tab"] > span:nth-child(2) {
+      font-size: max(0.75rem, 0.75em);
+    }
+
+    .on-this-day-event-text,
+    .on-this-day-source-note {
+      line-height: 1.7 !important;
+    }
   }
 }
 

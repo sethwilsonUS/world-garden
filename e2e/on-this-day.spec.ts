@@ -40,6 +40,8 @@ const onThisDayResponse = (requestUrl: string) => {
               width: 640,
               height: 480,
               articleTitle: "Related article 1",
+              altText:
+                "A speaker addressing an audience at a historical commemoration.",
               attribution: {
                 creator: "Example photographer",
                 licenseName: "CC BY-SA 4.0",
@@ -175,7 +177,7 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
   await expect(page.locator(".on-this-day-event-image img").first()).toHaveAttribute(
     "alt",
-    "",
+    "A speaker addressing an audience at a historical commemoration.",
   );
   await expect(page.getByRole("link", { name: "Related article 1" }).first()).toBeVisible();
   await expect(
@@ -230,12 +232,54 @@ test("reflows with text spacing and preserves forced-color focus", async ({
   await mockOnThisDay(page, requests);
   await page.goto("/on-this-day");
   await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
+  for (const selector of [
+    ".on-this-day-event-text",
+    ".on-this-day-event-links a",
+    ".context-timeline-date",
+    ".on-this-day-event-image > p",
+    ".on-this-day-source-note",
+  ]) {
+    expect(
+      await page.locator(selector).first().evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize),
+      ),
+    ).toBeGreaterThanOrEqual(14);
+  }
+  expect(
+    await page
+      .locator(".on-this-day-event-text")
+      .first()
+      .evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).fontSize),
+      ),
+  ).toBeGreaterThanOrEqual(16);
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
   await page.addStyleTag({
     content: `
       p, li { line-height: 1.5 !important; }
       * { letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
       p { margin-bottom: 2em !important; }
     `,
+  });
+
+  const attributionLayout = await page
+    .locator(".on-this-day-event-image > p")
+    .first()
+    .evaluate((attribution) => {
+      const sourceLink = attribution.querySelector("a");
+      if (!sourceLink) return { containsSourceLink: false };
+      const containerBox = attribution.getBoundingClientRect();
+      const linkBox = sourceLink.getBoundingClientRect();
+      return {
+        containsSourceLink: linkBox.bottom <= containerBox.bottom + 1,
+        display: getComputedStyle(attribution).display,
+        overflow: getComputedStyle(attribution).overflow,
+      };
+    });
+  expect(attributionLayout).toMatchObject({
+    containsSourceLink: true,
+    display: "block",
+    overflow: "visible",
   });
 
   const highlightsTab = page.getByRole("tab", { name: /Highlights/ });
