@@ -8,8 +8,10 @@ export const ThemeToggle = () => {
   return (
     <button
       onClick={toggleTheme}
-      aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-      className="btn-secondary p-2 rounded-xl"
+      aria-label={
+        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+      }
+      className="btn-secondary min-h-11 min-w-11 shrink-0 p-2 rounded-xl"
     >
       <svg
         className="theme-icon-sun"

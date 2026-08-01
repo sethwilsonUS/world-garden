@@ -90,7 +90,7 @@ export default async function FeedbackPage({
         <nav aria-label="Back navigation" className="mb-8">
           <Link
             href={backHref}
-            className="inline-flex min-h-8 max-w-full min-w-0 items-center gap-1 text-sm text-muted no-underline"
+            className="inline-flex min-h-11 max-w-full min-w-0 items-center gap-1 text-sm text-muted no-underline"
           >
             <span aria-hidden="true">←</span>
             <span className="min-w-0 [overflow-wrap:anywhere]">
@@ -103,7 +103,7 @@ export default async function FeedbackPage({
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
             Feedback &amp; research
           </p>
-          <h1 className="mt-3 font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-foreground">
+          <h1 className="type-page-title mt-3 font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-foreground">
             Help the garden learn.
           </h1>
           <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.8] text-foreground-2">
@@ -125,7 +125,7 @@ export default async function FeedbackPage({
           >
             <h2
               id="research-note-heading"
-              className="font-display text-xl font-semibold text-foreground"
+              className="type-section-title font-display text-xl font-semibold text-foreground"
             >
               A note about research
             </h2>

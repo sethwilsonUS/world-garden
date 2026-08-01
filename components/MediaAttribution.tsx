@@ -12,12 +12,12 @@ export const MediaAttribution = ({
   if (!attribution?.sourceUrl) return null;
 
   const rawCreator = attribution.creator;
-  const creator = rawCreator && !/^https?:\/\//i.test(rawCreator)
-    ? rawCreator
-    : undefined;
-  const credit = attribution.credit && !/^https?:\/\//i.test(attribution.credit)
-    ? attribution.credit
-    : undefined;
+  const creator =
+    rawCreator && !/^https?:\/\//i.test(rawCreator) ? rawCreator : undefined;
+  const credit =
+    attribution.credit && !/^https?:\/\//i.test(attribution.credit)
+      ? attribution.credit
+      : undefined;
   const textClass = inverse ? "text-white/75" : "text-muted";
   const linkClass = inverse
     ? "text-white underline decoration-white/50"
@@ -25,7 +25,9 @@ export const MediaAttribution = ({
 
   if (compact) {
     return (
-      <p className={`line-clamp-2 break-words text-[0.6875rem] leading-relaxed ${textClass}`}>
+      <p
+        className={`break-words text-[0.6875rem] leading-relaxed [overflow-wrap:anywhere] ${textClass}`}
+      >
         Image{creator ? ` by ${creator}` : " source"}
         {attribution.licenseName ? ` · ${attribution.licenseName}` : ""}
         {" · "}
@@ -46,7 +48,9 @@ export const MediaAttribution = ({
   }
 
   return (
-    <dl className={`grid gap-1 break-words text-xs leading-relaxed ${textClass}`}>
+    <dl
+      className={`grid gap-1 break-words text-xs leading-relaxed ${textClass}`}
+    >
       {creator ? (
         <div>
           <dt className="inline font-semibold">Creator: </dt>

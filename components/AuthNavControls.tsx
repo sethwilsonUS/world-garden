@@ -1,7 +1,7 @@
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 const desktopButtonClass =
-  "btn-secondary min-h-9 cursor-pointer px-3 py-2 text-sm no-underline";
+  "btn-secondary min-h-11 cursor-pointer px-3 py-2 text-sm no-underline";
 
 const mobileButtonClass =
   "btn-secondary min-h-11 w-full cursor-pointer justify-center px-4 py-3 text-sm no-underline";

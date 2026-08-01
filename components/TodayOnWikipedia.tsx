@@ -50,7 +50,7 @@ export const TodayOnWikipediaContent = ({
       <div className="mb-5 text-center">
         <h2
           id="today-wikipedia-heading"
-          className="font-display text-lg font-semibold text-foreground"
+          className="type-section-title-sm font-display text-lg font-semibold text-foreground"
         >
           Today on Wikipedia
         </h2>

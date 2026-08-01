@@ -46,9 +46,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
       .catch((err: unknown) => {
         if (!cancelled) {
           setError(
-            err instanceof Error && err.message
-              ? err.message
-              : "Search failed",
+            err instanceof Error && err.message ? err.message : "Search failed",
           );
           setStatusMessage("");
         }
@@ -147,10 +145,10 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
                 marginTop: index > 0 ? "6px" : 0,
               }}
             >
-              <div className="flex items-center gap-3 rounded-[14px] border border-border bg-surface-2 py-3.5 pl-[18px] pr-3 transition-all duration-150">
+              <div className="flex min-w-0 flex-wrap items-start gap-[12px] rounded-[14px] border border-border bg-surface-2 px-[12px] py-[14px] transition-all duration-150 sm:pl-[18px]">
                 <ArticleLink
                   articleTitle={result.title}
-                  className="result-link flex min-w-0 flex-1 items-center gap-4 no-underline"
+                  className="result-link flex min-h-[44px] min-w-0 max-w-full flex-[1_1_240px] items-center gap-[16px] no-underline"
                   aria-label={`${index + 1}. ${result.title}: ${result.description}`}
                   onClick={() => analytics.searchResultClicked()}
                 >

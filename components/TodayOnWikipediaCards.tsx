@@ -7,10 +7,7 @@ import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { DailyTrendingBriefPlayer } from "@/components/DailyTrendingBriefPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
-import {
-  formatLocalDateTime,
-  formatUtcCalendarDate,
-} from "@/lib/date-format";
+import { formatLocalDateTime, formatUtcCalendarDate } from "@/lib/date-format";
 import { HOMEPAGE_PREVIEW_LIMITS } from "@/lib/homepage-articles";
 import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 import { MediaAttribution } from "./MediaAttribution";
@@ -120,17 +117,11 @@ const MAX_DID_YOU_KNOW_ITEMS = HOMEPAGE_PREVIEW_LIMITS.didYouKnowItems;
 const MAX_NEWS_ITEMS = HOMEPAGE_PREVIEW_LIMITS.newsItems;
 const MAX_TRENDING_ARTICLES = HOMEPAGE_PREVIEW_LIMITS.trendingArticles;
 const MAX_ON_THIS_DAY_ITEMS = HOMEPAGE_PREVIEW_LIMITS.onThisDayItems;
-const MAX_ARTICLE_LINKS_PER_ITEM =
-  HOMEPAGE_PREVIEW_LIMITS.articleLinksPerItem;
+const MAX_ARTICLE_LINKS_PER_ITEM = HOMEPAGE_PREVIEW_LIMITS.articleLinksPerItem;
 
 const toArticleSlug = (title: string) => title.replace(/ /g, "_");
 const toArticleHref = (titleOrSlug: string) =>
   `/article/${encodeURIComponent(titleOrSlug)}`;
-
-const truncate = (text: string, max: number): string =>
-  text.length > max
-    ? text.slice(0, max).replace(/\s+\S*$/, "") + "\u2026"
-    : text;
 
 const formatViews = (views: number): string => {
   if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)} million`;
@@ -151,7 +142,7 @@ const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
           <ArticleLink
             articleTitle={link.title}
             href={toArticleHref(link.slug)}
-            className="inline-flex items-center rounded-full border border-accent-border bg-accent-bg px-3 py-1 text-xs font-medium text-accent no-underline"
+            className="inline-flex min-h-[44px] max-w-full flex-wrap items-center break-words rounded-full border border-accent-border bg-accent-bg px-[12px] py-[4px] text-xs font-medium leading-snug text-accent no-underline [overflow-wrap:anywhere]"
           >
             {link.title}
           </ArticleLink>
@@ -229,8 +220,8 @@ export const FeaturedArticleCard = ({
               {article.title}
             </ArticleLink>
           </h3>
-          <p className="mt-2 text-sm leading-[1.65] text-foreground-2">
-            {truncate(article.extract, 220)}
+          <p className="mt-2 break-words text-sm leading-[1.65] text-foreground-2 [overflow-wrap:anywhere]">
+            {article.extract}
           </p>
           {dateLabel && (
             <p className="mt-3 text-xs text-muted" aria-live="polite">
@@ -274,7 +265,7 @@ const PreviewToggle = ({
       onClick={onToggle}
       aria-expanded={expanded}
       aria-controls={controls}
-      className="linked-article-link mt-4 min-h-8 rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-semibold text-foreground-2"
+      className="linked-article-link mt-4 min-h-11 rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-semibold text-foreground-2"
     >
       {expanded ? `Show fewer ${label}` : `Show all ${total} ${label}`}
     </button>
@@ -305,28 +296,33 @@ export const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
             role="list"
           >
             {visibleNews.map((item, index) => {
-          const imageLink = getFirstLinkedImage(item.links);
-          const image = imageLink?.thumbnail;
+              const imageLink = getFirstLinkedImage(item.links);
+              const image = imageLink?.thumbnail;
 
-          return (
-            <li
-              key={`${index}-${item.story}`}
-              className={image ? "flex gap-3" : undefined}
-            >
-              {imageLink && image && <LinkedItemThumbnail link={imageLink} />}
-              <div className="min-w-0">
-                <p className="text-sm leading-[1.7] text-foreground-2">
-                  {item.story}
-                </p>
-                <ArticleLinkList links={item.links} />
-                {image?.attribution ? (
-                  <div className="mt-2">
-                    <MediaAttribution attribution={image.attribution} compact />
+              return (
+                <li
+                  key={`${index}-${item.story}`}
+                  className={image ? "flex gap-3" : undefined}
+                >
+                  {imageLink && image && (
+                    <LinkedItemThumbnail link={imageLink} />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm leading-[1.7] text-foreground-2">
+                      {item.story}
+                    </p>
+                    <ArticleLinkList links={item.links} />
+                    {image?.attribution ? (
+                      <div className="mt-2">
+                        <MediaAttribution
+                          attribution={image.attribution}
+                          compact
+                        />
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            </li>
-          );
+                </li>
+              );
             })}
           </ul>
           <PreviewToggle
@@ -372,12 +368,14 @@ export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
               className="py-3 first:pt-0 last:pb-0"
             >
               <div className={image ? "flex gap-3" : undefined}>
-                {imageLink && image ? <LinkedItemThumbnail link={imageLink} /> : null}
+                {imageLink && image ? (
+                  <LinkedItemThumbnail link={imageLink} />
+                ) : null}
                 <div className="min-w-0">
                   <p className="text-sm leading-[1.7] text-foreground-2">
                     {item.year != null ? (
                       <span className="font-semibold text-foreground">
-                        {formatOnThisDayYear(item.year)}: {" "}
+                        {formatOnThisDayYear(item.year)}:{" "}
                       </span>
                     ) : null}
                     {item.text}
@@ -385,7 +383,10 @@ export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
                   <ArticleLinkList links={item.pages} />
                   {image?.attribution ? (
                     <div className="mt-2">
-                      <MediaAttribution attribution={image.attribution} compact />
+                      <MediaAttribution
+                        attribution={image.attribution}
+                        compact
+                      />
                     </div>
                   ) : null}
                 </div>
@@ -396,7 +397,7 @@ export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
       </ol>
       <Link
         href="/on-this-day"
-        className="linked-article-link mt-4 inline-flex min-h-8 items-center rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground-2 no-underline"
+        className="linked-article-link mt-4 inline-flex min-h-11 items-center rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground-2 no-underline"
       >
         {items.length > MAX_ON_THIS_DAY_ITEMS
           ? `Explore all ${items.length} highlights`
@@ -429,11 +430,7 @@ export const SnapshotCallout = ({
   );
 };
 
-const DidYouKnowSegmentText = ({
-  segment,
-}: {
-  segment: DidYouKnowSegment;
-}) => {
+const DidYouKnowSegmentText = ({ segment }: { segment: DidYouKnowSegment }) => {
   if (segment.type === "link") {
     return (
       <ArticleLink
@@ -475,39 +472,44 @@ export const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => {
             role="list"
           >
             {visibleItems.map((item, index) => {
-          const imageLink = getFirstLinkedImage(item.links);
-          const image = imageLink?.thumbnail;
+              const imageLink = getFirstLinkedImage(item.links);
+              const image = imageLink?.thumbnail;
 
-          return (
-            <li
-              key={`${index}-${item.text}`}
-              className={image ? "flex gap-3" : undefined}
-            >
-              {imageLink && image && <LinkedItemThumbnail link={imageLink} />}
-              <div className="min-w-0">
-                <p className="text-sm leading-[1.8] text-foreground-2">
-                  <span className="mr-2 font-semibold text-accent">
-                    {index + 1}.
-                  </span>
-                  {(item.segments.length > 0
-                    ? item.segments
-                    : [{ type: "text" as const, text: item.text }]
-                  ).map((segment, segmentIndex) => (
-                    <DidYouKnowSegmentText
-                      key={`${index}-${segmentIndex}`}
-                      segment={segment}
-                    />
-                  ))}
-                </p>
-                <ArticleLinkList links={item.links} />
-                {image?.attribution ? (
-                  <div className="mt-2">
-                    <MediaAttribution attribution={image.attribution} compact />
+              return (
+                <li
+                  key={`${index}-${item.text}`}
+                  className={image ? "flex gap-3" : undefined}
+                >
+                  {imageLink && image && (
+                    <LinkedItemThumbnail link={imageLink} />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm leading-[1.8] text-foreground-2">
+                      <span className="mr-2 font-semibold text-accent">
+                        {index + 1}.
+                      </span>
+                      {(item.segments.length > 0
+                        ? item.segments
+                        : [{ type: "text" as const, text: item.text }]
+                      ).map((segment, segmentIndex) => (
+                        <DidYouKnowSegmentText
+                          key={`${index}-${segmentIndex}`}
+                          segment={segment}
+                        />
+                      ))}
+                    </p>
+                    <ArticleLinkList links={item.links} />
+                    {image?.attribution ? (
+                      <div className="mt-2">
+                        <MediaAttribution
+                          attribution={image.attribution}
+                          compact
+                        />
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            </li>
-          );
+                </li>
+              );
             })}
           </ol>
           <PreviewToggle
@@ -586,52 +588,59 @@ export const TrendingArticles = ({
                       href={toArticleHref(slug)}
                       className="result-link flex flex-1 flex-col border-0 bg-transparent no-underline transition-all duration-200"
                     >
-                    {article.thumbnail ? (
-                      <AdaptiveImageFrame
-                        src={article.thumbnail.source}
-                        alt=""
-                        width={article.thumbnail.width}
-                        height={article.thumbnail.height}
-                        sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                        className="block aspect-[16/9]"
-                        unoptimized
-                      />
-                    ) : (
-                      <span
-                        className="flex aspect-[16/9] items-center justify-center bg-surface-3 text-muted opacity-40"
-                        aria-hidden="true"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={1}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          width={32}
-                          height={32}
+                      {article.thumbnail ? (
+                        <AdaptiveImageFrame
+                          src={article.thumbnail.source}
+                          alt=""
+                          width={article.thumbnail.width}
+                          height={article.thumbnail.height}
+                          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                          className="block aspect-[16/9]"
+                          unoptimized
+                        />
+                      ) : (
+                        <span
+                          className="flex aspect-[16/9] items-center justify-center bg-surface-3 text-muted opacity-40"
+                          aria-hidden="true"
                         >
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" />
-                          <polyline points="21 15 16 10 5 21" />
-                        </svg>
-                      </span>
-                    )}
-                      <span className="flex flex-1 flex-col px-4 py-3">
-                      <span className="text-xs font-semibold text-accent">
-                        #{index + 1}
-                      </span>
-                      <span className="mt-2 font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground">
-                        {article.title}
-                      </span>
-                      <span className="mt-1 text-[0.8125rem] leading-[1.5] text-muted">
-                        {truncate(article.extract, 120)}
-                      </span>
-                      {article.views > 0 && (
-                        <span className="mt-2 text-[0.6875rem] text-muted">
-                          {formatViews(article.views)} views yesterday
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            width={32}
+                            height={32}
+                          >
+                            <rect
+                              x="3"
+                              y="3"
+                              width="18"
+                              height="18"
+                              rx="2"
+                              ry="2"
+                            />
+                            <circle cx="8.5" cy="8.5" r="1.5" />
+                            <polyline points="21 15 16 10 5 21" />
+                          </svg>
                         </span>
                       )}
+                      <span className="flex flex-1 flex-col px-4 py-3">
+                        <span className="text-xs font-semibold text-accent">
+                          #{index + 1}
+                        </span>
+                        <span className="mt-2 font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground">
+                          {article.title}
+                        </span>
+                        <span className="mt-1 break-words text-[0.8125rem] leading-[1.5] text-muted [overflow-wrap:anywhere]">
+                          {article.extract}
+                        </span>
+                        {article.views > 0 && (
+                          <span className="mt-2 text-[0.6875rem] text-muted">
+                            {formatViews(article.views)} views yesterday
+                          </span>
+                        )}
                       </span>
                     </ArticleLink>
                     {article.thumbnail?.attribution ? (

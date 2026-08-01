@@ -30,9 +30,11 @@ export const DashboardBadgeCard = ({
   headingId,
 }: DashboardBadgeCardProps) => {
   const badgeGridClass = "mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3";
-  const [selectedBadgeKey, setSelectedBadgeKey] = useState<BadgeKey | null>(null);
+  const [selectedBadgeKey, setSelectedBadgeKey] = useState<BadgeKey | null>(
+    null,
+  );
   const selectedBadge = selectedBadgeKey
-    ? badges.find((badge) => badge.key === selectedBadgeKey) ?? null
+    ? (badges.find((badge) => badge.key === selectedBadgeKey) ?? null)
     : null;
   const closeBadgeDialog = useCallback(() => {
     setSelectedBadgeKey(null);
@@ -40,19 +42,19 @@ export const DashboardBadgeCard = ({
 
   return (
     <article className="garden-bed p-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-[1_1_220px]">
           <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
             Signed-in progress
           </p>
           <h2
             id={headingId}
-            className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground"
+            className="type-section-title-lg mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground"
           >
             Badges
           </h2>
         </div>
-        <span className="inline-flex shrink-0 rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-accent">
+        <span className="inline-flex max-w-full flex-wrap rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase leading-snug tracking-[0.12em] text-accent">
           Growing now
         </span>
       </div>
@@ -85,7 +87,7 @@ export const DashboardBadgeCard = ({
               className="rounded-2xl border border-border bg-surface p-4"
             >
               <div className="skeleton h-5 w-24" />
-              <div className="skeleton mx-auto mt-6 h-24 w-24 rounded-[1.6rem]" />
+              <div className="skeleton mx-auto mt-6 h-24 w-24 rounded-[25.6px]" />
               <div className="skeleton mt-6 h-2.5 w-full rounded-full" />
             </div>
           ))}
@@ -114,7 +116,7 @@ export const DashboardBadgeCard = ({
                 onClick={() => setSelectedBadgeKey(badge.key)}
                 aria-label={accessibleLabel}
                 aria-haspopup="dialog"
-                className={`group relative flex min-h-[14.5rem] w-full cursor-pointer flex-col overflow-hidden rounded-[1.35rem] border p-4 text-left transition-[transform,border-color,background-color,box-shadow] duration-200 hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${cardShellClass}`}
+                className={`group relative flex min-h-[232px] w-full cursor-pointer flex-col overflow-hidden rounded-[21.6px] border p-4 text-left transition-[transform,border-color,background-color,box-shadow] duration-200 hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${cardShellClass}`}
               >
                 <span
                   aria-hidden="true"
@@ -133,15 +135,18 @@ export const DashboardBadgeCard = ({
 
                   <span className="flex flex-1 items-center justify-center py-4">
                     <span
-                      className={`relative inline-flex size-24 items-center justify-center rounded-[1.7rem] border shadow-sm transition-transform duration-200 group-hover:scale-[1.03] ${iconShellClass}`}
+                      className={`relative inline-flex size-24 items-center justify-center rounded-[27.2px] border shadow-sm transition-transform duration-200 group-hover:scale-[1.03] ${iconShellClass}`}
                     >
                       <span
                         aria-hidden="true"
-                        className={`absolute inset-[8px] rounded-[1.25rem] ${
+                        className={`absolute inset-[8px] rounded-[20px] ${
                           locked ? "bg-surface-2" : "bg-accent-bg"
                         }`}
                       />
-                      <BadgeArtwork badgeKey={badge.key} className="relative size-14" />
+                      <BadgeArtwork
+                        badgeKey={badge.key}
+                        className="relative size-14"
+                      />
                     </span>
                   </span>
 

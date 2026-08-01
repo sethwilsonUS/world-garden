@@ -230,7 +230,7 @@ const SignedInDashboard = () => {
       <section
         id="playlist"
         aria-labelledby="dashboard-playlist-heading"
-        className="scroll-mt-20 pt-8"
+        className="scroll-mt-[calc(var(--site-header-height)+16px)] pt-8"
       >
         <DashboardPlaylistCard
           entries={personalPlaylist.entries}
@@ -252,7 +252,7 @@ const SignedInDashboard = () => {
       <section
         id="badges"
         aria-labelledby="dashboard-badges-heading"
-        className="scroll-mt-20 pt-8"
+        className="scroll-mt-[calc(var(--site-header-height)+16px)] pt-8"
       >
         <DashboardBadgeCard
           badges={badges}

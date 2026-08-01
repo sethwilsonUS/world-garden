@@ -96,11 +96,11 @@ export const RelatedArticles = ({
           const slug = encodeURIComponent(article.title.replace(/ /g, "_"));
           return (
             <li key={article.wikiPageId}>
-              <div className="flex items-center gap-3 rounded-[10px] border border-border bg-surface px-3.5 py-2.5 transition-all duration-200">
+              <div className="flex min-w-0 flex-wrap items-start gap-[12px] rounded-[10px] border border-border bg-surface px-[14px] py-[10px] transition-all duration-200">
                 <ArticleLink
                   articleTitle={article.title}
                   href={`/article/${slug}`}
-                  className="result-link min-w-0 flex-1 no-underline"
+                  className="result-link min-h-[44px] min-w-0 max-w-full flex-[1_1_240px] break-words no-underline [overflow-wrap:anywhere]"
                 >
                   <span className="block text-sm font-semibold leading-[1.4] text-foreground">
                     {article.title}

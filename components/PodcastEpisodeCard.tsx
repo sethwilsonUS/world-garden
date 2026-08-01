@@ -72,7 +72,7 @@ export const PodcastEpisodeCard = ({
           </h3>
 
           {summary && (
-            <p className="mt-2 text-sm leading-[1.68] text-foreground-2 line-clamp-3">
+            <p className="mt-2 break-words text-sm leading-[1.68] text-foreground-2 [overflow-wrap:anywhere]">
               {summary}
             </p>
           )}

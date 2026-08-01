@@ -38,7 +38,7 @@ import {
   type VisualLoadPhase,
 } from "./ArticleContextVisualShared";
 
-const MOBILE_CHART_MEDIA_QUERY = "(max-width: 640px)";
+const MOBILE_CHART_MEDIA_QUERY = "(max-width: 40rem)";
 const CHART_LOAD_TIMEOUT_MS = 15_000;
 
 const numericValue = (value: unknown): number | null =>
@@ -263,6 +263,7 @@ const EChartsGraphic = ({
   const { matches: narrowViewport, revision: viewportRevision } = useMediaQuery(
     MOBILE_CHART_MEDIA_QUERY,
   );
+  const [textScaleRevision, setTextScaleRevision] = useState(0);
   const [attemptState, setAttemptState] = useState<{
     key: string;
     phase: "loading" | "ready" | "fallback";
@@ -287,7 +288,7 @@ const EChartsGraphic = ({
     () => getContextChartPayloadKey(rows, selectedSeries),
     [rows, selectedSeries],
   );
-  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${chartPayloadKey}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}`;
+  const chartAttempt = `${block.provenance.sourceHash}:${block.id}:${theme}:${chartPayloadKey}:${horizontalBars}:${renderKind}:${zeroBaseline}:${narrowViewport}:${viewportRevision}:${textScaleRevision}`;
   const useMobileBarLayout = horizontalBars && narrowViewport;
   const phase: VisualLoadPhase = !nearViewport
     ? "deferred"
@@ -300,6 +301,14 @@ const EChartsGraphic = ({
   useLayoutEffect(() => {
     if (readinessKey) onPhaseChange?.(readinessKey, phase);
   }, [onPhaseChange, phase, readinessKey]);
+
+  useEffect(() => {
+    const refreshTextScale = () =>
+      setTextScaleRevision((revision) => revision + 1);
+    window.addEventListener("curio:text-scale-change", refreshTextScale);
+    return () =>
+      window.removeEventListener("curio:text-scale-change", refreshTextScale);
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -333,6 +342,12 @@ const EChartsGraphic = ({
         chart = echarts.init(container, undefined, { renderer: "svg" });
         chart.on("finished", finishHandler);
         const styles = getComputedStyle(container);
+        const rootFontSize =
+          Number.parseFloat(
+            getComputedStyle(document.documentElement).fontSize,
+          ) || 16;
+        const chartFontSize = Math.max(12, rootFontSize * 0.75);
+        const chartFontFamily = styles.fontFamily;
         const textColor =
           styles.getPropertyValue("--color-foreground-2").trim() ||
           (theme === "dark" ? "#d1d5db" : "#374151");
@@ -342,14 +357,18 @@ const EChartsGraphic = ({
         const valueAxis = {
           type: "value" as const,
           scale: !zeroBaseline,
-          axisLabel: { color: textColor },
+          axisLabel: { color: textColor, fontSize: chartFontSize },
           axisLine: { lineStyle: { color: borderColor } },
           splitLine: { lineStyle: { color: borderColor } },
         };
         const categoryAxis = {
           type: "category" as const,
           data: xLabels,
-          axisLabel: { hideOverlap: !horizontalBars, color: textColor },
+          axisLabel: {
+            hideOverlap: !horizontalBars,
+            color: textColor,
+            fontSize: chartFontSize,
+          },
           axisLine: { lineStyle: { color: borderColor } },
           axisTick: { lineStyle: { color: borderColor } },
         };
@@ -358,7 +377,11 @@ const EChartsGraphic = ({
           animationDuration: 350,
           color: [...CHART_COLORS[theme]],
           backgroundColor: "transparent",
-          textStyle: { color: textColor },
+          textStyle: {
+            color: textColor,
+            fontFamily: chartFontFamily,
+            fontSize: chartFontSize,
+          },
           grid: horizontalBars
             ? {
                 left: 24,
@@ -380,7 +403,11 @@ const EChartsGraphic = ({
                   show: true,
                   top: 4,
                   type: "scroll",
-                  textStyle: { color: textColor },
+                  textStyle: {
+                    color: textColor,
+                    fontFamily: chartFontFamily,
+                    fontSize: chartFontSize,
+                  },
                 }
               : { show: false },
           tooltip: { show: false },
@@ -419,7 +446,13 @@ const EChartsGraphic = ({
                     (item): item is { name: string; value: number } =>
                       item !== null,
                   ),
-                label: { show: true, formatter: "{b}", color: textColor },
+                label: {
+                  show: true,
+                  formatter: "{b}",
+                  color: textColor,
+                  fontFamily: chartFontFamily,
+                  fontSize: chartFontSize,
+                },
                 itemStyle: { decal },
               };
             }
@@ -496,7 +529,7 @@ const EChartsGraphic = ({
       <div className="context-desktop-chart">
         <div
           className="context-echarts-surface"
-          style={{ minHeight: chartHeight }}
+          style={{ minHeight: `max(${chartHeight}px, 288px)` }}
         >
           <div
             ref={containerRef}
@@ -504,7 +537,7 @@ const EChartsGraphic = ({
             aria-hidden="true"
             aria-busy={phase === "loading"}
             hidden={phase === "fallback"}
-            style={{ minHeight: chartHeight }}
+            style={{ minHeight: `max(${chartHeight}px, 288px)` }}
           />
           {phase === "fallback" ? (
             <div className="context-echarts-fallback" aria-hidden="true">

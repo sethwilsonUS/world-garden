@@ -18,13 +18,17 @@ const commonLinks = [
 
 const linkClassByVariant: Record<SiteNavLinksProps["variant"], string> = {
   desktop:
-    "text-foreground-2 no-underline py-[6px] px-3 rounded-lg text-sm font-medium transition-colors duration-200",
+    "inline-flex min-h-11 items-center text-foreground-2 no-underline py-2 px-3 rounded-lg text-sm font-medium leading-snug transition-colors duration-200",
   mobile:
-    "text-foreground no-underline py-3 px-3 rounded-lg text-sm font-medium transition-colors duration-200",
-  footer: "text-foreground-2 no-underline text-sm",
+    "inline-flex min-h-11 items-center text-foreground no-underline py-2 px-3 rounded-lg text-sm font-medium leading-snug transition-colors duration-200",
+  footer:
+    "inline-flex min-h-11 items-center text-foreground-2 no-underline text-sm leading-snug",
 };
 
-export const isSiteNavHrefCurrent = (pathname: string, href: string): boolean =>
+export const isSiteNavHrefCurrent = (
+  pathname: string,
+  href: string,
+): boolean =>
   href === "/"
     ? pathname === "/"
     : pathname === href || pathname.startsWith(`${href}/`);
@@ -56,12 +60,8 @@ export const SiteNavLinks = ({
       {commonLinks.map((link) => renderLink(link.href, link.label))}
       {authEnabled ? (
         <>
-          <Show when="signed-out">
-            {renderLink("/library", "Library")}
-          </Show>
-          <Show when="signed-in">
-            {renderLink("/dashboard", "Dashboard")}
-          </Show>
+          <Show when="signed-out">{renderLink("/library", "Library")}</Show>
+          <Show when="signed-in">{renderLink("/dashboard", "Dashboard")}</Show>
         </>
       ) : (
         renderLink("/library", "Library")

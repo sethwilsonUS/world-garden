@@ -9,16 +9,16 @@ export const LocalModeBanner = () => {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 top-12 z-[60] flex items-center justify-center gap-3 border-b border-accent-border bg-surface px-4 py-2 text-[0.8125rem] font-medium text-accent shadow-sm"
+      className="relative z-10 border-b border-accent-border bg-surface py-2 pl-4 pr-16 text-[0.8125rem] font-medium leading-relaxed text-accent shadow-sm"
     >
-      <span>
-        Running in local mode &mdash; articles are fetched live from Wikipedia.
-        Your history and bookmarks are saved locally in your browser.
+      <span className="block min-w-0 break-words text-center [overflow-wrap:anywhere]">
+        Local mode &mdash; Wikipedia loads live; history and bookmarks stay in
+        this browser.
       </span>
       <button
         onClick={() => setDismissed(true)}
         aria-label="Dismiss local mode notice"
-        className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded border-0 bg-transparent p-0 text-inherit"
+        className="absolute right-2 top-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 text-inherit"
       >
         <svg
           viewBox="0 0 24 24"

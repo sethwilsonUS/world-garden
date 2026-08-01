@@ -252,7 +252,7 @@ export const FeedbackForm = ({
       >
         <h2
           id="feedback-form-heading"
-          className="font-display text-2xl font-semibold text-foreground"
+          className="type-section-title-lg font-display text-2xl font-semibold text-foreground"
         >
           Share feedback
         </h2>
@@ -291,7 +291,7 @@ export const FeedbackForm = ({
     >
       <h2
         id="feedback-form-heading"
-        className="font-display text-2xl font-semibold text-foreground"
+        className="type-section-title-lg font-display text-2xl font-semibold text-foreground"
       >
         Share feedback
       </h2>

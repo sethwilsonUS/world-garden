@@ -134,6 +134,7 @@ describe("OnThisDayExplorer", () => {
     expect(statuses[0].textContent).toBe(
       "Showing 1 of 1 highlight, newest first.",
     );
+    const persistentStatus = statuses[0];
 
     tabs[0].focus();
     await act(async () =>
@@ -152,6 +153,7 @@ describe("OnThisDayExplorer", () => {
     );
     await act(async () => undefined);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector('[role="status"]')).toBe(persistentStatus);
     expect(document.activeElement).toBe(tabs[1]);
     expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(25);
 

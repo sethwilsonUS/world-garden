@@ -85,7 +85,7 @@ export const CuriousAbout = () => {
     return (
       <section aria-label="Loading trending articles" className="mt-12">
         <div className="skeleton mx-auto mb-4" style={{ width: "55%", height: "22px" }} />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: MAX_ARTICLES }).map((_, i) => (
             <div key={i} className="bg-surface-2 border border-border rounded-2xl overflow-hidden">
               <div className="skeleton w-full aspect-[16/9]" style={{ borderRadius: 0 }} />
@@ -104,7 +104,7 @@ export const CuriousAbout = () => {
     <section aria-labelledby="curious-heading" className="mt-12">
       <h2
         id="curious-heading"
-        className="font-display font-semibold text-lg text-foreground mb-4 text-center"
+        className="type-section-title-sm font-display font-semibold text-lg text-foreground mb-4 text-center"
       >
         What people are curious about
       </h2>
@@ -127,7 +127,7 @@ export const CuriousAbout = () => {
         </div>
       ) : null}
       <ul
-        className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3"
+        className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4"
         role="list"
       >
         {articles.map((article) => (

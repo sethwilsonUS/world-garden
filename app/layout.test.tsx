@@ -34,5 +34,10 @@ describe("RootLayout", () => {
     );
 
     expect(markup).toContain("Page not found");
+    expect(markup).toContain('name="text-scale"');
+    expect(markup).toContain('content="scale"');
+    expect(markup).toContain("-apple-system-body");
+    expect(markup).toContain("--os-text-base");
+    expect(markup).toContain("navigator.maxTouchPoints > 1");
   });
 });

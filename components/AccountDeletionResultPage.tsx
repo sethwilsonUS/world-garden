@@ -53,7 +53,7 @@ export const AccountDeletionResultPage = ({
             </p>
             <h1
               id="account-deletion-result-heading"
-              className="mt-3 font-display text-[2rem] font-bold leading-[1.12] text-foreground sm:text-[2.35rem]"
+              className="type-page-title mt-3 font-display text-[2rem] font-bold leading-[1.12] text-foreground sm:text-[2.35rem]"
             >
               {content.title}
             </h1>
@@ -63,7 +63,7 @@ export const AccountDeletionResultPage = ({
           </div>
 
           <div className="p-6 sm:p-8">
-            <h2 className="font-display text-xl font-semibold text-foreground">
+            <h2 className="type-section-title font-display text-xl font-semibold text-foreground">
               What remains on devices and in the shared garden
             </h2>
             <p className="mt-3 text-sm leading-[1.8] text-foreground-2">

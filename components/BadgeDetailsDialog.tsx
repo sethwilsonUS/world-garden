@@ -28,11 +28,11 @@ const formatBadgeCreditDate = (timestamp: number): string =>
   });
 
 const FOCUSABLE_SELECTOR = [
-  'a[href]',
-  'button:not([disabled])',
-  'textarea:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
+  "a[href]",
+  "button:not([disabled])",
+  "textarea:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
 
@@ -79,9 +79,10 @@ export const BadgeDetailsDialog = ({
   const progressFillClass = locked ? "bg-muted/60" : "bg-accent";
 
   useEffect(() => {
-    restoreFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     const previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
@@ -147,15 +148,15 @@ export const BadgeDetailsDialog = ({
         }}
         onClick={onClose}
       />
-      <div className="absolute inset-0 flex items-center justify-center px-4 py-5 pointer-events-none">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-[16px] py-[16px]">
         <div
           ref={panelRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={descriptionId}
-          className={`scrollbar-subtle pointer-events-auto relative w-full max-w-xl overflow-y-auto rounded-[1.6rem] border ${dialogShellClass}`}
-          style={{ maxHeight: "min(90vh, calc(100vh - 2.5rem))" }}
+          className={`scrollbar-subtle pointer-events-auto relative w-full max-w-xl overflow-y-auto overscroll-contain rounded-[25.6px] border [overflow-wrap:anywhere] ${dialogShellClass}`}
+          style={{ maxHeight: "calc(100dvh - 32px)" }}
           onClick={(event) => event.stopPropagation()}
         >
           <div
@@ -168,19 +169,22 @@ export const BadgeDetailsDialog = ({
             }}
           />
 
-          <div className="relative p-5 sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-4">
+          <div className="relative p-[20px] sm:p-[24px]">
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-[16px]">
+              <div className="flex min-w-0 flex-[1_1_240px] flex-wrap items-center gap-[16px]">
                 <div
-                  className={`relative inline-flex h-[4.5rem] w-[4.5rem] shrink-0 items-center justify-center rounded-[1.35rem] border shadow-sm ${iconShellClass}`}
+                  className={`relative inline-flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-[21.6px] border shadow-sm ${iconShellClass}`}
                 >
                   <div
                     aria-hidden="true"
-                    className={`absolute inset-[7px] rounded-[1.05rem] ${
+                    className={`absolute inset-[7px] rounded-[16.8px] ${
                       locked ? "bg-surface-2" : "bg-accent-bg"
                     }`}
                   />
-                  <BadgeArtwork badgeKey={badge.key} className="relative size-10" />
+                  <BadgeArtwork
+                    badgeKey={badge.key}
+                    className="relative size-10"
+                  />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-muted">
@@ -188,7 +192,7 @@ export const BadgeDetailsDialog = ({
                   </p>
                   <h2
                     id={titleId}
-                    className="mt-2 font-display text-[1.55rem] font-semibold leading-[1.08] text-foreground"
+                    className="mt-2 break-words font-display text-[1.55rem] font-semibold leading-[1.08] text-foreground [overflow-wrap:anywhere]"
                   >
                     {badge.label}
                   </h2>
@@ -200,7 +204,7 @@ export const BadgeDetailsDialog = ({
                 type="button"
                 onClick={onClose}
                 aria-label={`Close ${badge.label} badge details`}
-                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border bg-surface text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted transition-colors duration-200 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -221,7 +225,7 @@ export const BadgeDetailsDialog = ({
 
             <p
               id={descriptionId}
-              className="mt-5 text-[0.98rem] leading-[1.75] text-foreground-2"
+              className="mt-5 break-words text-[0.98rem] leading-[1.75] text-foreground-2 [overflow-wrap:anywhere]"
             >
               {badge.description}
             </p>
@@ -243,8 +247,8 @@ export const BadgeDetailsDialog = ({
               </span>
             </div>
 
-            <div className="mt-5 rounded-[1.2rem] border border-border bg-surface-2 p-4">
-              <div className="flex items-center justify-between gap-3">
+            <div className="mt-5 rounded-[19.2px] border border-border bg-surface-2 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-[12px]">
                 <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-muted">
                   Progress
                 </p>
@@ -285,7 +289,7 @@ export const BadgeDetailsDialog = ({
               aria-live="polite"
               className="mt-6"
             >
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-[12px]">
                 <h3
                   id={articlesId}
                   className="font-display text-[1.18rem] font-semibold leading-[1.2] text-foreground"
@@ -300,17 +304,17 @@ export const BadgeDetailsDialog = ({
               </div>
 
               {creditsAreLoading ? (
-                <p className="mt-3 rounded-[1.05rem] border border-border bg-surface-2 px-4 py-3 text-sm leading-[1.7] text-foreground-2">
+                <p className="mt-3 rounded-[16.8px] border border-border bg-surface-2 px-4 py-3 text-sm leading-[1.7] text-foreground-2">
                   Loading credited articles...
                 </p>
               ) : hasCreditMismatch ? (
-                <p className="mt-3 rounded-[1.05rem] border border-dashed border-serious/40 bg-surface-2 px-4 py-3 text-sm leading-[1.7] text-foreground-2">
+                <p className="mt-3 rounded-[16.8px] border border-dashed border-serious/40 bg-surface-2 px-4 py-3 text-sm leading-[1.7] text-foreground-2">
                   This badge already has {badge.creditedArticleCount} credited
                   article{badge.creditedArticleCount === 1 ? "" : "s"}, but
                   their titles have not synced into the modal yet.
                 </p>
               ) : resolvedCredits.length === 0 ? (
-                <p className="mt-3 rounded-[1.05rem] border border-dashed border-border bg-surface-2 px-4 py-3 text-sm leading-[1.7] text-foreground-2">
+                <p className="mt-3 rounded-[16.8px] border border-dashed border-border bg-surface-2 px-4 py-3 text-sm leading-[1.7] text-foreground-2">
                   No articles have credited this badge yet. Listen to a matching
                   article page until you have heard 80% of its playable audio to
                   earn the first EXP.
@@ -323,7 +327,7 @@ export const BadgeDetailsDialog = ({
                         articleTitle={credit.title}
                         href={`/article/${credit.slug}`}
                         onClick={onClose}
-                        className="group flex min-h-11 items-start justify-between gap-3 rounded-[1rem] border border-border bg-surface-2 px-3.5 py-3 text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                        className="group flex min-h-[44px] min-w-0 flex-wrap items-start justify-between gap-[12px] rounded-[16px] border border-border bg-surface-2 px-[14px] py-[12px] text-left no-underline transition-colors duration-200 hover:border-accent-border hover:bg-accent-bg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                       >
                         <span className="min-w-0">
                           <span className="block text-sm leading-[1.45] text-foreground">

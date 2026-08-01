@@ -25,21 +25,29 @@ export const PodcastEpisodePlayer = ({
 
   const effectiveDuration = duration > 0 ? duration : (durationSeconds ?? 0);
   const progress =
-    effectiveDuration > 0 ? Math.min(100, (currentTime / effectiveDuration) * 100) : 0;
+    effectiveDuration > 0
+      ? Math.min(100, (currentTime / effectiveDuration) * 100)
+      : 0;
 
   return (
     <div
       className={`rounded-xl border border-border bg-surface px-3 py-2.5 sm:px-3.5 sm:py-3 ${className}`.trim()}
     >
-      <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+      <div className="flex min-w-0 flex-wrap items-start gap-[10px] sm:gap-[12px]">
         <button
           type="button"
           onClick={toggle}
           aria-label={playing ? `Pause ${title}` : `Play ${title}`}
-          className="search-submit flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 bg-accent text-white"
+          className="search-submit flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border-0 bg-accent text-white"
         >
           {playing ? (
-            <svg viewBox="0 0 24 24" fill="currentColor" width={18} height={18} aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              width={18}
+              height={18}
+              aria-hidden="true"
+            >
               <rect x="6" y="4" width="4" height="16" rx="1" />
               <rect x="14" y="4" width="4" height="16" rx="1" />
             </svg>
@@ -57,11 +65,11 @@ export const PodcastEpisodePlayer = ({
           )}
         </button>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(100%,10rem)] flex-[1_1_10rem] break-words [overflow-wrap:anywhere]">
           <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">
             Episode audio
           </p>
-          <p className="m-0 mt-0.5 truncate font-display text-[0.92rem] font-semibold text-foreground">
+          <p className="m-0 mt-0.5 font-display text-[0.92rem] font-semibold leading-snug text-foreground">
             {title}
           </p>
         </div>
@@ -74,7 +82,7 @@ export const PodcastEpisodePlayer = ({
             setRate(rates[(currentIndex + 1) % rates.length]);
           }}
           aria-label={`Playback speed ${formatRate(rate)}. Click to change.`}
-          className={`min-w-[44px] rounded-lg border border-border px-2.5 py-2 font-mono text-[0.72rem] font-bold leading-none ${
+          className={`min-h-[44px] min-w-[44px] shrink-0 rounded-lg border border-border px-[10px] py-[8px] font-mono text-[0.72rem] font-bold leading-none ${
             rate !== 1 ? "text-accent" : "text-muted"
           }`}
         >
@@ -82,7 +90,7 @@ export const PodcastEpisodePlayer = ({
         </button>
       </div>
 
-      <div className="mt-2.5 flex items-center gap-2.5 sm:gap-3">
+      <div className="mt-[10px] grid min-w-0 grid-cols-1 gap-[8px]">
         <div
           aria-hidden="true"
           className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3"
@@ -92,7 +100,7 @@ export const PodcastEpisodePlayer = ({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="shrink-0 font-mono text-[0.68rem] text-muted tabular-nums">
+        <span className="justify-self-end font-mono text-[0.68rem] text-muted tabular-nums">
           {formatTime(currentTime)} / {formatTime(effectiveDuration)}
         </span>
       </div>

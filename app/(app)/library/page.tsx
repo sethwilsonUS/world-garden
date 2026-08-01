@@ -24,7 +24,7 @@ export default function LibraryPage() {
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
+            className="inline-flex min-h-[44px] items-center gap-1 text-muted text-sm no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -46,7 +46,7 @@ export default function LibraryPage() {
         <section aria-labelledby="library-heading">
           <h1
             id="library-heading"
-            className="font-display text-[1.75rem] font-bold mb-6 text-foreground"
+            className="type-page-title font-display text-[1.75rem] font-bold mb-6 text-foreground"
           >
             Library
           </h1>
@@ -63,10 +63,7 @@ export default function LibraryPage() {
               </p>
             </div>
           ) : viewState === "empty" ? (
-            <div
-              className="garden-bed text-center py-12 px-6"
-              role="status"
-            >
+            <div className="garden-bed text-center py-12 px-6" role="status">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -89,35 +86,32 @@ export default function LibraryPage() {
               </p>
               <Link
                 href="/"
-                className="btn-primary inline-flex mt-5 py-2.5 px-6 text-sm no-underline"
+                className="btn-primary mt-5 inline-flex min-h-[44px] max-w-full flex-wrap px-6 py-2.5 text-center text-sm no-underline"
               >
                 Start exploring
               </Link>
             </div>
           ) : (
-            <ul
-              className="list-none p-0 m-0"
-              role="list"
-            >
+            <ul className="list-none p-0 m-0" role="list">
               {entries.map((entry) => (
-                <li
-                  key={entry.slug}
-                  className="mb-2"
-                >
-                  <div className="result-link flex items-center justify-between gap-3 py-3.5 px-4 bg-surface-2 border border-border rounded-xl transition-all duration-200">
+                <li key={entry.slug} className="mb-2">
+                  <div className="result-link flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-surface-2 px-4 py-3.5 transition-all duration-200">
                     <ArticleLink
                       articleTitle={entry.title}
                       href={`/article/${encodeURIComponent(entry.slug)}`}
-                      className="flex-1 min-w-0 no-underline"
+                      className="min-h-[44px] min-w-0 max-w-full flex-[1_1_240px] break-words no-underline [overflow-wrap:anywhere]"
                     >
                       <span className="block font-semibold text-foreground text-[0.9375rem] leading-[1.4]">
                         {entry.title}
                       </span>
                       <time
-                        dateTime={new Date(entry.savedAt).toISOString().split("T")[0]}
+                        dateTime={
+                          new Date(entry.savedAt).toISOString().split("T")[0]
+                        }
                         className="block text-xs text-muted mt-0.5"
                       >
-                        Saved {new Date(entry.savedAt).toLocaleDateString(undefined, {
+                        Saved{" "}
+                        {new Date(entry.savedAt).toLocaleDateString(undefined, {
                           month: "short",
                           day: "numeric",
                           year: "numeric",
@@ -127,7 +121,7 @@ export default function LibraryPage() {
                     <button
                       onClick={() => remove(entry.slug)}
                       aria-label={`Remove ${entry.title} from your Library`}
-                      className="linked-article-link inline-flex items-center justify-center w-8 h-8 shrink-0 bg-transparent border border-border rounded-lg cursor-pointer text-muted transition-colors duration-200"
+                      className="linked-article-link inline-flex h-[44px] w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent text-muted transition-colors duration-200"
                     >
                       <svg
                         viewBox="0 0 24 24"

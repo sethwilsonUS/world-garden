@@ -885,6 +885,68 @@ test("default audio player controls stay inside a nested mobile surface", async 
   }
 });
 
+test("audio player labels and controls reflow inside a mobile surface with enlarged text", async ({
+  page,
+}) => {
+  const longTitle =
+    "Why extraordinarily long and wonderfully specific topics are trending around the world today";
+  await mockHomeData(page);
+  await page.unroute("**/api/trending/brief");
+  await page.route("**/api/trending/brief", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        enabled: true,
+        status: "ready",
+        brief: {
+          headline: longTitle,
+          summary: "A concise daily briefing.",
+          model: "gpt-test",
+          audioUrl: "/audio/curio-garden-listening-sample-edge-v1.mp3",
+        },
+      }),
+    }),
+  );
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/trending");
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+
+  const player = page.getByRole("group", {
+    name: `Audio player for ${longTitle}`,
+  });
+  const visibleLabel = player.getByText(
+    "Listen: AI-generated daily trending briefing",
+    { exact: true },
+  );
+  await expect(visibleLabel).toBeVisible();
+  await expect(visibleLabel).toHaveCSS("white-space", "normal");
+
+  const surface = player.locator("[data-audio-player-surface]");
+  const surfaceBox = await surface.boundingBox();
+  expect(surfaceBox).not.toBeNull();
+  const controls = [
+    player.getByRole("button", { name: "Skip back 10 seconds" }),
+    player.getByRole("button", { name: `Play: ${longTitle}` }),
+    player.getByRole("button", { name: "Skip forward 10 seconds" }),
+    player.getByRole("button", { name: /^Playback speed / }),
+    player.getByRole("slider", { name: "Playback position" }),
+  ];
+  for (const control of controls) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(surfaceBox!.x - 0.5);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(
+      surfaceBox!.x + surfaceBox!.width + 0.5,
+    );
+  }
+
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
 test("ordinary editorial photos fill their frames without blurred bars", async ({
   page,
 }) => {
@@ -1081,6 +1143,56 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await expectNoSeriousAxeViolations(page);
 });
 
+test("article summary and media attribution remain fully available at large text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockArticleData(page);
+  await page.goto("/article/Ada_Lovelace");
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+
+  await expect(
+    page.getByText("Ada Lovelace was an English mathematician and writer.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+
+  const sourceLink = page
+    .getByRole("link", {
+      name: /source\s*: File:Ada portrait\.jpg/,
+    })
+    .first();
+  await expect(sourceLink).toBeVisible();
+  const compactAttribution = sourceLink.locator("xpath=parent::p");
+  expect(
+    await compactAttribution.evaluate(
+      (element) => getComputedStyle(element).webkitLineClamp,
+    ),
+  ).toBe("none");
+});
+
+test("trending cards collapse to one readable column on a narrow screen", async ({
+  page,
+}) => {
+  await mockHomeData(page);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/trending");
+
+  const firstCard = page
+    .getByRole("link", { name: /Trending topic 1/ })
+    .locator("xpath=ancestor::li[1]");
+  const secondCard = page
+    .getByRole("link", { name: /Trending topic 2/ })
+    .locator("xpath=ancestor::li[1]");
+  const [firstBox, secondBox] = await Promise.all([
+    firstCard.boundingBox(),
+    secondCard.boundingBox(),
+  ]);
+  expect(firstBox).not.toBeNull();
+  expect(secondBox).not.toBeNull();
+  expect(secondBox!.y).toBeGreaterThanOrEqual(firstBox!.y + firstBox!.height);
+});
+
 test("article keeps structured source sections playable with an accessible adaptation disclosure", async ({
   page,
 }) => {
@@ -1107,6 +1219,50 @@ test("article keeps structured source sections playable with an accessible adapt
     page.getByRole("button", { name: "Listen to Recognition" }),
   );
   await expectNoSeriousAxeViolations(page);
+});
+
+test("article section controls and metadata reflow with enlarged text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await mockArticleData(page);
+  await page.goto("/article/Ada_Lovelace");
+
+  const tableOfContents = page
+    .getByRole("heading", { level: 2, name: "Explore this article" })
+    .locator("xpath=ancestor::*[contains(@class, 'toc-section')]");
+  const adaptationInfo = tableOfContents.getByRole("button", {
+    name: "How Recognition was adapted for audio",
+  });
+  const infoTarget = await adaptationInfo.boundingBox();
+  expect(infoTarget).not.toBeNull();
+  expect(infoTarget!.width).toBeGreaterThanOrEqual(44);
+  expect(infoTarget!.height).toBeGreaterThanOrEqual(44);
+
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+  expect(
+    await tableOfContents.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+
+  const listenButtons = tableOfContents.getByRole("button", {
+    name: /^Listen to /,
+  });
+  for (const button of await listenButtons.all()) {
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await adaptationInfo.click();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  const tooltipBox = await tooltip.boundingBox();
+  expect(tooltipBox).not.toBeNull();
+  expect(tooltipBox!.x).toBeGreaterThanOrEqual(0);
+  expect(tooltipBox!.x + tooltipBox!.width).toBeLessThanOrEqual(320);
 });
 
 test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and falls back", async ({
@@ -1245,4 +1401,66 @@ test("mobile navigation, theme, reflow, and project story remain usable", async 
     320,
   );
   await expectNoSeriousAxeViolations(page);
+});
+
+test("shared shell stays in flow and its mobile navigation remains reachable with enlarged text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto("/about");
+  await page.addStyleTag({
+    content: `
+      html { font-size: 200% !important; }
+      * {
+        line-height: 1.5 !important;
+        letter-spacing: 0.12em !important;
+        word-spacing: 0.16em !important;
+      }
+    `,
+  });
+
+  const shellGeometry = await page.evaluate(() => {
+    const header = document.querySelector(".navbar");
+    const main = document.querySelector("#main-content");
+    if (!(header instanceof HTMLElement) || !(main instanceof HTMLElement)) {
+      return null;
+    }
+    const headerBox = header.getBoundingClientRect();
+    const mainBox = main.getBoundingClientRect();
+    return {
+      headerBottom: headerBox.bottom,
+      mainTop: mainBox.top,
+      pageFits: document.documentElement.scrollWidth <= window.innerWidth,
+    };
+  });
+  expect(shellGeometry).not.toBeNull();
+  expect(shellGeometry!.mainTop).toBeGreaterThanOrEqual(
+    shellGeometry!.headerBottom - 0.5,
+  );
+  expect(shellGeometry!.pageFits).toBe(true);
+
+  const menuButton = page.getByRole("button", { name: "Open menu" });
+  const menuButtonBox = await menuButton.boundingBox();
+  expect(menuButtonBox).not.toBeNull();
+  expect(menuButtonBox!.width).toBeGreaterThanOrEqual(44);
+  expect(menuButtonBox!.height).toBeGreaterThanOrEqual(44);
+  await menuButton.click();
+
+  const mobileNavigation = page.getByRole("navigation", {
+    name: "Mobile navigation",
+  });
+  await expect(mobileNavigation).toBeVisible();
+  await expect(mobileNavigation).toHaveCSS("overflow-y", "auto");
+
+  const lastLink = mobileNavigation.getByRole("link").last();
+  await lastLink.scrollIntoViewIfNeeded();
+  await expect(lastLink).toBeVisible();
+  await lastLink.focus();
+  await expect(lastLink).toBeFocused();
+
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 });

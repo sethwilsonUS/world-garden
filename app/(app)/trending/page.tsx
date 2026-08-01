@@ -107,7 +107,7 @@ export default function TrendingPage() {
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
+            className="inline-flex min-h-11 items-center gap-1 text-muted text-sm no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -130,7 +130,7 @@ export default function TrendingPage() {
           <div className="mb-8">
             <h1
               id="trending-heading"
-              className="font-display text-[1.75rem] font-bold text-foreground"
+              className="type-page-title font-display text-[1.75rem] font-bold text-foreground"
             >
               Trending today
             </h1>
@@ -186,9 +186,11 @@ export default function TrendingPage() {
                       AI disclosure:
                     </span>{" "}
                     Curio Garden generated this summary
-                    {brief.model ? ` with OpenAI ${brief.model}` : " with OpenAI"}
-                    {" "}from Wikimedia pageview data and linked reporting. It
-                    was not written by Wikipedia and may contain errors.
+                    {brief.model
+                      ? ` with OpenAI ${brief.model}`
+                      : " with OpenAI"}{" "}
+                    from Wikimedia pageview data and linked reporting. It was
+                    not written by Wikipedia and may contain errors.
                   </p>
                 </div>
 
@@ -252,7 +254,8 @@ export default function TrendingPage() {
               )}
             </section>
           ) : briefState?.enabled &&
-            (briefState.status === "missing" || briefState.status === "pending") ? (
+            (briefState.status === "missing" ||
+              briefState.status === "pending") ? (
             <section
               aria-labelledby="daily-brief-heading"
               className="garden-bed p-6 mb-8"
@@ -293,7 +296,7 @@ export default function TrendingPage() {
           ) : null}
 
           {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {Array.from({ length: skeletonCount }).map((_, i) => (
                 <div
                   key={i}
@@ -317,10 +320,7 @@ export default function TrendingPage() {
               ))}
             </div>
           ) : articles.length === 0 ? (
-            <div
-              className="garden-bed text-center py-12 px-6"
-              role="status"
-            >
+            <div className="garden-bed text-center py-12 px-6" role="status">
               <p className="font-display font-semibold text-lg text-foreground">
                 No trending articles available
               </p>
@@ -334,7 +334,7 @@ export default function TrendingPage() {
                 {articles.length} articles trending
               </p>
               <ul
-                className="list-none p-0 m-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
+                className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4"
                 role="list"
               >
                 {articles.map((article, i) => (

@@ -30,18 +30,18 @@ const engineeringHighlights = [
 export default function AboutPage() {
   return (
     <div className="container mx-auto px-4 pb-20 pt-10">
-      <article className="mx-auto max-w-4xl">
+      <article className="mx-auto max-w-4xl [overflow-wrap:anywhere]">
         <nav aria-label="Back navigation" className="mb-8">
           <Link
             href="/"
-            className="inline-flex min-h-8 items-center gap-1 text-sm text-muted no-underline"
+            className="inline-flex min-h-11 max-w-full items-center gap-1 text-sm text-muted no-underline"
           >
             <span aria-hidden="true">←</span>
             Back to the garden
           </Link>
         </nav>
 
-        <header className="relative overflow-hidden rounded-[2rem] border border-accent-border bg-surface-2 px-6 py-10 sm:px-10 sm:py-14">
+        <header className="relative overflow-hidden rounded-[32px] border border-accent-border bg-surface-2 px-6 py-10 sm:px-10 sm:py-14">
           <div
             className="pattern-leaves absolute inset-0 opacity-70"
             aria-hidden="true"
@@ -50,7 +50,7 @@ export default function AboutPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
               About this project
             </p>
-            <h1 className="mt-4 font-display text-[clamp(2.5rem,7vw,4.75rem)] font-semibold leading-[1.02] tracking-[-0.025em] text-foreground">
+            <h1 className="type-hero-title mt-4 font-display font-semibold leading-[1.02] tracking-[-0.025em] text-foreground">
               Free knowledge, made listenable.
             </h1>
             <p className="mt-6 max-w-xl text-[1.05rem] leading-[1.8] text-foreground-2">
@@ -71,7 +71,7 @@ export default function AboutPage() {
           </p>
           <h2
             id="why-heading"
-            className="mt-2 font-display text-3xl font-semibold text-foreground"
+            className="type-section-title-lg mt-2 font-display text-3xl font-semibold text-foreground"
           >
             Curiosity should not depend on a screen.
           </h2>
@@ -109,7 +109,7 @@ export default function AboutPage() {
           </p>
           <h2
             id="research-heading"
-            className="mt-2 font-display text-2xl font-semibold text-foreground"
+            className="type-section-title-lg mt-2 font-display text-2xl font-semibold text-foreground"
           >
             Your experience can shape what grows next.
           </h2>
@@ -122,7 +122,10 @@ export default function AboutPage() {
             research conversation. Volunteering is not a mailing list or a
             commitment.
           </p>
-          <Link href="/feedback" className="btn-primary mt-6 no-underline">
+          <Link
+            href="/feedback"
+            className="btn-primary mt-6 max-w-full flex-wrap text-center no-underline"
+          >
             Share feedback or volunteer for research
           </Link>
         </section>
@@ -134,7 +137,7 @@ export default function AboutPage() {
             </p>
             <h2
               id="engineering-heading"
-              className="mt-2 font-display text-3xl font-semibold text-foreground"
+              className="type-section-title-lg mt-2 font-display text-3xl font-semibold text-foreground"
             >
               A product, not a prototype shell.
             </h2>
@@ -174,7 +177,7 @@ export default function AboutPage() {
           </p>
           <h2
             id="ai-transparency-heading"
-            className="mt-2 font-display text-3xl font-semibold text-foreground"
+            className="type-section-title-lg mt-2 font-display text-3xl font-semibold text-foreground"
           >
             Wikipedia text and generated context stay distinct.
           </h2>
@@ -202,7 +205,7 @@ export default function AboutPage() {
         >
           <h2
             id="modes-heading"
-            className="font-display text-3xl font-semibold text-foreground"
+            className="type-section-title-lg font-display text-3xl font-semibold text-foreground"
           >
             Built to be explored and inspected.
           </h2>
@@ -217,7 +220,7 @@ export default function AboutPage() {
             href="https://github.com/sethwilsonUS/world-garden"
             target="_blank"
             rel="noopener noreferrer"
-            className="btn-primary mt-7 no-underline"
+            className="btn-primary mt-7 max-w-full flex-wrap text-center no-underline"
           >
             View the source on GitHub
             <span className="sr-only"> (opens in new tab)</span>

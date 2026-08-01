@@ -60,6 +60,62 @@ const themeInitScript = `
 })();
 `;
 
+// Safari does not yet expose the cross-browser text-scale meta behavior. On
+// touch Apple devices, use the system Dynamic Type body style as a measuring
+// probe, then keep the site's own typefaces while adopting the measured size.
+// This runs in the head so the first painted frame already uses the right root.
+const osTextScaleInitScript = `
+(function() {
+  try {
+    var root = document.documentElement;
+    var isTouchApple = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!isTouchApple || !window.CSS || !CSS.supports('font', '-apple-system-body')) return;
+
+    var frame = 0;
+    var sync = function() {
+      frame = 0;
+      var probe = document.createElement('span');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;inset:auto;font:-apple-system-body;line-height:1;';
+      root.appendChild(probe);
+      var measured = parseFloat(getComputedStyle(probe).fontSize);
+      probe.remove();
+      if (Number.isFinite(measured) && measured > 0) {
+        var nextSize = Math.max(16, measured) + 'px';
+        var previousSize = root.style.getPropertyValue('--os-text-base');
+        if (nextSize !== previousSize) {
+          root.style.setProperty('--os-text-base', nextSize);
+          if (previousSize) {
+            dispatchEvent(new CustomEvent('curio:text-scale-change', {
+              detail: { fontSize: nextSize }
+            }));
+          }
+        }
+      }
+    };
+    var schedule = function() {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(sync);
+    };
+
+    sync();
+    addEventListener('pageshow', schedule, { passive: true });
+    addEventListener('orientationchange', schedule, { passive: true });
+    addEventListener('resize', schedule, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', schedule, { passive: true });
+    }
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') schedule();
+    });
+  } catch (error) {
+    // Keep the normal 100% root size when a WebKit build cannot expose the
+    // system text style. Browser zoom and reflow remain available.
+  }
+})();
+`;
+
 const themeToggleCss = `
 .theme-icon-sun, .theme-icon-moon { display: none; }
 .dark .theme-icon-sun { display: inline-flex; }
@@ -78,6 +134,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta name="text-scale" content="scale" />
+        <script dangerouslySetInnerHTML={{ __html: osTextScaleInitScript }} />
         <script dangerouslySetInnerHTML={{ __html: activeTtsMetadataScript }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style dangerouslySetInnerHTML={{ __html: themeToggleCss }} />

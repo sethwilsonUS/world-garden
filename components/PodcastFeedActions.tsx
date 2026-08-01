@@ -32,16 +32,13 @@ export const PodcastFeedActions = ({
   return (
     <div className="mt-3">
       <div className="flex flex-wrap items-center gap-2">
-        <CopyFeedButton
-          value={feedUrl}
-          label={`Copy ${feedTitle} feed URL`}
-        />
+        <CopyFeedButton value={feedUrl} label={`Copy ${feedTitle} feed URL`} />
         <button
           type="button"
           onClick={handleApplePodcasts}
           aria-describedby={descriptionId}
           aria-label={`Copy ${feedTitle} feed URL for Apple Podcasts`}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-2 break-words rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-center text-sm font-medium leading-snug text-foreground transition-colors duration-200 [overflow-wrap:anywhere] hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <svg
             viewBox="0 0 24 24"
@@ -65,13 +62,18 @@ export const PodcastFeedActions = ({
       </div>
       <p id={descriptionId} className="mt-3 text-sm text-muted leading-[1.6]">
         Tip: this copies the RSS feed so you can paste it into Apple Podcasts
-        using <span className="font-medium text-foreground">Follow a Show by URL</span>.
+        using{" "}
+        <span className="font-medium text-foreground">
+          Follow a Show by URL
+        </span>
+        .
       </p>
       <p className="mt-2 text-sm text-muted leading-[1.6]">
-        Expect a little lag: Apple Podcasts usually picks up feed changes
-        within a few hours, while artwork or metadata updates can take up to a
-        day. On Mac, you can try <span className="font-medium text-foreground">Command-R</span>;
-        on iPhone, Apple does not document an equivalent manual refresh.
+        Expect a little lag: Apple Podcasts usually picks up feed changes within
+        a few hours, while artwork or metadata updates can take up to a day. On
+        Mac, you can try{" "}
+        <span className="font-medium text-foreground">Command-R</span>; on
+        iPhone, Apple does not document an equivalent manual refresh.
       </p>
       <p className="sr-only" aria-live="polite" role="status">
         {statusMessage}

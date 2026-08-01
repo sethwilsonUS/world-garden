@@ -9,7 +9,7 @@ export default function NotFound() {
           404
         </p>
 
-        <h1 className="font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] mb-4 text-foreground tracking-[-0.02em]">
+        <h1 className="type-page-title font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] mb-4 text-foreground tracking-[-0.02em]">
           Page not found
         </h1>
 

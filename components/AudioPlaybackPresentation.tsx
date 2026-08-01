@@ -101,7 +101,7 @@ export const SpeedButton = ({
     type="button"
     onClick={onClick}
     aria-label={`Playback speed ${formatRate(rate)}. Activate to change.`}
-    className={`inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-2 py-[5px] font-mono text-xs font-bold leading-none transition-colors duration-150 pointer-events-auto ${
+    className={`pointer-events-auto inline-flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-[8px] py-[5px] font-mono text-xs font-bold leading-none transition-colors duration-150 ${
       rate !== 1 ? "text-accent" : "text-muted"
     }`}
   >
@@ -149,7 +149,7 @@ export const InlineProgressBar = ({
           aria-valuemax={normalizedDuration}
           aria-valuenow={normalizedCurrentTime}
           aria-valuetext={`${formatTime(normalizedCurrentTime)} of ${formatTime(normalizedDuration)}`}
-          className="audio-progress-range block w-full"
+          className="audio-progress-range block min-h-[44px] w-full"
           style={{ "--progress": `${progress}%` } as CSSProperties}
         />
       </div>

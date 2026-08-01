@@ -25,7 +25,7 @@ export const BackButton = () => {
     <button
       type="button"
       onClick={() => router.back()}
-      className="inline-flex items-center gap-1 text-muted text-sm bg-transparent border-none cursor-pointer p-0"
+      className="inline-flex min-h-11 items-center gap-1 rounded-lg border-none bg-transparent px-2 py-1 text-sm text-muted cursor-pointer"
     >
       {chevronLeft}
       Back

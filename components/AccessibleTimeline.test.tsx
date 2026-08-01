@@ -80,4 +80,19 @@ describe("AccessibleTimeline", () => {
       ),
     ).toEqual(["Third event", "First event"]);
   });
+
+  it("can delegate status rendering to a persistent parent live region", async () => {
+    await act(async () =>
+      root.render(
+        <AccessibleTimeline
+          defaultOrder="oldest"
+          items={[]}
+          showStatus={false}
+        />,
+      ),
+    );
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector("ol.timeline-list")).not.toBeNull();
+  });
 });

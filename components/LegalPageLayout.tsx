@@ -26,7 +26,7 @@ export function LegalPageLayout({
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
+            className="inline-flex min-h-11 items-center gap-1 text-muted text-sm no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -49,7 +49,7 @@ export function LegalPageLayout({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
             Legal
           </p>
-          <h1 className="mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]">
+          <h1 className="type-page-title mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]">
             {title}
           </h1>
           <p className="mt-4 max-w-3xl text-[1.04rem] leading-[1.78] text-foreground-2">
@@ -69,7 +69,7 @@ export function LegalSection({ id, title, children }: LegalSectionProps) {
     <section aria-labelledby={id} className="garden-bed p-5 sm:p-6">
       <h2
         id={id}
-        className="scroll-mt-24 font-display text-[1.2rem] font-semibold text-foreground"
+        className="type-section-title scroll-mt-[calc(var(--site-header-height)+16px)] font-display text-[1.2rem] font-semibold text-foreground"
       >
         {title}
       </h2>

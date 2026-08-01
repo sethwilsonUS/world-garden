@@ -17,7 +17,7 @@ const clerkAppearance = {
     colorInputBackground: "var(--color-surface)",
     colorInputText: "var(--color-foreground)",
     colorDanger: "var(--color-critical)",
-    borderRadius: "0.75rem",
+    borderRadius: "12px",
     fontFamily: "var(--font-body), system-ui, sans-serif",
   },
   elements: {
