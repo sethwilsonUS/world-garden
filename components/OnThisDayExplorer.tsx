@@ -40,10 +40,8 @@ const CATEGORY_NOUNS: Record<
   holidays: { singular: "holiday", plural: "holidays" },
 };
 
-const cacheKey = (
-  category: OnThisDayCategory,
-  order: OnThisDayOrder,
-): string => `${category}:${category === "holidays" ? "newest" : order}`;
+const cacheKey = (category: OnThisDayCategory, order: OnThisDayOrder): string =>
+  `${category}:${category === "holidays" ? "newest" : order}`;
 
 const displayYear = (year: number | undefined): string => {
   if (year == null) return "Annual";
@@ -51,7 +49,11 @@ const displayYear = (year: number | undefined): string => {
 };
 
 const TimelineEventContent = ({ event }: { event: OnThisDayEvent }) => (
-  <article className={event.image ? "on-this-day-event has-image" : "on-this-day-event"}>
+  <article
+    className={
+      event.image ? "on-this-day-event has-image" : "on-this-day-event"
+    }
+  >
     <div className="min-w-0">
       <p className="on-this-day-event-text">{event.text}</p>
       {event.pages.length > 0 ? (
@@ -93,7 +95,9 @@ const TimelineEventContent = ({ event }: { event: OnThisDayEvent }) => (
 export const OnThisDayExplorer = () => {
   const [activeCategory, setActiveCategory] =
     useState<OnThisDayCategory>("selected");
-  const [orders, setOrders] = useState<Record<OnThisDayCategory, OnThisDayOrder>>({
+  const [orders, setOrders] = useState<
+    Record<OnThisDayCategory, OnThisDayOrder>
+  >({
     selected: "newest",
     events: "newest",
     births: "newest",
@@ -144,9 +148,9 @@ export const OnThisDayExplorer = () => {
           signal: controller.signal,
         });
         if (!result.ok) {
-          const body = (await result.json().catch(() => null)) as
-            | { error?: string }
-            | null;
+          const body = (await result.json().catch(() => null)) as {
+            error?: string;
+          } | null;
           throw new Error(body?.error || "On This Day could not be loaded.");
         }
         const next = (await result.json()) as OnThisDayPageResponse;
@@ -181,7 +185,11 @@ export const OnThisDayExplorer = () => {
   );
 
   useEffect(() => {
-    if (!cache[activeKey] && loadingKey !== activeKey && !errorByKey[activeKey]) {
+    if (
+      !cache[activeKey] &&
+      loadingKey !== activeKey &&
+      !errorByKey[activeKey]
+    ) {
       void load({
         category: activeCategory,
         order: activeOrder,
@@ -189,9 +197,36 @@ export const OnThisDayExplorer = () => {
         append: false,
       });
     }
-  }, [activeCategory, activeKey, activeOrder, cache, errorByKey, load, loadingKey]);
+  }, [
+    activeCategory,
+    activeKey,
+    activeOrder,
+    cache,
+    errorByKey,
+    load,
+    loadingKey,
+  ]);
 
   useEffect(() => () => requestRef.current?.abort(), []);
+
+  useEffect(() => {
+    const selectedIndex = ON_THIS_DAY_CATEGORIES.indexOf(activeCategory);
+    const selectedTab = tabRefs.current[selectedIndex];
+    const tabList = selectedTab?.parentElement;
+    if (!selectedTab || !tabList) return;
+
+    const tabStart = selectedTab.offsetLeft;
+    const tabEnd = tabStart + selectedTab.offsetWidth;
+    const visibleStart = tabList.scrollLeft;
+    const visibleEnd = visibleStart + tabList.clientWidth;
+    const nextLeft =
+      tabStart < visibleStart
+        ? tabStart
+        : tabEnd > visibleEnd
+          ? tabEnd - tabList.clientWidth
+          : visibleStart;
+    if (nextLeft !== visibleStart) tabList.scrollLeft = Math.max(0, nextLeft);
+  }, [activeCategory]);
 
   const availableTabs = ON_THIS_DAY_CATEGORIES.filter(
     (category) => metadata?.availableCategories[category] !== false,
@@ -283,15 +318,6 @@ export const OnThisDayExplorer = () => {
       <h2 id="on-this-day-explorer-heading" className="sr-only">
         Explore the day in history
       </h2>
-      <p
-        id="on-this-day-live-status"
-        className="sr-only"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {liveStatusMessage}
-      </p>
       {metadata ? (
         <div className="on-this-day-edition">
           <p>
@@ -299,14 +325,18 @@ export const OnThisDayExplorer = () => {
           </p>
           {metadata.snapshotIsStale ? (
             <p role="status">
-              Today&apos;s update is unavailable, so this is the archived edition
-              from {snapshotLabel || metadata.snapshotDate}.
+              Today&apos;s update is unavailable, so this is the archived
+              edition from {snapshotLabel || metadata.snapshotDate}.
             </p>
           ) : null}
         </div>
       ) : null}
 
-      <div className="on-this-day-tabs" role="tablist" aria-label="On This Day categories">
+      <div
+        className="on-this-day-tabs"
+        role="tablist"
+        aria-label="On This Day categories"
+      >
         {ON_THIS_DAY_CATEGORIES.map((category, index) => {
           const selected = activeCategory === category;
           const available = metadata?.availableCategories[category] !== false;
@@ -332,7 +362,9 @@ export const OnThisDayExplorer = () => {
               onKeyDown={(event) => handleTabKeyDown(event, category)}
             >
               <span>{CATEGORY_LABELS[category]}</span>
-              {metadata ? <span aria-hidden="true">{metadata.counts[category]}</span> : null}
+              {metadata ? (
+                <span aria-hidden="true">{metadata.counts[category]}</span>
+              ) : null}
             </button>
           );
         })}
@@ -346,6 +378,15 @@ export const OnThisDayExplorer = () => {
         className="on-this-day-tabpanel"
         tabIndex={0}
       >
+        <p
+          id="on-this-day-live-status"
+          className={response ? "context-status" : "sr-only"}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {liveStatusMessage}
+        </p>
         {!response && isLoading ? (
           <div className="on-this-day-loading">
             Loading {CATEGORY_LABELS[activeCategory].toLowerCase()}…
@@ -379,7 +420,7 @@ export const OnThisDayExplorer = () => {
               categoryFilter="none"
               showSort={activeCategory !== "holidays"}
               totalCount={response.total}
-              announceStatus={false}
+              showStatus={false}
               onOrderChange={(order) => {
                 if (activeCategory === "holidays") return;
                 setOrders((current) => ({
@@ -388,10 +429,6 @@ export const OnThisDayExplorer = () => {
                 }));
               }}
             />
-            <p className="on-this-day-visible-count">
-              Showing {response.items.length} of {response.total}{" "}
-              {CATEGORY_LABELS[activeCategory].toLowerCase()}.
-            </p>
             {response.total > 25 ? (
               <button
                 type="button"
@@ -430,7 +467,8 @@ export const OnThisDayExplorer = () => {
                     });
                   }}
                 >
-                  Try loading these {CATEGORY_LABELS[activeCategory].toLowerCase()} again
+                  Try loading these{" "}
+                  {CATEGORY_LABELS[activeCategory].toLowerCase()} again
                 </button>
               </div>
             ) : null}

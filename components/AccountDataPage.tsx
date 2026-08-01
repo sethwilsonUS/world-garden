@@ -39,7 +39,7 @@ const AccountDataFrame = ({ children }: { children: ReactNode }) => (
       <nav aria-label="Back navigation" className="mb-5">
         <Link
           href="/dashboard"
-          className="inline-flex min-h-10 items-center gap-1 text-sm text-muted no-underline"
+          className="inline-flex min-h-11 items-center gap-1 text-sm text-muted no-underline"
         >
           <svg
             viewBox="0 0 24 24"
@@ -63,7 +63,7 @@ const AccountDataFrame = ({ children }: { children: ReactNode }) => (
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
           Account
         </p>
-        <h1 className="mt-3 font-display text-[2rem] font-bold leading-[1.08] text-foreground sm:text-[2.45rem]">
+        <h1 className="type-page-title mt-3 font-display text-[2rem] font-bold leading-[1.08] text-foreground sm:text-[2.45rem]">
           Account &amp; data
         </h1>
         <p className="mt-4 max-w-2xl text-[1.02rem] leading-[1.75] text-foreground-2">
@@ -88,7 +88,7 @@ const LocalAccountData = () => (
       </p>
       <h2
         id="local-account-data-heading"
-        className="mt-2 font-display text-[1.35rem] font-semibold text-foreground"
+        className="type-section-title mt-2 font-display text-[1.35rem] font-semibold text-foreground"
       >
         Account management is unavailable in local mode
       </h2>
@@ -111,7 +111,7 @@ const LoadingAccountData = () => (
   <AccountDataFrame>
     <section className="garden-bed p-6 sm:p-7" role="status">
       <div className="skeleton h-4 w-32" aria-hidden="true" />
-      <h2 className="mt-4 font-display text-[1.35rem] font-semibold text-foreground">
+      <h2 className="type-section-title mt-4 font-display text-[1.35rem] font-semibold text-foreground">
         Checking your account
       </h2>
       <p className="mt-2 text-sm leading-[1.75] text-muted">
@@ -132,7 +132,7 @@ const SignedOutAccountData = () => (
       </p>
       <h2
         id="signed-out-account-data-heading"
-        className="mt-2 font-display text-[1.35rem] font-semibold text-foreground"
+        className="type-section-title mt-2 font-display text-[1.35rem] font-semibold text-foreground"
       >
         Sign in to manage your account data
       </h2>
@@ -312,7 +312,7 @@ const SignedInAccountData = () => {
           </p>
           <h2
             id="account-export-heading"
-            className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.2] text-foreground"
+            className="type-section-title-lg mt-2 font-display text-[1.5rem] font-semibold leading-[1.2] text-foreground"
           >
             Download account data
           </h2>
@@ -397,7 +397,7 @@ const SignedInAccountData = () => {
             role="status"
             aria-live="polite"
             aria-atomic="true"
-            className={`mt-4 min-h-6 text-sm leading-6 ${
+            className={`mt-4 min-h-6 text-sm leading-[1.7] ${
               exportState === "error" || exportState === "timeout"
                 ? "text-critical"
                 : "text-muted"

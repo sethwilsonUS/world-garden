@@ -159,7 +159,7 @@ export const ContextSectionLink = ({ blocks }: { blocks: ContextBlock[] }) => {
   };
   return (
     <a
-      className="context-section-link"
+      className="context-section-link min-h-[44px] max-w-full flex-wrap text-center"
       href={`#${targetId}`}
       aria-label={`${label}: jump to ${destination}`}
       onClick={focusVisual}

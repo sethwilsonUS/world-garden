@@ -107,10 +107,21 @@ describe("BadgeProgressToastProvider", () => {
 
     expect(document.body.textContent).toContain("History");
     expect(document.body.textContent).toContain("Technology");
-    expect(document.body.querySelectorAll('article[aria-label*="Credited from"]').length).toBe(2);
     expect(
-      document.body.querySelector('section[aria-label="Badge progress"]')?.className,
-    ).toContain("bottom-4");
+      document.body.querySelectorAll('article[aria-label*="Credited from"]')
+        .length,
+    ).toBe(2);
+    expect(
+      document.body.querySelector('section[aria-label="Badge progress"]')
+        ?.className,
+    ).toContain("bottom-[16px]");
+    const toastTray = document.body.querySelector(
+      'section[aria-label="Badge progress"] > div',
+    );
+    expect(toastTray?.className).toContain(
+      "max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-bottom))]",
+    );
+    expect(toastTray?.className).toContain("overflow-y-auto");
   });
 
   it("uses special level-up copy and icon when a badge levels up", async () => {
@@ -147,7 +158,9 @@ describe("BadgeProgressToastProvider", () => {
       "Roman Empire pushed History from level 0 to level 1.",
     );
     expect(document.body.textContent).toContain("Up from Lvl 0");
-    expect(document.body.querySelector('[data-level-up-icon="true"]')).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-level-up-icon="true"]'),
+    ).not.toBeNull();
   });
 
   it("keeps badge toasts visible until they are dismissed", async () => {
@@ -197,8 +210,13 @@ describe("BadgeProgressToastProvider", () => {
     });
 
     expect(
-      document.body.querySelector('button[aria-label="Dismiss badge progress for History"]'),
+      document.body.querySelector(
+        'button[aria-label="Dismiss badge progress for History"]',
+      ),
     ).toBeNull();
-    expect(document.body.querySelectorAll('article[aria-label*="Credited from"]').length).toBe(0);
+    expect(
+      document.body.querySelectorAll('article[aria-label*="Credited from"]')
+        .length,
+    ).toBe(0);
   });
 });

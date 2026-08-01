@@ -38,8 +38,8 @@ export const BookmarkButton = ({
           ? "Library: remove this saved article"
           : "Library: save this article to revisit later"
       }
-      className={`linked-article-link inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] border transition-all duration-200 ${
-        variant === "labeled" ? "px-3 py-2" : "h-10 w-10"
+      className={`linked-article-link inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] border transition-all duration-200 ${
+        variant === "labeled" ? "px-3 py-2" : "h-11 w-11"
       } ${
         saved
           ? "border-accent-border bg-accent-bg text-accent"

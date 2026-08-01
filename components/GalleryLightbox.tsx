@@ -177,9 +177,7 @@ export const GalleryLightbox = ({
     preferredSourceFailed && !displayedSourceFailed
       ? "The larger image was unavailable, so the gallery thumbnail is shown."
       : null;
-  const hasDetails = Boolean(
-    imageStatus || image.caption || image.attribution,
-  );
+  const hasDetails = Boolean(imageStatus || image.caption || image.attribution);
   const slideDescription = image.caption || image.alt || "Image";
   const imageAlternative = getImageAlt(image);
 
@@ -212,8 +210,8 @@ export const GalleryLightbox = ({
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        <div className="grid h-full min-h-0 w-[calc(100%_-_1rem)] max-w-[100rem] grid-rows-[auto_minmax(0,1fr)_auto] sm:w-[calc(100%_-_2rem)]">
-          <header className="flex min-h-14 items-center gap-3 px-3 py-1 pt-[max(0.25rem,env(safe-area-inset-top))] sm:px-5">
+        <div className="grid h-full min-h-0 w-[calc(100%_-_16px)] max-w-[1600px] grid-rows-[auto_minmax(0,1fr)_auto] sm:w-[calc(100%_-_32px)]">
+          <header className="flex min-h-14 items-center gap-3 px-3 py-1 pt-[max(4px,env(safe-area-inset-top))] sm:px-5">
             <h2 id={titleId} className="sr-only">
               Image gallery
             </h2>
@@ -335,7 +333,7 @@ export const GalleryLightbox = ({
 
           {hasDetails ? (
             <div
-              className="max-h-[min(34dvh,18rem)] overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 text-center sm:px-8"
+              className="max-h-[min(34dvh,288px)] overflow-y-auto overscroll-contain px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 text-center sm:px-8"
               tabIndex={0}
               aria-label="Image details"
             >
@@ -356,10 +354,7 @@ export const GalleryLightbox = ({
               ) : null}
               {image.attribution ? (
                 <div className="mx-auto mt-3 max-w-lg">
-                  <MediaAttribution
-                    attribution={image.attribution}
-                    inverse
-                  />
+                  <MediaAttribution attribution={image.attribution} inverse />
                 </div>
               ) : null}
             </div>

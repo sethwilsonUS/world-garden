@@ -29,6 +29,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:auth": "playwright test --config playwright.auth.config.ts",
     "docs:check": "node scripts/validate-doc-links.mjs",
     "check": "npm-run-all toolchain:check lint typecheck test"
   },
@@ -48,6 +49,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@clerk/testing": "^2.2.16",
     "@eslint/compat": "^2.1.0",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.3.0",

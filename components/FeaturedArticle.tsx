@@ -74,7 +74,7 @@ export const FeaturedArticle = () => {
     >
       <h2
         id="featured-heading"
-        className="font-display font-semibold text-lg text-foreground mb-4 text-center"
+        className="type-section-title-sm font-display font-semibold text-lg text-foreground mb-4 text-center"
       >
         Today&rsquo;s featured article
       </h2>

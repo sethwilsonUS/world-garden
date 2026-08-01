@@ -86,7 +86,7 @@ export default async function PodcastDetailPage({
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/podcasts"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
+            className="inline-flex min-h-[44px] items-center gap-1 text-muted text-sm no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -106,7 +106,7 @@ export default async function PodcastDetailPage({
         </nav>
 
         <section aria-labelledby="podcast-detail-heading">
-          <div className="inline-flex items-center gap-2 py-[6px] px-3.5 rounded-full bg-accent-bg border border-accent-border mb-5 text-[0.8125rem] text-accent font-semibold tracking-[0.01em]">
+          <div className="mb-5 inline-flex max-w-full flex-wrap items-center gap-2 break-words rounded-full border border-accent-border bg-accent-bg px-3.5 py-[6px] text-[0.8125rem] font-semibold leading-snug tracking-[0.01em] text-accent [overflow-wrap:anywhere]">
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -127,7 +127,7 @@ export default async function PodcastDetailPage({
 
           <h1
             id="podcast-detail-heading"
-            className="font-display text-[2rem] sm:text-[2.45rem] font-bold mb-4 text-foreground leading-[1.05]"
+            className="type-page-title font-display text-[2rem] sm:text-[2.45rem] font-bold mb-4 text-foreground leading-[1.05]"
           >
             {entry.title}
           </h1>
@@ -141,8 +141,12 @@ export default async function PodcastDetailPage({
               Follow this show
             </p>
             <p className="text-sm text-foreground-2 leading-[1.7] mb-5 max-w-2xl">
-              Subscribe directly from this page, copy the RSS feed for another app,
-              or use Apple Podcasts&apos; <span className="font-medium text-foreground">Follow a Show by URL</span> flow.
+              Subscribe directly from this page, copy the RSS feed for another
+              app, or use Apple Podcasts&apos;{" "}
+              <span className="font-medium text-foreground">
+                Follow a Show by URL
+              </span>{" "}
+              flow.
             </p>
             <PodcastFeedPanel
               idBase={`${entry.slug}-podcast-follow`}
@@ -153,59 +157,67 @@ export default async function PodcastDetailPage({
           </div>
 
           <div className="mt-8">
-            <h2 className="font-display text-[1.35rem] font-semibold text-foreground mb-4">
+            <h2 className="type-section-title font-display text-[1.35rem] font-semibold text-foreground mb-4">
               Archived episodes
             </h2>
 
             {entry.slug === "featured" ? (
               !featuredEpisodes || featuredEpisodes.length === 0 ? (
-              <div className="garden-bed text-center py-12 px-6" role="status">
-                <p className="font-display font-semibold text-lg text-foreground">
-                  No episodes generated yet
-                </p>
-                <p className="text-muted text-sm mt-2">
-                  The first published episode will appear here automatically.
-                </p>
-              </div>
-            ) : (
-              <ul className="list-none p-0 m-0 space-y-3" role="list">
-                {featuredEpisodes.map((featuredEpisode) => {
-                  const description = getFeaturedEpisodeSummary(featuredEpisode);
+                <div
+                  className="garden-bed text-center py-12 px-6"
+                  role="status"
+                >
+                  <p className="font-display font-semibold text-lg text-foreground">
+                    No episodes generated yet
+                  </p>
+                  <p className="text-muted text-sm mt-2">
+                    The first published episode will appear here automatically.
+                  </p>
+                </div>
+              ) : (
+                <ul className="list-none p-0 m-0 space-y-3" role="list">
+                  {featuredEpisodes.map((featuredEpisode) => {
+                    const description =
+                      getFeaturedEpisodeSummary(featuredEpisode);
 
-                  return (
-                    <li key={featuredEpisode._id}>
-                      <PodcastEpisodeCard
-                        artworkSrc={getFeaturedEpisodeArtworkUrl(featuredEpisode)}
-                        artworkAlt={`Artwork for ${featuredEpisode.title}`}
-                        audioUrl={featuredEpisode.audioUrl}
-                        durationSeconds={featuredEpisode.durationSeconds}
-                        title={featuredEpisode.title}
-                        dateLabel={formatPodcastDate(featuredEpisode.publishedAt)}
-                        summary={description}
-                        actions={
-                          <>
-                            <ArticleLink
-                              articleTitle={featuredEpisode.title}
-                              href={`/article/${encodeURIComponent(featuredEpisode.slug)}`}
-                              className="btn-secondary text-sm no-underline"
-                              aria-label={`View the Wikipedia article for ${featuredEpisode.title}`}
-                            >
-                              View article
-                            </ArticleLink>
-                            <AudioDownloadButton
-                              href={`/api/podcast/media/${featuredEpisode._id}?download=1`}
-                              ariaLabel={`Download the podcast audio for ${featuredEpisode.title}`}
-                              label="Download"
-                              className="no-underline"
-                            />
-                          </>
-                        }
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            )
+                    return (
+                      <li key={featuredEpisode._id}>
+                        <PodcastEpisodeCard
+                          artworkSrc={getFeaturedEpisodeArtworkUrl(
+                            featuredEpisode,
+                          )}
+                          artworkAlt={`Artwork for ${featuredEpisode.title}`}
+                          audioUrl={featuredEpisode.audioUrl}
+                          durationSeconds={featuredEpisode.durationSeconds}
+                          title={featuredEpisode.title}
+                          dateLabel={formatPodcastDate(
+                            featuredEpisode.publishedAt,
+                          )}
+                          summary={description}
+                          actions={
+                            <>
+                              <ArticleLink
+                                articleTitle={featuredEpisode.title}
+                                href={`/article/${encodeURIComponent(featuredEpisode.slug)}`}
+                                className="btn-secondary text-sm no-underline"
+                                aria-label={`View the Wikipedia article for ${featuredEpisode.title}`}
+                              >
+                                View article
+                              </ArticleLink>
+                              <AudioDownloadButton
+                                href={`/api/podcast/media/${featuredEpisode._id}?download=1`}
+                                ariaLabel={`Download the podcast audio for ${featuredEpisode.title}`}
+                                label="Download"
+                                className="no-underline"
+                              />
+                            </>
+                          }
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
             ) : !trendingEpisodes || trendingEpisodes.length === 0 ? (
               <div className="garden-bed text-center py-12 px-6" role="status">
                 <p className="font-display font-semibold text-lg text-foreground">
@@ -219,17 +231,22 @@ export default async function PodcastDetailPage({
               <ul className="list-none p-0 m-0 space-y-3" role="list">
                 {trendingEpisodes.map((trendingEpisode) => {
                   const title = getTrendingEpisodeTitle(trendingEpisode);
-                  const description = getTrendingEpisodeSummary(trendingEpisode);
+                  const description =
+                    getTrendingEpisodeSummary(trendingEpisode);
 
                   return (
                     <li key={trendingEpisode._id}>
                       <PodcastEpisodeCard
-                        artworkSrc={getTrendingEpisodeArtworkUrl(trendingEpisode)}
+                        artworkSrc={getTrendingEpisodeArtworkUrl(
+                          trendingEpisode,
+                        )}
                         artworkAlt={`Artwork for ${title}`}
                         audioUrl={trendingEpisode.audioUrl}
                         durationSeconds={trendingEpisode.durationSeconds}
                         title={title}
-                        dateLabel={formatTrendingDate(trendingEpisode.trendingDate)}
+                        dateLabel={formatTrendingDate(
+                          trendingEpisode.trendingDate,
+                        )}
                         summary={description}
                         actions={
                           <>

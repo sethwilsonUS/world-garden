@@ -32,6 +32,9 @@ export const AccessibleTimeline = ({
   showSort = true,
   totalCount,
   announceStatus = true,
+  showStatus = true,
+  statusText,
+  statusId,
 }: {
   items: AccessibleTimelineItem[];
   defaultOrder: TimelineOrder;
@@ -41,6 +44,9 @@ export const AccessibleTimeline = ({
   showSort?: boolean;
   totalCount?: number;
   announceStatus?: boolean;
+  showStatus?: boolean;
+  statusText?: string;
+  statusId?: string;
 }) => {
   const categories = useMemo(
     () =>
@@ -110,15 +116,22 @@ export const AccessibleTimeline = ({
           ) : null}
         </div>
       )}
-      <p
-        className="context-status"
-        role={announceStatus ? "status" : undefined}
-        aria-live={announceStatus ? "polite" : undefined}
-        aria-atomic={announceStatus ? "true" : undefined}
-      >
-        {statusCount} {statusCount === 1 ? "event" : "events"}
-        {showSort ? `, ${order} first` : ""}
-      </p>
+      {showStatus ? (
+        <p
+          id={statusId}
+          className="context-status"
+          role={announceStatus ? "status" : undefined}
+          aria-live={announceStatus ? "polite" : undefined}
+          aria-atomic={announceStatus ? "true" : undefined}
+        >
+          {statusText ?? (
+            <>
+              {statusCount} {statusCount === 1 ? "event" : "events"}
+              {showSort ? `, ${order} first` : ""}
+            </>
+          )}
+        </p>
+      ) : null}
       <ol className="context-timeline-list timeline-list">
         {visibleItems.map((item) => (
           <li key={item.id}>

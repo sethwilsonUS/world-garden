@@ -39,7 +39,7 @@ export const SectionShell = ({
       </p>
       <h1
         id="dashboard-heading"
-        className="mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]"
+        className="type-page-title mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]"
       >
         {title}
       </h1>
@@ -76,7 +76,7 @@ export const DashboardSummaryCard = ({
         <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
           {eyebrow}
         </p>
-        <h2 className="mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
+        <h2 className="type-section-title mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
           {title}
         </h2>
       </div>
@@ -112,17 +112,17 @@ const FeatureCard = ({
         accent ? "border-accent-border bg-accent-bg" : ""
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-[1_1_220px]">
           <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
             {status}
           </p>
-          <h2 className="mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
+          <h2 className="type-section-title mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
             {title}
           </h2>
         </div>
         <span
-          className={`inline-flex shrink-0 rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] ${
+          className={`inline-flex max-w-full flex-wrap rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase leading-snug tracking-[0.12em] ${
             accent
               ? "border-accent-border bg-accent-bg text-accent"
               : "border-border bg-surface text-muted"
@@ -161,7 +161,7 @@ const QueueActionButton = ({
       disabled={disabled}
       aria-label={ariaLabel}
       title={label}
-      className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-border bg-surface px-3 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45"
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-border bg-surface px-3 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-45"
     >
       {children}
     </button>
@@ -278,19 +278,19 @@ export const DashboardPlaylistCard = ({
 
   return (
     <article className="garden-bed h-full p-6 sm:p-7">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-[1_1_220px]">
           <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
             Personalized queue
           </p>
           <h2
             id={headingId}
-            className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground"
+            className="type-section-title-lg mt-2 font-display text-[1.5rem] font-semibold leading-[1.15] text-foreground"
           >
             Playlist
           </h2>
         </div>
-        <span className="inline-flex shrink-0 rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-accent">
+        <span className="inline-flex max-w-full flex-wrap rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase leading-snug tracking-[0.12em] text-accent">
           {entries.length === 0
             ? "Ready to plant"
             : `${entries.length} in queue`}
@@ -338,8 +338,8 @@ export const DashboardPlaylistCard = ({
           {entries.map((entry, index) => (
             <li key={entry._id}>
               <div className="rounded-2xl border border-border bg-surface px-4 py-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-[1_1_240px]">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex min-h-7 items-center rounded-full border border-border bg-surface-2 px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted">
                         #{index + 1}
@@ -378,7 +378,7 @@ export const DashboardPlaylistCard = ({
                       </div>
                     ) : null}
                   </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
                     <QueueActionButton
                       label="Move earlier"
                       ariaLabel={`Move ${entry.title} earlier in the playlist`}
@@ -423,7 +423,7 @@ export const DashboardPlaylistCard = ({
                       <button
                         type="button"
                         onClick={() => void retry(entry._id, entry.title)}
-                        className="btn-secondary inline-flex min-h-10 items-center justify-center px-4 py-2 text-sm"
+                        className="btn-secondary inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center px-4 py-2 text-center text-sm"
                       >
                         Retry
                       </button>
@@ -431,7 +431,7 @@ export const DashboardPlaylistCard = ({
                     <button
                       type="button"
                       onClick={() => void remove(entry._id, entry.title)}
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface-2"
+                      className="inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center rounded-xl border border-border bg-surface px-4 py-2 text-center text-sm font-medium text-foreground transition-colors duration-200 hover:bg-surface-2"
                     >
                       Remove
                     </button>
@@ -516,7 +516,7 @@ export const SignedOutDashboardTeaser = () => {
           action={
             <Link
               href="/library"
-              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm no-underline"
+              className="btn-secondary inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center px-5 py-2.5 text-center text-sm no-underline"
             >
               View Library
             </Link>
@@ -532,7 +532,7 @@ export const SignedOutDashboardTeaser = () => {
           action={
             <SignInCta
               label="Sign in for Playlist"
-              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm"
+              className="btn-secondary inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center px-5 py-2.5 text-center text-sm"
             />
           }
         />
@@ -545,7 +545,7 @@ export const SignedOutDashboardTeaser = () => {
           action={
             <SignInCta
               label="Sign in for Badges"
-              className="btn-secondary inline-flex min-h-10 items-center justify-center px-5 py-2.5 text-sm"
+              className="btn-secondary inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center px-5 py-2.5 text-center text-sm"
             />
           }
         />
@@ -608,7 +608,7 @@ export const LocalModeDashboard = () => {
 export const DashboardHubFrame = ({ children }: { children: ReactNode }) => {
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
-      <div className="mx-auto max-w-[88rem]">
+      <div className="mx-auto max-w-[1408px]">
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"

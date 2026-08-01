@@ -25,7 +25,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
+            className="inline-flex min-h-11 items-center gap-1 text-muted text-sm no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -47,7 +47,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         <section aria-labelledby="search-heading">
           <h1
             id="search-heading"
-            className="font-display text-[1.75rem] font-bold mb-5 text-foreground [overflow-wrap:anywhere]"
+            className="type-page-title font-display text-[1.75rem] font-bold mb-5 text-foreground [overflow-wrap:anywhere]"
           >
             {term ? `Results for \u201c${term}\u201d` : "Search Wikipedia"}
           </h1>
@@ -57,9 +57,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               <div className="mb-8">
                 <SearchForm />
               </div>
-              <div
-                className="garden-bed text-center py-12 px-6"
-              >
+              <div className="garden-bed text-center py-12 px-6">
                 <p className="font-display font-semibold text-lg text-foreground">
                   Plant a seed
                 </p>

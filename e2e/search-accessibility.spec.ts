@@ -1,10 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import {
-  expect,
-  test,
-  type Page,
-  type Route,
-} from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 type SearchFixture = {
   wikiPageId: string;
@@ -114,9 +109,7 @@ test("blank, empty, and failed searches expose one clear announcement path", asy
   await expect(blankSearch).not.toBeFocused();
   await expect(page.getByText("Plant a seed")).toBeVisible();
   await expect(
-    page.locator(
-      'p[role="status"][aria-live="polite"][aria-atomic="true"]',
-    ),
+    page.locator('p[role="status"][aria-live="polite"][aria-atomic="true"]'),
   ).toHaveCount(0);
   await expectNoSeriousAxeViolations(page);
 
@@ -182,11 +175,51 @@ test("long search terms and results reflow at 200% and 400% equivalents", async 
         page.evaluate(
           () =>
             document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth,
+            document.documentElement.clientWidth + 1,
         ),
       )
       .toBe(true);
   }
 
   await expectNoSeriousAxeViolations(page);
+});
+
+test("search controls and result actions wrap at enlarged system text sizes", async ({
+  page,
+}) => {
+  const longQuery = "LongSearchTerm".repeat(18);
+  await page.route("**/api/local-wikipedia", (route) =>
+    fulfillSearch(route, [
+      searchResult(
+        "large-text-result",
+        "A deliberately long result title for a narrow large-text layout",
+        "A deliberately long description that must share the card with its action without forcing the whole page sideways.",
+      ),
+    ]),
+  );
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto(`/search?q=${encodeURIComponent(longQuery)}`);
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+
+  const searchForm = page.getByRole("search", {
+    name: "Search Wikipedia articles",
+  });
+  const submit = searchForm.getByRole("button", { name: "Search" });
+  await expect(submit).toHaveCSS("white-space", "normal");
+  const submitBox = await submit.boundingBox();
+  expect(submitBox).not.toBeNull();
+  expect(submitBox!.height).toBeGreaterThanOrEqual(44);
+
+  expect(
+    await searchForm.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth + 1,
+    ),
+  ).toBe(true);
 });

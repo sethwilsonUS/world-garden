@@ -17,7 +17,7 @@ export default function Error({
   return (
     <div className="container mx-auto px-4 py-[100px]">
       <div className="max-w-xl mx-auto text-center animate-fade-in-up">
-        <h1 className="font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] mb-4 text-foreground tracking-[-0.02em]">
+        <h1 className="type-page-title font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] mb-4 text-foreground tracking-[-0.02em]">
           Something went wrong
         </h1>
 

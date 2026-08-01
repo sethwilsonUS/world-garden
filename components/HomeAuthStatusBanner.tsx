@@ -33,7 +33,7 @@ type BannerContent = {
 };
 
 const bannerLinkClass =
-  "inline-flex min-h-8 items-center justify-center rounded-lg px-3 py-1.5 text-sm font-semibold no-underline";
+  "inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold leading-snug no-underline";
 
 const secondaryActionClass =
   "border border-border bg-surface-2 text-foreground-2 transition-colors duration-200 hover:border-accent-border hover:bg-surface-3 hover:text-foreground";
@@ -51,10 +51,10 @@ const BannerShell = ({
   return (
     <aside
       aria-label="Account notice"
-      className="sticky top-12 z-40 border-b border-accent-border bg-surface-nav backdrop-blur-2xl"
+      className="relative z-10 border-b border-accent-border bg-surface-nav backdrop-blur-2xl"
     >
-      <div className="container mx-auto flex flex-col gap-2 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1 text-[0.8125rem] leading-5 sm:text-sm sm:leading-6">
+      <div className="container mx-auto flex flex-col gap-2 py-2 pl-4 pr-16 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed sm:text-sm">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-foreground-2">
             <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-accent">
               {eyebrow}
@@ -67,18 +67,20 @@ const BannerShell = ({
           </p>
         </div>
 
-        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
-          <div className="flex min-w-0 items-center gap-2">{actions}</div>
-          <button
-            type="button"
-            onClick={(event) => onDismiss(event.currentTarget)}
-            aria-label="Dismiss account notice"
-            className="ml-auto flex size-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted transition-colors duration-200 hover:border-border hover:bg-surface-2 hover:text-foreground sm:ml-0"
-          >
-            <CloseIcon />
-          </button>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:flex-initial">
+            {actions}
+          </div>
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(event) => onDismiss(event.currentTarget)}
+        aria-label="Dismiss account notice"
+        className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted transition-colors duration-200 hover:border-border hover:bg-surface-2 hover:text-foreground"
+      >
+        <CloseIcon />
+      </button>
     </aside>
   );
 };

@@ -514,7 +514,11 @@ export const MapSchematic = ({
         {presentation.places.map((place, index) => {
           const point = project(place);
           return (
-            <g key={place.id} transform={`translate(${point.x} ${point.y})`}>
+            <g
+              key={place.id}
+              className="context-map-marker-group"
+              transform={`translate(${point.x} ${point.y})`}
+            >
               <circle r="9" className="context-map-marker-halo" />
               <circle r="4" className="context-map-marker" />
               <text x="10" y="-8" className="context-map-marker-number">

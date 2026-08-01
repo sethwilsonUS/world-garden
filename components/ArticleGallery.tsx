@@ -87,7 +87,7 @@ const ImageCard = ({
             </div>
           )}
           {image.caption ? (
-            <span className="block px-4 py-3 text-[0.8125rem] leading-[1.5] text-muted line-clamp-3">
+            <span className="block break-words px-4 py-3 text-[0.8125rem] leading-[1.5] text-muted [overflow-wrap:anywhere]">
               {image.caption}
             </span>
           ) : null}
@@ -156,7 +156,7 @@ export const ArticleGallery = ({
         Gallery
       </h2>
       <ul
-        className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-3 gap-3 items-start"
+        className="m-0 grid list-none grid-cols-1 items-start gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3"
         role="list"
       >
         {images.map((image, index) => (

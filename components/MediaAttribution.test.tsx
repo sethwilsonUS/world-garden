@@ -22,6 +22,7 @@ describe("MediaAttribution", () => {
     expect(compact).toContain(
       '>source<span class="sr-only">: File:Example.jpg',
     );
+    expect(compact).not.toContain("line-clamp");
     expect(compact).not.toContain("Image by Museum archive scan");
     expect(detailed).toContain("Credit:");
     expect(detailed).toContain("Museum archive scan");

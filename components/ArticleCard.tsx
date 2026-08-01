@@ -12,11 +12,6 @@ export type TrendingArticle = {
   thumbnail?: { source: string; width: number; height: number };
 };
 
-const truncate = (text: string, max: number): string =>
-  text.length > max
-    ? text.slice(0, max).replace(/\s+\S*$/, "") + "\u2026"
-    : text;
-
 const formatViews = (n: number): string => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
@@ -85,22 +80,29 @@ export const ArticleCard = ({
             </div>
           )}
           <div className="px-4 py-3">
-            <span className="mb-1 block font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground line-clamp-2">
+            <span className="mb-1 block break-words font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground [overflow-wrap:anywhere]">
               {article.title}
             </span>
-            <span className="block text-[0.8125rem] leading-[1.5] text-muted line-clamp-2">
-              {truncate(article.extract, 120)}
+            <span className="block break-words text-[0.8125rem] leading-[1.5] text-muted [overflow-wrap:anywhere]">
+              {article.extract}
             </span>
             {article.views > 0 && (
               <span className="mt-1.5 block text-[0.6875rem] text-muted opacity-70">
-                <span aria-hidden="true">{formatViews(article.views)} views yesterday</span>
-                <span className="sr-only">{formatViewsAccessible(article.views)} views yesterday</span>
+                <span aria-hidden="true">
+                  {formatViews(article.views)} views yesterday
+                </span>
+                <span className="sr-only">
+                  {formatViewsAccessible(article.views)} views yesterday
+                </span>
               </span>
             )}
           </div>
         </ArticleLink>
         <div className="flex items-center justify-end border-t border-border px-4 py-3">
-          <PlaylistActionButton slug={article.title.replace(/ /g, "_")} title={article.title} />
+          <PlaylistActionButton
+            slug={article.title.replace(/ /g, "_")}
+            title={article.title}
+          />
         </div>
       </article>
     </li>

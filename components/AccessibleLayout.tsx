@@ -1,6 +1,13 @@
 "use client";
 
-import { ReactNode, useState, useRef, useEffect, useCallback } from "react";
+import {
+  ReactNode,
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
@@ -79,6 +86,8 @@ export const AccessibleLayout = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const [mobileMenuTop, setMobileMenuTop] = useState(0);
   const pathname = usePathname();
 
   const [prevPathname, setPrevPathname] = useState(pathname);
@@ -108,6 +117,71 @@ export const AccessibleLayout = ({
     if (!mobileMenuOpen || !menuRef.current) return;
     const firstLink = menuRef.current.querySelector<HTMLElement>("a, button");
     firstLink?.focus();
+  }, [mobileMenuOpen]);
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+
+    const root = document.documentElement;
+    let initialHashFrame = 0;
+    const publishHeaderHeight = () => {
+      const height = Math.ceil(header.getBoundingClientRect().height);
+      if (height > 0) {
+        root.style.setProperty("--site-header-height", `${height}px`);
+      }
+    };
+
+    publishHeaderHeight();
+    if (window.location.hash) {
+      let targetId = window.location.hash.slice(1);
+      try {
+        targetId = decodeURIComponent(targetId);
+      } catch {
+        // A malformed fragment cannot identify a target; native behavior is
+        // the safest fallback.
+      }
+      const target = document.getElementById(targetId);
+      if (target) {
+        initialHashFrame = requestAnimationFrame(() =>
+          target.scrollIntoView({ block: "start" }),
+        );
+      }
+    }
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(publishHeaderHeight);
+    observer?.observe(header);
+    window.addEventListener("resize", publishHeaderHeight, { passive: true });
+
+    return () => {
+      if (initialHashFrame) cancelAnimationFrame(initialHashFrame);
+      observer?.disconnect();
+      window.removeEventListener("resize", publishHeaderHeight);
+      root.style.removeProperty("--site-header-height");
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!mobileMenuOpen) return;
+    const updateMenuTop = () => {
+      const headerBottom =
+        headerRef.current?.getBoundingClientRect().bottom ?? 0;
+      setMobileMenuTop(Math.max(0, Math.min(window.innerHeight, headerBottom)));
+    };
+
+    updateMenuTop();
+    window.addEventListener("resize", updateMenuTop, { passive: true });
+    window.addEventListener("scroll", updateMenuTop, { passive: true });
+    window.visualViewport?.addEventListener("resize", updateMenuTop, {
+      passive: true,
+    });
+    return () => {
+      window.removeEventListener("resize", updateMenuTop);
+      window.removeEventListener("scroll", updateMenuTop);
+      window.visualViewport?.removeEventListener("resize", updateMenuTop);
+    };
   }, [mobileMenuOpen]);
 
   useEffect(() => {
@@ -142,30 +216,35 @@ export const AccessibleLayout = ({
         Skip to main content
       </a>
 
-      <header className="navbar" role="banner">
+      <header
+        ref={headerRef}
+        className="navbar min-h-12"
+        role="banner"
+        style={{ position: "sticky", height: "auto" }}
+      >
         <nav
-          className="container mx-auto px-4 h-full flex items-center justify-between"
+          className="container mx-auto flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-1"
           aria-label="Main navigation"
         >
           <Link
             href="/"
-            className="flex items-center gap-2 font-semibold font-display text-foreground no-underline"
+            className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg font-semibold font-display text-foreground no-underline"
           >
             <LeafIcon size={22} />
-            <span className="text-sm sm:text-base whitespace-nowrap">
+            <span className="min-w-0 text-sm leading-tight sm:text-base">
               Curio Garden
             </span>
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden sm:flex items-center gap-3">
+          <div className="hidden min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:flex">
             <SiteNavLinks variant="desktop" authEnabled={authEnabled} />
             <ThemeToggle />
             {authControls}
           </div>
 
           {/* Mobile: theme toggle + hamburger */}
-          <div className="flex sm:hidden items-center gap-1">
+          <div className="flex items-center gap-1 lg:hidden">
             <ThemeToggle />
             <button
               ref={hamburgerRef}
@@ -173,40 +252,44 @@ export const AccessibleLayout = ({
               aria-expanded={mobileMenuOpen}
               aria-controls={MOBILE_MENU_ID}
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-              className="flex items-center justify-center w-9 h-9 rounded-lg text-foreground bg-transparent border-0 cursor-pointer transition-colors duration-200"
+              className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-foreground transition-colors duration-200"
             >
               {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
             </button>
           </div>
         </nav>
-
-        {/* Mobile menu panel */}
-        {mobileMenuOpen && (
-          <div
-            id={MOBILE_MENU_ID}
-            ref={menuRef}
-            role="navigation"
-            aria-label="Mobile navigation"
-            className="sm:hidden absolute top-full left-0 right-0 bg-surface-nav backdrop-blur-2xl border-b border-border shadow-lg"
-          >
-            <div className="container mx-auto px-4 py-4 flex flex-col gap-1">
-              <SiteNavLinks variant="mobile" authEnabled={authEnabled} />
-              {mobileAuthControls ? (
-                <div className="pt-3 mt-2 border-t border-border">
-                  {mobileAuthControls}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )}
       </header>
+
+      {/* Keep the panel inside the current visual viewport even when an
+          in-flow notice places the sticky header below its resting position. */}
+      {mobileMenuOpen && (
+        <div
+          id={MOBILE_MENU_ID}
+          ref={menuRef}
+          role="navigation"
+          aria-label="Mobile navigation"
+          className="fixed inset-x-0 z-40 overflow-y-auto overscroll-contain border-b border-border bg-surface-nav shadow-lg backdrop-blur-2xl lg:hidden"
+          style={{
+            top: mobileMenuTop,
+            bottom: "env(safe-area-inset-bottom, 0px)",
+          }}
+        >
+          <div className="container mx-auto px-4 py-4 flex flex-col gap-1">
+            <SiteNavLinks variant="mobile" authEnabled={authEnabled} />
+            {mobileAuthControls ? (
+              <div className="pt-3 mt-2 border-t border-border">
+                {mobileAuthControls}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       <main
         id="main-content"
         role="main"
         tabIndex={-1}
-        className="pt-12"
-        style={{ minHeight: "calc(100vh - 48px)" }}
+        className="min-h-[calc(100svh_-_var(--site-header-height,48px))]"
       >
         {children}
       </main>

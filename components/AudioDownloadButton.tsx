@@ -27,7 +27,7 @@ type AudioDownloadButtonProps =
   | AudioDownloadButtonAsLink;
 
 const baseClassName =
-  "inline-flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-5 py-2.5 text-sm font-semibold text-foreground-2 transition-colors duration-200";
+  "inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[8px] break-words rounded-xl border border-border bg-surface-2 px-[20px] py-[10px] text-center text-sm font-semibold leading-snug text-foreground-2 transition-colors duration-200 [overflow-wrap:anywhere]";
 
 const interactiveClassName =
   "cursor-pointer hover:border-accent-border hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background";

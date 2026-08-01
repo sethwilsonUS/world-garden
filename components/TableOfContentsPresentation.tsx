@@ -33,7 +33,7 @@ export const SectionDetailsBadge = ({
       }}
       aria-expanded={isOpen}
       aria-label={label}
-      className="linked-article-link inline-flex items-center gap-[3px] px-[7px] py-px bg-transparent border border-border rounded-full text-[0.6875rem] sm:text-[0.625rem] text-muted cursor-pointer font-medium leading-[1.4] pointer-events-auto transition-colors duration-150"
+      className="linked-article-link pointer-events-auto inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[3px] break-words rounded-full border border-border bg-transparent px-[8px] py-[4px] text-center text-[0.6875rem] font-medium leading-[1.4] text-muted transition-colors duration-150 [overflow-wrap:anywhere] cursor-pointer sm:text-[0.625rem]"
     >
       <svg
         viewBox="0 0 24 24"
@@ -103,7 +103,7 @@ export const SectionDetailsPanel = ({
                 <ArticleLink
                   articleTitle={article.title}
                   title={article.description ?? article.title}
-                  className="linked-article-link block px-1.5 py-0.5 rounded text-[0.8125rem] sm:text-xs text-foreground-2 no-underline transition-colors duration-100"
+                  className="linked-article-link flex min-h-[44px] items-center break-words rounded px-[6px] py-[4px] text-[0.8125rem] text-foreground-2 no-underline transition-colors duration-100 [overflow-wrap:anywhere] sm:text-xs"
                 >
                   {article.title}
                 </ArticleLink>
@@ -145,7 +145,7 @@ export const SectionDetailsPanel = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={`Source for citation ${citation.index} (opens in new tab)`}
-                        className="linked-article-link inline-flex items-center gap-0.5 text-[0.6875rem] sm:text-[0.625rem] text-muted no-underline px-[3px] rounded align-baseline transition-colors duration-150"
+                        className="linked-article-link inline-flex min-h-[44px] items-center gap-0.5 rounded px-[6px] text-[0.6875rem] text-muted no-underline align-baseline transition-colors duration-150 sm:text-[0.625rem]"
                       >
                         <svg
                           viewBox="0 0 24 24"

@@ -66,6 +66,7 @@ describe("AudioPlaybackPresentation", () => {
       'input[type="range"]',
     ) as HTMLInputElement;
     expect(slider.className).toContain("audio-progress-range");
+    expect(slider.className).toContain("min-h-[44px]");
     expect(slider.min).toBe("0");
     expect(slider.max).toBe("12");
     expect(slider.step).toBe("0.1");

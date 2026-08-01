@@ -233,7 +233,7 @@ export const AccountDeletionPanel = ({
         </p>
         <h2
           id="account-deletion-heading"
-          className="mt-2 font-display text-[1.5rem] font-semibold leading-[1.2] text-foreground"
+          className="type-section-title-lg mt-2 font-display text-[1.5rem] font-semibold leading-[1.2] text-foreground"
         >
           Delete account
         </h2>
@@ -411,7 +411,7 @@ export const AccountDeletionPanel = ({
           aria-atomic="true"
           className={
             isOpen
-              ? `mt-4 min-h-6 text-sm leading-6 ${
+              ? `mt-4 min-h-6 text-sm leading-[1.7] ${
                   deletionState === "error" ||
                   deletionState === "uncertain" ||
                   deletionState === "cancelled"

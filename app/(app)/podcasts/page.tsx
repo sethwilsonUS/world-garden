@@ -55,10 +55,10 @@ const PodcastAccordionSection = ({
 }) => (
   <section aria-labelledby={`${accordionId}-heading`}>
     <details open className="garden-bed p-5 sm:p-6 group">
-      <summary className="list-none cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-xl">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 py-[6px] px-3.5 rounded-full bg-accent-bg border border-accent-border mb-5 text-[0.8125rem] text-accent font-semibold tracking-[0.01em]">
+      <summary className="min-h-[44px] list-none cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-[1_1_240px] [overflow-wrap:anywhere]">
+            <div className="mb-5 inline-flex max-w-full flex-wrap items-center gap-2 break-words rounded-full border border-accent-border bg-accent-bg px-3.5 py-[6px] text-[0.8125rem] font-semibold leading-snug tracking-[0.01em] text-accent [overflow-wrap:anywhere]">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -79,7 +79,7 @@ const PodcastAccordionSection = ({
 
             <h2
               id={`${accordionId}-heading`}
-              className="font-display text-[1.5rem] sm:text-[1.8rem] font-semibold text-foreground leading-[1.12]"
+              className="type-section-title-lg font-display text-[1.5rem] sm:text-[1.8rem] font-semibold text-foreground leading-[1.12]"
             >
               {title}
             </h2>
@@ -91,7 +91,7 @@ const PodcastAccordionSection = ({
 
           <span
             aria-hidden="true"
-            className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-foreground transition-transform duration-200 group-open:rotate-180"
+            className="mt-1 inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-foreground transition-transform duration-200 group-open:rotate-180"
           >
             <svg
               viewBox="0 0 24 24"
@@ -111,7 +111,7 @@ const PodcastAccordionSection = ({
 
       <div className="mt-8 space-y-8">
         <section aria-labelledby={`${accordionId}-episodes-heading`}>
-          <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h3
               id={`${accordionId}-episodes-heading`}
               className="font-display text-[1.2rem] font-semibold text-foreground"
@@ -120,7 +120,7 @@ const PodcastAccordionSection = ({
             </h3>
             <Link
               href={`/podcasts/${slug}`}
-              className="text-sm text-accent no-underline"
+              className="inline-flex min-h-[44px] max-w-full items-center text-sm text-accent no-underline"
               aria-label={`View all episodes for ${title}`}
             >
               View full archive
@@ -157,7 +157,7 @@ export default async function PodcastsPage() {
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
+            className="inline-flex min-h-[44px] items-center gap-1 text-muted text-sm no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -179,7 +179,7 @@ export default async function PodcastsPage() {
         <section aria-labelledby="podcasts-heading">
           <h1
             id="podcasts-heading"
-            className="font-display text-[2rem] sm:text-[2.45rem] font-bold mb-4 text-foreground leading-[1.05]"
+            className="type-page-title font-display text-[2rem] sm:text-[2.45rem] font-bold mb-4 text-foreground leading-[1.05]"
           >
             Podcasts
           </h1>

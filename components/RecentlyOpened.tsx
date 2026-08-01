@@ -56,7 +56,7 @@ export const RecentlyOpened = () => {
     <section aria-labelledby="recently-opened-heading" className="mt-12">
       <h2
         id="recently-opened-heading"
-        className="font-display font-semibold text-lg text-foreground mb-4 text-center"
+        className="type-section-title-sm font-display font-semibold text-lg text-foreground mb-4 text-center"
       >
         Recently opened
       </h2>

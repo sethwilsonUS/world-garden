@@ -12,6 +12,7 @@
 /coverage
 /playwright-report/
 /test-results/
+/playwright/.clerk/
 
 # next.js
 /.next/

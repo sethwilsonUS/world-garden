@@ -31,7 +31,9 @@ const progressLabel = (job: TrayJob): string => {
   if (job.progressLabelOverride) return job.progressLabelOverride;
   if (job.status === "ready") return "Your article audio file is ready.";
   if (job.status === "failed") {
-    return job.lastError || "Something went wrong while exporting this article.";
+    return (
+      job.lastError || "Something went wrong while exporting this article."
+    );
   }
   if (job.status === "queued") {
     return "Waiting for the current download to finish before this one starts.";
@@ -41,11 +43,7 @@ const progressLabel = (job: TrayJob): string => {
   return `${Math.min(job.completedSectionCount, job.sectionCount)} of ${job.sectionCount} sections ready`;
 };
 
-const ExportIcon = ({
-  status,
-}: {
-  status: TrayJob["status"];
-}) => {
+const ExportIcon = ({ status }: { status: TrayJob["status"] }) => {
   if (status === "queued") {
     return (
       <svg
@@ -147,7 +145,12 @@ export const ArticleAudioExportTray = ({
         <div className="sr-only" aria-live="polite" role="status">
           {politeAnnouncement}
         </div>
-        <div className="sr-only" aria-live="assertive" aria-atomic="true" role="alert">
+        <div
+          className="sr-only"
+          aria-live="assertive"
+          aria-atomic="true"
+          role="alert"
+        >
           {assertiveAnnouncement}
         </div>
       </>
@@ -159,140 +162,152 @@ export const ArticleAudioExportTray = ({
       <div className="sr-only" aria-live="polite" role="status">
         {politeAnnouncement}
       </div>
-      <div className="sr-only" aria-live="assertive" aria-atomic="true" role="alert">
+      <div
+        className="sr-only"
+        aria-live="assertive"
+        aria-atomic="true"
+        role="alert"
+      >
         {assertiveAnnouncement}
       </div>
 
       <section
         aria-label="Audio downloads"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-[70] flex flex-col items-end gap-3"
+        className="pointer-events-none fixed inset-x-[16px] bottom-[16px] z-[70] flex justify-end"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        {jobs.map((job) => {
-          const progressPercent =
-            job.sectionCount > 0
-              ? Math.max(
-                  0,
-                  Math.min(
-                    100,
-                    Math.round(
-                      (job.completedSectionCount / job.sectionCount) * 100,
+        <div className="pointer-events-auto flex max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-bottom))] w-full max-w-[26rem] flex-col gap-[12px] overflow-y-auto overscroll-contain pr-[2px]">
+          {jobs.map((job) => {
+            const progressPercent =
+              job.sectionCount > 0
+                ? Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      Math.round(
+                        (job.completedSectionCount / job.sectionCount) * 100,
+                      ),
                     ),
-                  ),
-                )
-              : 12;
+                  )
+                : 12;
 
-          const accentClasses =
-            job.status === "failed"
-              ? "text-serious bg-[color:var(--color-surface)] border-[color:var(--color-serious)]/25"
-              : job.status === "ready"
-                ? "text-accent bg-accent-bg border-accent-border"
-                : "text-accent bg-accent-bg border-accent-border";
+            const accentClasses =
+              job.status === "failed"
+                ? "text-serious bg-[color:var(--color-surface)] border-[color:var(--color-serious)]/25"
+                : job.status === "ready"
+                  ? "text-accent bg-accent-bg border-accent-border"
+                  : "text-accent bg-accent-bg border-accent-border";
 
-          return (
-            <article
-              key={job._id}
-              className="pointer-events-auto garden-bed w-full max-w-[26rem] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
-            >
-              <div className="p-4 sm:p-4.5">
-                <div className="flex items-start gap-3">
-                  <div
-                    className={`mt-0.5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-2xl border ${accentClasses}`}
-                  >
-                    <ExportIcon status={job.status} />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-muted">
-                      {statusLabel(job)}
-                    </p>
-                    <h2 className="mt-1 font-display text-[1.02rem] leading-[1.2] text-foreground">
-                      {job.title}
-                    </h2>
-                    <p className="mt-2 text-sm leading-[1.6] text-foreground-2">
-                      {progressLabel(job)}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => onDismiss(job._id)}
-                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    aria-label={`Dismiss audio download status for ${job.title}`}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      width={16}
-                      height={16}
-                      aria-hidden="true"
-                    >
-                      <path d="M18 6 6 18" />
-                      <path d="m6 6 12 12" />
-                    </svg>
-                  </button>
-                </div>
-
-                {job.status === "running" && (
-                  <div className="mt-4 rounded-full bg-surface-3 p-1" aria-hidden="true">
+            return (
+              <article
+                key={job._id}
+                className="garden-bed w-full shrink-0 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.16)] [overflow-wrap:anywhere]"
+              >
+                <div className="p-[16px] sm:p-[18px]">
+                  <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-[12px]">
                     <div
-                      className="h-2 rounded-full bg-accent transition-[width] duration-300"
-                      style={{
-                        width:
-                          job.stage === "packaging"
-                            ? "100%"
-                            : `${progressPercent}%`,
-                      }}
-                    />
-                  </div>
-                )}
-
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  {job.status === "ready" ? (
-                    <a
-                      href={
-                        job.downloadHref ??
-                        `/api/article/audio-export/${job._id}?download=1`
-                      }
-                      className="btn-primary min-h-11 px-4 py-2 text-sm no-underline"
-                      aria-label={`Download audio for ${job.title}`}
-                      download
+                      className={`mt-[2px] inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-2xl border ${accentClasses}`}
                     >
-                      {job.kind === "download" ? "Download again" : "Download MP3"}
-                    </a>
-                  ) : job.status === "failed" && job.articleId ? (
+                      <ExportIcon status={job.status} />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-muted">
+                        {statusLabel(job)}
+                      </p>
+                      <h2 className="mt-1 break-words font-display text-[1.02rem] leading-[1.2] text-foreground [overflow-wrap:anywhere]">
+                        {job.title}
+                      </h2>
+                      <p className="mt-2 text-sm leading-[1.6] text-foreground-2">
+                        {progressLabel(job)}
+                      </p>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => onRetry(job.articleId!)}
-                      className="btn-primary min-h-11 px-4 py-2 text-sm"
+                      onClick={() => onDismiss(job._id)}
+                      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl border border-border bg-surface-2 text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      aria-label={`Dismiss audio download status for ${job.title}`}
                     >
-                      Retry export
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        width={16}
+                        height={16}
+                        aria-hidden="true"
+                      >
+                        <path d="M18 6 6 18" />
+                        <path d="m6 6 12 12" />
+                      </svg>
                     </button>
-                  ) : job.status === "queued" ? (
-                    <span className="inline-flex min-h-11 items-center rounded-xl border border-border bg-surface-2 px-4 py-2 text-sm font-semibold text-foreground-2">
-                      Queued
-                    </span>
-                  ) : (
-                    <span className="inline-flex min-h-11 items-center rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-sm font-semibold text-accent">
-                      Working in the background
-                    </span>
+                  </div>
+
+                  {job.status === "running" && (
+                    <div
+                      className="mt-4 rounded-full bg-surface-3 p-1"
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="h-2 rounded-full bg-accent transition-[width] duration-300"
+                        style={{
+                          width:
+                            job.stage === "packaging"
+                              ? "100%"
+                              : `${progressPercent}%`,
+                        }}
+                      />
+                    </div>
                   )}
 
-                  <span className="text-xs text-muted">
-                    {new Date(job.updatedAt).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </span>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {job.status === "ready" ? (
+                      <a
+                        href={
+                          job.downloadHref ??
+                          `/api/article/audio-export/${job._id}?download=1`
+                        }
+                        className="btn-primary min-h-[44px] max-w-full flex-wrap px-[16px] py-[8px] text-center text-sm no-underline"
+                        aria-label={`Download audio for ${job.title}`}
+                        download
+                      >
+                        {job.kind === "download"
+                          ? "Download again"
+                          : "Download MP3"}
+                      </a>
+                    ) : job.status === "failed" && job.articleId ? (
+                      <button
+                        type="button"
+                        onClick={() => onRetry(job.articleId!)}
+                        className="btn-primary min-h-[44px] max-w-full flex-wrap px-[16px] py-[8px] text-center text-sm"
+                      >
+                        Retry export
+                      </button>
+                    ) : job.status === "queued" ? (
+                      <span className="inline-flex min-h-[44px] max-w-full flex-wrap items-center rounded-xl border border-border bg-surface-2 px-[16px] py-[8px] text-sm font-semibold leading-snug text-foreground-2">
+                        Queued
+                      </span>
+                    ) : (
+                      <span className="inline-flex min-h-[44px] max-w-full flex-wrap items-center rounded-xl border border-accent-border bg-accent-bg px-[16px] py-[8px] text-sm font-semibold leading-snug text-accent">
+                        Working in the background
+                      </span>
+                    )}
+
+                    <span className="text-xs text-muted">
+                      {new Date(job.updatedAt).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </article>
-          );
-        })}
+              </article>
+            );
+          })}
+        </div>
       </section>
     </>
   );

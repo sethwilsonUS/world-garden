@@ -15,7 +15,7 @@ export default function OnThisDayPage() {
         <nav aria-label="Back navigation" className="mb-5">
           <Link
             href="/"
-            className="on-this-day-back-link inline-flex items-center gap-1 text-sm text-muted no-underline"
+            className="on-this-day-back-link inline-flex min-h-11 items-center gap-1 text-sm text-muted no-underline"
           >
             <svg
               viewBox="0 0 24 24"
@@ -36,7 +36,7 @@ export default function OnThisDayPage() {
 
         <header className="on-this-day-page-header">
           <p className="eyebrow">A daily walk through history</p>
-          <h1 className="font-display text-[clamp(2rem,6vw,3.75rem)] font-bold leading-none text-foreground">
+          <h1 className="type-page-title font-display text-[clamp(2rem,6vw,3.75rem)] font-bold leading-none text-foreground">
             On This Day
           </h1>
           <p className="on-this-day-page-intro mt-3 max-w-3xl text-base leading-relaxed text-muted">

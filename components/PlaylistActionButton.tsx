@@ -7,8 +7,10 @@ import { usePersonalPlaylist } from "@/hooks/usePersonalPlaylist";
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 const buttonClassName = (variant: "icon" | "labeled") =>
-  `inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-[10px] border transition-all duration-200 disabled:cursor-not-allowed ${
-    variant === "labeled" ? "px-3 py-2" : "h-10 w-10"
+  `inline-flex min-h-[44px] cursor-pointer flex-wrap items-center justify-center gap-[8px] rounded-[10px] border text-center leading-snug transition-all duration-200 disabled:cursor-not-allowed ${
+    variant === "labeled"
+      ? "max-w-full px-[12px] py-[8px]"
+      : "h-[44px] w-[44px] shrink-0"
   }`;
 
 export const PlaylistActionButton = ({
@@ -188,9 +190,7 @@ const PlaylistActionButtonInner = ({
             : `connecting Playlist for ${title}`,
         )}
         title={
-          isLoaded
-            ? "Playlist sync is still connecting"
-            : "Connecting playlist"
+          isLoaded ? "Playlist sync is still connecting" : "Connecting playlist"
         }
         className={`${buttonClassName(variant)} border-border bg-surface text-muted ${className}`}
       >

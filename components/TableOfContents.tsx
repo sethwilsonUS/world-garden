@@ -144,10 +144,10 @@ const durationLabelAccessible = (
 };
 
 const rowClass =
-  "toc-row flex flex-col items-stretch justify-between gap-2 w-full py-2.5 px-3 rounded-xl text-left sm:flex-row sm:items-center sm:gap-4";
+  "toc-row flex w-full flex-wrap items-start justify-between gap-[8px] rounded-xl px-[12px] py-[10px] text-left";
 
 const pillClass =
-  "inline-flex items-center gap-[5px] px-3 py-[5px] rounded-full font-semibold text-xs leading-none whitespace-nowrap shrink-0";
+  "inline-flex max-w-full flex-wrap items-center justify-center gap-[5px] rounded-full px-[12px] py-[5px] text-center text-xs font-semibold leading-snug break-words [overflow-wrap:anywhere]";
 
 const sectionMetadataCount = (
   counts: Record<string, number> | null,
@@ -294,7 +294,7 @@ export const TableOfContents = ({
   })();
 
   return (
-    <div className="toc-section pattern-leaves">
+    <div className="toc-section pattern-leaves min-w-0 [overflow-wrap:anywhere]">
       <div className="flex items-start gap-3 mb-5">
         <svg
           viewBox="0 0 24 24"
@@ -316,7 +316,7 @@ export const TableOfContents = ({
           <path d="M12 13l4 3" />
         </svg>
         <div>
-          <h2 className="font-display font-bold text-xl text-foreground mb-1">
+          <h2 className="type-section-title font-display font-bold text-xl text-foreground mb-1">
             Explore this article
           </h2>
           <p className="text-[0.8125rem] text-muted m-0 leading-normal">
@@ -330,7 +330,7 @@ export const TableOfContents = ({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="mb-4 flex min-w-0 flex-wrap gap-[8px]">
         <button
           ref={playAllRef}
           onMouseEnter={onWarmPlayAll}
@@ -353,7 +353,7 @@ export const TableOfContents = ({
           aria-disabled={
             (!isPlayingAll && (isGenerating || downloading)) || undefined
           }
-          className={`inline-flex items-center gap-2 py-2.5 px-5 rounded-xl font-semibold text-sm transition-all duration-200 ${
+          className={`inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[8px] rounded-xl px-[20px] py-[10px] text-center text-sm font-semibold leading-snug transition-all duration-200 ${
             isPlayingAll
               ? "bg-surface-3 text-foreground border border-border cursor-pointer"
               : `search-submit bg-btn-primary text-btn-primary-text border-0 ${
@@ -464,7 +464,7 @@ export const TableOfContents = ({
           <button
             type="button"
             onClick={onStopPlayAll}
-            className="inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 cursor-pointer"
+            className="inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[8px] rounded-xl border border-border bg-surface-2 px-[12px] py-[10px] text-center text-sm font-semibold leading-snug text-foreground-2 transition-colors duration-200 cursor-pointer sm:px-[20px]"
             aria-label={
               summaryOnly ? "Stop summary" : "Stop playing all sections"
             }
@@ -487,7 +487,7 @@ export const TableOfContents = ({
           <button
             onClick={onSkipSection}
             disabled={!canSkipSection}
-            className={`inline-flex items-center gap-2 py-2.5 px-3 sm:px-5 bg-surface-2 text-foreground-2 border border-border rounded-xl font-semibold text-sm transition-colors duration-200 ${
+            className={`inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[8px] rounded-xl border border-border bg-surface-2 px-[12px] py-[10px] text-center text-sm font-semibold leading-snug text-foreground-2 transition-colors duration-200 sm:px-[20px] ${
               !canSkipSection
                 ? "cursor-not-allowed opacity-70"
                 : "cursor-pointer"
@@ -589,14 +589,14 @@ export const TableOfContents = ({
           {/* Summary entry */}
           <li className={`toc-item${isSummaryActive ? " bg-accent-bg" : ""}`}>
             <div className={rowClass}>
-              <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
+              <span className="flex min-w-0 flex-[1_1_240px] flex-wrap items-baseline gap-[8px]">
                 <span
                   className={`font-semibold leading-[1.4] ${isSummaryActive ? "text-accent" : "text-foreground"}`}
                 >
                   Summary
                 </span>
                 {summaryText && (
-                  <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
+                  <span className="shrink-0 font-mono text-xs font-normal text-muted sm:text-[0.6875rem]">
                     <span aria-hidden="true">
                       {durationLabel(
                         "summary",
@@ -643,7 +643,7 @@ export const TableOfContents = ({
                   e.currentTarget.focus();
                 }}
                 aria-label={`Listen to summary of ${articleTitle}`}
-                className={`${pillClass} self-start sm:self-auto border cursor-pointer pointer-events-auto ${
+                className={`${pillClass} pointer-events-auto min-h-[44px] shrink-0 self-start border cursor-pointer ${
                   isSummaryActive && !isSummaryLoading
                     ? "bg-accent-bg text-accent border-accent-border"
                     : "bg-btn-primary text-btn-primary-text border-transparent"
@@ -709,7 +709,7 @@ export const TableOfContents = ({
             const isSectionPaused = isSelected && isSpeaking && isPaused;
             const isActive = isPlaying || isSectionPaused;
             const isLoading = isGenerating && isSelected;
-            const indent = (section.level - 2) * 16;
+            const indent = Math.min(24, Math.max(0, (section.level - 2) * 12));
 
             if (!canListen) {
               const statusLabel = isTransition
@@ -730,7 +730,7 @@ export const TableOfContents = ({
                     }
                     aria-label={`${section.title} — ${statusLabel.toLowerCase()}`}
                   >
-                    <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
+                    <span className="flex min-w-0 flex-[1_1_240px] flex-wrap items-baseline gap-[8px]">
                       <span
                         className={`${section.level === 2 ? "font-semibold text-[0.9375rem]" : "font-normal text-sm"} min-w-0 [overflow-wrap:anywhere] text-muted leading-[1.4]`}
                       >
@@ -745,7 +745,7 @@ export const TableOfContents = ({
                         )}
                       />
                     </span>
-                    <span className="inline-flex self-start sm:self-auto items-center gap-1.5 shrink-0">
+                    <span className="inline-flex max-w-full shrink-0 flex-wrap items-center gap-[6px] self-start">
                       <span
                         className={`${pillClass} bg-transparent text-muted border border-border`}
                         aria-hidden="true"
@@ -757,7 +757,6 @@ export const TableOfContents = ({
                         text={statusDescription}
                         align="right"
                         buttonClassName="size-6"
-                        tooltipClassName="w-56"
                       />
                     </span>
                   </div>
@@ -776,13 +775,13 @@ export const TableOfContents = ({
                     indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined
                   }
                 >
-                  <span className="flex-1 min-w-0 flex items-baseline gap-2 flex-wrap">
+                  <span className="flex min-w-0 flex-[1_1_240px] flex-wrap items-baseline gap-[8px]">
                     <span
                       className={`${section.level === 2 ? "font-semibold text-[0.9375rem]" : "font-normal text-sm"} min-w-0 [overflow-wrap:anywhere] leading-[1.4] ${isActive ? "text-accent" : "text-foreground"}`}
                     >
                       {section.title}
                     </span>
-                    <span className="text-xs sm:text-[0.6875rem] text-muted font-mono font-normal whitespace-nowrap">
+                    <span className="shrink-0 font-mono text-xs font-normal text-muted sm:text-[0.6875rem]">
                       <span aria-hidden="true">
                         {durationLabel(
                           `section-${index}`,
@@ -801,7 +800,7 @@ export const TableOfContents = ({
                       </span>
                     </span>
                     {section.narration.adapted && (
-                      <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-flex max-w-full flex-wrap items-center gap-[6px]">
                         <span
                           className={`${pillClass} bg-accent-bg text-accent border border-accent-border`}
                         >
@@ -815,7 +814,6 @@ export const TableOfContents = ({
                               : "Wikipedia presents part of this section as a table or list. Curio Garden reads its labels and values in source order without generative rewriting."
                           }
                           buttonClassName="size-6"
-                          tooltipClassName="w-64"
                         />
                         {section.narration.remainingSourceItems ? (
                           <a
@@ -871,7 +869,7 @@ export const TableOfContents = ({
                         ? `Generating audio for ${section.title}`
                         : `Listen to ${section.title}`
                     }
-                    className={`${pillClass} self-start sm:self-auto border pointer-events-auto ${
+                    className={`${pillClass} pointer-events-auto min-h-[44px] shrink-0 self-start border ${
                       isLoading ? "cursor-wait" : "cursor-pointer"
                     } ${
                       isActive && !isLoading

@@ -230,11 +230,11 @@ export const AudioPlayer = ({
     <div
       role="group"
       aria-label={`Audio player for ${title}`}
-      className={`w-full max-w-[480px] ${className}`}
+      className={`min-w-0 w-full max-w-[480px] ${className}`}
     >
       {showLabel ? (
         <p
-          className="mb-2 flex items-center gap-2 overflow-hidden font-display text-[0.8125rem] font-semibold tracking-[0.01em] text-muted"
+          className="mb-2 flex min-w-0 items-start gap-2 font-display text-[0.8125rem] font-semibold leading-relaxed tracking-[0.01em] text-muted"
           aria-live="polite"
         >
           <span
@@ -243,7 +243,9 @@ export const AudioPlayer = ({
             }`}
             aria-hidden="true"
           />
-          <span className="truncate">{displayLabel}</span>
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+            {displayLabel}
+          </span>
         </p>
       ) : null}
 
@@ -251,20 +253,22 @@ export const AudioPlayer = ({
       <div
         data-audio-player-surface=""
         className={`border border-border bg-surface-3 ${
-          compact ? "rounded-xl px-3.5 py-3" : "rounded-2xl px-5 py-4"
+          compact
+            ? "rounded-xl px-[14px] py-[12px]"
+            : "rounded-2xl px-[clamp(14px,4vw,20px)] py-[16px]"
         }`}
       >
         {/* Controls: skip-back, play/pause, skip-forward */}
         <div
-          className={`mb-3.5 flex items-center justify-center ${
-            compact ? "gap-3" : "gap-3 sm:gap-5"
+          className={`mb-[14px] flex flex-wrap items-center justify-center ${
+            compact ? "gap-[12px]" : "gap-[clamp(10px,3vw,20px)]"
           }`}
         >
           <button
             type="button"
             onClick={() => skip(-10)}
             aria-label="Skip back 10 seconds"
-            className="flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
+            className="flex min-h-[44px] min-w-[44px] cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-[8px] font-mono text-[0.5625rem] font-bold leading-none text-foreground-2 transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
             <svg
               viewBox="0 0 24 24"
@@ -297,7 +301,7 @@ export const AudioPlayer = ({
                     : `Play: ${title}`
             }
             className={`search-submit flex shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-btn-primary text-btn-primary-text transition-all duration-150 hover:bg-btn-primary-hover ${
-              compact ? "h-11 w-11" : "h-[52px] w-[52px]"
+              compact ? "h-[44px] w-[44px]" : "h-[52px] w-[52px]"
             }`}
             style={{
               boxShadow:
@@ -333,7 +337,7 @@ export const AudioPlayer = ({
             type="button"
             onClick={() => skip(10)}
             aria-label="Skip forward 10 seconds"
-            className="flex min-h-11 min-w-11 cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-2 font-mono text-[0.5625rem] font-bold leading-none text-muted transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
+            className="flex min-h-[44px] min-w-[44px] cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-[8px] font-mono text-[0.5625rem] font-bold leading-none text-foreground-2 transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
             <svg
               viewBox="0 0 24 24"
@@ -357,7 +361,7 @@ export const AudioPlayer = ({
               type="button"
               onClick={cycleSpeed}
               aria-label={`Playback speed ${formatRate(playbackRate)}. Activate to change.`}
-              className={`flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-2.5 py-1.5 font-mono text-[0.8125rem] font-bold leading-none transition-colors duration-150 hover:bg-accent-bg hover:text-accent ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
+              className={`flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-[10px] py-[6px] font-mono text-[0.8125rem] font-bold leading-none transition-colors duration-150 hover:bg-accent-bg hover:text-accent ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
             >
               {formatRate(playbackRate)}
             </button>
@@ -369,15 +373,12 @@ export const AudioPlayer = ({
         </div>
 
         {/* Progress: time — scrubber — time */}
-        <div className={`flex items-center ${compact ? "gap-2.5" : "gap-3.5"}`}>
-          <span
-            className="font-mono text-xs font-medium text-muted min-w-[38px] select-none"
-            aria-hidden="true"
-          >
-            {formatTime(normalizedCurrentTime)}
-          </span>
-
-          <div className="flex-1 min-w-0">
+        <div
+          className={`grid min-w-0 grid-cols-2 items-center ${
+            compact ? "gap-x-[10px]" : "gap-x-[14px]"
+          }`}
+        >
+          <div className="col-span-2 min-w-0">
             <input
               type="range"
               min={0}
@@ -390,7 +391,7 @@ export const AudioPlayer = ({
               aria-valuemax={effectiveDuration}
               aria-valuenow={normalizedCurrentTime}
               aria-valuetext={`${formatTime(normalizedCurrentTime)} of ${formatTime(effectiveDuration)}`}
-              className="article-audio-progress-range block w-full"
+              className="article-audio-progress-range block min-h-[44px] w-full"
               style={
                 {
                   "--progress": `${progress}%`,
@@ -400,7 +401,13 @@ export const AudioPlayer = ({
           </div>
 
           <span
-            className="font-mono text-xs font-medium text-muted min-w-[38px] text-right select-none"
+            className="min-w-0 select-none font-mono text-xs font-medium text-muted tabular-nums"
+            aria-hidden="true"
+          >
+            {formatTime(normalizedCurrentTime)}
+          </span>
+          <span
+            className="min-w-0 select-none text-right font-mono text-xs font-medium text-muted tabular-nums"
             aria-hidden="true"
           >
             {effectiveDuration > 0 ? formatTime(effectiveDuration) : "--:--"}
@@ -420,7 +427,7 @@ export const AudioPlayer = ({
             href={audioUrl}
             download
             aria-label={`Download audio for ${title}`}
-            className="inline-flex items-center gap-1.5 rounded-lg px-[14px] py-1.5 text-xs text-muted no-underline"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-[14px] py-[6px] text-xs text-muted no-underline"
           >
             <svg
               viewBox="0 0 24 24"

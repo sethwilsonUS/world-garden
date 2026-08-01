@@ -260,7 +260,7 @@ const ArticleViewContent = ({
   return (
     <article className="animate-fade-in-up">
       <div className="mb-4">
-        <h1 className="m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
+        <h1 className="type-page-title m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
           {displayArticle.title}
         </h1>
         <div
