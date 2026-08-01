@@ -29,5 +29,8 @@ describe("AccessibleLayout", () => {
     expect(markup).toContain(
       "not endorsed by or affiliated with the Wikimedia Foundation",
     );
+    expect(markup).toContain(
+      "min-h-[calc(100svh_-_var(--site-header-height,48px))]",
+    );
   });
 });

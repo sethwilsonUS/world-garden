@@ -676,13 +676,15 @@ fieldset {
     var(--color-surface-3)
   );
   --track-h: 8px;
-  --thumb-size: 18px;
+  --thumb-size: 44px;
+  --thumb-visual-size: 18px;
 
   accent-color: var(--color-accent);
 }
 
 .audio-scrubber {
-  --thumb-size: 16px;
+  --thumb-size: 44px;
+  --thumb-visual-size: 16px;
   --track-h: 5px;
 }
 
@@ -698,8 +700,8 @@ fieldset {
   appearance: none !important;
   box-sizing: border-box !important;
   width: 100% !important;
-  min-height: 28px !important;
-  height: 28px !important;
+  min-height: 44px !important;
+  height: 44px !important;
   border: none !important;
   border-radius: 999px !important;
   background: linear-gradient(
@@ -743,32 +745,32 @@ fieldset {
   width: var(--thumb-size) !important;
   height: var(--thumb-size) !important;
   margin-top: calc((var(--track-h) - var(--thumb-size)) / 2) !important;
+  border: 0 !important;
   border-radius: 50% !important;
-  box-shadow:
-    0 0 0 2px var(--color-accent-border),
-    0 0 8px var(--color-accent-glow) !important;
+  background: transparent !important;
+  box-shadow: none !important;
   cursor: pointer !important;
 }
 
 .article-audio-progress-range::-webkit-slider-thumb {
-  border: 3px solid var(--played-color) !important;
-  background: var(--color-surface) !important;
+  background: radial-gradient(
+    circle,
+    var(--color-surface) 0 calc(var(--thumb-visual-size) / 2 - 3px),
+    var(--played-color) calc(var(--thumb-visual-size) / 2 - 3px)
+      calc(var(--thumb-visual-size) / 2),
+    transparent calc(var(--thumb-visual-size) / 2 + 0.5px)
+  ) !important;
 }
 
 .audio-progress-range::-webkit-slider-thumb {
-  background: var(--played-color) !important;
-  border: 2px solid var(--color-surface-2) !important;
-  transition:
-    width 0.15s ease,
-    height 0.15s ease,
-    box-shadow 0.15s ease !important;
-}
-
-.audio-progress-range:hover::-webkit-slider-thumb,
-.audio-progress-range:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 0 0 3px var(--color-accent-border),
-    0 0 12px var(--color-accent-glow) !important;
+  background: radial-gradient(
+    circle,
+    var(--played-color) 0 calc(var(--thumb-visual-size) / 2 - 2px),
+    var(--color-surface-2) calc(var(--thumb-visual-size) / 2 - 2px)
+      calc(var(--thumb-visual-size) / 2),
+    transparent calc(var(--thumb-visual-size) / 2 + 0.5px)
+  ) !important;
+  transition: background 0.15s ease !important;
 }
 
 .article-audio-progress-range::-moz-range-track,
@@ -789,41 +791,41 @@ fieldset {
 .audio-progress-range::-moz-range-thumb {
   width: var(--thumb-size) !important;
   height: var(--thumb-size) !important;
+  border: 0 !important;
   border-radius: 50% !important;
-  box-shadow:
-    0 0 0 2px var(--color-accent-border),
-    0 0 8px var(--color-accent-glow) !important;
+  background: transparent !important;
+  box-shadow: none !important;
   cursor: pointer !important;
 }
 
 .article-audio-progress-range::-moz-range-thumb {
-  border: 3px solid var(--played-color) !important;
-  background: var(--color-surface) !important;
+  background: radial-gradient(
+    circle,
+    var(--color-surface) 0 calc(var(--thumb-visual-size) / 2 - 3px),
+    var(--played-color) calc(var(--thumb-visual-size) / 2 - 3px)
+      calc(var(--thumb-visual-size) / 2),
+    transparent calc(var(--thumb-visual-size) / 2 + 0.5px)
+  ) !important;
 }
 
 .audio-progress-range::-moz-range-thumb {
-  background: var(--played-color) !important;
-  border: 2px solid var(--color-surface-2) !important;
-  transition:
-    width 0.15s ease,
-    height 0.15s ease,
-    box-shadow 0.15s ease !important;
-}
-
-.audio-progress-range:hover::-moz-range-thumb,
-.audio-progress-range:focus-visible::-moz-range-thumb {
-  box-shadow:
-    0 0 0 3px var(--color-accent-border),
-    0 0 12px var(--color-accent-glow) !important;
+  background: radial-gradient(
+    circle,
+    var(--played-color) 0 calc(var(--thumb-visual-size) / 2 - 2px),
+    var(--color-surface-2) calc(var(--thumb-visual-size) / 2 - 2px)
+      calc(var(--thumb-visual-size) / 2),
+    transparent calc(var(--thumb-visual-size) / 2 + 0.5px)
+  ) !important;
+  transition: background 0.15s ease !important;
 }
 
 @media (forced-colors: active) {
   .article-audio-progress-range,
   .audio-progress-range {
-    -webkit-appearance: auto !important;
-    appearance: auto !important;
-    background: transparent !important;
-    forced-color-adjust: auto;
+    --played-color: Highlight;
+    --unplayed-color: ButtonText;
+
+    forced-color-adjust: none;
   }
 
   .article-audio-progress-range:focus-visible,
@@ -833,21 +835,26 @@ fieldset {
 
   .article-audio-progress-range::-webkit-slider-runnable-track,
   .audio-progress-range::-webkit-slider-runnable-track {
-    height: revert !important;
-    border-radius: revert !important;
-    background: revert !important;
+    height: var(--track-h) !important;
+    border-radius: 999px !important;
+    background: transparent !important;
   }
 
   .article-audio-progress-range::-webkit-slider-thumb,
   .audio-progress-range::-webkit-slider-thumb {
-    -webkit-appearance: auto !important;
-    appearance: auto !important;
-    width: revert !important;
-    height: revert !important;
-    margin: revert !important;
-    border: revert !important;
-    background: revert !important;
+    width: 44px !important;
+    height: 44px !important;
+    margin-top: calc((var(--track-h) - 44px) / 2) !important;
+    border: 0 !important;
+    background: radial-gradient(
+      circle,
+      Highlight 0 calc(var(--thumb-visual-size) / 2 - 2px),
+      Canvas calc(var(--thumb-visual-size) / 2 - 2px)
+        calc(var(--thumb-visual-size) / 2),
+      transparent calc(var(--thumb-visual-size) / 2 + 0.5px)
+    ) !important;
     box-shadow: none !important;
+    forced-color-adjust: none;
   }
 
   .article-audio-progress-range::-moz-range-track,
@@ -856,12 +863,39 @@ fieldset {
   .audio-progress-range::-moz-range-track,
   .audio-progress-range::-moz-range-progress,
   .audio-progress-range::-moz-range-thumb {
-    width: revert !important;
-    height: revert !important;
-    border: revert !important;
-    border-radius: revert !important;
-    background: revert !important;
     box-shadow: none !important;
+  }
+
+  .article-audio-progress-range::-moz-range-track,
+  .audio-progress-range::-moz-range-track {
+    height: var(--track-h) !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: ButtonText !important;
+  }
+
+  .article-audio-progress-range::-moz-range-progress,
+  .audio-progress-range::-moz-range-progress {
+    height: var(--track-h) !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    background: Highlight !important;
+  }
+
+  .article-audio-progress-range::-moz-range-thumb,
+  .audio-progress-range::-moz-range-thumb {
+    width: 44px !important;
+    height: 44px !important;
+    border: 0 !important;
+    border-radius: 50% !important;
+    background: radial-gradient(
+      circle,
+      Highlight 0 calc(var(--thumb-visual-size) / 2 - 2px),
+      Canvas calc(var(--thumb-visual-size) / 2 - 2px)
+        calc(var(--thumb-visual-size) / 2),
+      transparent calc(var(--thumb-visual-size) / 2 + 0.5px)
+    ) !important;
+    forced-color-adjust: none;
   }
 }
 

@@ -289,7 +289,7 @@ export const AccessibleLayout = ({
         id="main-content"
         role="main"
         tabIndex={-1}
-        className="min-h-[calc(100svh-48px)]"
+        className="min-h-[calc(100svh_-_var(--site-header-height,48px))]"
       >
         {children}
       </main>

@@ -20,6 +20,13 @@ setup("configure Clerk testing tokens", async () => {
 });
 
 setup("authenticate the development text-scale user", async ({ page }) => {
+  const testUserEmail = process.env.E2E_CLERK_USER_EMAIL?.trim();
+  if (!testUserEmail) {
+    throw new Error(
+      "E2E_CLERK_USER_EMAIL is required to authenticate the development text-scale user.",
+    );
+  }
+
   await mkdir(path.dirname(authFile), { recursive: true, mode: 0o700 });
   await chmod(path.dirname(authFile), 0o700);
   await setupClerkTestingToken({ context: page.context() });
@@ -51,7 +58,7 @@ setup("authenticate the development text-scale user", async ({ page }) => {
   await clerk.loaded({ page });
   await clerk.signIn({
     page,
-    emailAddress: process.env.E2E_CLERK_USER_EMAIL!,
+    emailAddress: testUserEmail,
   });
 
   await page.goto("/dashboard");

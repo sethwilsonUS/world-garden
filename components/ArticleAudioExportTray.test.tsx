@@ -28,7 +28,7 @@ describe("ArticleAudioExportTray", () => {
 
     expect(markup).toContain('aria-label="Audio downloads"');
     expect(markup).toContain(
-      "max-h-[calc(100dvh-32px-env(safe-area-inset-bottom))]",
+      "max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-bottom))]",
     );
     expect(markup).toContain("overflow-y-auto");
     expect(markup.match(/Dismiss audio download status/g)).toHaveLength(4);

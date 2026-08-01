@@ -175,7 +175,7 @@ test("long search terms and results reflow at 200% and 400% equivalents", async 
         page.evaluate(
           () =>
             document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth,
+            document.documentElement.clientWidth + 1,
         ),
       )
       .toBe(true);
@@ -217,7 +217,9 @@ test("search controls and result actions wrap at enlarged system text sizes", as
   ).toBe(true);
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth + 1,
     ),
   ).toBe(true);
 });

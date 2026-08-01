@@ -16,7 +16,15 @@ export const LocalModeBanner = () => {
         this browser.
       </span>
       <button
-        onClick={() => setDismissed(true)}
+        onClick={(event) => {
+          if (document.activeElement === event.currentTarget) {
+            const focusTarget =
+              document.getElementById("search-input") ??
+              document.getElementById("main-content");
+            focusTarget?.focus();
+          }
+          setDismissed(true);
+        }}
         aria-label="Dismiss local mode notice"
         className="absolute right-2 top-2 flex size-11 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 text-inherit"
       >

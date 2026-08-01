@@ -177,7 +177,7 @@ export default function TrendingPage() {
                   </p>
                   <h2
                     id="daily-brief-heading"
-                    className="font-display text-[1.35rem] font-semibold text-foreground leading-[1.2]"
+                    className="break-words font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground [overflow-wrap:anywhere]"
                   >
                     {brief.headline || "Why these topics are trending"}
                   </h2>

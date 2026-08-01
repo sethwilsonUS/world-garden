@@ -115,10 +115,13 @@ describe("BadgeProgressToastProvider", () => {
       document.body.querySelector('section[aria-label="Badge progress"]')
         ?.className,
     ).toContain("bottom-[16px]");
-    expect(
-      document.body.querySelector('section[aria-label="Badge progress"] > div')
-        ?.className,
-    ).toContain("overflow-y-auto");
+    const toastTray = document.body.querySelector(
+      'section[aria-label="Badge progress"] > div',
+    );
+    expect(toastTray?.className).toContain(
+      "max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-bottom))]",
+    );
+    expect(toastTray?.className).toContain("overflow-y-auto");
   });
 
   it("uses special level-up copy and icon when a badge levels up", async () => {

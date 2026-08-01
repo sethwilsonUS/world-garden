@@ -1,3 +1,5 @@
+"use client";
+
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 const desktopButtonClass =

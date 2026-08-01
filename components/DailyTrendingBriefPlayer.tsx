@@ -82,7 +82,7 @@ export const DailyTrendingBriefPlayer = ({
             const currentIndex = rates.indexOf(rate);
             setRate(rates[(currentIndex + 1) % rates.length]);
           }}
-          aria-label={`Playback speed ${formatRate(rate)}. Click to change.`}
+          aria-label={`Playback speed ${formatRate(rate)}. Activate to change.`}
           className={`min-h-[44px] min-w-[44px] shrink-0 rounded-lg border border-border px-[10px] py-[8px] font-mono text-xs font-bold leading-none ${rate !== 1 ? "text-accent" : "text-muted"}`}
         >
           {formatRate(rate)}
@@ -99,7 +99,7 @@ export const DailyTrendingBriefPlayer = ({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="min-w-0 font-mono text-[0.7rem] text-muted tabular-nums">
+        <span className="min-w-0 break-words font-mono text-[0.7rem] text-muted tabular-nums [overflow-wrap:anywhere]">
           {formatTime(currentTime)} / {formatTime(effectiveDuration)}
         </span>
         <Link

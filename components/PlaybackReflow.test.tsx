@@ -33,4 +33,20 @@ describe("compact playback reflow", () => {
     expect(markup).not.toContain("truncate");
     expect(markup).toContain("min-h-[44px]");
   });
+
+  it("uses input-neutral speed guidance and lets briefing time wrap", () => {
+    const markup = renderToStaticMarkup(
+      <DailyTrendingBriefPlayer
+        audioUrl="/brief.mp3"
+        title={longTitle}
+        durationSeconds={190}
+      />,
+    );
+
+    expect(markup).toContain("Activate to change.");
+    expect(markup).not.toContain("Click to change.");
+    expect(markup).toContain(
+      "min-w-0 break-words font-mono text-[0.7rem] text-muted tabular-nums [overflow-wrap:anywhere]",
+    );
+  });
 });

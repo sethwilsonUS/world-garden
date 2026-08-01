@@ -120,21 +120,18 @@ describe("OnThisDayExplorer", () => {
     const tabs = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
     );
-    expect(tabs.map((tab) => tab.textContent?.replace(/, \d+ items$/u, ""))).toEqual([
-      "Highlights1",
-      "Events30",
-      "Births2",
-      "Deaths3",
-      "Holidays4",
-    ]);
+    expect(
+      tabs.map((tab) => tab.textContent?.replace(/, \d+ items$/u, "")),
+    ).toEqual(["Highlights1", "Events30", "Births2", "Deaths3", "Holidays4"]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(container.textContent).toContain("selected item 1");
-    const statuses = container.querySelectorAll('[role="status"]');
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0].textContent).toBe(
+    const persistentStatus = container.querySelector(
+      "#on-this-day-live-status",
+    );
+    expect(persistentStatus).not.toBeNull();
+    expect(persistentStatus?.textContent).toBe(
       "Showing 1 of 1 highlight, newest first.",
     );
-    const persistentStatus = statuses[0];
 
     tabs[0].focus();
     await act(async () =>
@@ -153,9 +150,13 @@ describe("OnThisDayExplorer", () => {
     );
     await act(async () => undefined);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
-    expect(container.querySelector('[role="status"]')).toBe(persistentStatus);
+    expect(container.querySelector("#on-this-day-live-status")).toBe(
+      persistentStatus,
+    );
     expect(document.activeElement).toBe(tabs[1]);
-    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(25);
+    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(
+      25,
+    );
 
     const showMore = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Show 5 more"),
@@ -163,7 +164,9 @@ describe("OnThisDayExplorer", () => {
     showMore.focus();
     await act(async () => showMore.click());
     await act(async () => undefined);
-    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(30);
+    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(
+      30,
+    );
     expect(document.activeElement).toBe(showMore);
 
     tabs[0].click();
@@ -237,7 +240,9 @@ describe("OnThisDayExplorer", () => {
     await act(async () => showMore.click());
     await act(async () => undefined);
 
-    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(25);
+    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(
+      25,
+    );
     const retry = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Try loading these events again",
     ) as HTMLButtonElement;
@@ -245,7 +250,9 @@ describe("OnThisDayExplorer", () => {
 
     await act(async () => retry.click());
     await act(async () => undefined);
-    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(30);
+    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(
+      30,
+    );
   });
 
   it("aborts an obsolete category request when returning to cached results", async () => {

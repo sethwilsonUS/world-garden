@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { AdaptiveImageFrame } from "@/components/AdaptiveImageFrame";
 import { ArticleLink } from "@/components/ArticleLink";
 import { AudioPlayer } from "@/components/AudioPlayer";
@@ -172,6 +172,31 @@ const LinkedItemThumbnail = ({ link }: { link: FeedArticleLink }) => {
   );
 };
 
+const FeedItemMedia = ({
+  links,
+  children,
+}: {
+  links: FeedArticleLink[];
+  children: ReactNode;
+}) => {
+  const imageLink = getFirstLinkedImage(links);
+  const image = imageLink?.thumbnail;
+
+  return (
+    <div className={image ? "flex gap-3" : undefined}>
+      {imageLink && image ? <LinkedItemThumbnail link={imageLink} /> : null}
+      <div className="min-w-0">
+        {children}
+        {image?.attribution ? (
+          <div className="mt-2">
+            <MediaAttribution attribution={image.attribution} compact />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 export const FeaturedArticleCard = ({
   article,
   feedDate,
@@ -295,35 +320,16 @@ export const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
             className="m-0 mt-3 list-none space-y-4 p-0"
             role="list"
           >
-            {visibleNews.map((item, index) => {
-              const imageLink = getFirstLinkedImage(item.links);
-              const image = imageLink?.thumbnail;
-
-              return (
-                <li
-                  key={`${index}-${item.story}`}
-                  className={image ? "flex gap-3" : undefined}
-                >
-                  {imageLink && image && (
-                    <LinkedItemThumbnail link={imageLink} />
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-sm leading-[1.7] text-foreground-2">
-                      {item.story}
-                    </p>
-                    <ArticleLinkList links={item.links} />
-                    {image?.attribution ? (
-                      <div className="mt-2">
-                        <MediaAttribution
-                          attribution={image.attribution}
-                          compact
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
+            {visibleNews.map((item, index) => (
+              <li key={`${index}-${item.story}`}>
+                <FeedItemMedia links={item.links}>
+                  <p className="text-sm leading-[1.7] text-foreground-2">
+                    {item.story}
+                  </p>
+                  <ArticleLinkList links={item.links} />
+                </FeedItemMedia>
+              </li>
+            ))}
           </ul>
           <PreviewToggle
             expanded={expanded}
@@ -359,41 +365,24 @@ export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
         On This Day
       </h3>
       <ol className="m-0 mt-2 list-none divide-y divide-border p-0">
-        {visibleItems.map((item, index) => {
-          const imageLink = getFirstLinkedImage(item.pages);
-          const image = imageLink?.thumbnail;
-          return (
-            <li
-              key={`${item.year ?? "annual"}-${item.text}-${index}`}
-              className="py-3 first:pt-0 last:pb-0"
-            >
-              <div className={image ? "flex gap-3" : undefined}>
-                {imageLink && image ? (
-                  <LinkedItemThumbnail link={imageLink} />
+        {visibleItems.map((item, index) => (
+          <li
+            key={`${item.year ?? "annual"}-${item.text}-${index}`}
+            className="py-3 first:pt-0 last:pb-0"
+          >
+            <FeedItemMedia links={item.pages}>
+              <p className="text-sm leading-[1.7] text-foreground-2">
+                {item.year != null ? (
+                  <span className="font-semibold text-foreground">
+                    {formatOnThisDayYear(item.year)}:{" "}
+                  </span>
                 ) : null}
-                <div className="min-w-0">
-                  <p className="text-sm leading-[1.7] text-foreground-2">
-                    {item.year != null ? (
-                      <span className="font-semibold text-foreground">
-                        {formatOnThisDayYear(item.year)}:{" "}
-                      </span>
-                    ) : null}
-                    {item.text}
-                  </p>
-                  <ArticleLinkList links={item.pages} />
-                  {image?.attribution ? (
-                    <div className="mt-2">
-                      <MediaAttribution
-                        attribution={image.attribution}
-                        compact
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </li>
-          );
-        })}
+                {item.text}
+              </p>
+              <ArticleLinkList links={item.pages} />
+            </FeedItemMedia>
+          </li>
+        ))}
       </ol>
       <Link
         href="/on-this-day"
@@ -471,46 +460,27 @@ export const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => {
             className="m-0 mt-3 list-none space-y-4 p-0"
             role="list"
           >
-            {visibleItems.map((item, index) => {
-              const imageLink = getFirstLinkedImage(item.links);
-              const image = imageLink?.thumbnail;
-
-              return (
-                <li
-                  key={`${index}-${item.text}`}
-                  className={image ? "flex gap-3" : undefined}
-                >
-                  {imageLink && image && (
-                    <LinkedItemThumbnail link={imageLink} />
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-sm leading-[1.8] text-foreground-2">
-                      <span className="mr-2 font-semibold text-accent">
-                        {index + 1}.
-                      </span>
-                      {(item.segments.length > 0
-                        ? item.segments
-                        : [{ type: "text" as const, text: item.text }]
-                      ).map((segment, segmentIndex) => (
-                        <DidYouKnowSegmentText
-                          key={`${index}-${segmentIndex}`}
-                          segment={segment}
-                        />
-                      ))}
-                    </p>
-                    <ArticleLinkList links={item.links} />
-                    {image?.attribution ? (
-                      <div className="mt-2">
-                        <MediaAttribution
-                          attribution={image.attribution}
-                          compact
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
+            {visibleItems.map((item, index) => (
+              <li key={`${index}-${item.text}`}>
+                <FeedItemMedia links={item.links}>
+                  <p className="text-sm leading-[1.8] text-foreground-2">
+                    <span className="mr-2 font-semibold text-accent">
+                      {index + 1}.
+                    </span>
+                    {(item.segments.length > 0
+                      ? item.segments
+                      : [{ type: "text" as const, text: item.text }]
+                    ).map((segment, segmentIndex) => (
+                      <DidYouKnowSegmentText
+                        key={`${index}-${segmentIndex}`}
+                        segment={segment}
+                      />
+                    ))}
+                  </p>
+                  <ArticleLinkList links={item.links} />
+                </FeedItemMedia>
+              </li>
+            ))}
           </ol>
           <PreviewToggle
             expanded={expanded}

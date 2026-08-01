@@ -162,8 +162,10 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   await expect(localNotice).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(localNotice).toBeHidden();
+  await expect(page.locator("#main-content")).toBeFocused();
+
   const skipLink = page.getByRole("link", { name: "Skip to main content" });
-  await page.keyboard.press("Tab");
+  await skipLink.focus();
   await expect(skipLink).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();

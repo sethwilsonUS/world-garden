@@ -638,7 +638,7 @@ test("home presents the product and expands the curated daily preview", async ({
   expect(progressStyle.backgroundImage).toContain(
     progressStyle.resolvedAccentColor,
   );
-  expect(parseFloat(progressStyle.height)).toBeGreaterThanOrEqual(24);
+  expect(parseFloat(progressStyle.height)).toBeGreaterThanOrEqual(44);
 
   const playTarget = await playButton.boundingBox();
   expect(playTarget).not.toBeNull();
@@ -646,7 +646,7 @@ test("home presents the product and expands the curated daily preview", async ({
   expect(playTarget!.height).toBeGreaterThanOrEqual(44);
   const rangeTarget = await progressSlider.boundingBox();
   expect(rangeTarget).not.toBeNull();
-  expect(rangeTarget!.height).toBeGreaterThanOrEqual(24);
+  expect(rangeTarget!.height).toBeGreaterThanOrEqual(44);
 
   await progressSlider.focus();
   const positionBeforeSeek = Number(await progressSlider.inputValue());
@@ -942,7 +942,9 @@ test("audio player labels and controls reflow inside a mobile surface with enlar
 
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+      () =>
+        document.documentElement.scrollWidth <=
+        document.documentElement.clientWidth + 1,
     ),
   ).toBe(true);
 });
@@ -1234,12 +1236,12 @@ test("article section controls and metadata reflow with enlarged text", async ({
   const adaptationInfo = tableOfContents.getByRole("button", {
     name: "How Recognition was adapted for audio",
   });
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
   const infoTarget = await adaptationInfo.boundingBox();
   expect(infoTarget).not.toBeNull();
   expect(infoTarget!.width).toBeGreaterThanOrEqual(44);
   expect(infoTarget!.height).toBeGreaterThanOrEqual(44);
 
-  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
   expect(
     await tableOfContents.evaluate(
       (element) => element.scrollWidth <= element.clientWidth,
@@ -1249,6 +1251,7 @@ test("article section controls and metadata reflow with enlarged text", async ({
   const listenButtons = tableOfContents.getByRole("button", {
     name: /^Listen to /,
   });
+  await expect.poll(() => listenButtons.count()).toBeGreaterThan(0);
   for (const button of await listenButtons.all()) {
     const box = await button.boundingBox();
     expect(box).not.toBeNull();

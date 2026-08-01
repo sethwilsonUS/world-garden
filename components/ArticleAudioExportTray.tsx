@@ -176,7 +176,7 @@ export const ArticleAudioExportTray = ({
         className="pointer-events-none fixed inset-x-[16px] bottom-[16px] z-[70] flex justify-end"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="pointer-events-auto flex max-h-[calc(100dvh-32px-env(safe-area-inset-bottom))] w-full max-w-[26rem] flex-col gap-[12px] overflow-y-auto overscroll-contain pr-[2px]">
+        <div className="pointer-events-auto flex max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-bottom))] w-full max-w-[26rem] flex-col gap-[12px] overflow-y-auto overscroll-contain pr-[2px]">
           {jobs.map((job) => {
             const progressPercent =
               job.sectionCount > 0

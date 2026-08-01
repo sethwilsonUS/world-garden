@@ -84,14 +84,29 @@ export const CuriousAbout = () => {
   if (loading) {
     return (
       <section aria-label="Loading trending articles" className="mt-12">
-        <div className="skeleton mx-auto mb-4" style={{ width: "55%", height: "22px" }} />
+        <div
+          className="skeleton mx-auto mb-4"
+          style={{ width: "55%", height: "22px" }}
+        />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: MAX_ARTICLES }).map((_, i) => (
-            <div key={i} className="bg-surface-2 border border-border rounded-2xl overflow-hidden">
-              <div className="skeleton w-full aspect-[16/9]" style={{ borderRadius: 0 }} />
+            <div
+              key={i}
+              className="bg-surface-2 border border-border rounded-2xl overflow-hidden"
+            >
+              <div
+                className="skeleton w-full aspect-[16/9]"
+                style={{ borderRadius: 0 }}
+              />
               <div className="px-4 py-3">
-                <div className="skeleton mb-2" style={{ width: "75%", height: "16px" }} />
-                <div className="skeleton" style={{ width: "100%", height: "12px" }} />
+                <div
+                  className="skeleton mb-2"
+                  style={{ width: "75%", height: "16px" }}
+                />
+                <div
+                  className="skeleton"
+                  style={{ width: "100%", height: "12px" }}
+                />
               </div>
             </div>
           ))}
@@ -121,8 +136,14 @@ export const CuriousAbout = () => {
         />
       ) : briefLoading ? (
         <div className="mb-5 rounded-2xl border border-border bg-surface-2 px-4 py-3">
-          <div className="skeleton mb-2" style={{ width: "32%", height: "11px" }} />
-          <div className="skeleton mb-3" style={{ width: "78%", height: "16px" }} />
+          <div
+            className="skeleton mb-2"
+            style={{ width: "32%", height: "11px" }}
+          />
+          <div
+            className="skeleton mb-3"
+            style={{ width: "78%", height: "16px" }}
+          />
           <div className="skeleton" style={{ width: "100%", height: "10px" }} />
         </div>
       ) : null}
@@ -131,13 +152,9 @@ export const CuriousAbout = () => {
         role="list"
       >
         {articles.map((article) => (
-          <ArticleCard
-            key={article.title}
-            article={article}
-            source="curious"
-          />
+          <ArticleCard key={article.title} article={article} source="curious" />
         ))}
-        <li className="col-span-2 lg:col-span-4 mt-1 text-center">
+        <li className="col-span-1 mt-1 text-center sm:col-span-2 lg:col-span-4">
           <Link
             href="/trending"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-accent no-underline transition-colors duration-200"
