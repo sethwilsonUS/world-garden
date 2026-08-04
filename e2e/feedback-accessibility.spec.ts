@@ -78,6 +78,7 @@ test("keyboard-only feedback flow validates, focuses, and confirms persistence",
   await page.goto("/feedback");
 
   const submit = page.getByRole("button", { name: "Send feedback" });
+  await expect(submit).toBeEnabled();
   await submit.focus();
   await page.keyboard.press("Enter");
   const kind = page.getByLabel("What are you sharing? (required)");
@@ -132,12 +133,14 @@ test("a persistence failure keeps the visitor's words", async ({ page }) => {
   );
   await page.goto("/feedback");
 
+  const submit = page.getByRole("button", { name: "Send feedback" });
+  await expect(submit).toBeEnabled();
   await page
     .getByLabel("What are you sharing? (required)")
     .selectOption("technical");
   const message = page.getByLabel("What would you like us to know? (required)");
   await message.fill("Playback stopped at the third section.");
-  await page.getByRole("button", { name: "Send feedback" }).click();
+  await submit.click();
 
   await expect(
     page.getByRole("form", { name: "Share feedback" }).getByRole("alert"),

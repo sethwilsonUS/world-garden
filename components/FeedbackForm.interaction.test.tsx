@@ -88,6 +88,28 @@ describe("FeedbackForm", () => {
     expect(markup).not.toContain("autofocus");
   });
 
+  it("waits for client handlers before allowing feedback submission", async () => {
+    const serverContainer = document.createElement("div");
+    serverContainer.innerHTML = renderToStaticMarkup(
+      <FeedbackForm deliveryAvailable />,
+    );
+
+    expect(
+      serverContainer.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      root.render(<FeedbackForm deliveryAvailable />);
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector<HTMLButtonElement>('button[type="submit"]')
+        ?.disabled,
+    ).toBe(false);
+  });
+
   it("focuses the first invalid field without sending a request", async () => {
     await act(async () => {
       root.render(<FeedbackForm deliveryAvailable />);
