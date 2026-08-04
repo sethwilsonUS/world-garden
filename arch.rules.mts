@@ -48,23 +48,23 @@ const useOnlyClientSafeNextCacheExports = defineCondition<ProjectSourceFile>(
             !declaration.isTypeOnly(),
         )
         .flatMap((declaration) => {
-          const namedImports = declaration
-            .getNamedImports()
+          const namedImports = declaration.getNamedImports();
+          const violations = namedImports
             .filter(
               (specifier) =>
                 !specifier.isTypeOnly() &&
                 !clientSafeNextCacheExports.has(specifier.getName()),
+            )
+            .map((specifier) =>
+              createViolation(
+                specifier,
+                `server-only next/cache export "${specifier.getName()}" is imported by a client module`,
+                context,
+              ),
             );
 
-          const violations = namedImports.map((specifier) =>
-            createViolation(
-              specifier,
-              `server-only next/cache export "${specifier.getName()}" is imported by a client module`,
-              context,
-            ),
-          );
-
           if (
+            namedImports.length === 0 ||
             declaration.getDefaultImport() ||
             declaration.getNamespaceImport()
           ) {
@@ -88,12 +88,11 @@ const useOnlyClientSafeNextCacheExports = defineCondition<ProjectSourceFile>(
             !declaration.isTypeOnly(),
         )
         .flatMap((declaration) => {
-          const namedExports = declaration
-            .getNamedExports()
-            .filter((specifier) => !specifier.isTypeOnly());
+          const namedExports = declaration.getNamedExports();
           const violations = namedExports
             .filter(
               (specifier) =>
+                !specifier.isTypeOnly() &&
                 !clientSafeNextCacheExports.has(specifier.getName()),
             )
             .map((specifier) =>

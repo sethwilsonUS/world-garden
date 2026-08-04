@@ -538,7 +538,7 @@ export const FeedbackForm = ({
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button
           type="submit"
-          disabled={!hydrated}
+          disabled={!hydrated || sending}
           className={`btn-primary min-h-11 w-full sm:w-auto ${
             sending ? "cursor-not-allowed opacity-60" : ""
           }`}
