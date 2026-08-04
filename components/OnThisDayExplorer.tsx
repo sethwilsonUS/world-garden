@@ -109,6 +109,8 @@ export const OnThisDayExplorer = () => {
   const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const requestRef = useRef<AbortController | null>(null);
+  const requestKeyRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
   const activeOrder = orders[activeCategory];
   const activeKey = cacheKey(activeCategory, activeOrder);
   const activeResponse = cache[activeKey];
@@ -132,9 +134,12 @@ export const OnThisDayExplorer = () => {
       append: boolean;
     }) => {
       const key = cacheKey(category, order);
+      const requestKey = `${key}:${offset}:${append ? "append" : "replace"}`;
+      if (requestRef.current && requestKeyRef.current === requestKey) return;
       requestRef.current?.abort();
       const controller = new AbortController();
       requestRef.current = controller;
+      requestKeyRef.current = requestKey;
       setLoadingKey(key);
       setErrorByKey((current) => ({ ...current, [key]: "" }));
       try {
@@ -177,6 +182,7 @@ export const OnThisDayExplorer = () => {
       } finally {
         if (requestRef.current === controller) {
           requestRef.current = null;
+          requestKeyRef.current = null;
           setLoadingKey(null);
         }
       }
@@ -207,7 +213,18 @@ export const OnThisDayExplorer = () => {
     loadingKey,
   ]);
 
-  useEffect(() => () => requestRef.current?.abort(), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      queueMicrotask(() => {
+        if (mountedRef.current) return;
+        requestRef.current?.abort();
+        requestRef.current = null;
+        requestKeyRef.current = null;
+      });
+    };
+  }, []);
 
   useEffect(() => {
     const selectedIndex = ON_THIS_DAY_CATEGORIES.indexOf(activeCategory);
@@ -237,6 +254,7 @@ export const OnThisDayExplorer = () => {
     if (category !== activeCategory && requestRef.current) {
       requestRef.current.abort();
       requestRef.current = null;
+      requestKeyRef.current = null;
       setLoadingKey(null);
     }
     setActiveCategory(category);

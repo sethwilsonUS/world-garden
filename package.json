@@ -25,7 +25,7 @@
     "toolchain:check": "node scripts/validate-toolchain.mjs",
     "typecheck": "npm-run-all typecheck:native typecheck:tooling",
     "typecheck:native": "tsc --noEmit",
-    "typecheck:tooling": "tsc6 --noEmit",
+    "typecheck:tooling": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -66,7 +66,7 @@
     "playwright": "^1.61.1",
     "tailwindcss": "^4.3.0",
     "tsx": "^4.23.1",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
   "overrides": {
