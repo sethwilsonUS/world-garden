@@ -1,4 +1,6 @@
 import {
+  createViolation,
+  defineCondition,
   definePredicate,
   modules,
   not,
@@ -14,6 +16,14 @@ const p = project("tsconfig.arch.json");
 
 type ProjectSourceFile = ReturnType<(typeof p)["getSourceFiles"]>[number];
 
+// Next.js 16.3 made next/cache a mixed entry point: io is documented for
+// Client Components, and these legacy helpers have explicit browser shims.
+const clientSafeNextCacheExports = new Set([
+  "io",
+  "unstable_cache",
+  "unstable_noStore",
+]);
+
 const declaresUseClient = definePredicate<ProjectSourceFile>(
   'declare a "use client" directive',
   (sourceFile) => {
@@ -24,6 +34,91 @@ const declaresUseClient = definePredicate<ProjectSourceFile>(
 
     return directive === '"use client"' || directive === "'use client'";
   },
+);
+
+const useOnlyClientSafeNextCacheExports = defineCondition<ProjectSourceFile>(
+  "use only client-safe named exports from next/cache",
+  (sourceFiles, context) =>
+    sourceFiles.flatMap((sourceFile) => {
+      const importViolations = sourceFile
+        .getImportDeclarations()
+        .filter(
+          (declaration) =>
+            declaration.getModuleSpecifierValue() === "next/cache" &&
+            !declaration.isTypeOnly(),
+        )
+        .flatMap((declaration) => {
+          const namedImports = declaration
+            .getNamedImports()
+            .filter(
+              (specifier) =>
+                !specifier.isTypeOnly() &&
+                !clientSafeNextCacheExports.has(specifier.getName()),
+            );
+
+          const violations = namedImports.map((specifier) =>
+            createViolation(
+              specifier,
+              `server-only next/cache export "${specifier.getName()}" is imported by a client module`,
+              context,
+            ),
+          );
+
+          if (
+            declaration.getDefaultImport() ||
+            declaration.getNamespaceImport()
+          ) {
+            violations.push(
+              createViolation(
+                declaration,
+                "next/cache must use audited named imports in a client module",
+                context,
+              ),
+            );
+          }
+
+          return violations;
+        });
+
+      const exportViolations = sourceFile
+        .getExportDeclarations()
+        .filter(
+          (declaration) =>
+            declaration.getModuleSpecifierValue() === "next/cache" &&
+            !declaration.isTypeOnly(),
+        )
+        .flatMap((declaration) => {
+          const namedExports = declaration
+            .getNamedExports()
+            .filter((specifier) => !specifier.isTypeOnly());
+          const violations = namedExports
+            .filter(
+              (specifier) =>
+                !clientSafeNextCacheExports.has(specifier.getName()),
+            )
+            .map((specifier) =>
+              createViolation(
+                specifier,
+                `server-only next/cache export "${specifier.getName()}" is re-exported by a client module`,
+                context,
+              ),
+            );
+
+          if (namedExports.length === 0) {
+            violations.push(
+              createViolation(
+                declaration,
+                "next/cache must use audited named exports in a client module",
+                context,
+              ),
+            );
+          }
+
+          return violations;
+        });
+
+      return [...importViolations, ...exportViolations];
+    }),
 );
 
 const convexMustStayIndependentOfWeb = modules(p)
@@ -66,6 +161,16 @@ const clientModulesMustStayOutOfServerRuntimes = modules(p)
   .should()
   .notImportFromWithOptions(
     [
+      "server-only",
+      "server-only/**",
+      "next/document",
+      "next/document/**",
+      "next/headers",
+      "next/headers/**",
+      "next/og",
+      "next/og/**",
+      "next/root-params",
+      "next/root-params/**",
       "next/server",
       "next/server/**",
       "@clerk/nextjs/server",
@@ -88,12 +193,30 @@ const clientModulesMustStayOutOfServerRuntimes = modules(p)
   })
   .asSeverity("error");
 
+const clientModulesMustUseClientSafeNextCacheExports = modules(p)
+  .that()
+  .satisfy(declaresUseClient)
+  .expectNonEmpty()
+  .should()
+  .satisfy(useOnlyClientSafeNextCacheExports)
+  .rule({
+    id: "curio/runtime/client-safe-next-cache-exports",
+    because:
+      "next/cache contains both client-safe and server-only exports in Next.js 16.3",
+    suggestion:
+      "Use io for client-side request-time values, or move cache invalidation and cache configuration into a server adapter",
+    imperative:
+      "Do NOT import server-only next/cache exports from a client module",
+  })
+  .asSeverity("error");
+
 const architectureRules = [
   ...recommended(p, {
     include: "{app,components,hooks,lib,convex}/**/*.{ts,tsx}",
   }),
   convexMustStayIndependentOfWeb,
   clientModulesMustStayOutOfServerRuntimes,
+  clientModulesMustUseClientSafeNextCacheExports,
 ];
 
 export default architectureRules;
