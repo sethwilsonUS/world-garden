@@ -10,7 +10,7 @@
 
 ## Testing
 
-- [ ] `npm run check` passes (ESLint, TypeScript, and all Vitest tests)
+- [ ] `npm run check` passes (ESLint, TypeScript, architecture rules, and all Vitest tests)
 - [ ] `npm run docs:check` passes
 - [ ] `LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build` passes
 - [ ] `npm run test:e2e` passes for UI changes
