@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { normalizeMediaWikiNumericId } from "@curio-garden/domain";
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -6,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { buildCachedTtsResult } from "@/lib/article-audio-playback";
 import { estimateAudioDurationSeconds } from "@/lib/article-audio-duration";
 import { resolveCanonicalArticleNarrationTrack } from "@/lib/article-section-audio";
+import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import { fetchArticleByTitle, slugToTitle } from "@/convex/lib/wikipedia";
 import {
   createAudioCacheReadAttestation,
@@ -39,12 +41,22 @@ const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
 const MAX_SLUG_LENGTH = 500;
 const MAX_SECTION_KEY_LENGTH = 500;
 const MAX_SOURCE_HASH_LENGTH = 500;
+const MAX_REVISION_ID_RAW_LENGTH = 64;
+const MAX_BEARER_TOKEN_LENGTH = 8_192;
+const MAX_CLERK_AUTH_REASON_LENGTH = 128;
 const CACHE_READ_TIMEOUT_MS = 5_000;
 const CACHE_UPLOAD_TIMEOUT_MS = 15_000;
+
+const isBoundedString = (value: unknown, maxLength: number): value is string =>
+  typeof value === "string" &&
+  value.trim().length > 0 &&
+  value.length <= maxLength;
 
 type StoredArticle = {
   _id?: Id<"articles">;
   title: string;
+  revisionId?: string;
+  narrationVersion?: number;
   summary?: string;
   sections?: Parameters<
     typeof resolveCanonicalArticleNarrationTrack
@@ -84,10 +96,12 @@ const getCanonicalArticle = async (
   })) as StoredArticle | null;
 };
 
-const getSession = async (): Promise<{
+type ArticleAudioSession = {
   userId: string | null;
   convexToken?: string;
-}> => {
+};
+
+const getCookieSession = async (): Promise<ArticleAudioSession> => {
   if (isLocalMode()) return { userId: null };
 
   try {
@@ -109,11 +123,96 @@ const getSession = async (): Promise<{
   }
 };
 
+const bearerErrorResponse = (status: 401 | 503): NextResponse =>
+  NextResponse.json(
+    {
+      error:
+        status === 401
+          ? "Authentication is required."
+          : "Authentication is temporarily unavailable.",
+    },
+    { status, headers: NO_STORE_HEADERS },
+  );
+
+const CLERK_SESSION_COOKIE_NAME = /^__session(?:_[A-Za-z0-9_-]{8})?$/u;
+
+const hasClerkSessionCookie = (req: NextRequest): boolean => {
+  const cookieHeader = req.headers.get("cookie");
+  if (!cookieHeader) return false;
+  return cookieHeader.split(";").some((segment) => {
+    const separator = segment.indexOf("=");
+    const name = (separator < 0 ? segment : segment.slice(0, separator)).trim();
+    return CLERK_SESSION_COOKIE_NAME.test(name);
+  });
+};
+
+const bearerAuthenticationUnavailable = (error: unknown): NextResponse => {
+  void error;
+  return bearerErrorResponse(503);
+};
+
+const CLERK_INFRASTRUCTURE_AUTH_REASONS = new Set([
+  "secret-key-invalid",
+  "jwk-local-missing",
+  "jwk-remote-failed-to-load",
+  "jwk-remote-invalid",
+  "jwk-remote-missing",
+  "jwk-failed-to-resolve",
+  "unexpected-error",
+]);
+
+const malformedBearerDebugStatus = (error: unknown): 401 => {
+  void error;
+  return 401;
+};
+
+const getSignedOutBearerStatus = (debug: unknown): 401 | 503 => {
+  if (typeof debug !== "function") return 401;
+  try {
+    const details: unknown = debug();
+    if (!details || typeof details !== "object") return 401;
+    const rawReason =
+      "authReason" in details
+        ? (details as Record<string, unknown>).authReason
+        : (details as Record<string, unknown>).reason;
+    if (!isBoundedString(rawReason, MAX_CLERK_AUTH_REASON_LENGTH)) return 401;
+    return CLERK_INFRASTRUCTURE_AUTH_REASONS.has(rawReason) ? 503 : 401;
+  } catch (error) {
+    return malformedBearerDebugStatus(error);
+  }
+};
+
+const getBearerSession = async (
+  req: NextRequest,
+  authorization: string,
+): Promise<ArticleAudioSession | NextResponse> => {
+  const match = /^Bearer ([^\s,]+)$/iu.exec(authorization);
+  const token = match?.[1];
+  if (!token || token.length > MAX_BEARER_TOKEN_LENGTH) {
+    return bearerErrorResponse(401);
+  }
+  if (isLocalMode() || hasClerkSessionCookie(req)) {
+    return bearerErrorResponse(401);
+  }
+
+  try {
+    const session = await auth({ treatPendingAsSignedOut: true });
+    if (!isBoundedString(session.userId, MAX_SLUG_LENGTH)) {
+      return bearerErrorResponse(getSignedOutBearerStatus(session.debug));
+    }
+    return { userId: session.userId };
+  } catch (error) {
+    return bearerAuthenticationUnavailable(error);
+  }
+};
+
 const getForwardedTtsHeaders = (req: NextRequest): Record<string, string> => {
   const headers: Record<string, string> = {};
+  const identityHeaders = req.headers.has("authorization")
+    ? ["authorization"]
+    : ["cookie"];
   for (const name of [
-    "authorization",
-    "cookie",
+    ...identityHeaders,
     "cf-connecting-ip",
     "user-agent",
     "x-forwarded-for",
@@ -268,10 +367,47 @@ const persistGeneratedAudio = async (
   }
 };
 
-const isBoundedString = (value: unknown, maxLength: number): value is string =>
-  typeof value === "string" &&
-  value.trim().length > 0 &&
-  value.length <= maxLength;
+type ArticleAudioIdentity =
+  | { kind: "legacy"; sourceHash: string }
+  | { kind: "native"; revisionId: string; narrationVersion: number };
+
+const parseArticleAudioIdentity = (body: {
+  sourceHash?: unknown;
+  revisionId?: unknown;
+  narrationVersion?: unknown;
+}): ArticleAudioIdentity | null => {
+  const hasLegacyIdentity = body.sourceHash !== undefined;
+  const hasNativeIdentity =
+    body.revisionId !== undefined || body.narrationVersion !== undefined;
+  const normalizedRevisionId =
+    typeof body.revisionId === "string" &&
+    body.revisionId.length <= MAX_REVISION_ID_RAW_LENGTH
+      ? normalizeMediaWikiNumericId(body.revisionId)
+      : null;
+
+  if (
+    hasLegacyIdentity &&
+    !hasNativeIdentity &&
+    isBoundedString(body.sourceHash, MAX_SOURCE_HASH_LENGTH)
+  ) {
+    return { kind: "legacy", sourceHash: body.sourceHash };
+  }
+  if (
+    hasNativeIdentity &&
+    !hasLegacyIdentity &&
+    normalizedRevisionId !== null &&
+    typeof body.narrationVersion === "number" &&
+    Number.isSafeInteger(body.narrationVersion) &&
+    body.narrationVersion > 0
+  ) {
+    return {
+      kind: "native",
+      revisionId: normalizedRevisionId,
+      narrationVersion: body.narrationVersion,
+    };
+  }
+  return null;
+};
 
 export const POST = async (req: NextRequest) => {
   try {
@@ -279,13 +415,16 @@ export const POST = async (req: NextRequest) => {
       slug?: unknown;
       sectionKey?: unknown;
       sourceHash?: unknown;
+      revisionId?: unknown;
+      narrationVersion?: unknown;
       provider?: unknown;
     } | null;
+    const identity = body ? parseArticleAudioIdentity(body) : null;
     if (
       !body ||
       !isBoundedString(body.slug, MAX_SLUG_LENGTH) ||
       !isBoundedString(body.sectionKey, MAX_SECTION_KEY_LENGTH) ||
-      !isBoundedString(body.sourceHash, MAX_SOURCE_HASH_LENGTH)
+      !identity
     ) {
       return NextResponse.json(
         { error: "A valid article audio request is required." },
@@ -303,10 +442,20 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
-    const [article, session] = await Promise.all([
-      getCanonicalArticle(body.slug),
-      getSession(),
-    ]);
+    const authorization = req.headers.get("authorization");
+    let article: StoredArticle | null;
+    let session: ArticleAudioSession;
+    if (authorization === null) {
+      [article, session] = await Promise.all([
+        getCanonicalArticle(body.slug),
+        getCookieSession(),
+      ]);
+    } else {
+      const bearerSession = await getBearerSession(req, authorization);
+      if (bearerSession instanceof NextResponse) return bearerSession;
+      session = bearerSession;
+      article = await getCanonicalArticle(body.slug);
+    }
     if (!article) {
       return NextResponse.json(
         { error: "Article not found." },
@@ -314,11 +463,23 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
-    const track = resolveCanonicalArticleNarrationTrack(
-      article,
-      body.sectionKey,
-      body.sourceHash,
-    );
+    const storedRevisionId = normalizeMediaWikiNumericId(article.revisionId);
+    const nativeIdentityIsCurrent =
+      identity.kind !== "native" ||
+      (storedRevisionId !== null &&
+        storedRevisionId === identity.revisionId &&
+        article.narrationVersion === identity.narrationVersion);
+    const track = nativeIdentityIsCurrent
+      ? identity.kind === "legacy"
+        ? resolveCanonicalArticleNarrationTrack(
+            article,
+            body.sectionKey,
+            identity.sourceHash,
+          )
+        : (buildArticleNarrationTracks(article).find(
+            (candidate) => candidate.sectionKey === body.sectionKey,
+          ) ?? null)
+      : null;
     if (!track) {
       return NextResponse.json(
         { error: "Article narration changed; refresh and try again." },
@@ -431,14 +592,10 @@ export const POST = async (req: NextRequest) => {
 
     return audioResponse(generated.blob, generated.metadata, fallbackReason);
   } catch (error) {
-    console.error("[/api/article/audio/section] request failed", error);
+    void error;
+    console.error("[/api/article/audio/section] request failed");
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Article audio generation failed.",
-      },
+      { error: "Article audio generation failed." },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }
