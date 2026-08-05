@@ -35,6 +35,11 @@ Expo Go may be useful for an occasional JavaScript-only smoke check, but it is
 not part of the compatibility throughline. Development-client and signed EAS
 builds are the acceptance artifacts.
 
+Fraunces, DM Sans, and JetBrains Mono are embedded with the `expo-font` config
+plugin so they are available before the first native frame. A fresh development
+or signed build is required after changing that font manifest; Expo Go and an
+older installed client are not representative typography checks.
+
 ## Local Android SDK
 
 Expo and React Native honor `ANDROID_HOME`. When Android Studio does not add its
@@ -70,6 +75,12 @@ VoiceOver, TalkBack, maximum text and display sizes, orientation, appearance,
 and reduced-motion results must be recorded against named hardware and a signed
 build. Expo Go, Simulator, emulators, Jest, bundle checks, and accessibility
 tree inspection are supplementary evidence only.
+
+Reusable screens and controls follow the documented
+[native accessibility conventions](../docs/native-accessibility-conventions.md),
+including uncapped task text, 48-by-48 minimum targets, visible keyboard focus,
+word-safe brand reflow, reduced-motion handling, and platform-appropriate status
+announcements.
 
 ## Dependency note
 
