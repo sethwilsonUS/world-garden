@@ -103,6 +103,11 @@ const routeKnownPath = (filePath, routes) => {
     return true;
   }
 
+  if (filePath === "tsconfig.json") {
+    select(routes, "web", "architecture");
+    return true;
+  }
+
   if (architectureFiles.has(filePath)) {
     select(routes, "architecture");
     return true;

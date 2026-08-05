@@ -88,16 +88,21 @@ web production code from importing them, and they remain development-only.
 The existing architecture baseline remains unchanged. New findings must be
 fixed rather than added to the baseline.
 
-Every workspace or lockfile change currently runs the complete web baseline.
-Path-aware CI may later skip unrelated platform jobs only after its tested,
-fail-safe routing policy has landed under those always-on gates. The activating
-workflow must evaluate the candidate's full base-to-head diff while executing
-the classifier and verifier from the protected base revision, never from code
-supplied by the pull request. Documentation link validation remains selected
-for every change because Markdown may reference any tracked local file. Shared
-manifests, Convex, shared packages, CI infrastructure, unknown paths, and
-unreadable or empty diffs select the broader safe gate set. The workflow will
-always report one required aggregate result.
+Path-aware CI skips unrelated platform jobs only after a tested, fail-safe
+classifier examines the candidate's full base-to-head diff. The classifier and
+aggregate verifier execute from a separate checkout of the protected base
+revision, never from code supplied by the pull request. Documentation link
+validation remains selected for every change because Markdown may reference any
+tracked local file. Shared manifests, Convex, shared packages, CI
+infrastructure, unknown paths, and unreadable or empty diffs select the broader
+safe gate set. The always-run `Required CI` aggregate rejects classifier
+failures, malformed routes, selected jobs that were skipped, failures, and
+cancellations while conditional jobs remain visible for diagnosis.
+
+Classic branch protection cannot bind a status context to an immutable workflow
+definition, so CodeRabbit remains an independent required check for workflow
+changes. Privileged `pull_request_target` execution is intentionally prohibited:
+these jobs install and execute candidate dependencies and tests.
 
 ## Accessibility and visual authority
 
