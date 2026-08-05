@@ -35,22 +35,26 @@ export function GardenButton({
   const [focused, setFocused] = useState(false);
   const unavailable = disabled || busy;
   const primary = variant === "primary";
+  const stateSuffix = busy
+    ? " — in progress"
+    : disabled
+      ? " — unavailable"
+      : "";
+  const visibleLabel = `${label}${stateSuffix}`;
 
   return (
     <Pressable
       accessible
       accessibilityHint={hint}
-      accessibilityLabel={label}
+      accessibilityLabel={visibleLabel}
       accessibilityRole="button"
       accessibilityState={{ busy, disabled: unavailable }}
-      accessibilityValue={busy ? { text: "In progress" } : undefined}
       disabled={unavailable}
       focusable={!unavailable}
       onBlur={() => setFocused(false)}
       onFocus={() => setFocused(true)}
       onPress={onPress}
       style={({ pressed }) => [
-        style,
         styles.button,
         {
           backgroundColor: primary ? colors.btnPrimary : colors.surface2,
@@ -59,6 +63,7 @@ export function GardenButton({
           paddingHorizontal: spacing.xl,
           paddingVertical: spacing.md,
         },
+        style,
         pressed && !unavailable
           ? [
               styles.pressed,
@@ -94,8 +99,7 @@ export function GardenButton({
             (pressed || focused) && !unavailable && styles.interactionLabel,
           ]}
         >
-          {label}
-          {busy ? " — in progress" : disabled ? " — unavailable" : ""}
+          {visibleLabel}
         </GardenText>
       )}
     </Pressable>

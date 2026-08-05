@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import type { ComponentProps } from "react";
 import { StyleSheet } from "react-native";
 
+import { getGardenFonts } from "../theme/fonts";
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { GardenButton } from "./GardenButton";
 
@@ -62,27 +63,21 @@ describe("GardenButton", () => {
     { busy: true, disabled: false },
   ])("does not activate while unavailable (%o)", ({ busy, disabled }) => {
     renderButton({ busy, disabled });
+    const visibleLabel = busy
+      ? "Explore a topic — in progress"
+      : "Explore a topic — unavailable";
     const button = screen.getByRole("button", {
       disabled: true,
-      name: "Explore a topic",
+      name: visibleLabel,
     });
 
+    expect(button).toHaveProp("accessibilityLabel", visibleLabel);
     expect(button).toHaveProp("accessibilityState", {
       busy,
       disabled: true,
     });
-    if (busy) {
-      expect(button).toHaveProp("accessibilityValue", {
-        text: "In progress",
-      });
-    }
-    expect(
-      screen.getByText(
-        busy
-          ? "Explore a topic — in progress"
-          : "Explore a topic — unavailable",
-      ),
-    ).toBeOnTheScreen();
+    expect(button.props.accessibilityValue?.text).toBeUndefined();
+    expect(screen.getByText(visibleLabel)).toBeOnTheScreen();
 
     fireEvent.press(button);
     expect(buttonProps.onPress).not.toHaveBeenCalled();
@@ -102,12 +97,12 @@ describe("GardenButton", () => {
       minWidth: 48,
       transform: [{ translateY: 1 }],
     });
-    expect(labelStyle.fontFamily).toBe("DMSans-SemiBold");
+    expect(labelStyle.fontFamily).toBe(getGardenFonts().bodySemiBold);
     expect(labelStyle).toMatchObject({ textDecorationLine: "underline" });
   });
 
   it("adds a shape-based focus outline", () => {
-    renderButton();
+    renderButton({ style: { outlineWidth: 0 } });
     const button = screen.getByRole("button", { name: "Explore a topic" });
 
     fireEvent(button, "focus");
@@ -120,5 +115,27 @@ describe("GardenButton", () => {
     expect(
       StyleSheet.flatten(screen.getByText("Explore a topic").props.style),
     ).toMatchObject({ textDecorationLine: "underline" });
+  });
+
+  it("allows base appearance overrides without weakening the target floor", () => {
+    renderButton({
+      style: {
+        backgroundColor: "#123456",
+        borderRadius: 24,
+        minHeight: 1,
+        paddingVertical: 30,
+      },
+    });
+
+    expect(
+      StyleSheet.flatten(
+        screen.getByRole("button", { name: "Explore a topic" }).props.style,
+      ),
+    ).toMatchObject({
+      backgroundColor: "#123456",
+      borderRadius: 24,
+      minHeight: 48,
+      paddingVertical: 30,
+    });
   });
 });

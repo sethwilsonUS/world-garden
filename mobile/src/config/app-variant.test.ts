@@ -79,8 +79,17 @@ describe("native application variants", () => {
       "android.permission.SYSTEM_ALERT_WINDOW",
       "android.permission.WRITE_EXTERNAL_STORAGE",
     ]);
-    expect(JSON.stringify(config.plugins)).not.toContain("expo-notifications");
-    expect(JSON.stringify(config.plugins)).not.toContain("expo-file-system");
+    const pluginIdentifiers = (config.plugins ?? []).map((plugin) =>
+      Array.isArray(plugin) ? plugin[0] : plugin,
+    );
+
+    // Keep plugin declarations statically auditable instead of allowing a
+    // function-valued entry to disappear from serialized config checks.
+    expect(
+      pluginIdentifiers.every((identifier) => typeof identifier === "string"),
+    ).toBe(true);
+    expect(pluginIdentifiers).not.toContain("expo-notifications");
+    expect(pluginIdentifiers).not.toContain("expo-file-system");
     expect(config.extra).toMatchObject({
       appVariant: "production",
       eas: { projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea" },

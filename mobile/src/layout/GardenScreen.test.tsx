@@ -44,7 +44,11 @@ describe("GardenScreen", () => {
         colorSchemeOverride="light"
       >
         <GardenScreen
-          contentContainerStyle={{ paddingBottom: 0, paddingHorizontal: 0 }}
+          contentContainerStyle={{
+            gap: 12,
+            paddingBottom: 0,
+            paddingHorizontal: 0,
+          }}
         >
           <GardenText>Content</GardenText>
         </GardenScreen>
@@ -57,6 +61,7 @@ describe("GardenScreen", () => {
       ),
     ).toMatchObject({
       flexGrow: 1,
+      gap: 12,
       paddingBottom: 64,
       paddingHorizontal: 24,
       paddingTop: 24,
