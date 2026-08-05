@@ -81,9 +81,20 @@ web production code from importing them, and they remain development-only.
 
 - web and Convex code may not import Expo, React Native, or `mobile/`;
 - mobile code may not import Next.js, React DOM, web implementation folders,
-  Clerk's Next.js SDK, or Convex server APIs;
+  Clerk's Next.js SDK, or Convex server implementation and context APIs;
 - future platform-neutral behavior belongs in `packages/domain` only after both
   real applications need it.
+
+There is one audited Convex import exception. Only
+`mobile/src/data/convexPublicApi.ts` may import the documented client-safe
+`makeFunctionReference` factory from `convex/server`, and that adapter may
+otherwise import only `@curio-garden/domain` contracts. The narrow adapter
+names reviewed public actions without importing Convex's generated API
+declaration graph, which would otherwise pull server and web implementation
+types into the mobile TypeScript project. It may not import action, query,
+mutation, database, schema, authentication-context, or other server
+implementation APIs. `mobile/arch.rules.mts` enforces both the general ban and
+this file-level allowlist.
 
 The existing architecture baseline remains unchanged. New findings must be
 fixed rather than added to the baseline.

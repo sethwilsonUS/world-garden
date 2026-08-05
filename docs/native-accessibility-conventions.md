@@ -13,15 +13,25 @@ components or CSS across the architecture boundary.
 
 - Keep JSX order, visual order, and expected assistive-technology order the
   same. Do not use React Native's experimental accessibility-order API.
-- Expose one clear screen heading. Decorative lockups and glyphs stay out of
-  the accessibility tree.
+- Expose one clear primary screen heading. Additional section headings may
+  describe real subsections, but decorative lockups and glyphs stay out of the
+  accessibility tree.
 - A static card remains a collection of readable descendants. Do not collapse
   a heading, description, and controls into an unnamed or oversized focus stop.
 - An interactive card is one named control. Any secondary action is a sibling,
   never a nested pressable.
 - Hidden routes and overlays must hide their descendants from both the visual
-  and accessibility trees. When navigation changes screens, announce or focus
-  the new title once; routine data refreshes must not steal focus.
+  and accessibility trees. After a user-initiated route change, move
+  screen-reader focus to the destination's primary heading once, after it is
+  mounted. A newly submitted Search term establishes a new route context and
+  focuses its updated results heading once. A same-term retry, async
+  completion, or routine data refresh must retain the user's focus. Back
+  navigation should restore the originating control when the platform stack
+  supports it.
+- A search result is one focus stop with the `link` role. Its ordinal, title,
+  and nonempty description form one accessible name; its visual descendants
+  are hidden from assistive technology. Never expose a duplicate title or a
+  nested control inside the result link.
 
 ## Text, reflow, and contrast
 
@@ -30,6 +40,11 @@ components or CSS across the architecture boundary.
   metadata, matching the current web hierarchy.
 - Text-bearing controls use minimum dimensions and padding, never a fixed
   height. At larger text or display sizes, rows wrap or become vertical.
+- Exercise both a 200% text-size baseline and every platform's maximum text and
+  display-size combinations. Body, status, alert, input, result-title, and
+  result-description text must remain complete and one-dimensionally
+  scrollable. An automated assertion that text is unclamped is useful, but it
+  does not prove native font measurement or visual reflow.
 - The visual `Curio Garden` brand heading consists of two wrapping word units
   exposed as one heading. It may become `Curio` / `Garden`, but must never split
   within either word, truncate, ellipsize, or shrink to fit.
@@ -54,15 +69,25 @@ components or CSS across the architecture boundary.
   is not obscured by the tab bar, keyboard, or future mini-player.
 - Icon-only actions still have a visible 48-by-48 target and an explicit name;
   their glyph is decorative.
+- A form's persistent visible label and accessible input name must agree. Keep
+  the text input and its submit button as separate focus stops; do not collapse
+  an editable field and an action into one control.
 
 ## Status and motion
 
 - Loading completion, errors, and consequential user-requested changes receive
   useful status feedback. Do not announce initial render, decorative changes,
   or every data refresh.
+- Search keeps one persistent status node while it transitions from searching
+  to an empty, singular, or plural result count. Ignore stale request
+  completions and do not move focus when the message changes.
 - Android uses a visible polite live region. iOS queues one explicit
   announcement for a meaningful state transition. Do not combine both paths on
   the same platform or repeat an unchanged message.
+- Validation, request, and external-app launch failures use concise visible
+  alerts without backend details. Clear an obsolete status before exposing a
+  request error, keep the failed action retryable, and never announce the same
+  failure through both an alert and a status node.
 - Read reduced-motion preferences before starting nonessential motion and keep
   listening for runtime changes. Navigation and decorative animation stop when
   reduced motion is enabled; immediate state feedback remains.

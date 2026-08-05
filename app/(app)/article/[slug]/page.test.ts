@@ -27,9 +27,7 @@ describe("article metadata", () => {
     expect(metadata.alternates?.canonical).toBe(
       "/article/The_Lord_of_the_Rings",
     );
-    expect(metadata.openGraph?.url).toBe(
-      "/article/The_Lord_of_the_Rings",
-    );
+    expect(metadata.openGraph?.url).toBe("/article/The_Lord_of_the_Rings");
   });
 
   it("encodes canonical titles as one safe route segment", async () => {
@@ -43,5 +41,17 @@ describe("article metadata", () => {
     });
 
     expect(metadata.alternates?.canonical).toBe("/article/AC%2FDC");
+  });
+
+  it("parses an encoded canonical path when Wikipedia summary metadata is unavailable", async () => {
+    mockedFetchWikiSummary.mockResolvedValue(null);
+
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ slug: "S%C3%A3o_Paulo" }),
+    });
+
+    expect(metadata.title).toBe("São Paulo — Curio Garden");
+    expect(metadata.alternates?.canonical).toBe("/article/S%C3%A3o_Paulo");
+    expect(metadata.openGraph?.url).toBe("/article/S%C3%A3o_Paulo");
   });
 });

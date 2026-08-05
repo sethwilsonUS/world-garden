@@ -21,9 +21,11 @@
     "check": "npm-run-all lint typecheck test:ci bundle:check dependencies:check runtime:check doctor"
   },
   "dependencies": {
+    "@curio-garden/domain": "*",
     "@expo-google-fonts/dm-sans": "^0.4.2",
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "convex": "^1.40.0",
     "expo": "~57.0.10",
     "expo-build-properties": "~57.0.8",
     "expo-constants": "~57.0.9",
