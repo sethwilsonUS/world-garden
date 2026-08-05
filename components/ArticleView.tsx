@@ -26,6 +26,7 @@ import {
   ArticleLoadError,
   ArticleLoadingState,
   AudioErrorNotice,
+  MobileArticleSummaryDisclosure,
   ResumeBanner,
 } from "./ArticleViewPresentation";
 import { BookmarkButton } from "./BookmarkButton";
@@ -362,6 +363,9 @@ const ArticleViewContent = ({
           playAllRef={playAllButtonRef}
           fallbackVoiceNotice={audioState.fallbackVoiceNotice}
           contextBlocks={contextBlocks}
+          mobileSummaryDisclosure={
+            <MobileArticleSummaryDisclosure summary={displayArticle.summary} />
+          }
         />
       </div>
 

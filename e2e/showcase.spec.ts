@@ -191,6 +191,7 @@ const mockArticleData = async (
   options: {
     failAnalyticalLightbox?: boolean;
     failAnalyticalThumbnail?: boolean;
+    summary?: string;
   } = {},
 ) => {
   const lightboxRequests: string[] = [];
@@ -222,7 +223,9 @@ const mockArticleData = async (
             language: "en",
             narrationVersion: 2,
             lastEdited: "2026-07-10T12:00:00Z",
-            summary: "Ada Lovelace was an English mathematician and writer.",
+            summary:
+              options.summary ??
+              "Ada Lovelace was an English mathematician and writer.",
             thumbnailUrl:
               "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/800px-Ada_portrait.jpg",
             thumbnailWidth: 800,
@@ -1145,19 +1148,176 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await expectNoSeriousAxeViolations(page);
 });
 
+test("mobile article puts one summary sentence before audio and the remainder after it", async ({
+  page,
+}) => {
+  const lead = "Ada Lovelace was an English mathematician and writer.";
+  const remainder =
+    "Her notes on the Analytical Engine helped shape the history of computing.";
+  const fullSummary = `${lead} ${remainder}`;
+
+  await page.setViewportSize({ width: 639, height: 844 });
+  await mockArticleData(page, { summary: fullSummary });
+  await page.goto("/article/Ada_Lovelace");
+
+  const mobileLead = page.locator("[data-mobile-article-summary-lead]");
+  const desktopSummary = page.locator("[data-desktop-article-summary]");
+  const articleSections = page.getByRole("navigation", {
+    name: "Article sections",
+  });
+  const playControl = page.getByRole("button", {
+    name: /^Play all \d+ audio items including summary$/,
+  });
+  const disclosure = page.locator(
+    "details[data-mobile-article-summary-disclosure]",
+  );
+  const disclosureControl = disclosure.locator("summary");
+  const showDisclosureLabel = disclosureControl.getByText(
+    "Show full text summary",
+    { exact: true },
+  );
+  const hideDisclosureLabel = disclosureControl.getByText(
+    "Hide full text summary",
+    { exact: true },
+  );
+  const disclosedRemainder = disclosure.locator(
+    "[data-mobile-article-summary-remainder]",
+  );
+
+  await expect(mobileLead).toHaveText(lead);
+  await expect(mobileLead).toBeVisible();
+  await expect(desktopSummary).toHaveText(fullSummary);
+  await expect(desktopSummary).toBeHidden();
+  await expect(playControl).toBeVisible();
+  await expect(articleSections).toBeVisible();
+  await expect(disclosure).toBeVisible();
+  await expect(disclosure).not.toHaveAttribute("open", "");
+  await expect(disclosureControl).toHaveAccessibleName(
+    "Show full text summary",
+  );
+  await expect(showDisclosureLabel).toBeVisible();
+  await expect(hideDisclosureLabel).toBeHidden();
+  await expect(disclosedRemainder).toHaveText(remainder);
+  await expect(disclosedRemainder).toBeHidden();
+  await expect(disclosure).not.toContainText(lead);
+
+  expect(
+    await mobileLead.evaluate((element) => {
+      const audio = document.querySelector(
+        'button[aria-label^="Play all "][aria-label$=" audio items including summary"]',
+      );
+      const fullSummaryDisclosure = document.querySelector(
+        "[data-mobile-article-summary-disclosure]",
+      );
+      const sections = document.querySelector(
+        'nav[aria-label="Article sections"]',
+      );
+      if (!audio || !fullSummaryDisclosure || !sections) return false;
+      return (
+        Boolean(
+          element.compareDocumentPosition(audio) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        ) &&
+        Boolean(
+          audio.compareDocumentPosition(fullSummaryDisclosure) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        ) &&
+        Boolean(
+          fullSummaryDisclosure.compareDocumentPosition(sections) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        )
+      );
+    }),
+  ).toBe(true);
+
+  await disclosureControl.focus();
+  await expectVisibleFocusOutline(disclosureControl);
+  await disclosureControl.press("Enter");
+  await expect(disclosure).toHaveAttribute("open", "");
+  await expect(disclosedRemainder).toBeVisible();
+  await expect(disclosureControl).toBeFocused();
+  await expect(disclosureControl).toHaveAccessibleName(
+    "Hide full text summary",
+  );
+  await expect(showDisclosureLabel).toBeHidden();
+  await expect(hideDisclosureLabel).toBeVisible();
+
+  await disclosureControl.press("Enter");
+  await expect(disclosure).not.toHaveAttribute("open", "");
+  await expect(disclosedRemainder).toBeHidden();
+  await expect(disclosureControl).toBeFocused();
+  await expect(disclosureControl).toHaveAccessibleName(
+    "Show full text summary",
+  );
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("desktop article keeps its existing full summary presentation", async ({
+  page,
+}) => {
+  const lead = "Ada Lovelace was an English mathematician and writer.";
+  const fullSummary = `${lead} Her notes on the Analytical Engine helped shape the history of computing.`;
+
+  await page.setViewportSize({ width: 640, height: 900 });
+  await mockArticleData(page, { summary: fullSummary });
+  await page.goto("/article/Ada_Lovelace");
+
+  await expect(page.locator("[data-desktop-article-summary]")).toHaveText(
+    fullSummary,
+  );
+  await expect(page.locator("[data-desktop-article-summary]")).toBeVisible();
+  await expect(page.locator("[data-mobile-article-summary-lead]")).toBeHidden();
+  await expect(
+    page.locator("[data-mobile-article-summary-disclosure]"),
+  ).toBeHidden();
+});
+
+test("single-sentence mobile summaries do not render an empty disclosure", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockArticleData(page);
+  await page.goto("/article/Ada_Lovelace");
+
+  await expect(page.locator("[data-mobile-article-summary-lead]")).toHaveText(
+    "Ada Lovelace was an English mathematician and writer.",
+  );
+  await expect(
+    page.locator("[data-mobile-article-summary-disclosure]"),
+  ).toHaveCount(0);
+});
+
 test("article summary and media attribution remain fully available at large text", async ({
   page,
 }) => {
+  const lead = "Ada Lovelace was an English mathematician and writer.";
+  const remainder =
+    "Her notes on the Analytical Engine helped shape the history of computing.";
   await page.setViewportSize({ width: 320, height: 800 });
-  await mockArticleData(page);
+  await mockArticleData(page, { summary: `${lead} ${remainder}` });
   await page.goto("/article/Ada_Lovelace");
   await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
 
+  await expect(page.locator("[data-mobile-article-summary-lead]")).toHaveText(
+    lead,
+  );
   await expect(
-    page.getByText("Ada Lovelace was an English mathematician and writer.", {
-      exact: true,
-    }),
+    page.locator("[data-mobile-article-summary-lead]"),
   ).toBeVisible();
+  await expect(page.locator("[data-desktop-article-summary]")).toBeHidden();
+
+  const disclosureControl = page
+    .locator("[data-mobile-article-summary-disclosure]")
+    .locator("summary");
+  await disclosureControl.scrollIntoViewIfNeeded();
+  await expect(disclosureControl).toBeVisible();
+  const disclosureBox = await disclosureControl.boundingBox();
+  expect(disclosureBox?.height).toBeGreaterThanOrEqual(44);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 
   const sourceLink = page
     .getByRole("link", {
