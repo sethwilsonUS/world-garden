@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +29,19 @@ const successfulResults = {
   architecture: "skipped",
 };
 
+const workflow = readFileSync(
+  new URL("../.github/workflows/ci.yml", import.meta.url),
+  "utf8",
+);
+
+const workflowJob = (name) => {
+  const match = workflow.match(
+    new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  [a-z][a-z0-9_-]*:\\n|$)`),
+  );
+  if (!match) throw new Error(`CI workflow does not define job ${name}`);
+  return match[0];
+};
+
 describe("classifyPaths", () => {
   it.each([
     ["mobile/app/index.tsx", ["mobile", "docs", "architecture"]],
@@ -36,6 +51,7 @@ describe("classifyPaths", () => {
     ["e2e/showcase.spec.ts", ["web", "docs"]],
     ["_python/test_tts.py", ["python", "docs"]],
     ["requirements.txt", ["python", "docs"]],
+    ["tsconfig.json", ["web", "docs", "architecture"]],
     ["docs/toolchain.md", ["docs"]],
     ["mobile/README.md", ["docs"]],
     [".github/pull_request_template.md", ["docs"]],
@@ -184,5 +200,42 @@ describe("verifyRequiredJobs", () => {
         'Job "docs" returned unknown result undefined',
       ]),
     );
+  });
+});
+
+describe("CI workflow trust boundary", () => {
+  const trustedRef =
+    "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}";
+
+  it("classifies the candidate diff with controls from the protected base", () => {
+    const changes = workflowJob("changes");
+
+    expect(changes).toContain("path: candidate");
+    expect(changes).toContain("path: trusted-ci");
+    expect(changes).toContain("repository: ${{ github.repository }}");
+    expect(changes).toContain(trustedRef);
+    expect(changes).toContain('node-version-file: "trusted-ci/.nvmrc"');
+    expect(changes).toContain("package-manager-cache: false");
+    expect(changes).toContain("working-directory: candidate");
+    expect(changes).toContain(
+      'node ../trusted-ci/scripts/ci-routing.mjs classify >> "$GITHUB_OUTPUT"',
+    );
+    expect(changes).not.toContain("node scripts/ci-routing.mjs classify");
+  });
+
+  it("verifies results using only controls from the protected base", () => {
+    const required = workflowJob("required");
+
+    expect(required.match(/actions\/checkout@v7/g)).toHaveLength(1);
+    expect(required).toContain("path: trusted-ci");
+    expect(required).not.toContain("path: candidate");
+    expect(required).toContain("repository: ${{ github.repository }}");
+    expect(required).toContain(trustedRef);
+    expect(required).toContain('node-version-file: "trusted-ci/.nvmrc"');
+    expect(required).toContain("package-manager-cache: false");
+    expect(required).toContain(
+      "run: node trusted-ci/scripts/ci-routing.mjs verify",
+    );
+    expect(required).not.toContain("run: node scripts/ci-routing.mjs verify");
   });
 });
