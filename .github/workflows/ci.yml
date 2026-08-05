@@ -10,11 +10,41 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Classify Changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.routing.outputs.web }}
+      mobile: ${{ steps.routing.outputs.mobile }}
+      python: ${{ steps.routing.outputs.python }}
+      docs: ${{ steps.routing.outputs.docs }}
+      architecture: ${{ steps.routing.outputs.architecture }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Classify changed paths
+        id: routing
+        env:
+          CI_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          CI_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci-routing.mjs classify >> "$GITHUB_OUTPUT"
+
   lint:
     name: Lint
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -27,14 +57,15 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-      - name: Validate documentation links
-        run: npm run docs:check
-
   typecheck:
     name: Type Check
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -50,11 +81,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Check architecture
-        run: npm run arch
-
   mobile:
     name: Mobile Foundation
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     env:
       CI: "1"
@@ -75,8 +105,52 @@ jobs:
       - name: Validate mobile foundation
         run: npm run mobile:check
 
+  architecture:
+    name: Architecture Boundaries
+    needs: changes
+    if: needs.changes.outputs.architecture == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check architecture
+        run: npm run arch
+
+  docs:
+    name: Documentation
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate documentation links
+        run: npm run docs:check
+
   build:
     name: Production Build
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -101,9 +175,13 @@ jobs:
 
   test:
     name: Test
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -118,6 +196,8 @@ jobs:
 
   browser:
     name: Browser and Accessibility Smoke Tests
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -142,9 +222,13 @@ jobs:
 
   python:
     name: Python (TTS function)
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v7
         with:
@@ -171,3 +255,46 @@ jobs:
           . .venv/bin/activate
           python -m pip install ruff
           python -m ruff check _python/
+
+  required:
+    name: Required CI
+    if: always()
+    needs:
+      - changes
+      - lint
+      - typecheck
+      - mobile
+      - architecture
+      - docs
+      - build
+      - test
+      - browser
+      - python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Verify every selected gate
+        env:
+          CI_RESULT_CLASSIFIER: ${{ needs.changes.result }}
+          CI_ROUTE_WEB: ${{ needs.changes.outputs.web }}
+          CI_ROUTE_MOBILE: ${{ needs.changes.outputs.mobile }}
+          CI_ROUTE_PYTHON: ${{ needs.changes.outputs.python }}
+          CI_ROUTE_DOCS: ${{ needs.changes.outputs.docs }}
+          CI_ROUTE_ARCHITECTURE: ${{ needs.changes.outputs.architecture }}
+          CI_RESULT_LINT: ${{ needs.lint.result }}
+          CI_RESULT_TYPECHECK: ${{ needs.typecheck.result }}
+          CI_RESULT_MOBILE: ${{ needs.mobile.result }}
+          CI_RESULT_ARCHITECTURE: ${{ needs.architecture.result }}
+          CI_RESULT_DOCS: ${{ needs.docs.result }}
+          CI_RESULT_BUILD: ${{ needs.build.result }}
+          CI_RESULT_TEST: ${{ needs.test.result }}
+          CI_RESULT_BROWSER: ${{ needs.browser.result }}
+          CI_RESULT_PYTHON: ${{ needs.python.result }}
+        run: node scripts/ci-routing.mjs verify
