@@ -13,7 +13,8 @@
     "lib/**/*.ts",
     "lib/**/*.tsx",
     "convex/**/*.ts",
-    "proxy.ts"
+    "proxy.ts",
+    "next.config.ts"
   ],
   "exclude": [
     "node_modules",

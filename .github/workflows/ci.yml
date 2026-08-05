@@ -53,6 +53,28 @@ jobs:
       - name: Check architecture
         run: npm run arch
 
+  mobile:
+    name: Mobile Foundation
+    runs-on: ubuntu-latest
+    env:
+      CI: "1"
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate mobile foundation
+        run: npm run mobile:check
+
   build:
     name: Production Build
     runs-on: ubuntu-latest

@@ -51,6 +51,21 @@ __pycache__/
 *.tsbuildinfo
 next-env.d.ts
 
+# Expo / native generated output
+/mobile/.expo/
+/mobile/node_modules/
+/mobile/dist/
+/mobile/coverage/
+/mobile/ios/
+/mobile/android/
+/mobile/expo-env.d.ts
+/mobile/.kotlin/
+/mobile/*.jks
+/mobile/*.p8
+/mobile/*.p12
+/mobile/*.key
+/mobile/*.mobileprovision
+
 # cursor / AI tooling
 .specstory/
 .cursorindexingignore

@@ -6,7 +6,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/*.test.{ts,tsx,mjs}"],
-    exclude: ["node_modules", ".next", "convex/_generated"],
+    exclude: ["node_modules", ".next", "convex/_generated", "mobile/**"],
   },
   resolve: {
     alias: {
