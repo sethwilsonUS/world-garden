@@ -119,12 +119,22 @@ export function NativeAuthProvider({
 
   const activeSessionId =
     clerkAuth.isLoaded && clerkAuth.isSignedIn ? clerkAuth.sessionId : null;
-  const sessionEpoch = useMemo(() => {
-    // The public epoch intentionally changes with the private Clerk session ID
-    // without exposing that identifier outside this provider.
-    void activeSessionId;
-    return Symbol("native-clerk-session");
-  }, [activeSessionId]);
+  const [sessionEpochState, setSessionEpochState] = useState<{
+    readonly sessionId: string | null;
+    readonly value: symbol;
+  }>(() => ({
+    sessionId: activeSessionId,
+    value: Symbol("native-clerk-session"),
+  }));
+  if (sessionEpochState.sessionId !== activeSessionId) {
+    // State is a semantic identity guarantee, unlike a memo cache. React
+    // restarts this render before committing the replacement session.
+    setSessionEpochState({
+      sessionId: activeSessionId,
+      value: Symbol("native-clerk-session"),
+    });
+  }
+  const sessionEpoch = sessionEpochState.value;
   const isCurrentSessionSuppressed =
     activeSessionId !== null && activeSessionId === suppressedSessionId;
   const clerkIdentityReady =
@@ -226,7 +236,14 @@ export function NativeAuthProvider({
     let operation: Promise<NativeSignOutResult>;
     operation = clerkOperation
       .then<NativeSignOutResult, NativeSignOutResult>(
-        () => ({ ok: true }),
+        () => {
+          if (signOutOperationRef.current?.promise === operation) {
+            setSuppressedSessionId((currentSessionId) =>
+              currentSessionId === activeSessionId ? null : currentSessionId,
+            );
+          }
+          return { ok: true };
+        },
         (error: unknown) => {
           if (signOutOperationRef.current?.promise === operation) {
             setSuppressedSessionId((currentSessionId) =>

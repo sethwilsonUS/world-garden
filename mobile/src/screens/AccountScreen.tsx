@@ -48,6 +48,12 @@ type AccountPresentation = {
   title: string;
 };
 
+type AccountStatusPresentation = {
+  isError: boolean;
+  message: string;
+  source: "authError" | "hostedBusy" | "presentation" | "signOut";
+};
+
 export interface AccountScreenProps {
   focusAuthOpener?: (element: View) => void;
   focusHeading?: NonNullable<RouteHeadingProps["focusElement"]>;
@@ -249,18 +255,32 @@ export function AccountScreen({
           title: "Signing out",
         }
       : presentationFor(state);
-  const statusMessage =
+  const statusPresentation: AccountStatusPresentation =
     effectiveSignOutOperation === "busy"
-      ? "Signing out."
+      ? { isError: false, message: "Signing out.", source: "signOut" }
       : effectiveSignOutOperation === "error"
-        ? SIGN_OUT_ERROR_MESSAGE
+        ? {
+            isError: true,
+            message: SIGN_OUT_ERROR_MESSAGE,
+            source: "signOut",
+          }
         : isHostedAuthBusy
-          ? "Opening secure sign-in."
-          : (authErrorMessage ?? presentation.status);
-  const statusIsError =
-    effectiveSignOutOperation === "error" ||
-    authErrorMessage !== null ||
-    state.status === "bridgeError";
+          ? {
+              isError: false,
+              message: "Opening secure sign-in.",
+              source: "hostedBusy",
+            }
+          : authErrorMessage !== null
+            ? {
+                isError: true,
+                message: authErrorMessage,
+                source: "authError",
+              }
+            : {
+                isError: state.status === "bridgeError",
+                message: presentation.status,
+                source: "presentation",
+              };
   const statusIsBusy =
     effectiveSignOutOperation === "busy" ||
     isHostedAuthBusy ||
@@ -395,12 +415,12 @@ export function AccountScreen({
 
       <AccessibleStatus
         accessible={!isAccessibilityActive}
-        announceOnReveal={authErrorMessage !== null}
+        announceOnReveal={statusPresentation.source === "authError"}
         announcementMode={isHostedAuthBusy ? "none" : "imperative"}
-        accessibilityRole={statusIsError ? "alert" : undefined}
+        accessibilityRole={statusPresentation.isError ? "alert" : undefined}
         accessibilityState={{ busy: statusIsBusy }}
-        color={statusIsError ? "critical" : "foreground2"}
-        message={statusMessage}
+        color={statusPresentation.isError ? "critical" : "foreground2"}
+        message={statusPresentation.message}
         testID="account-status"
       />
 

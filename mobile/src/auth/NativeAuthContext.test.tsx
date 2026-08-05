@@ -1,6 +1,7 @@
 import { useAuth, useUser } from "@clerk/expo";
 import { act, renderHook } from "@testing-library/react-native";
 import { useConvexAuth, useQueries } from "convex/react";
+import * as React from "react";
 import type { PropsWithChildren } from "react";
 
 import {
@@ -157,6 +158,27 @@ describe("NativeAuthProvider", () => {
     act(() => rerender(undefined));
 
     expect(result.current.sessionEpoch).toBe(signedOutEpoch);
+  });
+
+  it("keeps the session epoch stable when React discards memoized values", () => {
+    const useMemoSpy = jest
+      .spyOn(React, "useMemo")
+      .mockImplementation((factory) => factory());
+
+    try {
+      const { result, rerender } = renderHook(() => useNativeAuth(), {
+        wrapper: AuthWrapper,
+      });
+      const firstEpoch = result.current.sessionEpoch;
+
+      clerkAuth = signedInAuth("user-a", "session-a");
+      clerkUser = signedInUser("user-a");
+      act(() => rerender(undefined));
+
+      expect(result.current.sessionEpoch).toBe(firstEpoch);
+    } finally {
+      useMemoSpy.mockRestore();
+    }
   });
 
   it("keeps pending Clerk sessions loading and skips the private viewer query", () => {
@@ -378,7 +400,7 @@ describe("NativeAuthProvider", () => {
           resolveSignOut = resolve;
         }),
     );
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result, rerender } = renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     let operation: Promise<NativeSignOutResult> | undefined;
@@ -393,6 +415,9 @@ describe("NativeAuthProvider", () => {
     });
     expect(result.current.canSignOut).toBe(false);
 
+    clerkAuth = signedOutAuth();
+    act(() => rerender(undefined));
+
     await act(async () => {
       resolveSignOut?.();
       await operation;
@@ -404,6 +429,41 @@ describe("NativeAuthProvider", () => {
     });
     expect(result.current.canSignOut).toBe(false);
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
+  });
+
+  it("releases a successful sign-out suppression before the same session ID returns", async () => {
+    let resolveSignOut: (() => void) | undefined;
+    clerkSignOut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSignOut = resolve;
+        }),
+    );
+    const { result, rerender } = renderHook(() => useNativeAuth(), {
+      wrapper: AuthWrapper,
+    });
+    let operation: Promise<NativeSignOutResult> | undefined;
+
+    act(() => {
+      operation = result.current.signOut();
+    });
+    clerkAuth = signedOutAuth();
+    act(() => rerender(undefined));
+
+    await act(async () => {
+      resolveSignOut?.();
+      await operation;
+    });
+
+    clerkAuth = signedInAuth("user-a", "session-a");
+    clerkUser = signedInUser("user-a");
+    act(() => rerender(undefined));
+
+    expect(result.current.state.status).toBe("ready");
+    expect(result.current.canSignOut).toBe(true);
+    expect(useQueriesMock.mock.calls.at(-1)?.[0]).toHaveProperty(
+      "nativeViewer",
+    );
   });
 
   it("shares one pending Clerk sign-out across concurrent callers", async () => {

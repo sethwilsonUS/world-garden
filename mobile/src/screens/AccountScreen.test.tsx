@@ -8,6 +8,7 @@ import {
 import { AccessibilityInfo, StyleSheet, type View } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
+import { gardenColors } from "../theme/tokens";
 import { AccountScreen } from "./AccountScreen";
 
 type TestProfile = {
@@ -311,6 +312,29 @@ describe("AccountScreen", () => {
     });
   });
 
+  it("keeps a stale hosted-auth error from turning sign-out progress into an alert", async () => {
+    authState = readyState();
+    mockAuthErrorMessage = "We couldn't open secure sign-in. Please try again.";
+    const request = deferred<TestSignOutResult>();
+    mockSignOut.mockReturnValue(request.promise);
+    renderAccount();
+
+    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+
+    const status = screen.getByTestId("account-status");
+    expect(status).toHaveTextContent("Signing out.");
+    expect(status).not.toHaveProp("accessibilityRole", "alert");
+    expect(status).toHaveProp("accessibilityState", { busy: true });
+    expect(StyleSheet.flatten(status.props.style)).toMatchObject({
+      color: gardenColors.light.foreground2,
+    });
+
+    await act(async () => {
+      request.resolve({ ok: true });
+      await request.promise;
+    });
+  });
+
   it("keeps a private-data-free signing-out state while auth suppresses the session", async () => {
     authState = readyState();
     const request = deferred<TestSignOutResult>();
@@ -585,6 +609,21 @@ describe("AccountScreen", () => {
     );
     fireEvent.press(busyButton);
     expect(mockOpenAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a stale hosted-auth error from turning browser progress into an alert", () => {
+    mockAuthBusy = true;
+    mockAuthErrorMessage = "We couldn't open secure sign-in. Please try again.";
+
+    renderAccount();
+
+    const status = screen.getByTestId("account-status");
+    expect(status).toHaveTextContent("Opening secure sign-in.");
+    expect(status).not.toHaveProp("accessibilityRole", "alert");
+    expect(status).toHaveProp("accessibilityState", { busy: true });
+    expect(StyleSheet.flatten(status.props.style)).toMatchObject({
+      color: gardenColors.light.foreground2,
+    });
   });
 
   it("shows only a sanitized hosted-auth error after the browser returns", () => {

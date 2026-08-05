@@ -12,13 +12,20 @@ const isLoopbackHost = (hostname) =>
 
 /** @param {string} encoded */
 const decodeBase64 = (encoded) => {
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return undefined;
+  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(encoded)) return undefined;
 
-  const paddingLength = encoded.length - encoded.replace(/=+$/, "").length;
-  const unpadded = encoded.slice(0, encoded.length - paddingLength);
+  const normalizedEncoded = encoded.replace(/-/g, "+").replace(/_/g, "/");
+
+  const paddingLength =
+    normalizedEncoded.length - normalizedEncoded.replace(/=+$/, "").length;
+  const unpadded = normalizedEncoded.slice(
+    0,
+    normalizedEncoded.length - paddingLength,
+  );
   const remainder = unpadded.length % 4;
   if (remainder === 1) return undefined;
-  if (paddingLength > 0 && encoded.length % 4 !== 0) return undefined;
+  if (paddingLength > 0 && normalizedEncoded.length % 4 !== 0)
+    return undefined;
   if (
     (paddingLength === 1 && remainder !== 3) ||
     (paddingLength === 2 && remainder !== 2)

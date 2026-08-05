@@ -5,6 +5,8 @@ import {
 } from "./public-environment.cjs";
 
 const TEST_CLERK_KEY = "pk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ";
+const BASE64URL_TEST_CLERK_KEY =
+  "pk_test_XSk_NyV-eC0uY3VyaW9nYXJkZW4uaW52YWxpZCQ=";
 const LIVE_CLERK_KEY = "pk_live_cHJvZHVjdGlvbi5jdXJpb2dhcmRlbi5pbnZhbGlkJA";
 
 describe("resolveConvexDeploymentUrl", () => {
@@ -81,6 +83,12 @@ describe("resolveClerkPublishableKey", () => {
     ).toBe(LIVE_CLERK_KEY);
   });
 
+  it("accepts Clerk publishable keys encoded with the base64url alphabet", () => {
+    expect(
+      resolveClerkPublishableKey("development", BASE64URL_TEST_CLERK_KEY),
+    ).toBe(BASE64URL_TEST_CLERK_KEY);
+  });
+
   it.each([undefined, "", "   "])(
     "rejects a missing Clerk key instead of booting unauthenticated: %s",
     (value) => {
@@ -95,7 +103,7 @@ describe("resolveClerkPublishableKey", () => {
     "pk_test_not-base64!",
     "pk_test_bm8tZG90JA",
     "pk_test_bm8uZG90",
-    "sk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ",
+    "sk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ", // betterleaks:allow
   ])("rejects a malformed Clerk publishable key: %s", (value) => {
     expect(() => resolveClerkPublishableKey("development", value)).toThrow(
       "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY must be a valid Clerk publishable key",
