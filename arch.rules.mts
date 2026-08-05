@@ -24,10 +24,12 @@ const nativeRuntimeImports = [
   "@clerk/expo/**",
   "expo",
   "expo-*",
+  "expo-*/**",
   "expo/**",
   "@expo/**",
   "react-native",
   "react-native-*",
+  "react-native-*/**",
   "react-native/**",
   "@react-native/**",
 ] as const;

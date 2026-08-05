@@ -23,6 +23,8 @@ const mobileMustStayIndependentOfWeb = modules(mobileProject)
     "@clerk/nextjs/**",
     "convex/server",
     "convex/server/**",
+    "convex/nextjs",
+    "convex/nextjs/**",
   )
   .rule({
     id: "curio/runtime/mobile-independent-of-web",
