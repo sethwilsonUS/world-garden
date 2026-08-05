@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type RefObject } from "react";
+import { useMemo, useState, type ReactNode, type RefObject } from "react";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import type { Section, WikipediaRevisionIdentity } from "@/lib/data-context";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
@@ -69,6 +69,7 @@ type TableOfContentsProps = {
   playAllRef?: RefObject<HTMLButtonElement | null>;
   fallbackVoiceNotice?: string | null;
   contextBlocks?: ContextBlock[];
+  mobileSummaryDisclosure?: ReactNode;
 };
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -183,6 +184,7 @@ export const TableOfContents = ({
   playAllRef,
   fallbackVoiceNotice,
   contextBlocks = [],
+  mobileSummaryDisclosure,
 }: TableOfContentsProps) => {
   const { title: articleTitle, wikiPageId } = identity;
   const { linkCounts, citationCounts } = useArticleSectionCounts(identity);
@@ -583,6 +585,8 @@ export const TableOfContents = ({
           Still generating audio. This is taking a little longer than usual.
         </p>
       ) : null}
+
+      {mobileSummaryDisclosure}
 
       <nav aria-label="Article sections">
         <ol className="list-none p-0 m-0" role="list">

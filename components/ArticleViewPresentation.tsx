@@ -1,5 +1,6 @@
 "use client";
 
+import { splitArticleSummary } from "@curio-garden/domain";
 import Image from "next/image";
 import { type MouseEvent as ReactMouseEvent } from "react";
 import type { Article } from "@/lib/data-context";
@@ -15,6 +16,58 @@ type ArticleHeroProps = {
   onLightboxChange: (state: LightboxState) => void;
 };
 
+const summaryTextClassName =
+  "break-words text-sm leading-relaxed text-muted [overflow-wrap:anywhere]";
+
+export const ResponsiveArticleSummary = ({ summary }: { summary: string }) => {
+  const { lead } = splitArticleSummary(summary);
+  if (!lead) return null;
+
+  return (
+    <div className="mb-4">
+      <p
+        className={`${summaryTextClassName} sm:hidden`}
+        data-mobile-article-summary-lead
+      >
+        {lead}
+      </p>
+      <p
+        className={`hidden ${summaryTextClassName} sm:block`}
+        data-desktop-article-summary
+      >
+        {summary}
+      </p>
+    </div>
+  );
+};
+
+export const MobileArticleSummaryDisclosure = ({
+  summary,
+}: {
+  summary?: string;
+}) => {
+  const { remainder } = splitArticleSummary(summary ?? "");
+  if (!remainder) return null;
+
+  return (
+    <details
+      className="group mb-6 sm:hidden"
+      data-mobile-article-summary-disclosure
+    >
+      <summary className="inline-flex min-h-11 max-w-full cursor-pointer items-center rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm font-semibold leading-snug text-foreground transition-colors duration-200 [overflow-wrap:anywhere] hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+        <span className="group-open:hidden">Show full text summary</span>
+        <span className="hidden group-open:inline">Hide full text summary</span>
+      </summary>
+      <p
+        className={`${summaryTextClassName} mt-3`}
+        data-mobile-article-summary-remainder
+      >
+        {remainder}
+      </p>
+    </details>
+  );
+};
+
 export const ArticleHero = ({
   article,
   imageAnalysis,
@@ -24,13 +77,7 @@ export const ArticleHero = ({
   const { summary, thumbnailAttribution, thumbnailUrl } = article;
 
   if (!thumbnailUrl) {
-    return summary ? (
-      <div className="mb-4">
-        <p className="break-words text-sm leading-relaxed text-muted [overflow-wrap:anywhere]">
-          {summary}
-        </p>
-      </div>
-    ) : null;
+    return summary ? <ResponsiveArticleSummary summary={summary} /> : null;
   }
 
   const width = article.thumbnailWidth ?? 0;
@@ -126,13 +173,7 @@ export const ArticleHero = ({
         </div>
       ) : null}
 
-      {summary && (
-        <div className="mb-4">
-          <p className="break-words text-sm leading-relaxed text-muted [overflow-wrap:anywhere]">
-            {summary}
-          </p>
-        </div>
-      )}
+      {summary ? <ResponsiveArticleSummary summary={summary} /> : null}
 
       {lightbox && (
         <GalleryLightbox
