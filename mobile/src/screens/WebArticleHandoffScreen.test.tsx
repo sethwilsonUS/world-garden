@@ -73,7 +73,7 @@ describe("WebArticleHandoffScreen", () => {
     );
   });
 
-  it("keeps browser failures visible and assertive", async () => {
+  it("keeps browser failures visible and announces them politely", async () => {
     const announce = jest.spyOn(
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",

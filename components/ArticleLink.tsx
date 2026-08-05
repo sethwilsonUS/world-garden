@@ -28,14 +28,22 @@ export const ArticleLink = forwardRef<HTMLAnchorElement, ArticleLinkProps>(
     },
     ref,
   ) => {
+    let destinationHref = href;
+    let prefetchTitle = articleTitle;
+    if (destinationHref === undefined) {
+      const fallbackRoute = articleRouteFromTitle(articleTitle);
+      destinationHref = fallbackRoute.canonicalPath;
+      prefetchTitle = fallbackRoute.slug;
+    }
+
     const prefetch = usePrefetch();
-    const warm = () => prefetch(articleTitle);
+    const warm = () => prefetch(prefetchTitle);
 
     return (
       <Link
         ref={ref}
         {...props}
-        href={href ?? articleTitleToArticleHref(articleTitle)}
+        href={destinationHref}
         onMouseEnter={(event) => {
           warm();
           onMouseEnter?.(event);

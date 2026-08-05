@@ -12,6 +12,14 @@ const nativeSchemes = new Set([
   "curiogarden-e2e:",
 ]);
 
+export function normalizeNativeArticleSlug(
+  slug: string | string[] | undefined,
+): string | null {
+  const firstSlug = Array.isArray(slug) ? slug[0] : slug;
+  const normalizedSlug = firstSlug?.trim() ?? "";
+  return normalizedSlug || null;
+}
+
 export function mapCanonicalPathToNativeHref(
   path: string,
 ): NativeArticleHref | null {

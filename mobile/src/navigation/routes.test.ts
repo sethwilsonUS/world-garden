@@ -1,5 +1,6 @@
 import {
   mapCanonicalPathToNativeHref,
+  normalizeNativeArticleSlug,
   redirectIncomingSystemPath,
 } from "./routes";
 
@@ -17,6 +18,22 @@ describe("native canonical route mapping", () => {
       params: { slug: "AC/DC" },
     });
   });
+
+  it("normalizes only the first usable Expo Router article parameter", () => {
+    expect(normalizeNativeArticleSlug(["  AC/DC  ", "ignored"])).toBe(
+      "AC/DC",
+    );
+    expect(normalizeNativeArticleSlug("  Ada_Lovelace ")).toBe(
+      "Ada_Lovelace",
+    );
+  });
+
+  it.each([undefined, [], "", "   ", ["   "]])(
+    "rejects a missing article route parameter: %j",
+    (slug) => {
+      expect(normalizeNativeArticleSlug(slug)).toBeNull();
+    },
+  );
 
   it.each([
     "curiogarden://article/Taylor_Swift",
