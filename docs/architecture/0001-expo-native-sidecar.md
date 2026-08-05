@@ -88,14 +88,16 @@ web production code from importing them, and they remain development-only.
 The existing architecture baseline remains unchanged. New findings must be
 fixed rather than added to the baseline.
 
-Every workspace or lockfile change runs the complete web baseline. Path-aware
-CI skips unrelated platform jobs only after a tested, fail-safe classifier has
-examined the full base-to-head diff. Shared manifests, Convex, shared packages,
-CI infrastructure, unknown paths, and unreadable or empty diffs select the
-broader safe gate set. The always-run `Required CI` aggregate fails if the
-classifier fails, a selected job is skipped, or any job fails or is cancelled;
-it is the stable branch-protection context while conditional jobs remain visible
-for diagnosis.
+Every workspace or lockfile change currently runs the complete web baseline.
+Path-aware CI may later skip unrelated platform jobs only after its tested,
+fail-safe routing policy has landed under those always-on gates. The activating
+workflow must evaluate the candidate's full base-to-head diff while executing
+the classifier and verifier from the protected base revision, never from code
+supplied by the pull request. Documentation link validation remains selected
+for every change because Markdown may reference any tracked local file. Shared
+manifests, Convex, shared packages, CI infrastructure, unknown paths, and
+unreadable or empty diffs select the broader safe gate set. The workflow will
+always report one required aggregate result.
 
 ## Accessibility and visual authority
 

@@ -29,17 +29,17 @@ const successfulResults = {
 
 describe("classifyPaths", () => {
   it.each([
-    ["mobile/app/index.tsx", ["mobile", "architecture"]],
-    ["app/(app)/page.tsx", ["web", "architecture"]],
-    ["components/SearchForm.tsx", ["web", "architecture"]],
-    ["public/favicon.ico", ["web"]],
-    ["e2e/showcase.spec.ts", ["web"]],
-    ["_python/test_tts.py", ["python"]],
-    ["requirements.txt", ["python"]],
+    ["mobile/app/index.tsx", ["mobile", "docs", "architecture"]],
+    ["app/(app)/page.tsx", ["web", "docs", "architecture"]],
+    ["components/SearchForm.tsx", ["web", "docs", "architecture"]],
+    ["public/favicon.ico", ["web", "docs"]],
+    ["e2e/showcase.spec.ts", ["web", "docs"]],
+    ["_python/test_tts.py", ["python", "docs"]],
+    ["requirements.txt", ["python", "docs"]],
     ["docs/toolchain.md", ["docs"]],
     ["mobile/README.md", ["docs"]],
     [".github/pull_request_template.md", ["docs"]],
-    ["arch.rules.mts", ["architecture"]],
+    ["arch.rules.mts", ["docs", "architecture"]],
   ])("routes %s to the smallest safe gate set", (path, selected) => {
     expect(classifyPaths([path])).toEqual(routes(selected));
   });
@@ -50,10 +50,17 @@ describe("classifyPaths", () => {
     "package.json",
     "package-lock.json",
     ".nvmrc",
-  ])("routes shared input %s to web, mobile, and architecture", (path) => {
+  ])("routes shared input %s to web, mobile, docs, and architecture", (path) => {
     expect(classifyPaths([path])).toEqual(
-      routes(["web", "mobile", "architecture"]),
+      routes(["web", "mobile", "docs", "architecture"]),
     );
+  });
+
+  it("always validates docs because Markdown can target arbitrary files", () => {
+    expect(classifyPaths(["app/layout.tsx"]).docs).toBe("true");
+    expect(classifyPaths(["public/linked-image.png"]).docs).toBe("true");
+    expect(classifyPaths(["package.json"]).docs).toBe("true");
+    expect(classifyPaths([".nvmrc"]).docs).toBe("true");
   });
 
   it.each([
@@ -83,7 +90,7 @@ describe("classifyPaths", () => {
 
   it("normalizes Windows-style separators before matching", () => {
     expect(classifyPaths(["mobile\\src\\screen.tsx"])).toEqual(
-      routes(["mobile", "architecture"]),
+      routes(["mobile", "docs", "architecture"]),
     );
   });
 });
@@ -102,10 +109,11 @@ describe("verifyRequiredJobs", () => {
   it("accepts successful selected jobs and skipped unselected jobs", () => {
     const result = verifyRequiredJobs({
       classifierResult: "success",
-      routes: routes(["mobile", "architecture"]),
+      routes: routes(["mobile", "docs", "architecture"]),
       jobResults: {
         ...successfulResults,
         mobile: "success",
+        docs: "success",
         architecture: "success",
       },
     });

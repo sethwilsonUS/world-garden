@@ -94,7 +94,7 @@ const routeKnownPath = (filePath, routes) => {
   }
 
   if (sharedWorkspaceFiles.has(filePath)) {
-    select(routes, "web", "mobile", "architecture");
+    select(routes, "web", "mobile", "docs", "architecture");
     return true;
   }
 
@@ -167,6 +167,9 @@ export const classifyPaths = (paths) => {
   if (!Array.isArray(paths) || paths.length === 0) return allRoutes();
 
   const routes = noRoutes();
+  // Markdown may link to any tracked file, so every non-empty change needs the
+  // inexpensive documentation link check even when no Markdown changed.
+  select(routes, "docs");
   for (const value of paths) {
     const filePath = normalizeRepositoryPath(value);
     if (filePath === null || !routeKnownPath(filePath, routes)) {
