@@ -20,7 +20,7 @@ function renderText(variant: GardenTextVariant, boldText = false) {
 describe("GardenText", () => {
   it.each([
     ["hero", "Fraunces-Bold", 1.5],
-    ["screenTitle", "Fraunces-Bold", undefined],
+    ["screenTitle", "Fraunces-Bold", 2],
     ["sectionTitle", "Fraunces-SemiBold", undefined],
     ["cardTitle", "Fraunces-SemiBold", 2],
     ["intro", "DMSans-Regular", undefined],

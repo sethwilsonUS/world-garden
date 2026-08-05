@@ -13,7 +13,8 @@ unrelated production behavior at risk.
 
 The current stable native line is Expo SDK 57 with React Native 0.86.2. SDK 57
 requires Node 22.13 or newer, iOS 16.4 or newer, Android 7/API 24 or newer, and
-the React Native New Architecture. Curio Garden already uses Node 24.
+the React Native New Architecture. Curio Garden already uses Node 24. Native
+Clerk 4 raises this application's supported iOS floor to 17.0.
 
 ## Decision
 
@@ -43,7 +44,7 @@ testing. The native Library will initially require sign-in rather than creating
 a second, device-local guest data model. EAS stores and automatically increments
 production build numbers so consecutive beta submissions remain valid.
 
-Minimum platform versions are iOS 16.4 and Android API 24. Android compiles and
+Minimum platform versions are iOS 17.0 and Android API 24. Android compiles and
 targets API 36. The EAS profiles use the repository's current Node 24.16.0
 patch, while the repository-wide contract remains Node 24 LTS.
 
@@ -86,15 +87,15 @@ web production code from importing them, and they remain development-only.
   real applications need it.
 
 There is one audited Convex import exception. Only
-`mobile/src/data/convexPublicApi.ts` may import the documented client-safe
+`mobile/src/data/convexClientApi.ts` may import the documented client-safe
 `makeFunctionReference` factory from `convex/server`, and that adapter may
 otherwise import only `@curio-garden/domain` contracts. The narrow adapter
-names reviewed public actions without importing Convex's generated API
-declaration graph, which would otherwise pull server and web implementation
-types into the mobile TypeScript project. It may not import action, query,
-mutation, database, schema, authentication-context, or other server
-implementation APIs. `mobile/arch.rules.mts` enforces both the general ban and
-this file-level allowlist.
+names reviewed client actions and the read-only current-viewer query without
+importing Convex's generated API declaration graph, which would otherwise pull
+server and web implementation types into the mobile TypeScript project. It may
+not import action, query, mutation, database, schema, authentication-context,
+or other server implementation APIs. `mobile/arch.rules.mts` enforces both the
+general ban and this file-level allowlist.
 
 The existing architecture baseline remains unchanged. New findings must be
 fixed rather than added to the baseline.
@@ -114,6 +115,43 @@ Classic branch protection cannot bind a status context to an immutable workflow
 definition, so CodeRabbit remains an independent required check for workflow
 changes. Privileged `pull_request_target` execution is intentionally prohibited:
 these jobs install and execute candidate dependencies and tests.
+
+## Native identity boundary
+
+The native root owns one Clerk client and one Convex client. Clerk persists its
+session through the Expo secure-store token cache, and
+`ConvexProviderWithClerk` obtains short-lived Convex credentials from that same
+session. The public Wikipedia reader remains inside this provider graph and is
+available while signed out; account state never gates public search or reading.
+
+Native identity is ready only after Clerk, Convex authentication, and the
+read-only `auth:nativeViewer` query agree on the exact Clerk subject. Loading,
+signed-out, connecting, ready, and bridge-error states are explicit. An account
+switch or sign-out removes the previous profile immediately, private queries
+are skipped until the bridge is authenticated, and the Clerk subject remains
+inside the identity layer solely for exact Convex correlation. Only normalized
+display name and email cross the UI boundary. Issuers, token identifiers,
+session IDs, subjects, and raw Clerk errors are neither rendered nor logged.
+
+No native build links export or permanent deletion to the ordinary web account
+page. That browser can hold a Clerk session for a different person from the
+native app, so such a handoff could operate on the wrong account. A lifecycle
+flow that is verifiably bound to the active native account remains a
+release gate; every variant fails closed until it exists.
+
+Both platforms authenticate with `@clerk/expo` 4.2.1's `useHostedAuth()` hook.
+It opens Clerk's hosted Account Portal in the operating system's authentication
+session (an Android Custom Tab on Android) and returns through an app-specific
+callback. The SDK owns the state and PKCE verifier, requires the rotating-token
+nonce, validates the callback and created session, and activates only that
+validated session. While the hosted flow is active, background account status
+is excluded from accessibility announcements; cancellation, failure, and
+success restore a logical focus destination in the app.
+
+Google is enabled in the Clerk dashboard. The hosted portal can offer Google
+without native Google client IDs, but rendering the method is not acceptance:
+successful signed-build completion and return still have to pass on both
+platforms. This does not disable or alter the production web sign-in methods.
 
 ## Accessibility and visual authority
 
@@ -162,3 +200,6 @@ React Native. The first milestone is build reliability, not feature parity.
 - [EAS monorepo builds](https://docs.expo.dev/build-reference/build-with-monorepos/)
 - [Expo development builds](https://docs.expo.dev/develop/development-builds/introduction/)
 - [Expo app variants](https://docs.expo.dev/build-reference/variants/)
+- [Clerk hosted authentication for Expo](https://clerk.com/docs/expo/guides/account-portal/hosted-auth)
+- [Clerk Expo `useHostedAuth()`](https://clerk.com/docs/reference/expo/native-hooks/use-hosted-auth)
+- [Convex authentication with Clerk](https://docs.convex.dev/auth/clerk)

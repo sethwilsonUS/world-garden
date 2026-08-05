@@ -13,9 +13,16 @@ npm run mobile:check
 npm run mobile:doctor
 ```
 
+Static bundle, dependency, Doctor, and aggregate check commands inject a
+structurally valid `.invalid` Clerk key only while evaluating test config; it
+cannot authenticate and is never a release credential. Running the app still
+requires the matching real environment key.
+
 Start Metro for the development client:
 
 ```sh
+cp mobile/.env.example mobile/.env.local
+# Add the same Clerk test publishable key used by the local web app.
 npm run mobile:start
 ```
 
@@ -42,20 +49,39 @@ older installed client are not representative typography checks.
 
 ## Current product slice
 
-The current native slice mirrors the web search workbench and adds read-only
-native articles. Home accepts a Wikipedia topic, Search shows public Wikipedia
-results, and each complete result card is one named link. Activating a result
-opens a native Article route with the article title and provenance, an optional
-lead thumbnail with visible attribution, the summary, and section headings with
-bounded paragraph reading stops. The article also exposes its Wikipedia source
-and applicable license as named external links.
+The current native slice mirrors the web search workbench, adds read-only native
+articles, and establishes shared Clerk/Convex account identity. Home accepts a
+Wikipedia topic, Search shows public Wikipedia results, and each complete result
+card is one named link. Activating a result opens a native Article route with
+the article title and provenance, an optional lead thumbnail with visible
+attribution, the summary, and section headings with bounded paragraph reading
+stops. The article also exposes its Wikipedia source and applicable license as
+named external links. Public search and reading continue to work while signed
+out.
+
+Account represents loading, signed-out, connecting, connected, and bridge-error
+states without displaying token, issuer, session, or subject identifiers. Both
+iOS and Android start Clerk's official hosted flow through
+`@clerk/expo` 4.2.1 `useHostedAuth()`, which opens sign-in or account creation in
+an operating-system browser authentication session, redeems the callback, and
+activates the resulting native session. Browser cookies or account state are
+never trusted as proof that the browser and app use the same identity. Clerk
+sessions use the secure-store token cache, and the UI treats identity as
+connected only after Clerk and the Convex viewer
+agree on the exact account.
+
+The current web application remains the visual authority for app-owned native
+screens. Hosted Account Portal appearance is managed in the Clerk Dashboard and
+must be kept aligned with that design. The app does not link to web export or
+permanent-deletion controls yet: an account-bound lifecycle handoff must exist
+before native code can safely expose those operations.
 
 The native reader deliberately stops at the content it can represent faithfully.
 A richer web handoff explains that galleries, broader context, and citation
 details remain available on the canonical
-`https://curiogarden.org/article/...` page. Audio, authentication, library
-features, offline downloads or article storage, and push notifications are not
-part of this slice.
+`https://curiogarden.org/article/...` page. Audio, Library save/list behavior,
+offline downloads or article storage, and push notifications are not part of
+this slice.
 
 Web and native share the article-route codec in `@curio-garden/domain`. It
 normalizes titles to NFC, uses underscores for word separators, and encodes a
@@ -111,9 +137,10 @@ versions compatible with `eas.json`. EAS owns production build-number
 increments remotely, so repeated TestFlight and Play uploads do not reuse an
 already-published native build number.
 
-`development` and `e2e-test` builds default to the reviewed public development
-deployment at `https://standing-finch-735.convex.cloud`. That value is not a
-preview or production fallback. Preview and production configuration must set
+`development` and `e2e-test` both select the Development EAS environment and
+default to the reviewed public development deployment at
+`https://standing-finch-735.convex.cloud`. That value is not a preview or
+production fallback. Preview and production configuration must set
 `EXPO_PUBLIC_CONVEX_URL` explicitly in the corresponding EAS environment, and
 both reject the reviewed development deployment. The build configuration and
 the embedded runtime metadata validate the value as an origin-only HTTPS
@@ -124,9 +151,45 @@ configuration or startup.
 `EXPO_PUBLIC_CONVEX_URL` is bundled public client configuration, not a secret.
 Do not put credentials, paths, query parameters, or fragments in it.
 
+Every native profile also requires `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` in its
+selected EAS environment. The Development and Preview EAS environments must
+contain a `pk_test_` key; `e2e-test` deliberately consumes the Development EAS
+environment and therefore uses the same development test instance and backend.
+The Production EAS environment must contain a `pk_live_` key. The build and
+embedded runtime both validate the full Clerk key structure and reject test/live
+crossovers. Clerk publishable keys are bundled client configuration, but real
+values still stay in local or EAS environment configuration rather than source
+control; Clerk secret keys must never use an `EXPO_PUBLIC_` name.
+
+For local development, copy `mobile/.env.example` to `mobile/.env.local` and
+set the same test-instance publishable key used by the local web application.
+Expo treats `mobile/` as the project root and does not automatically load the
+repository-root `.env.local`.
+
+Hosted Clerk authentication also requires the compatible
+`expo-auth-session`, `expo-crypto`, and `expo-web-browser` peer packages. The
+Clerk config plugin registers the default callback locations:
+`<bundleIdentifier>://callback` on iOS and
+`clerk://<package>.hosted-callback` on Android. Each signed bundle identifier
+and package name must be registered as a Native Application in the matching
+Clerk instance, and Native API access must be enabled, before a release build
+can complete the callback.
+
+Hosted Google sign-in uses Clerk's web OAuth flow and therefore does not require
+native iOS or Android Google client IDs. It still requires a correctly
+configured Google provider in the Clerk Dashboard and signed-build acceptance;
+an enabled Dashboard button alone is not evidence that the flow works. The
+Clerk plugin's Apple Sign In entitlement is explicitly disabled until the
+corresponding signed-build product gate passes.
+
+Native Clerk 4 requires iOS 17 or newer. The explicit `17.0` deployment target
+in `app.config.ts` keeps Expo's build-properties plugin aligned with Clerk's
+config plugin instead of letting plugin order produce a client that builds but
+cannot install or start on its declared iOS floor.
+
 Push notifications are intentionally disabled and not installed. Offline
 downloads and offline article storage are outside the current implementation
-scope, as are native audio playback and authenticated library features.
+scope, as are native audio playback and authenticated Library operations.
 
 ## Accessibility verification
 
@@ -137,17 +200,18 @@ and reduced-motion results must be recorded against named hardware and a signed
 build. Expo Go, Simulator, emulators, Jest, bundle checks, and accessibility
 tree inspection are supplementary evidence only.
 
-The existing Home, Search, result, and historical web-handoff automated suites
-cover roles, names, unclamped task text, target geometry, safe error copy,
-stale-request handling, platform-specific status wiring, and one route-heading
-focus request per new route context. PR4B adds a native Article contract for
-loading, error, retry, headings, paragraph stops, image semantics and fallback,
-and sanitized external links; all 27 mobile suites and 227 tests pass. No
-automated suite proves exact spoken output, actual screen-reader focus landing,
-back-focus restoration, touch exploration, or visual reflow at 200% and the
-operating systems' maximum text and display settings. The matrix preserves the
-supplementary PR4A Android 16 TalkBack traversal and partial iOS Simulator
-reflow pass without carrying those results forward to the native Article slice.
+The automated mobile suites cover app-owned roles, names, unclamped task text,
+target geometry, safe error copy, stale-request handling, platform-specific
+status wiring, route-heading focus requests, the Article reading contract, and
+hosted-auth cancellation, completion, error, and focus-restoration behavior.
+Run `npm run mobile:check` for the current test, type, configuration, and
+architecture result instead of relying on a recorded suite count. No automated
+suite proves exact spoken output, actual screen-reader focus landing, browser
+authentication accessibility, back-focus restoration across the browser
+boundary, touch exploration, or visual reflow at 200% and the operating
+systems' maximum text and display settings. Record those signed-build results
+in the matrix rather than carrying an older simulator or emulator result
+forward.
 
 Reusable screens and controls follow the documented
 [native accessibility conventions](../docs/native-accessibility-conventions.md),
@@ -157,15 +221,19 @@ announcements.
 
 ## Dependency note
 
-Expo SDK 57's native configuration chain currently brings `xcode@3.0.1` and
-`uuid@7.0.3`, which npm audit reports for
+`npm audit --omit=dev` currently reports
 [GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq), a
 moderate buffer-bounds advisory in UUID v3/v5/v6 calls supplied with an output
-buffer. The Xcode project library calls UUID v4 without an output buffer, so the
-reported path is not exercised by Curio Garden and does not ship in the
-application JavaScript bundle. Keep this visible until Expo's configuration
-chain updates; do not apply a forced major downgrade of Expo to make the audit
-output disappear.
+buffer, through two paths. Expo SDK 57's native configuration chain brings
+`xcode@3.0.1 -> uuid@7.0.3`; that build-time path does not ship in application
+JavaScript. Separately, the production Clerk graph brings
+`@clerk/clerk-js -> @solana/web3.js -> jayson@4.3.0 -> uuid@8.3.2`, and that
+code is present in the Hermes bundle. The installed Jayson sources import only
+UUID v4 and invoke it without an output buffer, so the reviewed runtime caller
+does not reach the advisory's affected APIs. This is a reachability assessment,
+not a claim that the vulnerable package is absent. Keep both paths visible until
+upstream packages update; do not force an incompatible Expo or Clerk resolution
+merely to silence audit output.
 
 The React 19.2.8 compatibility decision and required validation gates are
 recorded in the [native sidecar ADR](../docs/architecture/0001-expo-native-sidecar.md).

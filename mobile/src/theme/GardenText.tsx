@@ -27,6 +27,7 @@ export interface GardenTextProps extends Omit<TextProps, ScalingProps> {
 
 const displayTextMaxMultipliers: Partial<Record<GardenTextVariant, number>> = {
   hero: 1.5,
+  screenTitle: 2,
   cardTitle: 2,
 };
 

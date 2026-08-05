@@ -193,6 +193,53 @@ failure recovery.
 | Signed iOS VoiceOver, Article reading and reflow       | No trusted physical iPhone attached; the supplementary Simulator row above does not satisfy this gate | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast         | Blocked | Register and connect a supported iPhone, install the signed PR4B preview build, then complete the Article additions to the physical script below. VoiceOver is unavailable in Simulator.                                                                                                                                                                 |
 | Signed Android TalkBack, Article reading and reflow    | No physical Android device attached; the supplementary emulator row above does not satisfy this gate  | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast | Not run | Install the signed PR4B preview APK on named hardware and complete the Article additions to the physical script below.                                                                                                                                                                                                                                   |
 
+## Native Account and identity contract — PR5A
+
+This slice adds identity without making public reading contingent on a session:
+
+- Home exposes `Account` as a separate 48-point button after the public search
+  task. Search and Article remain usable while signed out or while the account
+  bridge is recovering.
+- Account has one route heading and one persistent visible status. Loading,
+  guest, connecting, connected, bridge-error, signing-out, and safe failure
+  states remain distinguishable without color or timing alone.
+- `Sign in` starts one Clerk Account Portal flow through `@clerk/expo` 4.2.1's
+  `useHostedAuth()`. The operating system presents the hosted authentication
+  session, with an Android Custom Tab on Android. While it is active, background
+  Account status is excluded from accessibility announcements. Cancel, failure,
+  and success return focus to a logical destination once.
+- A connected account exposes only normalized display name and email. Clerk
+  subjects are retained only inside the identity layer for exact Convex
+  correlation. Clerk user IDs, Convex subjects, issuers, session IDs, tokens,
+  and upstream error details are neither visible nor announced.
+- Sign-out removes private profile details before the request completes,
+  exposes an announced busy state, rejects duplicate activation, and turns a
+  failure into concise retryable copy. Account switches never restore the prior
+  account's profile or stale operation result.
+- No build exposes an export, deletion, or ordinary-web account-management
+  link. A browser may hold a different Clerk session from the native app, so a
+  lifecycle handoff could operate on the wrong account. An account-bound native
+  lifecycle flow remains a release gate.
+- The hosted SDK flow must reject an untrusted return: callback location and
+  state, PKCE redemption, rotating-token nonce, and created session are all
+  validated before activation. Every method displayed in the Account Portal
+  must complete in a signed build. Google is dashboard-enabled and the hosted
+  path does not require native Google client IDs, but it has no signed-device
+  acceptance yet.
+
+| Gate                                                      | Environment and build                                                                               | Settings                                                                                                     | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supplementary automated Account semantics and isolation   | Local Jest, TypeScript, ESLint, and `ts-archunit`; PR5A working tree                                | Mocked Clerk, Convex, hosted-auth-session, accessibility, and focus APIs; no portal or spoken output         | Pass    | All 33 mobile suites and 324 tests passed. Coverage exercises explicit identity states, exact safe viewer projection and Clerk/Convex subject agreement, private-query failure containment with public reading preserved, opaque session epochs, stale account switches, deduplicated sign-out with post-commit focus handoff, secure provider composition, hosted-flow start/cancel/success/error handling, explicit preparation and error announcements, background-status suppression, a stable enabled and focusable opener throughout hosted auth, renderer-aware focus events after return, controlled status reveal after focus, exact callback preservation, 48-point app controls, safe visible failures, and architecture boundaries. These tests do not prove Account Portal rendering, speech, or real focus landing. |
+| Supplementary iOS Release smoke and app-owned reflow      | iPhone 17 Pro Simulator, iOS 26.5, unsigned local Release with final embedded Hermes bundle         | Medium and `accessibility-extra-extra-extra-large`; light portrait                                           | Pass    | The final Release app built with simulator code signing disabled, embedded 1,365 modules, installed, and cold-launched. A CLI XCTest passed with whole-word `Curio` / `Garden` branding and an `Account & data` heading that wrapped only between words. A fresh three-minute log scan found no secret-shaped output, crash, fatal, uncaught exception, or fault. This is not a signed-device, hosted-auth, or VoiceOver pass; Simulator cannot provide VoiceOver.                                                                                                                                                                                                                                                                                                                                                                |
+| Historical iOS native `AuthView` acceptance               | iPhone 17 Pro Simulator, iOS 26.5, retired local Release integration                                | `accessibility-extra-extra-extra-large`; light portrait                                                      | Fail    | The active email field exposed an empty accessible label, the Back target was undersized, and footer content overlapped at the largest text setting. The native view was rejected and is being replaced on both platforms; this row is historical defect evidence and cannot validate the hosted flow.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Supplementary iOS hosted Account Portal flow              | Hosted replacement not yet accepted in a signed iOS build                                           | Medium and largest text; portrait/landscape; light/dark; Bold Text and Increase Contrast                     | Not run | Exercise launch, email and Google completion, cancellation, safe failure, callback return, background-status suppression, and focus restoration. Accessibility-tree inspection remains supplementary, and physical VoiceOver remains required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Supplementary Android app-owned Home/Account reflow       | Pixel Android Virtual Device, Android 16/API 36, final locally signed Release APK                   | Font scale 2.0 and density 560 together; light portrait                                                      | Pass    | App-owned Home and Account content reflowed without clipping: the brand stayed whole-word `Curio` / `Garden`, `Account & data` wrapped only between words, and Search, Account, and Sign in remained reachable. This row does not carry forward to exact TalkBack speech, physical touch exploration, or a physical-device gate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Historical Android native `AuthView` acceptance           | Pixel Android Virtual Device, Android 16/API 36, retired local Release integration                  | Font scale 2.0; light portrait                                                                               | Fail    | `Continue with Google` wrapped inside Clerk's fixed-height 48 dp social button and clipped. The native view was rejected and is being replaced on both platforms; this row is historical defect evidence and cannot validate the hosted flow.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Supplementary Android hosted cancellation instrumentation | Pixel Android Virtual Device, Android 16/API 36, final locally signed Release APK; TalkBack enabled | Normal font and display size for the auth lifecycle; combined maximum settings separately checked for reflow | Pass    | The exact hosted callback resolved only to the app activity and Sign in opened Clerk in a Chrome Custom Tab. TalkBack announced `Opening secure sign-in.` Before the fix, the busy opener was native-disabled and Back retained focus. In the final APK, the same opener remained enabled, received the renderer-aware focus event 996 ms after system-Back cancellation, and no later focus event stole it through status reveal. Attaching the diagnostic observer itself clears TalkBack's current node, so observer-free focus ownership and physical speech remain explicit manual-device gates rather than claims in this row.                                                                                                                                                                                              |
+| Supplementary Android hosted Account Portal flow          | Hosted replacement not yet accepted in a signed Android build                                       | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast   | Not run | Exercise Custom Tab launch, email and Google completion, system Back cancellation, safe failure, callback return, background-status suppression, focus restoration, and TalkBack traversal. Emulator evidence remains supplementary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Signed iOS VoiceOver, Account and hosted Clerk flow       | No trusted physical iPhone attached                                                                 | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast           | Blocked | Register and connect a supported iPhone, install a signed build, and complete the PR5A additions below. VoiceOver is unavailable in Simulator.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Signed Android TalkBack, Account and hosted Clerk flow    | No physical Android device attached                                                                 | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast   | Not run | Install the signed build on named hardware and complete the PR5A additions below. Emulator results remain supplementary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
 ## Physical-device script
 
 Record each platform separately. This script covers Home, Search, and PR4B's
@@ -273,6 +320,57 @@ step.
 18. Record failures as issues; never convert a simulator, emulator, Jest, or
     accessibility-tree result into a physical-device pass.
 
+### PR5A Account additions
+
+Run these after the shared Home/Search/Article script on each platform:
+
+1. From Home, traverse from the public search task to `Account`. Confirm it is
+   one named button with an explanatory hint and that adding it did not merge,
+   hide, or reorder the search input and Search button.
+2. Activate Account. Confirm focus reaches `Account & data` exactly once and
+   does not return there when loading, connecting, error, or ready state copy
+   changes. Traverse all content forward and backward.
+3. While signed out, record the visible and spoken guest status. Activate
+   `Sign in`; confirm one operating-system authentication session opens Clerk's
+   hosted Account Portal. Confirm Account status stops announcing before the
+   transition and no background app content interrupts the hosted flow.
+4. Traverse every Account Portal field, instruction, error, method, and dismiss
+   control. Record label, role, value, state, hint, reading order,
+   required/error announcement, keyboard behavior, and largest-text reflow.
+   Complete both email and every displayed social method in the signed build;
+   Google is enabled but has no signed acceptance yet. Record any
+   rendered-but-broken method as a failure.
+5. Cancel from the hosted session, use Android system Back, and use the iOS
+   authentication-session dismissal where supported. Confirm each returns to
+   the app once, background status did not speak over the transition, and focus
+   returns to `Sign in` once.
+6. Complete email sign-in and Google sign-in separately. Confirm the callback
+   returns through the build's registered app route without a stray focus jump,
+   the Account route announces connected status only after the validated
+   session becomes active, and a logical app focus destination is restored.
+   Attempting to open a callback-looking URL outside an active hosted flow must
+   not create or replace a session.
+7. Read the connected profile in both directions. Confirm only normalized name
+   and email are exposed, with no duplicate descendants and no Clerk user ID,
+   Convex subject, issuer, session, token, or raw backend error in speech,
+   accessibility inspection, screenshots, or logs.
+8. Activate Sign out twice rapidly. Confirm only one operation runs, profile
+   details disappear immediately, the busy state is visible and announced, and
+   success reaches guest mode. Exercise a blocked-network failure and confirm
+   safe retry copy without restoring another account's data.
+9. Sign in as Account A, switch to Account B, and sign out/in while requests are
+   throttled. Confirm no Account A name, email, status, error, or deferred focus
+   operation appears after Account B becomes active. Public search must remain
+   operable throughout bridge failure and recovery.
+10. In every build variant, confirm there is no export, permanent-deletion, or
+    ordinary-web account-management link. Confirm the visible explanation does
+    not imply that an independent browser Clerk session is the active native
+    account, and record the missing account-bound native lifecycle flow as a
+    release gate. Repeat the full Account and hosted-auth flow at maximum
+    text/display settings, in portrait and landscape, and in light/dark,
+    bold/high-contrast, and reduced-motion modes without clipping, overlap,
+    horizontal scrolling, or unreachable content.
+
 ## Evidence record template
 
 Copy this block into the pull request or a linked test record for each device:
@@ -312,6 +410,14 @@ image names, visible attribution, and failure fallback; HTTPS sanitization;
 external-link roles, exact arguments, stale-launch handling, and visible safe
 launch errors; and omission of cache-derived editorial-history claims.
 
+PR5A's automated contract establishes the privacy-safe Account projection;
+exact internal Clerk/Convex subject correlation; public-reading isolation;
+opaque account epochs; stale-operation rejection; deduplicated sign-out; and
+the app-side hosted-auth start, cancel, completion, error, announcement
+suppression, and focus-return state machine. It does not inspect Clerk's hosted
+Account Portal or independently prove the SDK's PKCE, nonce, callback, and
+created-session validation.
+
 Those suites cannot prove spoken output, rotor/Reading Controls behavior,
 route-entry or back-focus landing, real long-article reading order, native image
 loading or decoding, native font measurement, actual 200% or maximum OS text
@@ -321,6 +427,9 @@ Heading- and paragraph-role assertions do not prove rotor/Reading Controls
 navigation, and an accessibility API mock does not establish where a physical
 screen reader landed. Those remain signed physical-device gates across Article
 success, error/retry, image failure, and external-link failure states.
+Hosted-auth launch, Account Portal reading order and reflow, browser dismissal,
+callback return, background-announcement isolation, restored app focus, and
+email or Google completion likewise remain signed physical-device gates.
 
 Use Apple's
 [accessibility testing guidance](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)

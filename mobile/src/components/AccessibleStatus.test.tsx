@@ -31,6 +31,31 @@ function status(message: string) {
   );
 }
 
+function imperativeStatus({
+  accessible,
+  announceOnReveal,
+  message,
+}: {
+  accessible: boolean;
+  announceOnReveal: boolean;
+  message: string;
+}) {
+  return (
+    <GardenThemeProvider
+      accessibilityPreferencesOverride={{}}
+      colorSchemeOverride="light"
+    >
+      <AccessibleStatus
+        accessible={accessible}
+        announceOnReveal={announceOnReveal}
+        announcementMode="imperative"
+        message={message}
+        testID="status"
+      />
+    </GardenThemeProvider>
+  );
+}
+
 afterEach(() => {
   jest.restoreAllMocks();
   jest.clearAllMocks();
@@ -154,5 +179,80 @@ describe("AccessibleStatus", () => {
       queue: true,
       priority: "low",
     });
+  });
+
+  it("uses imperative Android announcements without a focus-stealing live region", () => {
+    usePlatform("android");
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    const { rerender } = render(
+      imperativeStatus({
+        accessible: true,
+        announceOnReveal: false,
+        message: "Guest mode",
+      }),
+    );
+
+    rerender(
+      imperativeStatus({
+        accessible: true,
+        announceOnReveal: false,
+        message: "Signing out",
+      }),
+    );
+
+    expect(screen.getByTestId("status")).not.toHaveProp(
+      "accessibilityLiveRegion",
+      "polite",
+    );
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith("Signing out");
+  });
+
+  it("suppresses a routine reveal but can announce an error revealed after return", () => {
+    usePlatform("android");
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+    const { rerender } = render(
+      imperativeStatus({
+        accessible: true,
+        announceOnReveal: false,
+        message: "Opening secure sign-in.",
+      }),
+    );
+
+    rerender(
+      imperativeStatus({
+        accessible: false,
+        announceOnReveal: false,
+        message: "Opening secure sign-in.",
+      }),
+    );
+    rerender(
+      imperativeStatus({
+        accessible: true,
+        announceOnReveal: false,
+        message: "You are browsing in guest mode.",
+      }),
+    );
+    expect(announce).not.toHaveBeenCalled();
+
+    rerender(
+      imperativeStatus({
+        accessible: false,
+        announceOnReveal: false,
+        message: "Opening secure sign-in.",
+      }),
+    );
+    rerender(
+      imperativeStatus({
+        accessible: true,
+        announceOnReveal: true,
+        message: "We couldn't open secure sign-in. Please try again.",
+      }),
+    );
+
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      "We couldn't open secure sign-in. Please try again.",
+    );
   });
 });

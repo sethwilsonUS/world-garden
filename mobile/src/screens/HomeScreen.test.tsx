@@ -63,4 +63,13 @@ describe("HomeScreen", () => {
       params: { q: "Bossa nova" },
     });
   });
+
+  it("opens account access without displacing the public search task", () => {
+    renderScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Account" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/account");
+    expect(screen.getByLabelText("Search topic")).toBeOnTheScreen();
+  });
 });

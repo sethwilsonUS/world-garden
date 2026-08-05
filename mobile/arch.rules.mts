@@ -18,7 +18,7 @@ const mobileMustStayIndependentOfWeb = modules(mobileProject)
   .that()
   .resideInFolder("{app,src}/**")
   .and()
-  .satisfy(not(resideInFile("**/src/data/convexPublicApi.ts")))
+  .satisfy(not(resideInFile("**/src/data/convexClientApi.ts")))
   .expectNonEmpty()
   .should()
   .notImportFrom(
@@ -46,20 +46,20 @@ const mobileMustStayIndependentOfWeb = modules(mobileProject)
   })
   .asSeverity("error");
 
-const convexPublicApiMustStayNarrow = modules(mobileProject)
+const convexClientApiMustStayNarrow = modules(mobileProject)
   .that()
-  .resideInFile("**/src/data/convexPublicApi.ts")
+  .resideInFile("**/src/data/convexClientApi.ts")
   .expectNonEmpty()
   .should()
   .onlyImportFrom("@curio-garden/domain", "convex/server")
   .rule({
-    id: "curio/runtime/mobile-convex-public-api-seam",
+    id: "curio/runtime/mobile-convex-client-api-seam",
     because:
-      "the native client needs typed public action references without pulling Convex's generated server declaration graph into the mobile project",
+      "the native client needs typed function references without pulling Convex's generated server declaration graph into the mobile project",
     suggestion:
-      "Add reviewed public action references to this adapter and keep server implementations outside mobile",
+      "Add reviewed client function references to this adapter and keep server implementations outside mobile",
     imperative:
-      "Only import domain contracts and Convex's documented function-reference factory from the native public API seam",
+      "Only import domain contracts and Convex's documented function-reference factory from the native client API seam",
   })
   .asSeverity("error");
 
@@ -68,5 +68,5 @@ export default [
     include: "{app,src}/**/*.{ts,tsx}",
   }),
   mobileMustStayIndependentOfWeb,
-  convexPublicApiMustStayNarrow,
+  convexClientApiMustStayNarrow,
 ];

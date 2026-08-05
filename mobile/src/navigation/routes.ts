@@ -11,6 +11,18 @@ const nativeSchemes = new Set([
   "curiogarden-preview:",
   "curiogarden-e2e:",
 ]);
+const clerkIosCallbackSchemes = new Set([
+  "org.curiogarden.app:",
+  "org.curiogarden.app.dev:",
+  "org.curiogarden.app.preview:",
+  "org.curiogarden.app.e2e:",
+]);
+const clerkAndroidCallbackHosts = new Set([
+  "org.curiogarden.app.hosted-callback",
+  "org.curiogarden.app.dev.hosted-callback",
+  "org.curiogarden.app.preview.hosted-callback",
+  "org.curiogarden.app.e2e.hosted-callback",
+]);
 
 export function normalizeNativeArticleSlug(
   slug: string | string[] | undefined,
@@ -73,9 +85,41 @@ function canonicalPathFromIncomingPath(path: string): string | null {
   return parseCanonicalArticlePath(canonicalPath)?.canonicalPath ?? null;
 }
 
-/** Expo Router native-intent adapter. It must never throw for OS-provided input. */
-export function redirectIncomingSystemPath(path: string): string {
+function isExactClerkHostedCallback(path: string): boolean {
+  let url: URL;
   try {
+    url = new URL(path.trim());
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+
+  if (
+    url.username ||
+    url.password ||
+    url.port ||
+    (url.pathname !== "" && url.pathname !== "/") ||
+    url.hash
+  ) {
+    return false;
+  }
+
+  const isIosCallback =
+    clerkIosCallbackSchemes.has(url.protocol) && url.hostname === "callback";
+  const isAndroidCallback =
+    url.protocol === "clerk:" && clerkAndroidCallbackHosts.has(url.hostname);
+
+  return isIosCallback || isAndroidCallback;
+}
+
+/** Expo Router native-intent adapter. It must never throw for OS-provided input. */
+export function redirectIncomingSystemPath(path: string): string | null {
+  try {
+    // Clerk's auth session owns these exact callbacks. Returning null keeps
+    // Expo Router on Account while Clerk validates state, nonce, PKCE, and the
+    // created session instead of treating private query parameters as a route.
+    if (isExactClerkHostedCallback(path)) return null;
+
     return canonicalPathFromIncomingPath(path) ?? "/";
   } catch (error) {
     if (__DEV__) {

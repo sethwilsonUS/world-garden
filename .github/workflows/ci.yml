@@ -102,6 +102,9 @@ jobs:
     env:
       CI: "1"
       EXPO_NO_TELEMETRY: "1"
+      # Structurally valid but non-authenticating: it decodes to the reserved
+      # ci.curiogarden.invalid host and only lets Expo evaluate test config.
+      EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ"
     steps:
       - uses: actions/checkout@v7
         with:

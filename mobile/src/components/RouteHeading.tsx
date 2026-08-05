@@ -1,7 +1,13 @@
-import { useEffect, useRef, type ReactElement } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useRef,
+  type ForwardedRef,
+  type ReactElement,
+} from "react";
 import {
   AccessibilityInfo,
-  findNodeHandle,
   Platform,
   StyleSheet,
   View,
@@ -19,9 +25,14 @@ export interface RouteHeadingProps {
 }
 
 function focusNativeElement(element: View) {
-  const reactTag = findNodeHandle(element);
-  if (reactTag !== null) {
-    AccessibilityInfo.setAccessibilityFocus(reactTag);
+  AccessibilityInfo.sendAccessibilityEvent(element, "focus");
+}
+
+function assignRef(ref: ForwardedRef<View>, element: View | null) {
+  if (typeof ref === "function") {
+    ref(element);
+  } else if (ref) {
+    ref.current = element;
   }
 }
 
@@ -30,67 +41,79 @@ function focusNativeElement(element: View) {
  * settles. Async content updates do not change `focusKey`, so they never steal
  * focus.
  */
-export function RouteHeading({
-  focusElement = focusNativeElement,
-  focusKey,
-  testID = "route-heading",
-  title,
-}: RouteHeadingProps): ReactElement {
-  const headingRef = useRef<View>(null);
+export const RouteHeading = forwardRef<View, RouteHeadingProps>(
+  function RouteHeading(
+    {
+      focusElement = focusNativeElement,
+      focusKey,
+      testID = "route-heading",
+      title,
+    },
+    forwardedRef,
+  ): ReactElement {
+    const headingRef = useRef<View>(null);
+    const setHeadingRef = useCallback(
+      (element: View | null) => {
+        headingRef.current = element;
+        assignRef(forwardedRef, element);
+      },
+      [forwardedRef],
+    );
 
-  useEffect(() => {
-    let cancelled = false;
-    let focusTimer: ReturnType<typeof setTimeout> | null = null;
+    useEffect(() => {
+      let cancelled = false;
+      let focusTimer: ReturnType<typeof setTimeout> | null = null;
 
-    void AccessibilityInfo.isScreenReaderEnabled()
-      .then((screenReaderEnabled) => {
-        if (!screenReaderEnabled || cancelled) return;
+      void AccessibilityInfo.isScreenReaderEnabled()
+        .then((screenReaderEnabled) => {
+          if (!screenReaderEnabled || cancelled) return;
 
-        // Cold Android links can assign initial focus after React commits, so
-        // allow its startup focus to settle before moving focus exactly once.
-        // The cleanup prevents superseded terms from receiving late focus.
-        focusTimer = setTimeout(
-          () => {
-            if (cancelled) return;
+          // Cold Android links can assign initial focus after React commits, so
+          // allow its startup focus to settle before moving focus exactly once.
+          // The cleanup prevents superseded terms from receiving late focus.
+          focusTimer = setTimeout(
+            () => {
+              if (cancelled) return;
 
-            if (headingRef.current) {
-              focusElement(headingRef.current);
-            }
-          },
-          Platform.OS === "android" ? 500 : 100,
-        );
-      })
-      .catch(() => {
-        // A failed preference query must not make the route unusable.
-      });
+              if (headingRef.current) {
+                focusElement(headingRef.current);
+              }
+            },
+            Platform.OS === "android" ? 500 : 100,
+          );
+        })
+        .catch(() => {
+          // A failed preference query must not make the route unusable.
+        });
 
-    return () => {
-      cancelled = true;
-      if (focusTimer !== null) clearTimeout(focusTimer);
-    };
-  }, [focusElement, focusKey]);
+      return () => {
+        cancelled = true;
+        if (focusTimer !== null) clearTimeout(focusTimer);
+      };
+    }, [focusElement, focusKey]);
 
-  return (
-    <View
-      ref={headingRef}
-      accessible
-      accessibilityLabel={title}
-      accessibilityRole="header"
-      style={styles.heading}
-      testID={testID}
-    >
+    return (
       <View
-        accessibilityElementsHidden
-        accessible={false}
-        importantForAccessibility="no-hide-descendants"
+        ref={setHeadingRef}
+        accessible
+        accessibilityLabel={title}
+        accessibilityRole="header"
+        style={styles.heading}
+        testID={testID}
       >
-        <GardenText accessible={false} variant="screenTitle">
-          {title}
-        </GardenText>
+        <View
+          accessibilityElementsHidden
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+        >
+          <GardenText accessible={false} variant="screenTitle">
+            {title}
+          </GardenText>
+        </View>
       </View>
-    </View>
-  );
-}
+    );
+  },
+);
 
 const styles = StyleSheet.create({
   heading: {

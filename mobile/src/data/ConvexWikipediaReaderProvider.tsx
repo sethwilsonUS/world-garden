@@ -2,10 +2,10 @@ import type {
   WikipediaArticle,
   WikipediaSearchResult,
 } from "@curio-garden/domain";
-import { ConvexProvider, ConvexReactClient, useAction } from "convex/react";
-import { useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { useAction } from "convex/react";
+import { useMemo, type ReactElement, type ReactNode } from "react";
 
-import { publicWikipediaApi } from "./convexPublicApi";
+import { convexClientApi } from "./convexClientApi";
 import {
   WikipediaReaderProvider,
   type WikipediaReader,
@@ -26,13 +26,13 @@ export function createWikipediaReader({
   };
 }
 
-function ConvexWikipediaReaderProvider({
+export function ConvexWikipediaReaderProvider({
   children,
 }: {
   children: ReactNode;
 }): ReactElement {
-  const searchAction = useAction(publicWikipediaApi.search);
-  const fetchArticleAction = useAction(publicWikipediaApi.fetchArticle);
+  const searchAction = useAction(convexClientApi.wikipedia.search);
+  const fetchArticleAction = useAction(convexClientApi.wikipedia.fetchArticle);
   const reader = useMemo(
     () => createWikipediaReader({ fetchArticleAction, searchAction }),
     [fetchArticleAction, searchAction],
@@ -42,21 +42,5 @@ function ConvexWikipediaReaderProvider({
     <WikipediaReaderProvider reader={reader}>
       {children}
     </WikipediaReaderProvider>
-  );
-}
-
-export function PublicWikipediaDataProvider({
-  children,
-  convexUrl,
-}: {
-  children: ReactNode;
-  convexUrl: string;
-}): ReactElement {
-  const [client] = useState(() => new ConvexReactClient(convexUrl));
-
-  return (
-    <ConvexProvider client={client}>
-      <ConvexWikipediaReaderProvider>{children}</ConvexWikipediaReaderProvider>
-    </ConvexProvider>
   );
 }
