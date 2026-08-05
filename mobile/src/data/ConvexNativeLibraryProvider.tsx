@@ -12,7 +12,7 @@ import {
 } from "react";
 
 import { useNativeAuth } from "../auth/NativeAuthContext";
-import { useNativeAuthTransportBinding } from "../auth/NativeAuthTransportBindingContext";
+import { useNativeAccountSubjectBinding } from "../auth/NativeAccountSubjectBindingContext";
 import {
   NativeLibraryProvider,
   type NativeLibraryMutationResult,
@@ -69,7 +69,7 @@ export function ConvexNativeLibraryProvider({
   readonly children: ReactNode;
 }): ReactElement {
   const auth = useNativeAuth();
-  const expectedAccountSubject = useNativeAuthTransportBinding();
+  const expectedAccountSubject = useNativeAccountSubjectBinding();
   const [queryAttemptState, setQueryAttemptState] = useState<{
     readonly attempt: number;
     readonly epoch: symbol;

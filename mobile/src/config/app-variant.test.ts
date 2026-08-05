@@ -11,10 +11,14 @@ import easConfig from "../../eas.json";
 const configContext = { config: {} } as ConfigContext;
 const TEST_CLERK_KEY = "pk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ";
 const LIVE_CLERK_KEY = "pk_live_cHJvZHVjdGlvbi5jdXJpb2dhcmRlbi5pbnZhbGlkJA";
+const PR_PREVIEW_WEB_ORIGIN =
+  "https://world-garden-git-media-sethwilsonus-projects.vercel.app";
 const originalAppVariant = process.env.APP_VARIANT;
 const originalClerkPublishableKey =
   process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const originalConvexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
+const originalWebOrigin = process.env.EXPO_PUBLIC_WEB_ORIGIN;
+const originalEasBuildProfile = process.env.EAS_BUILD_PROFILE;
 
 type AndroidNamedEntry = { $?: Record<string, string> };
 type AndroidIntentFilter = {
@@ -49,6 +53,8 @@ const evaluateExpoConfig = async (): Promise<{
   process.env.APP_VARIANT = "e2e";
   process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = TEST_CLERK_KEY;
   delete process.env.EXPO_PUBLIC_CONVEX_URL;
+  delete process.env.EXPO_PUBLIC_WEB_ORIGIN;
+  delete process.env.EAS_BUILD_PROFILE;
 
   const config = getConfig(projectRoot, {
     isModdedConfig: true,
@@ -77,6 +83,8 @@ const evaluateExpoConfig = async (): Promise<{
 
 beforeEach(() => {
   process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = TEST_CLERK_KEY;
+  delete process.env.EXPO_PUBLIC_WEB_ORIGIN;
+  delete process.env.EAS_BUILD_PROFILE;
 });
 
 afterEach(() => {
@@ -94,6 +102,16 @@ afterEach(() => {
     delete process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
   } else {
     process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = originalClerkPublishableKey;
+  }
+  if (originalWebOrigin === undefined) {
+    delete process.env.EXPO_PUBLIC_WEB_ORIGIN;
+  } else {
+    process.env.EXPO_PUBLIC_WEB_ORIGIN = originalWebOrigin;
+  }
+  if (originalEasBuildProfile === undefined) {
+    delete process.env.EAS_BUILD_PROFILE;
+  } else {
+    process.env.EAS_BUILD_PROFILE = originalEasBuildProfile;
   }
 });
 
@@ -135,6 +153,7 @@ describe("native application variants", () => {
     expect(config.extra).toMatchObject({
       appVariant: "e2e",
       clerkPublishableKey: TEST_CLERK_KEY,
+      webOrigin: "http://127.0.0.1:3000",
     });
   });
 
@@ -148,6 +167,7 @@ describe("native application variants", () => {
       expect(profile.env).not.toHaveProperty(
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY",
       );
+      expect(profile.env).not.toHaveProperty("EXPO_PUBLIC_WEB_ORIGIN");
     }
   });
 
@@ -159,6 +179,7 @@ describe("native application variants", () => {
 
   it("produces a native-only production config without notification setup", () => {
     process.env.APP_VARIANT = "production";
+    process.env.EAS_BUILD_PROFILE = "production";
     process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = LIVE_CLERK_KEY;
     process.env.EXPO_PUBLIC_CONVEX_URL =
       "https://production-garden.convex.cloud";
@@ -202,9 +223,43 @@ describe("native application variants", () => {
       appVariant: "production",
       clerkPublishableKey: LIVE_CLERK_KEY,
       convexUrl: "https://production-garden.convex.cloud",
+      webOrigin: "https://curiogarden.org",
       eas: { projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea" },
     });
   });
+
+  it.each([
+    ["development", undefined],
+    ["preview", "https://preview-garden.convex.cloud"],
+    ["e2e", undefined],
+  ] as const)(
+    "requires a reviewed HTTPS web origin for cloud %s builds",
+    (variant, convexUrl) => {
+      process.env.APP_VARIANT = variant;
+      process.env.EAS_BUILD_PROFILE = `${variant}-cloud`;
+      if (convexUrl === undefined) {
+        delete process.env.EXPO_PUBLIC_CONVEX_URL;
+      } else {
+        process.env.EXPO_PUBLIC_CONVEX_URL = convexUrl;
+      }
+      delete process.env.EXPO_PUBLIC_WEB_ORIGIN;
+
+      expect(() => createAppConfig(configContext)).toThrow(
+        "Cloud non-production builds require an explicit HTTPS web origin",
+      );
+
+      process.env.EXPO_PUBLIC_WEB_ORIGIN = "http://10.0.2.2:3000";
+      expect(() => createAppConfig(configContext)).toThrow(
+        "Cloud non-production builds require an explicit HTTPS web origin",
+      );
+
+      process.env.EXPO_PUBLIC_WEB_ORIGIN = PR_PREVIEW_WEB_ORIGIN;
+      expect(createAppConfig(configContext).extra).toMatchObject({
+        appVariant: variant,
+        webOrigin: PR_PREVIEW_WEB_ORIGIN,
+      });
+    },
+  );
 
   it("fails closed before preview or production can cross environments", () => {
     process.env.APP_VARIANT = "production";

@@ -1,4 +1,4 @@
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useSession, useUser } from "@clerk/expo";
 import { act, renderHook } from "@testing-library/react-native";
 import { useConvexAuth, useMutation, useQueries } from "convex/react";
 import { useEffect, type PropsWithChildren } from "react";
@@ -10,6 +10,7 @@ import { convexClientApi } from "./convexClientApi";
 
 jest.mock("@clerk/expo", () => ({
   useAuth: jest.fn(),
+  useSession: jest.fn(),
   useUser: jest.fn(),
 }));
 
@@ -20,6 +21,7 @@ jest.mock("convex/react", () => ({
 }));
 
 const useAuthMock = jest.mocked(useAuth);
+const useSessionMock = jest.mocked(useSession);
 const useUserMock = jest.mocked(useUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
 const useMutationMock = useMutation as jest.Mock;
@@ -29,6 +31,7 @@ const saveBookmarkMutation = jest.fn();
 const removeBookmarkMutation = jest.fn();
 
 type ClerkAuth = ReturnType<typeof useAuth>;
+type ClerkSession = ReturnType<typeof useSession>;
 type ClerkUser = ReturnType<typeof useUser>;
 type ConvexAuth = ReturnType<typeof useConvexAuth>;
 
@@ -39,6 +42,36 @@ let viewer: unknown;
 let libraryQueryResult:
   | unknown
   | ((args: Readonly<{ sessionEpochKey: string }>) => unknown);
+const clerkSessionResources = new Map<
+  string,
+  NonNullable<ClerkSession["session"]>
+>();
+
+function sessionForAuth(auth: ClerkAuth): ClerkSession {
+  if (!auth.isLoaded) {
+    return {
+      isLoaded: false,
+      isSignedIn: undefined,
+      session: undefined,
+    } as ClerkSession;
+  }
+  if (!auth.isSignedIn) {
+    return { isLoaded: true, isSignedIn: false, session: null } as ClerkSession;
+  }
+
+  const resourceKey = `${auth.sessionId}:${auth.userId}`;
+  let session = clerkSessionResources.get(resourceKey);
+  if (session === undefined) {
+    session = {
+      getToken: jest.fn(),
+      id: auth.sessionId,
+      user: { id: auth.userId },
+    } as unknown as NonNullable<ClerkSession["session"]>;
+    clerkSessionResources.set(resourceKey, session);
+  }
+
+  return { isLoaded: true, isSignedIn: true, session } as ClerkSession;
+}
 
 function signedOutAuth(): ClerkAuth {
   return {
@@ -94,6 +127,7 @@ function findLibraryQuery(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  clerkSessionResources.clear();
   clerkAuth = signedOutAuth();
   clerkUser = signedOutUser();
   convexAuth = {
@@ -105,6 +139,7 @@ beforeEach(() => {
   libraryQueryResult = undefined;
 
   useAuthMock.mockImplementation(() => clerkAuth);
+  useSessionMock.mockImplementation(() => sessionForAuth(clerkAuth));
   useUserMock.mockImplementation(() => clerkUser);
   useConvexAuthMock.mockImplementation(() => convexAuth);
   useQueriesMock.mockImplementation(

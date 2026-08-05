@@ -42,13 +42,15 @@ function NativeNavigationShell() {
 }
 
 export default function RootLayout() {
-  const { clerkPublishableKey, convexUrl } = getMobileRuntimeConfig();
+  const { clerkPublishableKey, convexUrl, webOrigin } =
+    getMobileRuntimeConfig();
 
   return (
     <SafeAreaProvider>
       <NativeDataAuthProvider
         clerkPublishableKey={clerkPublishableKey}
         convexUrl={convexUrl}
+        webOrigin={webOrigin}
       >
         <GardenThemeProvider>
           <HostedAuthProvider>

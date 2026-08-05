@@ -4,6 +4,7 @@ import type { PropsWithChildren } from "react";
 import {
   NativeAuthTransportBindingProvider,
   useNativeAuthTransportBinding,
+  type NativeAuthTransportBinding,
 } from "./NativeAuthTransportBindingContext";
 
 describe("NativeAuthTransportBindingProvider", () => {
@@ -13,15 +14,21 @@ describe("NativeAuthTransportBindingProvider", () => {
     );
   });
 
-  it.each([
-    ["a bound account", "user_private_account"],
-    ["no bound account", null],
-  ])("exposes %s only through the private hook", (_label, expectedSubject) => {
+  it("exposes only the audited transport capability", () => {
+    const accountEpoch = Symbol("test-account-epoch");
+    const binding: NativeAuthTransportBinding = {
+      accountEpoch,
+      isCurrentAccountEpoch: (candidateEpoch) =>
+        candidateEpoch === accountEpoch,
+      resolveRequestCredentials: jest.fn().mockResolvedValue({
+        accountEpoch,
+        status: "public",
+      }),
+    };
+
     function Wrapper({ children }: PropsWithChildren) {
       return (
-        <NativeAuthTransportBindingProvider
-          expectedAccountSubject={expectedSubject}
-        >
+        <NativeAuthTransportBindingProvider binding={binding}>
           {children}
         </NativeAuthTransportBindingProvider>
       );
@@ -31,6 +38,9 @@ describe("NativeAuthTransportBindingProvider", () => {
       wrapper: Wrapper,
     });
 
-    expect(result.current).toBe(expectedSubject);
+    expect(result.current).toBe(binding);
+    expect(result.current).not.toHaveProperty("expectedAccountSubject");
+    expect(result.current.isCurrentAccountEpoch(accountEpoch)).toBe(true);
+    expect(result.current.isCurrentAccountEpoch(Symbol("stale"))).toBe(false);
   });
 });
