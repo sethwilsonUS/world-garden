@@ -1,3 +1,3 @@
-import { FoundationScreen } from "../src/screens/FoundationScreen";
+import { HomeScreen } from "../src/screens/HomeScreen";
 
-export default FoundationScreen;
+export default HomeScreen;

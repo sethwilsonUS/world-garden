@@ -9,12 +9,18 @@ import easConfig from "../../eas.json";
 
 const configContext = { config: {} } as ConfigContext;
 const originalAppVariant = process.env.APP_VARIANT;
+const originalConvexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
 
 afterEach(() => {
   if (originalAppVariant === undefined) {
     delete process.env.APP_VARIANT;
   } else {
     process.env.APP_VARIANT = originalAppVariant;
+  }
+  if (originalConvexUrl === undefined) {
+    delete process.env.EXPO_PUBLIC_CONVEX_URL;
+  } else {
+    process.env.EXPO_PUBLIC_CONVEX_URL = originalConvexUrl;
   }
 });
 
@@ -63,6 +69,8 @@ describe("native application variants", () => {
 
   it("produces a native-only production config without notification setup", () => {
     process.env.APP_VARIANT = "production";
+    process.env.EXPO_PUBLIC_CONVEX_URL =
+      "https://production-garden.convex.cloud";
 
     const config = createAppConfig(configContext);
 
@@ -92,8 +100,25 @@ describe("native application variants", () => {
     expect(pluginIdentifiers).not.toContain("expo-file-system");
     expect(config.extra).toMatchObject({
       appVariant: "production",
+      convexUrl: "https://production-garden.convex.cloud",
       eas: { projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea" },
     });
+  });
+
+  it("fails closed before preview or production can cross environments", () => {
+    process.env.APP_VARIANT = "production";
+    delete process.env.EXPO_PUBLIC_CONVEX_URL;
+
+    expect(() => createAppConfig(configContext)).toThrow(
+      "EXPO_PUBLIC_CONVEX_URL is required for production builds",
+    );
+
+    process.env.APP_VARIANT = "preview";
+    process.env.EXPO_PUBLIC_CONVEX_URL =
+      "https://standing-finch-735.convex.cloud";
+    expect(() => createAppConfig(configContext)).toThrow(
+      "preview builds must not use the development deployment",
+    );
   });
 
   it("embeds every supported Curio Garden typeface in signed builds", () => {

@@ -4,6 +4,8 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { getMobileRuntimeConfig } from "../src/config/runtime-config";
+import { PublicWikipediaDataProvider } from "../src/data/ConvexWikipediaReaderProvider";
 import {
   GardenThemeProvider,
   useGardenTheme,
@@ -39,11 +41,15 @@ function NativeNavigationShell() {
 }
 
 export default function RootLayout() {
+  const { convexUrl } = getMobileRuntimeConfig();
+
   return (
     <SafeAreaProvider>
-      <GardenThemeProvider>
-        <NativeNavigationShell />
-      </GardenThemeProvider>
+      <PublicWikipediaDataProvider convexUrl={convexUrl}>
+        <GardenThemeProvider>
+          <NativeNavigationShell />
+        </GardenThemeProvider>
+      </PublicWikipediaDataProvider>
     </SafeAreaProvider>
   );
 }

@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const ttsPort = process.env.TTS_PORT ?? "3001";
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["@curio-garden/domain"],
   redirects: async () => [
     {
       source: "/:path*",

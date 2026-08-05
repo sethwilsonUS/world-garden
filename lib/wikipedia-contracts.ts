@@ -1,32 +1,18 @@
+import type {
+  WikipediaArticle as WikipediaArticleContent,
+  WikipediaRevisionIdentity,
+  WikipediaSearchResult,
+} from "@curio-garden/domain";
 import type { BadgeKey } from "@/lib/badges";
 import type { NarratedSection } from "@/lib/section-narration";
 import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 
 /** Client-safe identity for one immutable Wikipedia article revision. */
-export type WikipediaRevisionIdentity = {
-  wikiPageId: string;
-  revisionId: string;
-  title: string;
-  language: string;
-};
-
-export type WikipediaSearchResult = {
-  wikiPageId: string;
-  title: string;
-  description: string;
-  url: string;
-};
+export type { WikipediaRevisionIdentity, WikipediaSearchResult };
 
 export type WikipediaSection = NarratedSection;
 
-export type WikipediaArticle = WikipediaRevisionIdentity & {
-  narrationVersion: number;
-  lastEdited?: string;
-  summary?: string;
-  thumbnailUrl?: string;
-  thumbnailWidth?: number;
-  thumbnailHeight?: number;
-  thumbnailAttribution?: WikimediaMediaAttribution;
+export type WikipediaArticle = Omit<WikipediaArticleContent, "sections"> & {
   sections?: WikipediaSection[];
   badgeKeys?: BadgeKey[];
 };

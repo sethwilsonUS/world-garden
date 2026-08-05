@@ -1,5 +1,7 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
+import { resolveConvexDeploymentUrl } from "./src/config/public-environment.cjs";
+
 const SURFACE_LIGHT = "#f7f6f3";
 const SURFACE_DARK = "#171717";
 const ACCENT = "#036b4a";
@@ -64,6 +66,10 @@ export const getAppIdentity = (variant: AppVariant): AppIdentity =>
 export default ({ config }: ConfigContext): ExpoConfig => {
   const variant = resolveAppVariant(process.env.APP_VARIANT);
   const identity = getAppIdentity(variant);
+  const convexUrl = resolveConvexDeploymentUrl(
+    variant,
+    process.env.EXPO_PUBLIC_CONVEX_URL,
+  );
 
   return {
     ...config,
@@ -143,6 +149,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     extra: {
       appVariant: variant,
+      convexUrl,
       eas: {
         projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea",
       },

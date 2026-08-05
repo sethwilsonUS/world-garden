@@ -1,45 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  formatWikipediaSearchStatus,
+  normalizeWikipediaSearchTerm,
+  type WikipediaSearchResult,
+} from "@curio-garden/domain";
 import { analytics } from "@/lib/analytics";
 import { useData } from "@/lib/data-context";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 
-type SearchResult = {
-  wikiPageId: string;
-  title: string;
-  description: string;
-  url: string;
-};
-
 const SearchResultsForTerm = ({ term }: { term: string }) => {
   const { search: searchAction } = useData();
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(Boolean(term.trim()));
+  const normalizedTerm = normalizeWikipediaSearchTerm(term);
+  const [results, setResults] = useState<WikipediaSearchResult[]>([]);
+  const [loading, setLoading] = useState(Boolean(normalizedTerm));
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
 
   useEffect(() => {
-    if (!term.trim()) return;
+    if (!normalizedTerm) return;
 
     let cancelled = false;
     // Mount the empty polite region before adding text so AT announces it.
     queueMicrotask(() => {
       if (!cancelled) {
-        setStatusMessage(`Searching Wikipedia for ${term}.`);
+        setStatusMessage(formatWikipediaSearchStatus(normalizedTerm));
       }
     });
 
-    searchAction({ term })
+    searchAction({ term: normalizedTerm })
       .then((data) => {
         if (!cancelled) {
-          const nextResults = data as SearchResult[];
-          setResults(nextResults);
+          setResults(data);
           setStatusMessage(
-            nextResults.length === 0
-              ? `No search results found for ${term}.`
-              : `${nextResults.length} search result${nextResults.length === 1 ? "" : "s"} found for ${term}.`,
+            formatWikipediaSearchStatus(normalizedTerm, data.length),
           );
         }
       })
@@ -61,7 +57,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
     return () => {
       cancelled = true;
     };
-  }, [term, searchAction]);
+  }, [normalizedTerm, searchAction]);
 
   return (
     <div>
@@ -134,7 +130,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
       ) : (
         <ol
           className="list-none p-0 m-0"
-          aria-label={`${results.length} results for "${term}"`}
+          aria-label={`${results.length} results for "${normalizedTerm}"`}
         >
           {results.map((result, index) => (
             <li

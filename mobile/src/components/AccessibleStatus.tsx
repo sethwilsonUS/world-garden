@@ -29,26 +29,32 @@ function announcePolitely(message: string) {
  * mechanism without announcing the same update twice.
  */
 export function AccessibleStatus({
+  accessible: accessibleOverride,
   message,
   ...textProps
 }: AccessibleStatusProps) {
-  const previousMessage = useRef(message.trim());
+  const normalizedMessage = message.trim();
+  const accessible = accessibleOverride ?? normalizedMessage.length > 0;
+  const activeMessage = accessible ? normalizedMessage : "";
+  const previousMessage = useRef(activeMessage);
 
   useEffect(() => {
-    const normalizedMessage = message.trim();
-    const isTransition = normalizedMessage !== previousMessage.current;
+    const isTransition = activeMessage !== previousMessage.current;
 
-    previousMessage.current = normalizedMessage;
+    previousMessage.current = activeMessage;
 
-    if (Platform.OS === "ios" && isTransition && normalizedMessage.length > 0) {
-      announcePolitely(normalizedMessage);
+    if (Platform.OS === "ios" && isTransition && activeMessage.length > 0) {
+      announcePolitely(activeMessage);
     }
-  }, [message]);
+  }, [activeMessage]);
 
   return (
     <GardenText
       {...textProps}
-      accessibilityLiveRegion={Platform.OS === "android" ? "polite" : undefined}
+      accessible={accessible}
+      accessibilityLiveRegion={
+        Platform.OS === "android" && activeMessage ? "polite" : undefined
+      }
       color={textProps.color ?? "foreground2"}
     >
       {message}

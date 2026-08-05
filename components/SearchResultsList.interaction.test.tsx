@@ -46,9 +46,7 @@ const deferred = <Value,>() => {
   return { promise, resolve, reject };
 };
 
-const dataValue = (
-  search: DataContextValue["search"],
-): DataContextValue => ({
+const dataValue = (search: DataContextValue["search"]): DataContextValue => ({
   search,
   fetchArticle: async () => {
     throw new Error("not used");
@@ -116,10 +114,7 @@ describe("SearchResultsList interactions", () => {
     expect(document.activeElement).toBe(refineInput);
 
     await act(async () => {
-      request.resolve([
-        result("1", "Moria"),
-        result("2", "Mines of Moria"),
-      ]);
+      request.resolve([result("1", "Moria"), result("2", "Mines of Moria")]);
       await request.promise;
     });
     await waitForExpectation(() => {
@@ -127,12 +122,34 @@ describe("SearchResultsList interactions", () => {
     });
 
     expect(container.querySelector('[role="status"]')).toBe(status);
-    expect(status?.textContent).toContain(
-      "2 search results found for Moria.",
-    );
+    expect(status?.textContent).toContain("2 search results found for Moria.");
     expect(document.activeElement).toBe(refineInput);
     expect(container.textContent).not.toContain("number key");
     expect(container.textContent).not.toContain("arrow keys");
+  });
+
+  it("uses the normalized search term for the request and every announcement", async () => {
+    const search = vi.fn(async () => [result("1", "Moria")]);
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={dataValue(search)}>
+          <SearchResultsList term={" \n Moria\t "} />
+        </DataContext.Provider>,
+      );
+      await Promise.resolve();
+    });
+    await waitForExpectation(() => {
+      expect(container.querySelectorAll("ol li")).toHaveLength(1);
+    });
+
+    expect(search).toHaveBeenCalledWith({ term: "Moria" });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "1 search result found for Moria.",
+    );
+    expect(container.querySelector("ol")?.getAttribute("aria-label")).toBe(
+      '1 results for "Moria"',
+    );
   });
 
   it("leaves digit and arrow keys to the browser and assistive technology", async () => {

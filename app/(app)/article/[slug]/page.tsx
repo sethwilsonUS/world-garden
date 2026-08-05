@@ -1,4 +1,8 @@
 import type { Metadata } from "next";
+import {
+  articleRouteFromTitle,
+  parseCanonicalArticlePath,
+} from "@curio-garden/domain";
 import { ArticleView } from "@/components/ArticleView";
 import { BackButton } from "@/components/BackButton";
 import { RandomRerollButton } from "@/components/RandomRerollButton";
@@ -16,12 +20,14 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const article = await fetchWikiSummary(slug);
-  const title = article?.title ?? slugToTitle(slug);
+  const parsedRoute = parseCanonicalArticlePath(`/article/${slug}`);
+  const title =
+    article?.title ??
+    parsedRoute?.slug.replaceAll("_", " ") ??
+    slugToTitle(slug);
   const description =
     article?.extract ?? `Listen to "${title}" on Curio Garden`;
-  const canonicalPath = `/article/${encodeURIComponent(
-    title.replace(/ /gu, "_"),
-  )}`;
+  const canonicalPath = articleRouteFromTitle(title).canonicalPath;
 
   return {
     title: `${title} — Curio Garden`,
