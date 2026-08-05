@@ -37,13 +37,9 @@ let mockAuthBusy: boolean;
 let mockAuthSessionEpoch: symbol;
 let authState: TestAuthState;
 
-jest.mock(
-  "../auth/NativeAuthContext",
-  () => ({
-    useNativeAuth: () => mockUseNativeAuth(),
-  }),
-  { virtual: true },
-);
+jest.mock("../auth/NativeAuthContext", () => ({
+  useNativeAuth: () => mockUseNativeAuth(),
+}));
 
 jest.mock("../auth/HostedAuthFlow", () => ({
   useHostedAuthFlow: () => ({
@@ -104,6 +100,10 @@ function deferred<Value>() {
 }
 
 describe("AccountScreen", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockAuthAccessibilityActive = false;
@@ -643,6 +643,9 @@ describe("AccountScreen", () => {
 
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     expect(
+      screen.getByRole("header", { name: "Web handoff paused" }),
+    ).toBeOnTheScreen();
+    expect(
       screen.getByText(
         "The app will not open web account controls until it can verify that the browser and this device use the same account.",
       ),
@@ -653,6 +656,14 @@ describe("AccountScreen", () => {
     renderAccount({ isProductionEnvironment: false });
 
     expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(
+      screen.getByRole("header", {
+        name: "Export and deletion unavailable",
+      }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.queryByRole("header", { name: "Web handoff paused" }),
+    ).not.toBeOnTheScreen();
     expect(
       screen.getByText(
         "This non-production build uses a separate test account. Export and permanent deletion are unavailable in the app.",

@@ -465,7 +465,9 @@ export function AccountScreen({
           Account lifecycle
         </GardenText>
         <GardenText accessibilityRole="header" variant="sectionTitle">
-          Web handoff paused
+          {isProductionEnvironment
+            ? "Web handoff paused"
+            : "Export and deletion unavailable"}
         </GardenText>
         <GardenText color="foreground2">
           {isProductionEnvironment
