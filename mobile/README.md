@@ -42,12 +42,20 @@ older installed client are not representative typography checks.
 
 ## Current product slice
 
-The current native slice mirrors the web search workbench: Home accepts a
-Wikipedia topic, Search shows public Wikipedia results, and each complete
-result card is one named link. Activating a result opens a temporary native
-handoff screen. The handoff launches the article's canonical
-`https://curiogarden.org/article/...` URL in the default browser; native article
-rendering is intentionally not claimed by this slice.
+The current native slice mirrors the web search workbench and adds read-only
+native articles. Home accepts a Wikipedia topic, Search shows public Wikipedia
+results, and each complete result card is one named link. Activating a result
+opens a native Article route with the article title and provenance, an optional
+lead thumbnail with visible attribution, the summary, and section headings with
+bounded paragraph reading stops. The article also exposes its Wikipedia source
+and applicable license as named external links.
+
+The native reader deliberately stops at the content it can represent faithfully.
+A richer web handoff explains that galleries, broader context, and citation
+details remain available on the canonical
+`https://curiogarden.org/article/...` page. Audio, authentication, library
+features, offline downloads or article storage, and push notifications are not
+part of this slice.
 
 Web and native share the article-route codec in `@curio-garden/domain`. It
 normalizes titles to NFC, uses underscores for word separators, and encodes a
@@ -59,16 +67,25 @@ locations fall back to Home instead of being guessed or forwarded.
 The same adapter recognizes the canonical production HTTPS form so the path is
 ready for future Universal Links and Android App Links. Those OS associations
 are not configured in this slice: opening a `https://curiogarden.org` article
-continues to use the web application, including from the temporary native
-handoff.
+continues to use the web application, including from the native reader's richer
+web handoff.
 
 Search terms are normalized without rewriting the user's words. The visible
 search label remains present, the input and Search button remain separate
 controls, and each result's ordinal, title, and optional description form the
-accessible name of one link. Loading and result-count updates use one persistent
-status node; validation, network, and browser-launch failures remain visible
-alerts. The exact screen-reader speech, destination-heading focus, and back
-focus behavior still require the signed physical-device runs recorded in the
+accessible name of one link. Search and Article each keep one persistent route
+heading and one persistent status node through loading, error, and retry states;
+async changes announce useful status without stealing focus. Article paragraphs
+remain complete, separate screen-reader stops beneath real section headings.
+External article, license, and attribution targets are sanitized HTTPS URLs and
+expose the link role. A missing or failed thumbnail leaves visible explanatory
+copy and attribution rather than a blank graphic. Cache retrieval metadata such
+as `lastFetchedAt` may be described as fetched or retrieved, but never as
+`Last edited`, because it is not Wikipedia revision history.
+
+The exact screen-reader speech, destination-heading focus, long-article reading
+order, image fallback behavior, and back focus still require the signed
+physical-device runs recorded in the
 [native accessibility test matrix](../docs/mobile-accessibility-test-matrix.md).
 
 ## Local Android SDK
@@ -109,7 +126,7 @@ Do not put credentials, paths, query parameters, or fragments in it.
 
 Push notifications are intentionally disabled and not installed. Offline
 downloads and offline article storage are outside the current implementation
-scope.
+scope, as are native audio playback and authenticated library features.
 
 ## Accessibility verification
 
@@ -120,15 +137,17 @@ and reduced-motion results must be recorded against named hardware and a signed
 build. Expo Go, Simulator, emulators, Jest, bundle checks, and accessibility
 tree inspection are supplementary evidence only.
 
-The current Home, Search, result, and web-handoff automated suites cover roles,
-names, unclamped task text, target geometry, safe error copy, stale-request
-handling, platform-specific status wiring, and one route-heading focus request
-per new search term or article handoff. They do not prove spoken output, where
-screen-reader focus actually lands, back-focus restoration, touch exploration,
-or visual reflow at 200% and the operating systems' maximum text and display
-settings. The matrix records a supplementary Android 16 TalkBack traversal and
-partial iOS Simulator reflow pass; both physical-device gates and the remaining
-appearance/orientation combinations stay open.
+The existing Home, Search, result, and historical web-handoff automated suites
+cover roles, names, unclamped task text, target geometry, safe error copy,
+stale-request handling, platform-specific status wiring, and one route-heading
+focus request per new route context. PR4B adds a native Article contract for
+loading, error, retry, headings, paragraph stops, image semantics and fallback,
+and sanitized external links; all 27 mobile suites and 227 tests pass. No
+automated suite proves exact spoken output, actual screen-reader focus landing,
+back-focus restoration, touch exploration, or visual reflow at 200% and the
+operating systems' maximum text and display settings. The matrix preserves the
+supplementary PR4A Android 16 TalkBack traversal and partial iOS Simulator
+reflow pass without carrying those results forward to the native Article slice.
 
 Reusable screens and controls follow the documented
 [native accessibility conventions](../docs/native-accessibility-conventions.md),

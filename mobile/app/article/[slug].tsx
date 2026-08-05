@@ -2,10 +2,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { navigateBackOrReplace } from "../../src/navigation/back-navigation";
 import { normalizeNativeArticleSlug } from "../../src/navigation/routes";
+import { ArticleScreen } from "../../src/screens/ArticleScreen";
 import { InvalidArticleLinkScreen } from "../../src/screens/InvalidArticleLinkScreen";
-import { WebArticleHandoffScreen } from "../../src/screens/WebArticleHandoffScreen";
 
-export default function ArticleHandoffRoute() {
+export default function ArticleRoute() {
   const router = useRouter();
   const { slug } = useLocalSearchParams<{ slug?: string | string[] }>();
   const normalizedSlug = normalizeNativeArticleSlug(slug);
@@ -15,10 +15,5 @@ export default function ArticleHandoffRoute() {
     return <InvalidArticleLinkScreen onBack={handleBack} />;
   }
 
-  return (
-    <WebArticleHandoffScreen
-      onBack={handleBack}
-      slug={normalizedSlug}
-    />
-  );
+  return <ArticleScreen onBack={handleBack} slug={normalizedSlug} />;
 }
