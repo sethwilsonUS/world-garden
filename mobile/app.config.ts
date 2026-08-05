@@ -4,6 +4,17 @@ const SURFACE_LIGHT = "#f7f6f3";
 const SURFACE_DARK = "#171717";
 const ACCENT = "#036b4a";
 
+export const bundledFontFiles = [
+  "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
+  "@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf",
+  "@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf",
+  "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf",
+  "@expo-google-fonts/fraunces/600SemiBold/Fraunces_600SemiBold.ttf",
+  "@expo-google-fonts/fraunces/700Bold/Fraunces_700Bold.ttf",
+  "@expo-google-fonts/jetbrains-mono/500Medium/JetBrainsMono_500Medium.ttf",
+  "@expo-google-fonts/jetbrains-mono/600SemiBold/JetBrainsMono_600SemiBold.ttf",
+] as const;
+
 const appVariants = ["development", "preview", "e2e", "production"] as const;
 
 export type AppVariant = (typeof appVariants)[number];
@@ -75,6 +86,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       package: identity.identifier,
+      blockedPermissions: [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+      ],
       adaptiveIcon: {
         backgroundColor: ACCENT,
         foregroundImage: "./assets/adaptive-icon.png",
@@ -83,6 +99,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       "expo-router",
+      [
+        "expo-font",
+        {
+          fonts: bundledFontFiles,
+        },
+      ],
       [
         "expo-dev-client",
         {

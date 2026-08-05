@@ -1,44 +1,49 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import { Stack, ThemeProvider as NavigationThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useColorScheme } from "react-native";
+import * as SystemUI from "expo-system-ui";
+import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-const lightTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: "#036b4a",
-    background: "#f7f6f3",
-    card: "#f7f6f3",
-    text: "#1a1a1a",
-    border: "#d4d1c7",
-    notification: "#b91c1c",
-  },
-};
+import {
+  GardenThemeProvider,
+  useGardenTheme,
+} from "../src/theme/GardenThemeProvider";
 
-const darkTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    primary: "#34d399",
-    background: "#171717",
-    card: "#171717",
-    text: "#f0ede6",
-    border: "#2f2f2f",
-    notification: "#f87171",
-  },
-};
+function NativeNavigationShell() {
+  const {
+    accessibilityPreferences: { reduceMotion },
+    colors,
+    isDark,
+    navigationTheme,
+  } = useGardenTheme();
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(colors.surface).catch(() => {
+      // The screen itself owns the same surface color, so a platform API
+      // failure cannot strand startup or reduce text contrast.
+    });
+  }, [colors.surface]);
 
   return (
+    <NavigationThemeProvider value={navigationTheme}>
+      <Stack
+        screenOptions={{
+          animation: reduceMotion ? "none" : "default",
+          contentStyle: { backgroundColor: colors.surface },
+          headerShown: false,
+        }}
+      />
+      <StatusBar style={isDark ? "light" : "dark"} />
+    </NavigationThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
     <SafeAreaProvider>
-      <ThemeProvider value={isDark ? darkTheme : lightTheme}>
-        <Stack screenOptions={{ headerShown: false }} />
-        <StatusBar style={isDark ? "light" : "dark"} />
-      </ThemeProvider>
+      <GardenThemeProvider>
+        <NativeNavigationShell />
+      </GardenThemeProvider>
     </SafeAreaProvider>
   );
 }

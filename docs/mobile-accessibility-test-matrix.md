@@ -23,8 +23,9 @@ accessibility-tree inspection must never be described as a VoiceOver pass.
 For the foundation screen, assistive technology must expose this order:
 
 1. `Curio Garden`, heading
-2. `A quieter way to explore and listen to Wikipedia.`
-3. `FOUNDATION`
+2. `Explore any Wikipedia article as clear, section-by-section audio, then keep
+listening wherever curiosity takes you.`
+3. `Native foundation`
 4. `Development client foundation ready.`
 5. `Expo Go is optional; signed native builds are the release gate.`
 
@@ -38,19 +39,38 @@ light and dark appearance, and safe-area clearance are separate checks.
 
 ## Foundation evidence — 2026-08-04
 
-These runs establish the development baseline. They do not satisfy the future
+These historical runs establish the pre-theme development baseline. They do
+not validate the later bundled-font shell and do not satisfy the future
 physical-device beta gate.
 
-| Gate | Environment and build | Settings | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| Supplementary iOS semantics and reflow | iPhone 17 Pro Simulator, iOS 26.5, local Release configuration with embedded JavaScript bundle | `accessibility-extra-extra-extra-large`; light and dark; portrait and landscape | Pass | Accessibility tree contained exactly the five contract items in order and one heading. The title displayed as `Curio` / `Garden` in portrait and `Curio Garden` in landscape; the title multiplier is capped at 2.25 while task copy remains uncapped. |
-| Supplementary Android screen reader and reflow | Pixel Android Virtual Device, Android 16/API 36, locally signed Release APK, TalkBack 16.0 | Font scale 2.0; light portrait and landscape | Pass | TalkBack focus advanced through all five contract items, stopped cleanly after the final item, and reversed from the final item to the card title. The landscape layout exposed the complete card without clipping. No development-client control entered the reading order. |
-| Physical iOS VoiceOver | No trusted iPhone attached and no device registered with EAS | Largest Larger Accessibility Size; portrait/landscape; light/dark | Blocked | Register and connect a supported iPhone, install a signed preview build, then complete the physical script below. VoiceOver is not available in Simulator. |
-| Physical Android TalkBack | No physical Android device attached | Maximum font and display sizes separately and together; portrait/landscape; light/dark | Not run | Install the signed preview APK on named hardware, then complete the physical script below. |
+| Gate                                           | Environment and build                                                                          | Settings                                                                               | Result  | Evidence                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supplementary iOS semantics and reflow         | iPhone 17 Pro Simulator, iOS 26.5, local Release configuration with embedded JavaScript bundle | `accessibility-extra-extra-extra-large`; light and dark; portrait and landscape        | Fail    | The accessibility tree contained the five contract items in order and one heading, but visual review found the title split as `Curio` / `Gard` / `en` at the largest setting. Mid-word reflow is a blocking defect even though the spoken name remained intact.              |
+| Supplementary Android screen reader and reflow | Pixel Android Virtual Device, Android 16/API 36, locally signed Release APK, TalkBack 16.0     | Font scale 2.0; light portrait and landscape                                           | Pass    | TalkBack focus advanced through all five contract items, stopped cleanly after the final item, and reversed from the final item to the card title. The landscape layout exposed the complete card without clipping. No development-client control entered the reading order. |
+| Physical iOS VoiceOver                         | No trusted iPhone attached and no device registered with EAS                                   | Largest Larger Accessibility Size; portrait/landscape; light/dark                      | Blocked | Register and connect a supported iPhone, install a signed preview build, then complete the physical script below. VoiceOver is not available in Simulator.                                                                                                                   |
+| Physical Android TalkBack                      | No physical Android device attached                                                            | Maximum font and display sizes separately and together; portrait/landscape; light/dark | Not run | Install the signed preview APK on named hardware, then complete the physical script below.                                                                                                                                                                                   |
 
 The iOS Release build also proves the Expo/Xcode throughline against matching
 Xcode 26.6 and iOS 26.5 Simulator runtimes. The Android Release APK launches
 from its embedded bundle without Metro or Expo development UI.
+
+The current shell must repeat the supplementary checks after Fraunces, DM Sans,
+JetBrains Mono, word-safe brand reflow, and system accessibility-preference
+handling are present in a signed build. Record that evidence in a new dated
+section; do not carry the historical result forward.
+
+## Themed native shell evidence — 2026-08-05
+
+These runs exercise the bundled-font shell introduced after the historical
+foundation baseline. They are supplementary emulator/Simulator evidence; the
+physical-device release gate remains open.
+
+| Gate                                      | Environment and build                                                                                        | Settings                                                                                                    | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supplementary iOS semantics and reflow    | iPhone 17 Pro Simulator, iOS 26.5, final local Release configuration with embedded JavaScript bundle         | `accessibility-extra-extra-extra-large`; light and dark; portrait and landscape; Increase Contrast          | Pass    | After Metro was stopped, a direct cold launch rendered the embedded bundle and all eight bundled font files. The single accessible `Curio Garden` heading rendered as `Curio` / `Garden` in narrow portrait and as whole words in landscape, never as `Gard` / `en`. Uncapped task copy and the complete release-gate card remained reachable by one-dimensional scrolling with bottom safe-area clearance. Increase Contrast changed the secondary-text and boundary palette live. VoiceOver was not claimed. |
+| Supplementary Android TalkBack and reflow | Pixel Android Virtual Device, Android 16/API 36, final locally signed Release APK, TalkBack 16.0.0.738667889 | Font scale 2.0 and density 560 together; light and dark; portrait and landscape; High Text Contrast enabled | Pass    | TalkBack hardware-keyboard navigation traversed the five contract items forward and backward, exposed one `Curio Garden` heading focus stop, auto-scrolled the final copy fully into view, and stayed on the final app item when advanced again. Maximum-scale content remained one-dimensionally scrollable in both orientations. Direct cold launch used the embedded bundle. The release APK requested no storage, notification, or draw-over-other-apps permission.                                        |
+| Physical iOS VoiceOver                    | No trusted iPhone attached and no device registered with EAS                                                 | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast          | Blocked | Register and connect a supported iPhone, install the signed preview build, and complete the physical script below. Simulator has no VoiceOver and cannot satisfy this gate.                                                                                                                                                                                                                                                                                                                                    |
+| Physical Android TalkBack                 | No physical Android device attached                                                                          | Maximum font and display sizes together; portrait/landscape; light/dark; High Text Contrast                 | Not run | Install the signed preview APK on named hardware and complete the physical script below.                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## Physical-device script
 
@@ -98,10 +118,13 @@ Issue link for every failure:
 
 ## Automated evidence boundary
 
-`FoundationScreen.test.tsx` proves the heading name and role, the deliberate
-2.25 title multiplier, and the presence of the release-gate copy. It cannot
-prove spoken output, rotor behavior, OS scaling, reflow, focus visibility, or
-touch exploration.
+The native Jest suites prove exact semantic colors and contrast guardrails,
+real per-platform font names and weights, deliberate display-text caps with
+uncapped task copy, one word-safe brand heading, 48-by-48 control geometry,
+visible press/focus/state cues, safe-area scrolling, preference listener
+cleanup, and platform-specific status behavior. They cannot prove spoken
+output, rotor/Reading Controls behavior, native font measurement, OS scaling,
+reflow, focus visibility, or touch exploration.
 
 Use Apple's
 [accessibility testing guidance](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)

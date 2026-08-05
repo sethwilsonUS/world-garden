@@ -117,6 +117,12 @@ are recorded in the
 [native accessibility test matrix](../mobile-accessibility-test-matrix.md),
 and a physical pass requires a signed build on named hardware.
 
+Native components copy the current semantic palette into `mobile/src/theme`,
+embed Fraunces, DM Sans, and JetBrains Mono in signed builds, and follow the
+[native accessibility conventions](../native-accessibility-conventions.md).
+The app does not import CSS, Tailwind utilities, or web component
+implementations across the platform boundary.
+
 ## Explicitly deferred
 
 Push notifications and every push-specific dependency, permission, credential,
