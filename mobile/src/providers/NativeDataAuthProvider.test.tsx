@@ -1,4 +1,4 @@
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useSession, useUser } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import {
   fireEvent,
@@ -20,6 +20,7 @@ import { useNativeAuth } from "../auth/NativeAuthContext";
 import { convexClientApi } from "../data/convexClientApi";
 import { useWikipediaReader } from "../data/WikipediaReaderContext";
 import { useNativeLibrary } from "../library/NativeLibraryContext";
+import { useNativeArticleAudioAccess } from "../media/NativeArticleAudioAccessContext";
 import { NativeDataAuthProvider } from "./NativeDataAuthProvider";
 
 const mockClerkProviderBoundary = jest.fn(({ children }: PropsWithChildren) => (
@@ -34,6 +35,7 @@ const mockConvexProviderBoundary = jest.fn(
 jest.mock("@clerk/expo", () => ({
   ClerkProvider: (props: PropsWithChildren) => mockClerkProviderBoundary(props),
   useAuth: jest.fn(),
+  useSession: jest.fn(),
   useUser: jest.fn(),
 }));
 
@@ -63,6 +65,7 @@ jest.mock("convex/react-clerk", () => ({
 const convexClientConstructor = ConvexReactClient as unknown as jest.Mock;
 const useActionMock = useAction as jest.Mock;
 const useAuthMock = jest.mocked(useAuth);
+const useSessionMock = jest.mocked(useSession);
 const useUserMock = jest.mocked(useUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
 const useMutationMock = useMutation as jest.Mock;
@@ -74,6 +77,7 @@ const clerkSignOut = jest.fn();
 function PublicSignedOutConsumer() {
   const { state } = useNativeAuth();
   const library = useNativeLibrary();
+  const articleAudio = useNativeArticleAudioAccess();
   const reader = useWikipediaReader();
 
   return (
@@ -84,6 +88,9 @@ function PublicSignedOutConsumer() {
     >
       <Text>{state.status}</Text>
       <Text testID="library-status">library:{library.state.status}</Text>
+      <Text testID="media-access">
+        media:{typeof articleAudio.requestSection}
+      </Text>
     </Pressable>
   );
 }
@@ -111,6 +118,11 @@ beforeEach(() => {
     signOut: clerkSignOut,
     userId: null,
   } as unknown as ReturnType<typeof useAuth>);
+  useSessionMock.mockReturnValue({
+    isLoaded: true,
+    isSignedIn: false,
+    session: null,
+  });
   useUserMock.mockReturnValue({
     isLoaded: true,
     isSignedIn: false,
@@ -130,6 +142,7 @@ describe("NativeDataAuthProvider", () => {
     const props = {
       clerkPublishableKey: "pk_test_public-example",
       convexUrl: "https://standing-finch-735.convex.cloud",
+      webOrigin: "https://curiogarden.org",
     };
     const { rerender } = render(
       <NativeDataAuthProvider {...props}>
@@ -176,6 +189,7 @@ describe("NativeDataAuthProvider", () => {
       <NativeDataAuthProvider
         clerkPublishableKey="pk_test_public-example"
         convexUrl="https://standing-finch-735.convex.cloud"
+        webOrigin="https://curiogarden.org"
       >
         <PublicSignedOutConsumer />
       </NativeDataAuthProvider>,
@@ -184,6 +198,9 @@ describe("NativeDataAuthProvider", () => {
     expect(screen.getByText("signedOut")).toBeOnTheScreen();
     expect(screen.getByTestId("library-status")).toHaveTextContent(
       "library:signedOut",
+    );
+    expect(screen.getByTestId("media-access")).toHaveTextContent(
+      "media:function",
     );
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
 
@@ -207,6 +224,15 @@ describe("NativeDataAuthProvider", () => {
       isSignedIn: true,
       user: { id: "user-a" },
     } as ReturnType<typeof useUser>);
+    useSessionMock.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: true,
+      session: {
+        getToken: jest.fn(),
+        id: "session-a",
+        user: { id: "user-a" },
+      },
+    } as unknown as ReturnType<typeof useSession>);
     useConvexAuthMock.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -222,6 +248,7 @@ describe("NativeDataAuthProvider", () => {
       <NativeDataAuthProvider
         clerkPublishableKey="pk_test_public-example"
         convexUrl="https://standing-finch-735.convex.cloud"
+        webOrigin="https://curiogarden.org"
       >
         <PublicSignedOutConsumer />
       </NativeDataAuthProvider>,

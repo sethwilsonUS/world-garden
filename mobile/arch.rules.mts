@@ -19,6 +19,18 @@ const nativeAuthTransportBindingImport = join(
   "auth",
   "NativeAuthTransportBindingContext.tsx",
 ).replaceAll("\\", "/");
+const nativeAccountSubjectBindingImport = join(
+  import.meta.dirname,
+  "src",
+  "auth",
+  "NativeAccountSubjectBindingContext.tsx",
+).replaceAll("\\", "/");
+const nativeArticleAudioAccessProviderImport = join(
+  import.meta.dirname,
+  "src",
+  "media",
+  "NativeArticleAudioAccessProvider.tsx",
+).replaceAll("\\", "/");
 const nativeLibraryPersistenceImports = [
   "@react-native-async-storage/async-storage",
   "@react-native-async-storage/async-storage/**",
@@ -110,18 +122,58 @@ const nativeAuthTransportBindingMustStayPrivate = modules(mobileProject)
   .and()
   .satisfy(not(resideInFile("src/auth/NativeAuthContext.tsx")))
   .and()
-  .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.tsx")))
+  .satisfy(not(resideInFile("src/media/NativeArticleAudioAccessProvider.tsx")))
   .expectNonEmpty()
   .should()
   .notImportFrom(nativeAuthTransportBindingImport)
   .rule({
     id: "curio/privacy/native-auth-transport-binding-private",
     because:
-      "the raw validated account subject exists only to bind queued native transport to the account that initiated it",
+      "ephemeral credentials exist only to bind audited native transport to the account that initiated it",
     suggestion:
-      "Use the profile-only NativeAuthContext from UI; consume the transport binding only inside an audited data adapter",
+      "Use tokenless public contexts from UI; consume the private binding only inside an audited transport adapter",
     imperative:
       "Do NOT import the native auth transport binding into routes, screens, components, or non-audited adapters",
+  })
+  .asSeverity("error");
+
+const nativeAccountSubjectBindingMustStayPrivate = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("src/auth/NativeAuthContext.tsx")))
+  .and()
+  .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.tsx")))
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(nativeAccountSubjectBindingImport)
+  .rule({
+    id: "curio/privacy/native-account-subject-binding-private",
+    because:
+      "the validated Clerk-to-Convex subject is private account correlation data for the Library adapter, not UI state",
+    suggestion:
+      "Consume tokenless feature contexts from routes and screens; keep raw account correlation inside audited adapters",
+    imperative:
+      "Do NOT import the native account-subject binding outside NativeAuthContext or ConvexNativeLibraryProvider",
+  })
+  .asSeverity("error");
+
+const nativeArticleAudioAccessProviderMustStayPrivate = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("src/providers/NativeDataAuthProvider.tsx")))
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(nativeArticleAudioAccessProviderImport)
+  .rule({
+    id: "curio/privacy/native-article-audio-provider-private",
+    because:
+      "the provider resolves Clerk credentials and attaches Authorization headers while its separate public context remains tokenless",
+    suggestion:
+      "Import NativeArticleAudioAccessContext from callers and compose the credential-bearing provider only in NativeDataAuthProvider",
+    imperative:
+      "Do NOT import the credential-bearing article-audio provider outside the reviewed native provider graph",
   })
   .asSeverity("error");
 
@@ -133,4 +185,6 @@ export default [
   convexClientApiMustStayNarrow,
   nativeOfflinePersistenceMustStayDeferred,
   nativeAuthTransportBindingMustStayPrivate,
+  nativeAccountSubjectBindingMustStayPrivate,
+  nativeArticleAudioAccessProviderMustStayPrivate,
 ];

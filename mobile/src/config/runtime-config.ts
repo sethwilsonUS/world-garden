@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import {
   resolveClerkPublishableKey,
   resolveConvexDeploymentUrl,
+  resolvePublicWebOrigin,
   type ConvexEnvironmentVariant,
 } from "./public-environment.cjs";
 
@@ -10,6 +11,7 @@ export type MobileRuntimeConfig = Readonly<{
   appVariant: ConvexEnvironmentVariant;
   clerkPublishableKey: string;
   convexUrl: string;
+  webOrigin: string;
 }>;
 
 const variants = new Set<string>([
@@ -45,6 +47,9 @@ export function parseMobileRuntimeConfig(extra: unknown): MobileRuntimeConfig {
   ) {
     throw new Error("Native Clerk publishable key configuration is missing");
   }
+  if (typeof extra.webOrigin !== "string" || !extra.webOrigin.trim()) {
+    throw new Error("Native web origin configuration is missing");
+  }
 
   return {
     appVariant,
@@ -53,6 +58,7 @@ export function parseMobileRuntimeConfig(extra: unknown): MobileRuntimeConfig {
       extra.clerkPublishableKey,
     ),
     convexUrl: resolveConvexDeploymentUrl(appVariant, extra.convexUrl),
+    webOrigin: resolvePublicWebOrigin(appVariant, extra.webOrigin),
   };
 }
 

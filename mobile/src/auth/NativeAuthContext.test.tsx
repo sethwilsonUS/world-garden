@@ -1,4 +1,4 @@
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useSession, useUser } from "@clerk/expo";
 import { act, renderHook } from "@testing-library/react-native";
 import { useConvexAuth, useQueries } from "convex/react";
 import * as React from "react";
@@ -9,9 +9,11 @@ import {
   useNativeAuth,
   type NativeSignOutResult,
 } from "./NativeAuthContext";
+import { useNativeAuthTransportBinding } from "./NativeAuthTransportBindingContext";
 
 jest.mock("@clerk/expo", () => ({
   useAuth: jest.fn(),
+  useSession: jest.fn(),
   useUser: jest.fn(),
 }));
 
@@ -21,12 +23,22 @@ jest.mock("convex/react", () => ({
 }));
 
 const useAuthMock = jest.mocked(useAuth);
+const useSessionMock = jest.mocked(useSession);
 const useUserMock = jest.mocked(useUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
 const useQueriesMock = useQueries as jest.Mock;
 const clerkSignOut = jest.fn<Promise<void>, []>();
+const clerkGetToken = jest.fn<
+  Promise<string | null>,
+  [options?: { readonly skipCache?: boolean }]
+>();
+const clerkAuthGetToken = jest.fn<
+  Promise<string | null>,
+  [options?: { readonly skipCache?: boolean }]
+>();
 
 type ClerkAuth = ReturnType<typeof useAuth>;
+type ClerkSession = ReturnType<typeof useSession>;
 type ClerkUser = ReturnType<typeof useUser>;
 type ConvexAuth = ReturnType<typeof useConvexAuth>;
 
@@ -34,9 +46,58 @@ let clerkAuth: ClerkAuth;
 let clerkUser: ClerkUser;
 let convexAuth: ConvexAuth;
 let viewer: unknown;
+let clerkSessionOverride: ClerkSession | undefined;
+const clerkSessionResources = new Map<
+  string,
+  NonNullable<ClerkSession["session"]>
+>();
+
+function base64Url(value: string): string {
+  return btoa(value)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+function sessionToken(userId = "user-a", sessionId = "session-a"): string {
+  return [
+    base64Url(JSON.stringify({ alg: "RS256", typ: "JWT" })),
+    base64Url(JSON.stringify({ sid: sessionId, sub: userId })),
+    base64Url("test-signature"),
+  ].join(".");
+}
+
+const defaultSessionToken = sessionToken();
+
+function sessionForAuth(auth: ClerkAuth): ClerkSession {
+  if (!auth.isLoaded) {
+    return {
+      isLoaded: false,
+      isSignedIn: undefined,
+      session: undefined,
+    } as ClerkSession;
+  }
+  if (!auth.isSignedIn) {
+    return { isLoaded: true, isSignedIn: false, session: null } as ClerkSession;
+  }
+
+  const resourceKey = `${auth.sessionId}:${auth.userId}`;
+  let session = clerkSessionResources.get(resourceKey);
+  if (session === undefined) {
+    session = {
+      getToken: clerkGetToken,
+      id: auth.sessionId,
+      user: { id: auth.userId },
+    } as unknown as NonNullable<ClerkSession["session"]>;
+    clerkSessionResources.set(resourceKey, session);
+  }
+
+  return { isLoaded: true, isSignedIn: true, session } as ClerkSession;
+}
 
 function signedInAuth(userId = "user-a", sessionId = "session-a"): ClerkAuth {
   return {
+    getToken: clerkAuthGetToken,
     isLoaded: true,
     isSignedIn: true,
     sessionId,
@@ -47,6 +108,7 @@ function signedInAuth(userId = "user-a", sessionId = "session-a"): ClerkAuth {
 
 function signedOutAuth(): ClerkAuth {
   return {
+    getToken: clerkAuthGetToken,
     isLoaded: true,
     isSignedIn: false,
     sessionId: null,
@@ -57,6 +119,7 @@ function signedOutAuth(): ClerkAuth {
 
 function loadingAuth(): ClerkAuth {
   return {
+    getToken: clerkAuthGetToken,
     isLoaded: false,
     isSignedIn: undefined,
     sessionId: undefined,
@@ -77,9 +140,19 @@ function AuthWrapper({ children }: PropsWithChildren) {
   return <NativeAuthProvider>{children}</NativeAuthProvider>;
 }
 
+function useAuthAndTransport() {
+  return {
+    auth: useNativeAuth(),
+    transport: useNativeAuthTransportBinding(),
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  clerkSessionResources.clear();
+  clerkSessionOverride = undefined;
   clerkSignOut.mockResolvedValue(undefined);
+  clerkGetToken.mockResolvedValue(defaultSessionToken);
   clerkAuth = signedInAuth();
   clerkUser = signedInUser();
   convexAuth = {
@@ -94,6 +167,9 @@ beforeEach(() => {
   };
 
   useAuthMock.mockImplementation(() => clerkAuth);
+  useSessionMock.mockImplementation(
+    () => clerkSessionOverride ?? sessionForAuth(clerkAuth),
+  );
   useUserMock.mockImplementation(() => clerkUser);
   useConvexAuthMock.mockImplementation(() => convexAuth);
   useQueriesMock.mockImplementation((queries: Record<string, unknown>) =>
@@ -106,6 +182,290 @@ describe("NativeAuthProvider", () => {
     expect(() => renderHook(() => useNativeAuth())).toThrow(
       "useNativeAuth() must be used within NativeAuthProvider",
     );
+  });
+
+  it("keeps Clerk session credentials inside the private transport binding", async () => {
+    const { result } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const accountEpoch = result.current.auth.sessionEpoch;
+
+    await expect(
+      result.current.transport.resolveRequestCredentials(),
+    ).resolves.toEqual({
+      accountEpoch,
+      sessionToken: defaultSessionToken,
+      status: "authenticated",
+    });
+    expect(clerkGetToken).toHaveBeenCalledWith();
+    expect(clerkAuthGetToken).not.toHaveBeenCalled();
+    expect(result.current.transport.accountEpoch).toBe(accountEpoch);
+    expect(result.current.transport).not.toHaveProperty(
+      "expectedAccountSubject",
+    );
+    expect(result.current.transport.isCurrentAccountEpoch(accountEpoch)).toBe(
+      true,
+    );
+    expect(result.current.auth).not.toHaveProperty("sessionToken");
+    expect(result.current.auth).not.toHaveProperty("getToken");
+    expect(JSON.stringify(result.current.auth)).not.toContain(
+      defaultSessionToken,
+    );
+  });
+
+  it("requests exactly one forced Clerk refresh when the caller asks", async () => {
+    const { result } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+
+    await expect(
+      result.current.transport.resolveRequestCredentials({
+        forceRefresh: true,
+      }),
+    ).resolves.toMatchObject({ status: "authenticated" });
+
+    expect(clerkGetToken).toHaveBeenCalledTimes(1);
+    expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
+  });
+
+  it.each([
+    ["another account", sessionToken("user-a", "session-b")],
+    ["another session", sessionToken("user-b", "session-a")],
+  ])("rejects a cached JWT for %s", async (_label, cachedToken) => {
+    clerkAuth = signedInAuth("user-b", "session-b");
+    clerkUser = signedInUser("user-b");
+    viewer = {
+      email: "sam@example.com",
+      name: "Samwise Gamgee",
+      subject: "user-b",
+    };
+    clerkGetToken.mockResolvedValue(cachedToken);
+    const { result } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+
+    await expect(
+      result.current.transport.resolveRequestCredentials(),
+    ).resolves.toEqual({ status: "unavailable" });
+    expect(clerkGetToken).toHaveBeenCalledTimes(1);
+    expect(clerkAuthGetToken).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.current.auth)).not.toContain(cachedToken);
+  });
+
+  it("supersedes a binding when Clerk replaces the exact session resource", async () => {
+    const firstSession = sessionForAuth(clerkAuth);
+    clerkSessionOverride = firstSession;
+    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const firstBinding = result.current.transport;
+
+    clerkSessionOverride = {
+      isLoaded: true,
+      isSignedIn: true,
+      session: {
+        getToken: clerkGetToken,
+        id: "session-a",
+        user: { id: "user-a" },
+      },
+    } as unknown as ClerkSession;
+    act(() => rerender(undefined));
+
+    await expect(firstBinding.resolveRequestCredentials()).resolves.toEqual({
+      status: "superseded",
+    });
+    expect(clerkGetToken).not.toHaveBeenCalled();
+  });
+
+  it("returns tokenless public credentials only for the current signed-out epoch", async () => {
+    clerkAuth = signedOutAuth();
+    clerkUser = {
+      isLoaded: true,
+      isSignedIn: false,
+      user: null,
+    } as ClerkUser;
+    const { result } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const accountEpoch = result.current.auth.sessionEpoch;
+
+    await expect(
+      result.current.transport.resolveRequestCredentials(),
+    ).resolves.toEqual({ accountEpoch, status: "public" });
+    expect(clerkGetToken).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale signed-out binding mint credentials for a later account", async () => {
+    clerkAuth = signedOutAuth();
+    clerkUser = {
+      isLoaded: true,
+      isSignedIn: false,
+      user: null,
+    } as ClerkUser;
+    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const signedOutBinding = result.current.transport;
+
+    clerkAuth = signedInAuth();
+    clerkUser = signedInUser();
+    act(() => rerender(undefined));
+
+    await expect(signedOutBinding.resolveRequestCredentials()).resolves.toEqual(
+      { status: "superseded" },
+    );
+    expect(clerkGetToken).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Clerk is loading", "loading"],
+    ["the account bridge is unavailable", "bridgeError"],
+  ] as const)(
+    "returns a sanitized unavailable result while %s",
+    async (_label, expectedStatus) => {
+      if (expectedStatus === "loading") {
+        clerkAuth = loadingAuth();
+      } else {
+        convexAuth = {
+          isAuthenticated: false,
+          isLoading: false,
+          isRefreshing: false,
+        };
+      }
+      const { result } = renderHook(() => useAuthAndTransport(), {
+        wrapper: AuthWrapper,
+      });
+
+      expect(result.current.auth.state.status).toBe(expectedStatus);
+      await expect(
+        result.current.transport.resolveRequestCredentials(),
+      ).resolves.toEqual({ status: "unavailable" });
+      expect(clerkGetToken).not.toHaveBeenCalled();
+    },
+  );
+
+  it("discards a token that resolves after the account epoch changes", async () => {
+    let resolveToken: ((token: string | null) => void) | undefined;
+    clerkGetToken.mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveToken = resolve;
+        }),
+    );
+    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const firstBinding = result.current.transport;
+    const firstEpoch = firstBinding.accountEpoch;
+    const pendingCredentials = firstBinding.resolveRequestCredentials();
+
+    clerkAuth = signedInAuth("user-b", "session-b");
+    clerkUser = signedInUser("user-b");
+    viewer = {
+      email: "sam@example.com",
+      name: "Samwise Gamgee",
+      subject: "user-b",
+    };
+    act(() => rerender(undefined));
+
+    await act(async () => {
+      resolveToken?.("token-for-user-a");
+      await pendingCredentials;
+    });
+
+    await expect(pendingCredentials).resolves.toEqual({
+      status: "superseded",
+    });
+    expect(firstBinding.isCurrentAccountEpoch(firstEpoch)).toBe(false);
+    expect(JSON.stringify(await pendingCredentials)).not.toContain(
+      "token-for-user-a",
+    );
+  });
+
+  it("discards a token that resolves after the auth provider unmounts", async () => {
+    let resolveToken: ((token: string | null) => void) | undefined;
+    clerkGetToken.mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveToken = resolve;
+        }),
+    );
+    const { result, unmount } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const binding = result.current.transport;
+    const pendingCredentials = binding.resolveRequestCredentials();
+
+    act(() => unmount());
+
+    expect(binding.isCurrentAccountEpoch(binding.accountEpoch)).toBe(false);
+    await act(async () => {
+      resolveToken?.("token-from-unmounted-provider");
+      await pendingCredentials;
+    });
+    await expect(pendingCredentials).resolves.toEqual({
+      status: "superseded",
+    });
+    expect(JSON.stringify(await pendingCredentials)).not.toContain(
+      "token-from-unmounted-provider",
+    );
+  });
+
+  it("rotates the epoch and rejects stale credentials if a session is reused by another subject", async () => {
+    let resolveToken: ((token: string | null) => void) | undefined;
+    clerkGetToken.mockImplementation(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveToken = resolve;
+        }),
+    );
+    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+    const firstBinding = result.current.transport;
+    const pendingCredentials = firstBinding.resolveRequestCredentials();
+
+    clerkAuth = signedInAuth("user-b", "session-a");
+    clerkUser = signedInUser("user-b");
+    viewer = {
+      email: "sam@example.com",
+      name: "Samwise Gamgee",
+      subject: "user-b",
+    };
+    act(() => rerender(undefined));
+
+    expect(result.current.transport.accountEpoch).not.toBe(
+      firstBinding.accountEpoch,
+    );
+    await act(async () => {
+      resolveToken?.("token-for-user-a");
+      await pendingCredentials;
+    });
+    await expect(pendingCredentials).resolves.toEqual({
+      status: "superseded",
+    });
+  });
+
+  it.each([
+    ["Clerk rejects token access", new Error("private-token-in-error")],
+    ["Clerk has no current token", null],
+    ["Clerk returns an empty token", ""],
+    ["Clerk returns a token with surrounding whitespace", " token-value "],
+  ])("sanitizes credentials when %s", async (_label, tokenOrError) => {
+    if (tokenOrError instanceof Error) {
+      clerkGetToken.mockRejectedValue(tokenOrError);
+    } else {
+      clerkGetToken.mockResolvedValue(tokenOrError);
+    }
+    const { result } = renderHook(() => useAuthAndTransport(), {
+      wrapper: AuthWrapper,
+    });
+
+    const credentials =
+      await result.current.transport.resolveRequestCredentials();
+
+    expect(credentials).toEqual({ status: "unavailable" });
+    expect(JSON.stringify(credentials)).not.toContain("private-token-in-error");
   });
 
   it("keeps Convex query-map identities stable across unrelated renders", () => {

@@ -1,9 +1,10 @@
-import { useAuth, useUser } from "@clerk/expo";
+import { useAuth, useSession, useUser } from "@clerk/expo";
 import { useConvexAuth, useQueries } from "convex/react";
 import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,11 +13,18 @@ import {
 } from "react";
 
 import { convexClientApi } from "../data/convexClientApi";
-import { NativeAuthTransportBindingProvider } from "./NativeAuthTransportBindingContext";
+import { NativeAccountSubjectBindingProvider } from "./NativeAccountSubjectBindingContext";
+import {
+  NativeAuthTransportBindingProvider,
+  type NativeAuthTransportBinding,
+  type NativeAuthTransportCredentials,
+} from "./NativeAuthTransportBindingContext";
+import { isClerkSessionTokenIdentityConsistent } from "./clerkSessionToken";
 
 const BRIDGE_ERROR_MESSAGE =
   "We couldn't connect your account. Please try again.";
 const SIGN_OUT_ERROR_MESSAGE = "We couldn't sign you out. Please try again.";
+const INACTIVE_TRANSPORT_EPOCH = Symbol("inactive-native-auth-transport");
 
 interface NativeAuthLoadingState {
   readonly profile: null;
@@ -38,6 +46,19 @@ interface NativeViewerIdentity {
   readonly name: string | null;
   readonly subject: string;
 }
+
+interface NativeAuthTransportIdentity {
+  readonly accountEpoch: symbol;
+  readonly expectedAccountSubject: string | null;
+  readonly sessionId: string | null;
+  readonly sessionResource: ClerkSessionResource | null;
+  readonly stateStatus: NativeAuthState["status"];
+  readonly userId: string | null;
+}
+
+type ClerkSessionResource = NonNullable<
+  ReturnType<typeof useSession>["session"]
+>;
 
 export interface NativeAccountProfile {
   readonly email: string | null;
@@ -76,9 +97,13 @@ export interface NativeAuthValue {
 
 let nextSessionEpochKey = 0;
 
-function createSessionEpochState(sessionId: string | null): {
+function createSessionEpochState(
+  sessionId: string | null,
+  userId: string | null,
+): {
   readonly key: string;
   readonly sessionId: string | null;
+  readonly userId: string | null;
   readonly value: symbol;
 } {
   nextSessionEpochKey += 1;
@@ -88,12 +113,19 @@ function createSessionEpochState(sessionId: string | null): {
     // credential. Its sequence is intentionally independent of Clerk IDs.
     key: `native-epoch-${nextSessionEpochKey.toString(36)}`,
     sessionId,
+    userId,
     value: Symbol("native-clerk-session"),
   };
 }
 
 function sanitizeSignOutError(_error: unknown): NativeSignOutResult {
   return { message: SIGN_OUT_ERROR_MESSAGE, ok: false };
+}
+
+function sanitizeCredentialError(
+  _error: unknown,
+): NativeAuthTransportCredentials {
+  return { status: "unavailable" };
 }
 
 const LOADING_STATE: NativeAuthLoadingState = Object.freeze({
@@ -127,6 +159,7 @@ export function NativeAuthProvider({
   children,
 }: PropsWithChildren): ReactElement {
   const clerkAuth = useAuth({ treatPendingAsSignedOut: false });
+  const clerkSession = useSession();
   const clerkUser = useUser();
   const convexAuth = useConvexAuth();
   const [suppressedSessionId, setSuppressedSessionId] = useState<string | null>(
@@ -139,27 +172,47 @@ export function NativeAuthProvider({
 
   const activeSessionId =
     clerkAuth.isLoaded && clerkAuth.isSignedIn ? clerkAuth.sessionId : null;
+  const activeUserId =
+    clerkAuth.isLoaded && clerkAuth.isSignedIn ? clerkAuth.userId : null;
+  const activeSessionResource =
+    clerkSession.isLoaded && clerkSession.isSignedIn === true
+      ? clerkSession.session
+      : null;
   const isCurrentSessionSuppressed =
     activeSessionId !== null && activeSessionId === suppressedSessionId;
   const exposedSessionId = isCurrentSessionSuppressed ? null : activeSessionId;
+  const exposedUserId = isCurrentSessionSuppressed ? null : activeUserId;
+  const exposedSessionResource = isCurrentSessionSuppressed
+    ? null
+    : activeSessionResource;
   const [sessionEpochState, setSessionEpochState] = useState<{
     readonly key: string;
     readonly sessionId: string | null;
+    readonly userId: string | null;
     readonly value: symbol;
-  }>(() => createSessionEpochState(exposedSessionId));
-  if (sessionEpochState.sessionId !== exposedSessionId) {
+  }>(() => createSessionEpochState(exposedSessionId, exposedUserId));
+  if (
+    sessionEpochState.sessionId !== exposedSessionId ||
+    sessionEpochState.userId !== exposedUserId
+  ) {
     // State is a semantic identity guarantee, unlike a memo cache. React
     // restarts this render before committing the replacement session.
-    setSessionEpochState(createSessionEpochState(exposedSessionId));
+    setSessionEpochState(
+      createSessionEpochState(exposedSessionId, exposedUserId),
+    );
   }
   const sessionEpoch = sessionEpochState.value;
   const sessionEpochKey = sessionEpochState.key;
   const clerkIdentityReady =
     clerkAuth.isLoaded &&
     clerkAuth.isSignedIn &&
+    clerkSession.isLoaded &&
+    clerkSession.isSignedIn === true &&
     clerkUser.isLoaded &&
     clerkUser.isSignedIn &&
-    clerkUser.user.id === clerkAuth.userId;
+    clerkUser.user.id === clerkAuth.userId &&
+    clerkSession.session.id === clerkAuth.sessionId &&
+    clerkSession.session.user.id === clerkAuth.userId;
   const canQueryViewer =
     clerkIdentityReady &&
     !isCurrentSessionSuppressed &&
@@ -182,14 +235,17 @@ export function NativeAuthProvider({
       return SIGNED_OUT_STATE;
     }
 
-    if (!clerkAuth.isLoaded || !clerkUser.isLoaded) {
+    if (!clerkAuth.isLoaded || !clerkSession.isLoaded || !clerkUser.isLoaded) {
       return LOADING_STATE;
     }
 
     if (
       !clerkAuth.isSignedIn ||
+      clerkSession.isSignedIn !== true ||
       !clerkUser.isSignedIn ||
-      clerkUser.user.id !== clerkAuth.userId
+      clerkUser.user.id !== clerkAuth.userId ||
+      clerkSession.session.id !== clerkAuth.sessionId ||
+      clerkSession.session.user.id !== clerkAuth.userId
     ) {
       return CONNECTING_STATE;
     }
@@ -223,6 +279,7 @@ export function NativeAuthProvider({
     };
   }, [
     clerkAuth,
+    clerkSession,
     clerkUser,
     convexAuth.isAuthenticated,
     convexAuth.isLoading,
@@ -291,6 +348,156 @@ export function NativeAuthProvider({
       ? viewer.subject
       : null;
 
+  const latestTransportIdentityRef = useRef<NativeAuthTransportIdentity>({
+    accountEpoch: sessionEpoch,
+    expectedAccountSubject: validatedAccountSubject,
+    sessionId: exposedSessionId,
+    sessionResource: exposedSessionResource,
+    stateStatus: state.status,
+    userId: exposedUserId,
+  });
+  useLayoutEffect(() => {
+    latestTransportIdentityRef.current = {
+      accountEpoch: sessionEpoch,
+      expectedAccountSubject: validatedAccountSubject,
+      sessionId: exposedSessionId,
+      sessionResource: exposedSessionResource,
+      stateStatus: state.status,
+      userId: exposedUserId,
+    };
+
+    return () => {
+      latestTransportIdentityRef.current = {
+        accountEpoch: INACTIVE_TRANSPORT_EPOCH,
+        expectedAccountSubject: null,
+        sessionId: null,
+        sessionResource: null,
+        stateStatus: "loading",
+        userId: null,
+      };
+    };
+  }, [
+    exposedSessionId,
+    exposedSessionResource,
+    exposedUserId,
+    sessionEpoch,
+    state.status,
+    validatedAccountSubject,
+  ]);
+
+  const isCurrentAccountEpoch = useCallback(
+    (accountEpoch: symbol): boolean =>
+      latestTransportIdentityRef.current.accountEpoch === accountEpoch,
+    [],
+  );
+
+  const resolveRequestCredentials = useCallback(
+    async (options?: {
+      readonly forceRefresh?: boolean;
+    }): Promise<NativeAuthTransportCredentials> => {
+      const startingIdentity = {
+        accountEpoch: sessionEpoch,
+        expectedAccountSubject: validatedAccountSubject,
+        sessionId: exposedSessionId,
+        sessionResource: exposedSessionResource,
+        stateStatus: state.status,
+        userId: exposedUserId,
+      } as const;
+      const isStartingIdentityCurrent = (): boolean => {
+        const currentIdentity = latestTransportIdentityRef.current;
+
+        return (
+          currentIdentity.accountEpoch === startingIdentity.accountEpoch &&
+          currentIdentity.expectedAccountSubject ===
+            startingIdentity.expectedAccountSubject &&
+          currentIdentity.sessionId === startingIdentity.sessionId &&
+          currentIdentity.sessionResource ===
+            startingIdentity.sessionResource &&
+          currentIdentity.stateStatus === startingIdentity.stateStatus &&
+          currentIdentity.userId === startingIdentity.userId
+        );
+      };
+
+      if (!isStartingIdentityCurrent()) {
+        return { status: "superseded" };
+      }
+
+      if (startingIdentity.stateStatus === "signedOut") {
+        return {
+          accountEpoch: startingIdentity.accountEpoch,
+          status: "public",
+        };
+      }
+
+      if (
+        startingIdentity.stateStatus !== "ready" ||
+        startingIdentity.expectedAccountSubject === null ||
+        startingIdentity.sessionId === null ||
+        startingIdentity.sessionResource === null ||
+        startingIdentity.userId === null ||
+        startingIdentity.expectedAccountSubject !== startingIdentity.userId ||
+        startingIdentity.sessionResource.id !== startingIdentity.sessionId ||
+        startingIdentity.sessionResource.user.id !== startingIdentity.userId
+      ) {
+        return { status: "unavailable" };
+      }
+
+      let sessionToken: string | null;
+      try {
+        sessionToken = options?.forceRefresh
+          ? await startingIdentity.sessionResource.getToken({ skipCache: true })
+          : await startingIdentity.sessionResource.getToken();
+      } catch (error: unknown) {
+        return isStartingIdentityCurrent()
+          ? sanitizeCredentialError(error)
+          : { status: "superseded" };
+      }
+
+      if (!isStartingIdentityCurrent()) {
+        return { status: "superseded" };
+      }
+
+      if (typeof sessionToken !== "string") {
+        return { status: "unavailable" };
+      }
+      const trimmedSessionToken = sessionToken.trim();
+      if (
+        trimmedSessionToken.length === 0 ||
+        trimmedSessionToken !== sessionToken ||
+        !isClerkSessionTokenIdentityConsistent(
+          sessionToken,
+          startingIdentity.userId,
+          startingIdentity.sessionId,
+        )
+      ) {
+        return { status: "unavailable" };
+      }
+
+      return {
+        accountEpoch: startingIdentity.accountEpoch,
+        sessionToken,
+        status: "authenticated",
+      };
+    },
+    [
+      exposedSessionId,
+      exposedSessionResource,
+      exposedUserId,
+      sessionEpoch,
+      state.status,
+      validatedAccountSubject,
+    ],
+  );
+
+  const transportBinding = useMemo<NativeAuthTransportBinding>(
+    () => ({
+      accountEpoch: sessionEpoch,
+      isCurrentAccountEpoch,
+      resolveRequestCredentials,
+    }),
+    [isCurrentAccountEpoch, resolveRequestCredentials, sessionEpoch],
+  );
+
   const value = useMemo<NativeAuthValue>(
     () => ({
       canSignOut: activeSessionId !== null && !isCurrentSessionSuppressed,
@@ -310,12 +517,12 @@ export function NativeAuthProvider({
   );
 
   return (
-    <NativeAuthTransportBindingProvider
-      expectedAccountSubject={validatedAccountSubject}
-    >
-      <NativeAuthContext.Provider value={value}>
-        {children}
-      </NativeAuthContext.Provider>
+    <NativeAuthTransportBindingProvider binding={transportBinding}>
+      <NativeAccountSubjectBindingProvider subject={validatedAccountSubject}>
+        <NativeAuthContext.Provider value={value}>
+          {children}
+        </NativeAuthContext.Provider>
+      </NativeAccountSubjectBindingProvider>
     </NativeAuthTransportBindingProvider>
   );
 }

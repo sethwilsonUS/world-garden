@@ -3,6 +3,7 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 import {
   resolveClerkPublishableKey,
   resolveConvexDeploymentUrl,
+  resolvePublicWebOrigin,
 } from "./src/config/public-environment.cjs";
 import withAndroidReleaseManifestSafety from "./plugins/withAndroidReleaseManifestSafety";
 import withReactNativeSpmUuidSafety from "./plugins/withReactNativeSpmUuidSafety";
@@ -78,6 +79,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const clerkPublishableKey = resolveClerkPublishableKey(
     variant,
     process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  );
+  const webOrigin = resolvePublicWebOrigin(
+    variant,
+    process.env.EXPO_PUBLIC_WEB_ORIGIN,
+    {
+      requireExplicitHttps:
+        variant !== "production" &&
+        Boolean(process.env.EAS_BUILD_PROFILE?.trim()),
+    },
   );
 
   return withAndroidReleaseManifestSafety(
@@ -165,6 +175,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         appVariant: variant,
         clerkPublishableKey,
         convexUrl,
+        webOrigin,
         eas: {
           projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea",
         },

@@ -7,10 +7,12 @@ import { useState, type PropsWithChildren, type ReactElement } from "react";
 import { NativeAuthProvider } from "../auth/NativeAuthContext";
 import { ConvexNativeLibraryProvider } from "../data/ConvexNativeLibraryProvider";
 import { ConvexWikipediaReaderProvider } from "../data/ConvexWikipediaReaderProvider";
+import { NativeArticleAudioAccessProvider } from "../media/NativeArticleAudioAccessProvider";
 
 export interface NativeDataAuthProviderProps extends PropsWithChildren {
   readonly clerkPublishableKey: string;
   readonly convexUrl: string;
+  readonly webOrigin: string;
 }
 
 /**
@@ -23,6 +25,7 @@ export function NativeDataAuthProvider({
   children,
   clerkPublishableKey,
   convexUrl,
+  webOrigin,
 }: NativeDataAuthProviderProps): ReactElement {
   const [convexClient] = useState(() => new ConvexReactClient(convexUrl));
 
@@ -31,9 +34,11 @@ export function NativeDataAuthProvider({
       <ConvexProviderWithClerk client={convexClient} useAuth={useAuth}>
         <ConvexWikipediaReaderProvider>
           <NativeAuthProvider>
-            <ConvexNativeLibraryProvider>
-              {children}
-            </ConvexNativeLibraryProvider>
+            <NativeArticleAudioAccessProvider webOrigin={webOrigin}>
+              <ConvexNativeLibraryProvider>
+                {children}
+              </ConvexNativeLibraryProvider>
+            </NativeArticleAudioAccessProvider>
           </NativeAuthProvider>
         </ConvexWikipediaReaderProvider>
       </ConvexProviderWithClerk>
