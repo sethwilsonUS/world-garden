@@ -1,12 +1,14 @@
 import Constants from "expo-constants";
 
 import {
+  resolveClerkPublishableKey,
   resolveConvexDeploymentUrl,
   type ConvexEnvironmentVariant,
-} from "./public-environment";
+} from "./public-environment.cjs";
 
 export type MobileRuntimeConfig = Readonly<{
   appVariant: ConvexEnvironmentVariant;
+  clerkPublishableKey: string;
   convexUrl: string;
 }>;
 
@@ -37,9 +39,19 @@ export function parseMobileRuntimeConfig(extra: unknown): MobileRuntimeConfig {
   if (typeof extra.convexUrl !== "string" || !extra.convexUrl.trim()) {
     throw new Error("Native Convex deployment configuration is missing");
   }
+  if (
+    typeof extra.clerkPublishableKey !== "string" ||
+    !extra.clerkPublishableKey.trim()
+  ) {
+    throw new Error("Native Clerk publishable key configuration is missing");
+  }
 
   return {
     appVariant,
+    clerkPublishableKey: resolveClerkPublishableKey(
+      appVariant,
+      extra.clerkPublishableKey,
+    ),
     convexUrl: resolveConvexDeploymentUrl(appVariant, extra.convexUrl),
   };
 }

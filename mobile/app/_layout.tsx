@@ -4,8 +4,9 @@ import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { HostedAuthProvider } from "../src/auth/HostedAuthFlow";
 import { getMobileRuntimeConfig } from "../src/config/runtime-config";
-import { PublicWikipediaDataProvider } from "../src/data/ConvexWikipediaReaderProvider";
+import { NativeDataAuthProvider } from "../src/providers/NativeDataAuthProvider";
 import {
   GardenThemeProvider,
   useGardenTheme,
@@ -41,15 +42,20 @@ function NativeNavigationShell() {
 }
 
 export default function RootLayout() {
-  const { convexUrl } = getMobileRuntimeConfig();
+  const { clerkPublishableKey, convexUrl } = getMobileRuntimeConfig();
 
   return (
     <SafeAreaProvider>
-      <PublicWikipediaDataProvider convexUrl={convexUrl}>
+      <NativeDataAuthProvider
+        clerkPublishableKey={clerkPublishableKey}
+        convexUrl={convexUrl}
+      >
         <GardenThemeProvider>
-          <NativeNavigationShell />
+          <HostedAuthProvider>
+            <NativeNavigationShell />
+          </HostedAuthProvider>
         </GardenThemeProvider>
-      </PublicWikipediaDataProvider>
+      </NativeDataAuthProvider>
     </SafeAreaProvider>
   );
 }

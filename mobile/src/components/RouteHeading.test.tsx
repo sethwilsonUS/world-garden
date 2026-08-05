@@ -7,7 +7,7 @@ import { RouteHeading } from "./RouteHeading";
 function heading(
   title: string,
   focusKey = title,
-  focusElement: jest.Mock = jest.fn(),
+  focusElement?: jest.Mock,
 ) {
   return (
     <GardenThemeProvider
@@ -63,5 +63,25 @@ describe("RouteHeading", () => {
       expect(AccessibilityInfo.isScreenReaderEnabled).toHaveBeenCalled(),
     );
     expect(focus).not.toHaveBeenCalled();
+  });
+
+  it("uses the renderer-aware focus event for a native route heading", async () => {
+    jest
+      .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
+      .mockResolvedValue(true);
+    const sendAccessibilityEvent = jest.spyOn(
+      AccessibilityInfo,
+      "sendAccessibilityEvent",
+    );
+
+    render(heading("Account & data", "account"));
+
+    await waitFor(() =>
+      expect(sendAccessibilityEvent).toHaveBeenCalledWith(
+        expect.anything(),
+        "focus",
+      ),
+    );
+    expect(sendAccessibilityEvent).toHaveBeenCalledTimes(1);
   });
 });

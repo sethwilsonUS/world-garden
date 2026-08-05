@@ -56,10 +56,29 @@ describe("native canonical route mapping", () => {
   });
 
   it.each([
+    "org.curiogarden.app://callback?code=private&state=private",
+    "org.curiogarden.app.dev://callback?code=private&state=private",
+    "org.curiogarden.app.preview://callback?code=private&state=private",
+    "org.curiogarden.app.e2e://callback?code=private&state=private",
+    "clerk://org.curiogarden.app.hosted-callback?code=private&state=private",
+    "clerk://org.curiogarden.app.dev.hosted-callback?code=private&state=private",
+    "clerk://org.curiogarden.app.preview.hosted-callback?code=private&state=private",
+    "clerk://org.curiogarden.app.e2e.hosted-callback?code=private&state=private",
+  ])(
+    "leaves an exact Clerk hosted callback with the active route: %s",
+    (path) => {
+      expect(redirectIncomingSystemPath(path)).toBeNull();
+    },
+  );
+
+  it.each([
     "https://example.com/article/Taylor_Swift",
     "http://curiogarden.org/article/Taylor_Swift",
     "https://www.curiogarden.org/article/Taylor_Swift",
     "curiogarden://evil.example/article/Taylor_Swift",
+    "clerk://org.curiogarden.app.e2e.hosted-callback.evil?code=private",
+    "clerk://org.curiogarden.app.e2e.hosted-callback/another/path?code=private",
+    "clerk://org.curiogarden.app.e2e.hosted-callback#private",
     "/article/AC/DC",
     "/account",
     "%",

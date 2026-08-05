@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
 
 import { BrandHeading } from "../components/BrandHeading";
+import { GardenButton } from "../components/GardenButton";
 import { GardenCard } from "../components/GardenCard";
 import { WikipediaSearchForm } from "../components/WikipediaSearchForm";
 import { GardenScreen } from "../layout/GardenScreen";
@@ -39,6 +40,12 @@ export function HomeScreen() {
         <GardenText color="muted" variant="metadata">
           No account needed to begin.
         </GardenText>
+        <GardenButton
+          hint="Open sign-in and account settings."
+          label="Account"
+          onPress={() => router.push("/account")}
+          variant="secondary"
+        />
       </GardenCard>
     </GardenScreen>
   );

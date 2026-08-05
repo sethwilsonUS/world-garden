@@ -1,6 +1,11 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
-import { resolveConvexDeploymentUrl } from "./src/config/public-environment.cjs";
+import {
+  resolveClerkPublishableKey,
+  resolveConvexDeploymentUrl,
+} from "./src/config/public-environment.cjs";
+import withAndroidReleaseManifestSafety from "./plugins/withAndroidReleaseManifestSafety";
+import withReactNativeSpmUuidSafety from "./plugins/withReactNativeSpmUuidSafety";
 
 const SURFACE_LIGHT = "#f7f6f3";
 const SURFACE_DARK = "#171717";
@@ -70,89 +75,100 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     variant,
     process.env.EXPO_PUBLIC_CONVEX_URL,
   );
+  const clerkPublishableKey = resolveClerkPublishableKey(
+    variant,
+    process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  );
 
-  return {
-    ...config,
-    name: identity.displayName,
-    slug: "curio-garden",
-    owner: "a11ygarden",
-    version: "0.1.0",
-    platforms: ["ios", "android"],
-    orientation: "default",
-    scheme: identity.scheme,
-    icon: "./assets/icon.png",
-    primaryColor: ACCENT,
-    userInterfaceStyle: "automatic",
-    ios: {
-      bundleIdentifier: identity.identifier,
-      supportsTablet: false,
-      config: {
-        usesNonExemptEncryption: false,
-      },
-    },
-    android: {
-      package: identity.identifier,
-      blockedPermissions: [
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-      ],
-      adaptiveIcon: {
-        backgroundColor: ACCENT,
-        foregroundImage: "./assets/adaptive-icon.png",
-        monochromeImage: "./assets/adaptive-icon.png",
-      },
-    },
-    plugins: [
-      "expo-router",
-      [
-        "expo-font",
-        {
-          fonts: bundledFontFiles,
+  return withAndroidReleaseManifestSafety(
+    withReactNativeSpmUuidSafety({
+      ...config,
+      name: identity.displayName,
+      slug: "curio-garden",
+      owner: "a11ygarden",
+      version: "0.1.0",
+      platforms: ["ios", "android"],
+      orientation: "default",
+      scheme: identity.scheme,
+      icon: "./assets/icon.png",
+      primaryColor: ACCENT,
+      userInterfaceStyle: "automatic",
+      ios: {
+        bundleIdentifier: identity.identifier,
+        supportsTablet: false,
+        config: {
+          usesNonExemptEncryption: false,
         },
-      ],
-      [
-        "expo-dev-client",
-        {
-          addGeneratedScheme: variant === "development",
+      },
+      android: {
+        package: identity.identifier,
+        blockedPermissions: [
+          "android.permission.READ_EXTERNAL_STORAGE",
+          "android.permission.REORDER_TASKS",
+          "android.permission.SYSTEM_ALERT_WINDOW",
+          "android.permission.WRITE_EXTERNAL_STORAGE",
+        ],
+        adaptiveIcon: {
+          backgroundColor: ACCENT,
+          foregroundImage: "./assets/adaptive-icon.png",
+          monochromeImage: "./assets/adaptive-icon.png",
         },
-      ],
-      [
-        "expo-splash-screen",
-        {
-          backgroundColor: SURFACE_LIGHT,
-          image: "./assets/splash-icon.png",
-          imageWidth: 160,
-          resizeMode: "contain",
-          dark: {
-            backgroundColor: SURFACE_DARK,
+      },
+      plugins: [
+        "expo-router",
+        ["@clerk/expo", { appleSignIn: false }],
+        "expo-secure-store",
+        "expo-web-browser",
+        [
+          "expo-font",
+          {
+            fonts: bundledFontFiles,
+          },
+        ],
+        [
+          "expo-dev-client",
+          {
+            addGeneratedScheme: variant === "development",
+          },
+        ],
+        [
+          "expo-splash-screen",
+          {
+            backgroundColor: SURFACE_LIGHT,
             image: "./assets/splash-icon.png",
+            imageWidth: 160,
+            resizeMode: "contain",
+            dark: {
+              backgroundColor: SURFACE_DARK,
+              image: "./assets/splash-icon.png",
+            },
           },
-        },
+        ],
+        [
+          "expo-build-properties",
+          {
+            ios: {
+              deploymentTarget: "17.0",
+            },
+            android: {
+              minSdkVersion: 24,
+              compileSdkVersion: 36,
+              targetSdkVersion: 36,
+            },
+          },
+        ],
       ],
-      [
-        "expo-build-properties",
-        {
-          ios: {
-            deploymentTarget: "16.4",
-          },
-          android: {
-            minSdkVersion: 24,
-            compileSdkVersion: 36,
-            targetSdkVersion: 36,
-          },
-        },
-      ],
-    ],
-    experiments: {
-      typedRoutes: true,
-    },
-    extra: {
-      appVariant: variant,
-      convexUrl,
-      eas: {
-        projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea",
+      experiments: {
+        typedRoutes: true,
       },
-    },
-  };
+      extra: {
+        appVariant: variant,
+        clerkPublishableKey,
+        convexUrl,
+        eas: {
+          projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea",
+        },
+      },
+    }),
+  );
 };

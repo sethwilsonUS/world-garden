@@ -25,7 +25,7 @@
     },
     "e2e-test": {
       "node": "24.16.0",
-      "environment": "preview",
+      "environment": "development",
       "distribution": "internal",
       "env": {
         "APP_VARIANT": "e2e"

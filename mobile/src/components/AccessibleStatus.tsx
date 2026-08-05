@@ -7,11 +7,14 @@ export interface AccessibleStatusProps extends Omit<
   GardenTextProps,
   "accessibilityLiveRegion" | "aria-live" | "children"
 > {
+  announceOnReveal?: boolean;
+  announcementMode?: "automatic" | "imperative" | "none";
   message: string;
 }
 
 function announcePolitely(message: string) {
   if (
+    Platform.OS === "ios" &&
     typeof AccessibilityInfo.announceForAccessibilityWithOptions === "function"
   ) {
     AccessibilityInfo.announceForAccessibilityWithOptions(message, {
@@ -30,6 +33,8 @@ function announcePolitely(message: string) {
  */
 export function AccessibleStatus({
   accessible: accessibleOverride,
+  announceOnReveal = true,
+  announcementMode = "automatic",
   message,
   ...textProps
 }: AccessibleStatusProps) {
@@ -37,23 +42,36 @@ export function AccessibleStatus({
   const accessible = accessibleOverride ?? normalizedMessage.length > 0;
   const activeMessage = accessible ? normalizedMessage : "";
   const previousMessage = useRef(activeMessage);
+  const wasAccessible = useRef(accessible);
 
   useEffect(() => {
     const isTransition = activeMessage !== previousMessage.current;
+    const becameAccessible = accessible && !wasAccessible.current;
 
-    previousMessage.current = activeMessage;
+    wasAccessible.current = accessible;
+    if (accessible) previousMessage.current = activeMessage;
 
-    if (Platform.OS === "ios" && isTransition && activeMessage.length > 0) {
+    if (
+      isTransition &&
+      activeMessage.length > 0 &&
+      (!becameAccessible || announceOnReveal) &&
+      (announcementMode === "imperative" ||
+        (announcementMode === "automatic" && Platform.OS === "ios"))
+    ) {
       announcePolitely(activeMessage);
     }
-  }, [activeMessage]);
+  }, [accessible, activeMessage, announceOnReveal, announcementMode]);
 
   return (
     <GardenText
       {...textProps}
       accessible={accessible}
       accessibilityLiveRegion={
-        Platform.OS === "android" && activeMessage ? "polite" : undefined
+        Platform.OS === "android" &&
+        announcementMode === "automatic" &&
+        activeMessage
+          ? "polite"
+          : undefined
       }
       color={textProps.color ?? "foreground2"}
     >

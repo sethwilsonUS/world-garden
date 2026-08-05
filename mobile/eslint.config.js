@@ -5,7 +5,7 @@ const expoConfig = require("eslint-config-expo/flat");
 module.exports = defineConfig([
   ...fixupConfigRules(expoConfig),
   {
-    files: ["src/data/convexPublicApi.ts"],
+    files: ["src/data/convexClientApi.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
