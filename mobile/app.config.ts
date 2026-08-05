@@ -4,7 +4,7 @@ const SURFACE_LIGHT = "#f7f6f3";
 const SURFACE_DARK = "#171717";
 const ACCENT = "#036b4a";
 
-const appVariants = ["development", "preview", "production"] as const;
+const appVariants = ["development", "preview", "e2e", "production"] as const;
 
 export type AppVariant = (typeof appVariants)[number];
 
@@ -24,6 +24,11 @@ const identities: Record<AppVariant, AppIdentity> = {
     displayName: "Curio Garden (Preview)",
     identifier: "org.curiogarden.app.preview",
     scheme: "curiogarden-preview",
+  },
+  e2e: {
+    displayName: "Curio Garden (E2E)",
+    identifier: "org.curiogarden.app.e2e",
+    scheme: "curiogarden-e2e",
   },
   production: {
     displayName: "Curio Garden",

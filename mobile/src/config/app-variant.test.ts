@@ -4,6 +4,7 @@ import createAppConfig, {
   getAppIdentity,
   resolveAppVariant,
 } from "../../app.config";
+import easConfig from "../../eas.json";
 
 const configContext = { config: {} } as ConfigContext;
 const originalAppVariant = process.env.APP_VARIANT;
@@ -35,6 +36,22 @@ describe("native application variants", () => {
       identifier: "org.curiogarden.app",
       scheme: "curiogarden",
     });
+  });
+
+  it("keeps automated test builds isolated from preview", () => {
+    expect(easConfig.build["e2e-test"].env.APP_VARIANT).toBe("e2e");
+    expect(getAppIdentity("e2e")).toEqual({
+      displayName: "Curio Garden (E2E)",
+      identifier: "org.curiogarden.app.e2e",
+      scheme: "curiogarden-e2e",
+    });
+
+    process.env.APP_VARIANT = "e2e";
+    const config = createAppConfig(configContext);
+
+    expect(config.ios?.bundleIdentifier).toBe("org.curiogarden.app.e2e");
+    expect(config.android?.package).toBe("org.curiogarden.app.e2e");
+    expect(config.scheme).toBe("curiogarden-e2e");
   });
 
   it("fails closed when a build profile supplies an unknown variant", () => {

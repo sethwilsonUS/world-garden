@@ -33,12 +33,14 @@ The production identifiers are:
 | ----------- | ---------------------- | ----------------------------- | --------------------- |
 | Development | Curio Garden (Dev)     | `org.curiogarden.app.dev`     | `curiogarden-dev`     |
 | Preview     | Curio Garden (Preview) | `org.curiogarden.app.preview` | `curiogarden-preview` |
+| E2E         | Curio Garden (E2E)     | `org.curiogarden.app.e2e`     | `curiogarden-e2e`     |
 | Production  | Curio Garden           | `org.curiogarden.app`         | `curiogarden`         |
 
-Development and preview use EAS internal distribution. Production beta
-distribution will use TestFlight and Google Play internal testing. The native
-Library will initially require sign-in rather than creating a second,
-device-local guest data model. EAS stores and automatically increments
+Development, preview, and E2E builds use separate identities and EAS internal
+distribution, so automated installs cannot overwrite a human preview build.
+Production beta distribution will use TestFlight and Google Play internal
+testing. The native Library will initially require sign-in rather than creating
+a second, device-local guest data model. EAS stores and automatically increments
 production build numbers so consecutive beta submissions remain valid.
 
 Minimum platform versions are iOS 16.4 and Android API 24. Android compiles and

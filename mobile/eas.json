@@ -28,7 +28,7 @@
       "environment": "preview",
       "distribution": "internal",
       "env": {
-        "APP_VARIANT": "preview"
+        "APP_VARIANT": "e2e"
       },
       "android": {
         "buildType": "apk"
