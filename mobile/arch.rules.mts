@@ -1,7 +1,12 @@
 import { modules, project } from "@nielspeter/ts-archunit";
 import { recommended } from "@nielspeter/ts-archunit/presets";
+import { join } from "node:path";
 
 const mobileProject = project("mobile/tsconfig.arch.json");
+const webImplementationImports = ["app", "components", "hooks", "lib"].map(
+  (folder) =>
+    join(import.meta.dirname, "..", folder, "**").replaceAll("\\", "/"),
+);
 
 const mobileMustStayIndependentOfWeb = modules(mobileProject)
   .that()
@@ -9,10 +14,7 @@ const mobileMustStayIndependentOfWeb = modules(mobileProject)
   .expectNonEmpty()
   .should()
   .notImportFrom(
-    "../app/**",
-    "../components/**",
-    "../hooks/**",
-    "../lib/**",
+    ...webImplementationImports,
     "next",
     "next/**",
     "react-dom",
