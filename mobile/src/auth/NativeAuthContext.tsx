@@ -25,6 +25,10 @@ const BRIDGE_ERROR_MESSAGE =
   "We couldn't connect your account. Please try again.";
 const SIGN_OUT_ERROR_MESSAGE = "We couldn't sign you out. Please try again.";
 const INACTIVE_TRANSPORT_EPOCH = Symbol("inactive-native-auth-transport");
+const CLERK_TOKEN_RESOLUTION_TIMEOUT_MS = 15_000;
+const CLERK_TOKEN_RESOLUTION_TIMED_OUT = Symbol(
+  "clerk-token-resolution-timed-out",
+);
 
 interface NativeAuthLoadingState {
   readonly profile: null;
@@ -443,14 +447,32 @@ export function NativeAuthProvider({
       }
 
       let sessionToken: string | null;
+      let tokenTimeoutId: ReturnType<typeof setTimeout> | undefined;
       try {
-        sessionToken = options?.forceRefresh
-          ? await startingIdentity.sessionResource.getToken({ skipCache: true })
-          : await startingIdentity.sessionResource.getToken();
+        const tokenPromise = options?.forceRefresh
+          ? startingIdentity.sessionResource.getToken({ skipCache: true })
+          : startingIdentity.sessionResource.getToken();
+        const tokenResult = await Promise.race([
+          Promise.resolve(tokenPromise),
+          new Promise<typeof CLERK_TOKEN_RESOLUTION_TIMED_OUT>((resolve) => {
+            tokenTimeoutId = setTimeout(
+              () => resolve(CLERK_TOKEN_RESOLUTION_TIMED_OUT),
+              CLERK_TOKEN_RESOLUTION_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        if (tokenResult === CLERK_TOKEN_RESOLUTION_TIMED_OUT) {
+          return isStartingIdentityCurrent()
+            ? { status: "unavailable" }
+            : { status: "superseded" };
+        }
+        sessionToken = tokenResult;
       } catch (error: unknown) {
         return isStartingIdentityCurrent()
           ? sanitizeCredentialError(error)
           : { status: "superseded" };
+      } finally {
+        if (tokenTimeoutId !== undefined) clearTimeout(tokenTimeoutId);
       }
 
       if (!isStartingIdentityCurrent()) {

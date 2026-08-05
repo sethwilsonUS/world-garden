@@ -468,6 +468,73 @@ describe("NativeAuthProvider", () => {
     expect(JSON.stringify(credentials)).not.toContain("private-token-in-error");
   });
 
+  it.each([
+    ["cached", undefined],
+    ["forced-refresh", { forceRefresh: true }],
+  ] as const)(
+    "bounds a pending %s Clerk token lookup with a sanitized result",
+    async (_label, options) => {
+      jest.useFakeTimers();
+      try {
+        clerkGetToken.mockImplementation(
+          () => new Promise<string | null>(() => undefined),
+        );
+        const { result } = renderHook(() => useAuthAndTransport(), {
+          wrapper: AuthWrapper,
+        });
+
+        const pendingCredentials =
+          result.current.transport.resolveRequestCredentials(options);
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(15_000);
+        });
+
+        await expect(pendingCredentials).resolves.toEqual({
+          status: "unavailable",
+        });
+        if (options?.forceRefresh) {
+          expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
+        } else {
+          expect(clerkGetToken).toHaveBeenCalledWith();
+        }
+      } finally {
+        jest.useRealTimers();
+      }
+    },
+  );
+
+  it("preserves supersession when the account changes before token lookup times out", async () => {
+    jest.useFakeTimers();
+    try {
+      clerkGetToken.mockImplementation(
+        () => new Promise<string | null>(() => undefined),
+      );
+      const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+        wrapper: AuthWrapper,
+      });
+      const pendingCredentials =
+        result.current.transport.resolveRequestCredentials();
+
+      clerkAuth = signedInAuth("user-b", "session-b");
+      clerkUser = signedInUser("user-b");
+      viewer = {
+        email: "sam@example.com",
+        name: "Samwise Gamgee",
+        subject: "user-b",
+      };
+      act(() => rerender(undefined));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(15_000);
+      });
+
+      await expect(pendingCredentials).resolves.toEqual({
+        status: "superseded",
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("keeps Convex query-map identities stable across unrelated renders", () => {
     const { rerender } = renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,

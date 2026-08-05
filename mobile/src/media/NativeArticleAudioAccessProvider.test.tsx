@@ -63,6 +63,17 @@ function wrapper({ children }: PropsWithChildren) {
   );
 }
 
+function httpWrapper({ children }: PropsWithChildren) {
+  return (
+    <NativeArticleAudioAccessProvider
+      fetchImpl={fetchMock}
+      webOrigin="http://127.0.0.1:3000"
+    >
+      {children}
+    </NativeArticleAudioAccessProvider>
+  );
+}
+
 function requestInit(callIndex = 0): RequestInit {
   return fetchMock.mock.calls[callIndex]?.[1] ?? {};
 }
@@ -115,7 +126,9 @@ describe("NativeArticleAudioAccessProvider", () => {
       sectionKey: "section-0",
       slug: "Ada_Lovelace",
     });
-    expect(JSON.stringify(requestBody())).not.toContain("user-a");
+    expect(requestBody()).not.toHaveProperty("accountEpoch");
+    expect(accountEpoch.description).toBe("account-a");
+    expect(JSON.stringify(requestBody())).not.toContain("account-a");
     expect(audioResult).toEqual({
       accountEpoch,
       response: expect.anything(),
@@ -145,6 +158,47 @@ describe("NativeArticleAudioAccessProvider", () => {
     expect(requestBody().provider).toBe("openai");
     expect(JSON.stringify(requestBody())).not.toContain("secret-clerk-token");
     expect(JSON.stringify(audioResult)).not.toContain("secret-clerk-token");
+  });
+
+  it("keeps local HTTP transport public and Edge-only", async () => {
+    fetchMock.mockResolvedValue(response(200));
+    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      wrapper: httpWrapper,
+    });
+
+    await expect(result.current.requestSection(request)).resolves.toEqual({
+      accountEpoch,
+      response: expect.anything(),
+      status: "ready",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3000/api/article/audio/section",
+      expect.anything(),
+    );
+    expect(requestInit().headers).not.toHaveProperty("Authorization");
+    expect(requestBody().provider).toBe("edge");
+  });
+
+  it("never sends an authenticated Bearer credential to local HTTP", async () => {
+    useTransportBindingMock.mockReturnValue(
+      binding(
+        jest.fn().mockResolvedValue({
+          accountEpoch,
+          sessionToken: "secret-clerk-token",
+          status: "authenticated",
+        }),
+      ),
+    );
+    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      wrapper: httpWrapper,
+    });
+
+    await expect(result.current.requestSection(request)).resolves.toEqual({
+      reason: "authentication-rejected",
+      retryable: false,
+      status: "failed",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refreshes credentials once after a 401 in the same account epoch", async () => {
@@ -329,6 +383,112 @@ describe("NativeArticleAudioAccessProvider", () => {
     }
   });
 
+  it("ignores a successful response that arrives after the operation deadline", async () => {
+    jest.useFakeTimers();
+    try {
+      let resolveFetch: ((value: Response) => void) | undefined;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+        wrapper,
+      });
+
+      const pendingResult = result.current.requestSection(request);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(180_000);
+
+      await expect(pendingResult).resolves.toEqual({
+        reason: "temporarily-unavailable",
+        retryable: true,
+        status: "failed",
+      });
+      resolveFetch?.(response(200));
+      await Promise.resolve();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("shares one operation deadline across credentials and a 401 refresh", async () => {
+    jest.useFakeTimers();
+    try {
+      const resolveRequestCredentials = jest.fn().mockResolvedValue({
+        accountEpoch,
+        sessionToken: "private-session-token",
+        status: "authenticated",
+      });
+      useTransportBindingMock.mockReturnValue(
+        binding(resolveRequestCredentials),
+      );
+      fetchMock
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              setTimeout(() => resolve(response(401)), 170_000);
+            }),
+        )
+        .mockImplementationOnce(
+          (_input, init) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(new Error("shared deadline")),
+                { once: true },
+              );
+            }),
+        );
+      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+        wrapper,
+      });
+
+      const pendingResult = result.current.requestSection(request);
+      await jest.advanceTimersByTimeAsync(170_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      await expect(pendingResult).resolves.toEqual({
+        reason: "temporarily-unavailable",
+        retryable: true,
+        status: "failed",
+      });
+      expect(resolveRequestCredentials).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("bounds credential resolution with the same operation deadline", async () => {
+    jest.useFakeTimers();
+    try {
+      const resolveRequestCredentials = jest.fn(
+        () => new Promise<never>(() => undefined),
+      );
+      useTransportBindingMock.mockReturnValue(
+        binding(resolveRequestCredentials),
+      );
+      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+        wrapper,
+      });
+
+      const pendingResult = result.current.requestSection(request);
+      await jest.advanceTimersByTimeAsync(180_000);
+
+      await expect(pendingResult).resolves.toEqual({
+        reason: "temporarily-unavailable",
+        retryable: true,
+        status: "failed",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("sanitizes an unexpected private credential resolver failure", async () => {
     const resolveRequestCredentials = jest
       .fn()
@@ -504,6 +664,8 @@ describe("NativeArticleAudioAccessProvider", () => {
 
   it.each([
     ["a null request", null],
+    ["a whitespace-only slug", { ...request, slug: "   " }],
+    ["an oversized slug", { ...request, slug: "a".repeat(501) }],
     ["a numeric section key", { ...request, sectionKey: 0 }],
     ["a noncanonical revision", { ...request, revisionId: "001234" }],
     ["an oversized revision", { ...request, revisionId: "9".repeat(21) }],

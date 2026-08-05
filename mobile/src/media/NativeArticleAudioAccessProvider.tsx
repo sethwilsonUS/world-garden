@@ -63,7 +63,12 @@ const CANCELLED = Object.freeze({ status: "cancelled" as const });
 const SUPERSEDED = Object.freeze({ status: "superseded" as const });
 const MAX_SLUG_LENGTH = 500;
 const MAX_SECTION_KEY_LENGTH = 500;
+// Keep this mobile-owned default aligned with the web client's 180-second
+// article-section deadline; native builds cannot consume its web-only env knob.
 const ARTICLE_AUDIO_REQUEST_TIMEOUT_MS = 180_000;
+const ARTICLE_AUDIO_OPERATION_ABORTED = Symbol(
+  "article-audio-operation-aborted",
+);
 
 function isRequestValid(
   request: unknown,
@@ -135,6 +140,36 @@ export function NativeArticleAudioAccessProvider({
 
       const operationEpoch = binding.accountEpoch;
       const endpoint = `${webOrigin}/api/article/audio/section`;
+      const operationController = new AbortController();
+      const cancelForCaller = (): void => operationController.abort();
+      request.signal?.addEventListener("abort", cancelForCaller, {
+        once: true,
+      });
+      let resolveOperationAborted!: (
+        result: typeof ARTICLE_AUDIO_OPERATION_ABORTED,
+      ) => void;
+      const notifyOperationAborted = (): void => {
+        resolveOperationAborted(ARTICLE_AUDIO_OPERATION_ABORTED);
+      };
+      const operationAborted = new Promise<
+        typeof ARTICLE_AUDIO_OPERATION_ABORTED
+      >((resolve) => {
+        resolveOperationAborted = resolve;
+        operationController.signal.addEventListener(
+          "abort",
+          notifyOperationAborted,
+          { once: true },
+        );
+      });
+      const operationTimeoutId = setTimeout(() => {
+        operationController.abort();
+      }, ARTICLE_AUDIO_REQUEST_TIMEOUT_MS);
+
+      const classifyOperationAbort = (): NativeArticleAudioSectionResult => {
+        if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
+        if (request.signal?.aborted) return CANCELLED;
+        return TEMPORARILY_UNAVAILABLE;
+      };
 
       const runAttempt = async (
         forceRefresh: boolean,
@@ -145,11 +180,19 @@ export function NativeArticleAudioAccessProvider({
           ReturnType<typeof binding.resolveRequestCredentials>
         >;
         try {
-          credentials = await binding.resolveRequestCredentials({
-            forceRefresh,
-          });
+          const credentialResult = await Promise.race([
+            binding.resolveRequestCredentials({ forceRefresh }),
+            operationAborted,
+          ]);
+          if (credentialResult === ARTICLE_AUDIO_OPERATION_ABORTED) {
+            return classifyOperationAbort();
+          }
+          credentials = credentialResult;
         } catch (error: unknown) {
           void error;
+          if (operationController.signal.aborted) {
+            return classifyOperationAbort();
+          }
           if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
           return request.signal?.aborted ? CANCELLED : ACCOUNT_UNAVAILABLE;
         }
@@ -161,9 +204,17 @@ export function NativeArticleAudioAccessProvider({
           return SUPERSEDED;
         }
         if (credentials.status === "superseded") return SUPERSEDED;
-        if (request.signal?.aborted) return CANCELLED;
+        if (operationController.signal.aborted) {
+          return classifyOperationAbort();
+        }
         if (credentials.status === "unavailable") return ACCOUNT_UNAVAILABLE;
         if (forceRefresh && credentials.status !== "authenticated") {
+          return AUTHENTICATION_REJECTED;
+        }
+        if (
+          credentials.status === "authenticated" &&
+          !webOrigin.startsWith("https://")
+        ) {
           return AUTHENTICATION_REJECTED;
         }
 
@@ -177,54 +228,46 @@ export function NativeArticleAudioAccessProvider({
           headers.Authorization = `Bearer ${credentials.sessionToken}`;
         }
 
-        const timeoutController = new AbortController();
-        let didTimeout = false;
-        const cancelForCaller = (): void => timeoutController.abort();
-        try {
-          request.signal?.addEventListener("abort", cancelForCaller, {
-            once: true,
-          });
-        } catch (error: unknown) {
-          void error;
-          return INVALID_REQUEST;
-        }
-        const timeoutId = setTimeout(() => {
-          didTimeout = true;
-          timeoutController.abort();
-        }, ARTICLE_AUDIO_REQUEST_TIMEOUT_MS);
-
         let response: Response;
         try {
-          response = await fetchImpl(endpoint, {
-            body: JSON.stringify({
-              narrationVersion: request.narrationVersion,
-              provider,
-              revisionId: request.revisionId,
-              sectionKey: request.sectionKey,
-              slug: request.slug,
+          const fetchResult = await Promise.race([
+            fetchImpl(endpoint, {
+              body: JSON.stringify({
+                narrationVersion: request.narrationVersion,
+                provider,
+                revisionId: request.revisionId,
+                sectionKey: request.sectionKey,
+                slug: request.slug,
+              }),
+              credentials: "omit",
+              headers,
+              method: "POST",
+              redirect: "error",
+              signal: operationController.signal,
             }),
-            credentials: "omit",
-            headers,
-            method: "POST",
-            redirect: "error",
-            signal: timeoutController.signal,
-          });
+            operationAborted,
+          ]);
+          if (fetchResult === ARTICLE_AUDIO_OPERATION_ABORTED) {
+            return classifyOperationAbort();
+          }
+          response = fetchResult;
         } catch (error: unknown) {
           // The caller receives only a stable classification; using the caught
           // value here makes the intentional sanitization visible to static
           // architecture checks without logging or persisting it.
           void error;
+          if (operationController.signal.aborted) {
+            return classifyOperationAbort();
+          }
           if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
           if (request.signal?.aborted) return CANCELLED;
           return TEMPORARILY_UNAVAILABLE;
-        } finally {
-          clearTimeout(timeoutId);
-          request.signal?.removeEventListener("abort", cancelForCaller);
         }
 
         if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
-        if (request.signal?.aborted) return CANCELLED;
-        if (didTimeout) return TEMPORARILY_UNAVAILABLE;
+        if (operationController.signal.aborted) {
+          return classifyOperationAbort();
+        }
         if (
           response.status === 401 &&
           credentials.status === "authenticated" &&
@@ -238,14 +281,23 @@ export function NativeArticleAudioAccessProvider({
         return { accountEpoch: operationEpoch, response, status: "ready" };
       };
 
-      const firstResult = await runAttempt(false);
-      if ("shouldRefresh" in firstResult) {
-        const refreshedResult = await runAttempt(true);
-        return "shouldRefresh" in refreshedResult
-          ? AUTHENTICATION_REJECTED
-          : refreshedResult;
+      try {
+        const firstResult = await runAttempt(false);
+        if ("shouldRefresh" in firstResult) {
+          const refreshedResult = await runAttempt(true);
+          return "shouldRefresh" in refreshedResult
+            ? AUTHENTICATION_REJECTED
+            : refreshedResult;
+        }
+        return firstResult;
+      } finally {
+        clearTimeout(operationTimeoutId);
+        request.signal?.removeEventListener("abort", cancelForCaller);
+        operationController.signal.removeEventListener(
+          "abort",
+          notifyOperationAborted,
+        );
       }
-      return firstResult;
     },
     [binding, fetchImpl, webOrigin],
   );
