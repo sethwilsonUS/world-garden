@@ -1,5 +1,5 @@
 import { getConfig, type ConfigContext } from "expo/config";
-import { compileModsAsync } from "expo/config-plugins";
+import { compileModsAsync, IOSConfig } from "expo/config-plugins";
 
 import createAppConfig, {
   bundledFontFiles,
@@ -42,6 +42,10 @@ const evaluateExpoConfig = async (): Promise<{
   };
 }> => {
   const projectRoot = process.cwd();
+  // Expo prebuild applies this public scheme plugin by default. Evaluate it
+  // against a deliberately absent native root so local generated projects can
+  // never make this test pass when a clean CI checkout would fail.
+  const introspectionProjectRoot = `${projectRoot}/.expo-config-introspection-without-native-projects`;
   process.env.APP_VARIANT = "e2e";
   process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = TEST_CLERK_KEY;
   delete process.env.EXPO_PUBLIC_CONVEX_URL;
@@ -50,14 +54,16 @@ const evaluateExpoConfig = async (): Promise<{
     isModdedConfig: true,
     skipSDKVersionRequirement: true,
   });
-  await compileModsAsync(config.exp, {
-    projectRoot,
-    introspect: true,
-    platforms: ["ios", "android"],
-    assertMissingModProviders: false,
-  });
-
-  const evaluatedConfig = config.exp as typeof config.exp & {
+  const evaluatedConfig = (await compileModsAsync(
+    IOSConfig.Scheme.withScheme(config.exp),
+    {
+      projectRoot: introspectionProjectRoot,
+      introspect: true,
+      platforms: ["ios", "android"],
+      assertMissingModProviders: false,
+      ignoreExistingNativeFiles: true,
+    },
+  )) as typeof config.exp & {
     _internal?: {
       modResults?: { android?: { manifest?: AndroidManifest } };
     };
