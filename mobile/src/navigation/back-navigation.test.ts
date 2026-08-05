@@ -24,4 +24,13 @@ describe("navigateBackOrReplace", () => {
     expect(router.back).not.toHaveBeenCalled();
     expect(router.replace).toHaveBeenCalledWith("/search");
   });
+
+  it("returns a cold Library article to the Library", () => {
+    const router = createRouter(false);
+
+    navigateBackOrReplace(router, "/library");
+
+    expect(router.back).not.toHaveBeenCalled();
+    expect(router.replace).toHaveBeenCalledWith("/library");
+  });
 });

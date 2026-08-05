@@ -21,11 +21,37 @@ describe("InvalidArticleLinkScreen", () => {
     ).toBeOnTheScreen();
     expect(
       screen.getByText(
-        "This article link is missing a title. Return to search and choose an article.",
+        "This article link is missing a valid title. Return to search and choose an article.",
       ),
     ).toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("button", { name: "Back to search" }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the honest Library return path for an invalid saved link", () => {
+    const onBack = jest.fn();
+
+    render(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <InvalidArticleLinkScreen backLabel="Back to Library" onBack={onBack} />
+      </GardenThemeProvider>,
+    );
+
+    expect(
+      screen.getByText(
+        "This saved article link is missing a valid title. Return to your Library and choose another article.",
+      ),
+    ).toBeOnTheScreen();
+    const back = screen.getByRole("button", { name: "Back to Library" });
+    expect(back).toHaveProp(
+      "accessibilityHint",
+      "Returns to your saved articles.",
+    );
+    fireEvent.press(back);
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 });

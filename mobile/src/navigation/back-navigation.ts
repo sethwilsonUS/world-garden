@@ -1,4 +1,4 @@
-export type NativeBackFallback = "/" | "/search";
+export type NativeBackFallback = "/" | "/library" | "/search";
 
 type BackNavigation = Readonly<{
   back(): void;

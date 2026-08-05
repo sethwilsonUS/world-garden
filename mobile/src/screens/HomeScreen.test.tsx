@@ -72,4 +72,13 @@ describe("HomeScreen", () => {
     expect(mockPush).toHaveBeenCalledWith("/account");
     expect(screen.getByLabelText("Search topic")).toBeOnTheScreen();
   });
+
+  it("opens the account Library without displacing the public search task", () => {
+    renderScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Library" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/library");
+    expect(screen.getByLabelText("Search topic")).toBeOnTheScreen();
+  });
 });

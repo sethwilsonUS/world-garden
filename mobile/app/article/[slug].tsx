@@ -1,19 +1,45 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 
 import { navigateBackOrReplace } from "../../src/navigation/back-navigation";
-import { normalizeNativeArticleSlug } from "../../src/navigation/routes";
+import {
+  normalizeNativeArticleSlug,
+  normalizeNativeArticleSource,
+} from "../../src/navigation/routes";
 import { ArticleScreen } from "../../src/screens/ArticleScreen";
 import { InvalidArticleLinkScreen } from "../../src/screens/InvalidArticleLinkScreen";
 
 export default function ArticleRoute() {
   const router = useRouter();
-  const { slug } = useLocalSearchParams<{ slug?: string | string[] }>();
+  const isRouteActive = useIsFocused();
+  const { from, slug } = useLocalSearchParams<{
+    from?: string | string[];
+    slug?: string | string[];
+  }>();
   const normalizedSlug = normalizeNativeArticleSlug(slug);
-  const handleBack = () => navigateBackOrReplace(router, "/search");
+  const source = normalizeNativeArticleSource(from);
+  const handleBack = () =>
+    navigateBackOrReplace(
+      router,
+      source === "library" ? "/library" : "/search",
+    );
 
   if (normalizedSlug === null) {
-    return <InvalidArticleLinkScreen onBack={handleBack} />;
+    return (
+      <InvalidArticleLinkScreen
+        backLabel={source === "library" ? "Back to Library" : "Back to search"}
+        isRouteActive={isRouteActive}
+        onBack={handleBack}
+      />
+    );
   }
 
-  return <ArticleScreen onBack={handleBack} slug={normalizedSlug} />;
+  return (
+    <ArticleScreen
+      backLabel={source === "library" ? "Back to Library" : "Back to search"}
+      isRouteActive={isRouteActive}
+      onBack={handleBack}
+      onOpenAccount={() => router.push("/account")}
+      slug={normalizedSlug}
+    />
+  );
 }

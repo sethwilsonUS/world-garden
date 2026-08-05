@@ -11,15 +11,19 @@ import {
   Platform,
   StyleSheet,
   View,
+  type ViewProps,
 } from "react-native";
 
 import { GardenText } from "../theme/GardenText";
 
 export interface RouteHeadingProps {
+  /** Cancels deferred focus while a retained native-stack route is hidden. */
+  active?: boolean;
   /** Changes only when navigation establishes a new route context. */
   focusKey: string;
   /** Native focus adapter; injectable for deterministic renderer tests. */
   focusElement?: (element: View) => void;
+  onFocus?: ViewProps["onFocus"];
   testID?: string;
   title: string;
 }
@@ -44,14 +48,17 @@ function assignRef(ref: ForwardedRef<View>, element: View | null) {
 export const RouteHeading = forwardRef<View, RouteHeadingProps>(
   function RouteHeading(
     {
+      active = true,
       focusElement = focusNativeElement,
       focusKey,
+      onFocus,
       testID = "route-heading",
       title,
     },
     forwardedRef,
   ): ReactElement {
     const headingRef = useRef<View>(null);
+    const attemptedFocusKey = useRef<string | null>(null);
     const setHeadingRef = useCallback(
       (element: View | null) => {
         headingRef.current = element;
@@ -61,6 +68,9 @@ export const RouteHeading = forwardRef<View, RouteHeadingProps>(
     );
 
     useEffect(() => {
+      if (!active || attemptedFocusKey.current === focusKey) return;
+      attemptedFocusKey.current = focusKey;
+
       let cancelled = false;
       let focusTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -90,7 +100,7 @@ export const RouteHeading = forwardRef<View, RouteHeadingProps>(
         cancelled = true;
         if (focusTimer !== null) clearTimeout(focusTimer);
       };
-    }, [focusElement, focusKey]);
+    }, [active, focusElement, focusKey]);
 
     return (
       <View
@@ -98,6 +108,7 @@ export const RouteHeading = forwardRef<View, RouteHeadingProps>(
         accessible
         accessibilityLabel={title}
         accessibilityRole="header"
+        onFocus={onFocus}
         style={styles.heading}
         testID={testID}
       >

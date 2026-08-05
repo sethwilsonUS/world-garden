@@ -5,6 +5,16 @@ export {
   type CanonicalArticlePath,
 } from "./article-route";
 export {
+  getBookmarkListViewState,
+  getUnclaimedGuestBookmarks,
+  isBookmarkSaved,
+  mergeBookmarkEntries,
+  normalizeBookmarkEntries,
+  type BookmarkEntry,
+  type BookmarkListViewState,
+  type BookmarkStorageMode,
+} from "./bookmarks";
+export {
   formatWikipediaSearchStatus,
   normalizeWikipediaSearchTerm,
 } from "./search";

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react-native";
+import { act, render, screen, waitFor } from "@testing-library/react-native";
 import { AccessibilityInfo } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
@@ -8,6 +8,7 @@ function heading(
   title: string,
   focusKey = title,
   focusElement?: jest.Mock,
+  active = true,
 ) {
   return (
     <GardenThemeProvider
@@ -15,6 +16,7 @@ function heading(
       colorSchemeOverride="light"
     >
       <RouteHeading
+        active={active}
         focusElement={focusElement}
         focusKey={focusKey}
         title={title}
@@ -25,6 +27,7 @@ function heading(
 
 describe("RouteHeading", () => {
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
@@ -83,5 +86,29 @@ describe("RouteHeading", () => {
       ),
     );
     expect(sendAccessibilityEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels deferred focus when a retained route becomes inactive", async () => {
+    let resolveScreenReaderEnabled!: (enabled: boolean) => void;
+    const screenReaderEnabled = jest
+      .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
+      .mockReturnValue(
+        new Promise((resolve) => {
+          resolveScreenReaderEnabled = resolve;
+        }),
+      );
+    screenReaderEnabled.mockClear();
+    const focus = jest.fn();
+    const view = render(heading("Library", "library", focus));
+
+    view.rerender(heading("Library", "library", focus, false));
+    view.rerender(heading("Library", "library", focus, true));
+    await act(async () => {
+      resolveScreenReaderEnabled(true);
+      await Promise.resolve();
+    });
+
+    expect(screenReaderEnabled).toHaveBeenCalledTimes(1);
+    expect(focus).not.toHaveBeenCalled();
   });
 });
