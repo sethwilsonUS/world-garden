@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "hooks/**/*.ts",
+    "hooks/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "convex/**/*.ts",
+    "proxy.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next",
+    "convex/_generated/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "e2e/**",
+    "scripts/**",
+    "test-utils/**"
+  ]
+}

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
+import { createRoot, hydrateRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FeedbackForm } from "./FeedbackForm";
 
@@ -86,6 +86,23 @@ describe("FeedbackForm", () => {
     expect(markup).toContain('role="alert"');
     expect(markup).toContain('role="status"');
     expect(markup).not.toContain("autofocus");
+  });
+
+  it("waits for client handlers before allowing feedback submission", async () => {
+    act(() => root.unmount());
+    container.innerHTML = renderToString(<FeedbackForm deliveryAvailable />);
+    const submitButton = container.querySelector<HTMLButtonElement>(
+      'button[type="submit"]',
+    );
+
+    expect(submitButton?.disabled).toBe(true);
+
+    await act(async () => {
+      root = hydrateRoot(container, <FeedbackForm deliveryAvailable />);
+      await Promise.resolve();
+    });
+
+    expect(submitButton?.disabled).toBe(false);
   });
 
   it("focuses the first invalid field without sending a request", async () => {
@@ -207,6 +224,9 @@ describe("FeedbackForm", () => {
     await setControlValue(kind, "product");
     await setControlValue(message, "  Make Library easier to find.  ");
     const form = container.querySelector("form") as HTMLFormElement;
+    const submitButton = container.querySelector(
+      'button[type="submit"]',
+    ) as HTMLButtonElement;
 
     await submit(form);
     await submit(form);
@@ -219,11 +239,8 @@ describe("FeedbackForm", () => {
       message: "Make Library easier to find.",
       researchOptIn: false,
     });
-    expect(
-      container
-        .querySelector('button[type="submit"]')
-        ?.getAttribute("aria-disabled"),
-    ).toBe("true");
+    expect(submitButton.getAttribute("aria-disabled")).toBe("true");
+    expect(submitButton.disabled).toBe(true);
     for (const control of container.querySelectorAll<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >("input, textarea, select")) {
@@ -253,6 +270,8 @@ describe("FeedbackForm", () => {
     expect(kind.value).toBe("");
     expect(kind.disabled).toBe(false);
     expect(kind.getAttribute("aria-disabled")).toBe("false");
+    expect(submitButton.getAttribute("aria-disabled")).toBe("false");
+    expect(submitButton.disabled).toBe(false);
   });
 
   it("shows and submits explicit article context", async () => {

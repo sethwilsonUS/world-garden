@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useRef,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type FormEvent,
   type RefObject,
@@ -46,6 +47,10 @@ const INITIAL_FIELDS: FeedbackFields = {
 };
 
 const encoder = new TextEncoder();
+
+const subscribeToHydration = () => () => {};
+const getHydratedSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 const RESEARCH_EMAIL_ERROR =
   "Add an email address so a research invitation can reach you.";
@@ -147,6 +152,11 @@ export const FeedbackForm = ({
   deliveryAvailable,
   articleContext,
 }: FeedbackFormProps) => {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    getHydratedSnapshot,
+    getServerSnapshot,
+  );
   const [fields, setFields] = useState<FeedbackFields>(INITIAL_FIELDS);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [requestError, setRequestError] = useState("");
@@ -528,10 +538,11 @@ export const FeedbackForm = ({
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <button
           type="submit"
+          disabled={!hydrated || sending}
           className={`btn-primary min-h-11 w-full sm:w-auto ${
             sending ? "cursor-not-allowed opacity-60" : ""
           }`}
-          aria-disabled={sending}
+          aria-disabled={!hydrated || sending}
         >
           {sending ? "Sending…" : "Send feedback"}
         </button>

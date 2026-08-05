@@ -50,6 +50,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Check architecture
+        run: npm run arch
+
   build:
     name: Production Build
     runs-on: ubuntu-latest

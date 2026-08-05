@@ -1,0 +1,1121 @@
+{
+  "generatedAt": "2026-08-04T22:47:56.056Z",
+  "hashVersion": 4,
+  "root": ".",
+  "count": 159,
+  "violations": [
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/AppProviders.tsx",
+      "line": 27,
+      "hash": "c38d0136a49b2de1",
+      "subject": "862f12bfe7ea3469"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/og-fonts.ts",
+      "line": 35,
+      "hash": "ac8cc3cddc9606bc",
+      "subject": "06579617d1e92ce9"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/AccessibleLayout.tsx",
+      "line": 140,
+      "hash": "d2fd57bd207d8c27",
+      "subject": "83aa86da74f5f1ef"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/AccountDataPage.tsx",
+      "line": 284,
+      "hash": "926b5ff292c022f7",
+      "subject": "403447a62608b01a"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/ArticleAudioExportProvider.tsx",
+      "line": 96,
+      "hash": "10d5f137d3ffbbed",
+      "subject": "9f0efad40db53f94"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/ArticleAudioExportProvider.tsx",
+      "line": 109,
+      "hash": "3f6bb3dd97a7feb4",
+      "subject": "9f472ce33cd5eb7c"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/ArticleContext.tsx",
+      "line": 272,
+      "hash": "b67824971b7198d9",
+      "subject": "27d281347c9600cc"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/ArticleContext.tsx",
+      "line": 472,
+      "hash": "f84d9daaf701e197",
+      "subject": "44f0b4b95bb61e03"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/ArticleContextMap.tsx",
+      "line": 758,
+      "hash": "aed5bc6ba448d12a",
+      "subject": "fb3ef8fb854791a0"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/ArticleContextVisuals.tsx",
+      "line": 180,
+      "hash": "a1fc4ca7fba15041",
+      "subject": "aba521bcae049d41"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/AudioPlayer.tsx",
+      "line": 133,
+      "hash": "dd3736d830ceb005",
+      "subject": "a21ceccaa7d66641"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/AudioPlayer.tsx",
+      "line": 175,
+      "hash": "dd3736d830ceb005",
+      "subject": "a21ceccaa7d66641"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/CuriousAbout.tsx",
+      "line": 37,
+      "hash": "95c30dcc62f499e3",
+      "subject": "92ab66768efe8253"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/CuriousAbout.tsx",
+      "line": 70,
+      "hash": "95c30dcc62f499e3",
+      "subject": "92ab66768efe8253"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/FeaturedArticle.tsx",
+      "line": 36,
+      "hash": "f8d2d2e087e8af18",
+      "subject": "6d91b864bce4d6f1"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/FeedbackForm.tsx",
+      "line": 109,
+      "hash": "704270546ec66ad8",
+      "subject": "24cc1c92c35ab7db"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/FeedbackForm.tsx",
+      "line": 237,
+      "hash": "0f20fda67ab42897",
+      "subject": "9e5bb809b9f28091"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/PrivateFeedAccessControls.tsx",
+      "line": 127,
+      "hash": "493f480ba61623c2",
+      "subject": "54238415d782ad80"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/PrivateFeedAccessControls.tsx",
+      "line": 147,
+      "hash": "b84aa772c886d1ef",
+      "subject": "623d842803979c36"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/RandomArticleButton.tsx",
+      "line": 40,
+      "hash": "eb1bf5af7d3cced4",
+      "subject": "0662d72e55eca43e"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/RandomRerollButton.tsx",
+      "line": 40,
+      "hash": "c810be07705b429a",
+      "subject": "b331cf98e1a5d662"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "components/TodayOnWikipedia.tsx",
+      "line": 136,
+      "hash": "ad2630b960a5808b",
+      "subject": "26276a79227504ab"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/articleContextValidation.ts",
+      "line": 164,
+      "hash": "106b0b6b187633f8",
+      "subject": "a2d38cfeda248142"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/articleContextValidation.ts",
+      "line": 253,
+      "hash": "d8447dd7cbb269e2",
+      "subject": "ffa53a1425fb0866"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/articles.ts",
+      "line": 520,
+      "hash": "5df309962b50c633",
+      "subject": "5f9c845f12de4523"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/articles.ts",
+      "line": 531,
+      "hash": "5df309962b50c633",
+      "subject": "5f9c845f12de4523"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/articles.ts",
+      "line": 586,
+      "hash": "59f38c0399c39ba3",
+      "subject": "d1d8cacefbf86272"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/audio.ts",
+      "line": 797,
+      "hash": "dd8ad5996297e955",
+      "subject": "0bcd4d3f984f48c5"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/audio.ts",
+      "line": 475,
+      "hash": "b89943c82dd2a63f",
+      "subject": "3517a6f353e21233"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/audio.ts",
+      "line": 600,
+      "hash": "b89943c82dd2a63f",
+      "subject": "3517a6f353e21233"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/badges.ts",
+      "line": 526,
+      "hash": "28737543e89aae12",
+      "subject": "85c853f4dc848bf9"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/badges.ts",
+      "line": 616,
+      "hash": "28737543e89aae12",
+      "subject": "85c853f4dc848bf9"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/useArticleAudioController.ts",
+      "line": 525,
+      "hash": "36cccf1eada65119",
+      "subject": "197750d93d0449f4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/useHistory.ts",
+      "line": 47,
+      "hash": "e754687b19f2337f",
+      "subject": "c371117dbcf15492"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/useHistory.ts",
+      "line": 79,
+      "hash": "4d4d5a909073b127",
+      "subject": "f066ba35df0713e5"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/useHistory.ts",
+      "line": 23,
+      "hash": "d85337116557c21f",
+      "subject": "eca01a6d31db449b"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/useHistory.ts",
+      "line": 123,
+      "hash": "b1afb62f2a99a388",
+      "subject": "0688ae00d96c8d55"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/useMediaSession.ts",
+      "line": 150,
+      "hash": "b4821baf0afd2a2b",
+      "subject": "44e820e2b0067e97"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/usePlaybackRate.ts",
+      "line": 29,
+      "hash": "d85337116557c21f",
+      "subject": "eca01a6d31db449b"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/usePlaybackRate.ts",
+      "line": 44,
+      "hash": "30a9a2b1de537492",
+      "subject": "8585b1ccb5c42b60"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "hooks/usePlaybackRate.ts",
+      "line": 74,
+      "hash": "3e0871ead81dae6c",
+      "subject": "b22b050318705b5f"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/ai-cost-ledger-contract.ts",
+      "line": 507,
+      "hash": "8c64c0c80e69f30f",
+      "subject": "1661c981c0c15928"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/ai-cost-owner-attestation.ts",
+      "line": 169,
+      "hash": "46655468d5183a98",
+      "subject": "ed4e36d137ac242e"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/ai-cost-owner-attestation.ts",
+      "line": 195,
+      "hash": "95104732028f8236",
+      "subject": "e02c8d4c2264e054"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/ai-cost-owner-attestation.ts",
+      "line": 221,
+      "hash": "f8b459c6563f40b2",
+      "subject": "508066b80f00e2ce"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/ai-cost-provider-recorder.ts",
+      "line": 57,
+      "hash": "4f16f715bc73de94",
+      "subject": "5508d1528f3f0f81"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-audio-artwork.ts",
+      "line": 35,
+      "hash": "2e63bb28d3822e44",
+      "subject": "2d35a5779413c4e7"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-context-diagrams.ts",
+      "line": 20,
+      "hash": "e770f1e903c57ff1",
+      "subject": "193548d9ab46ec81"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-context-persistence.ts",
+      "line": 62,
+      "hash": "6795c9c4071efb34",
+      "subject": "e7e39e2a32227978"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-context-route.ts",
+      "line": 85,
+      "hash": "eb16f8ee87a6ac9a",
+      "subject": "ab4440bbcf2823f6"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-context-route.ts",
+      "line": 111,
+      "hash": "cbd2f202d672fd8a",
+      "subject": "563938e98e66570f"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-context-validation.ts",
+      "line": 44,
+      "hash": "0fdcdfcca0f2ad35",
+      "subject": "8519918f01254a38"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-context-validation.ts",
+      "line": 59,
+      "hash": "4e27a134803e2e47",
+      "subject": "5874df9935dd47ff"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/article-image-policy.ts",
+      "line": 24,
+      "hash": "d13278257734eff3",
+      "subject": "4a97603480fd7588"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-cache-ledger-key.ts",
+      "line": 16,
+      "hash": "75b40481c0fceea3",
+      "subject": "da4d67c12b07c054"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-cache-ledger.ts",
+      "line": 30,
+      "hash": "3fd91e39b1ef2dbc",
+      "subject": "c00cd66113a3bdc5"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-cache-ledger.ts",
+      "line": 51,
+      "hash": "ca10c042695cbad3",
+      "subject": "cde5093fbd375a1a"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-generation-url.ts",
+      "line": 9,
+      "hash": "ba6130327a54346b",
+      "subject": "7c0500447d0e3c38"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-generation-url.ts",
+      "line": 40,
+      "hash": "fb089ffb845f5119",
+      "subject": "0444b83ae66b1c50"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-metadata.ts",
+      "line": 320,
+      "hash": "510a1a48f21506cd",
+      "subject": "78fa76d59aa4c7e0"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/audio-prefetch.ts",
+      "line": 176,
+      "hash": "ec9e0adc0fe8660f",
+      "subject": "c95ebd7c07fe1ced"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 24,
+      "hash": "5a5459d3abe36d53",
+      "subject": "fa84446c0581d47d"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 57,
+      "hash": "a2326f69b69fc2d2",
+      "subject": "16b6ced2bebcc790"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 74,
+      "hash": "365b06b1e56f146f",
+      "subject": "35be300f401ad0de"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 108,
+      "hash": "4e20071be5e678b0",
+      "subject": "e2ded44db9d1829b"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 153,
+      "hash": "c708ec9de8415ce0",
+      "subject": "dc7c109f9c0f0232"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 181,
+      "hash": "f4d089093b1b2b74",
+      "subject": "2a53eac675bb9a1f"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/bookmark-storage.ts",
+      "line": 201,
+      "hash": "5d8fa540b0950bd5",
+      "subject": "3b3e2e94596b07f3"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/copy-to-clipboard.ts",
+      "line": 7,
+      "hash": "cb068128944945d5",
+      "subject": "0545e7f94d7d344a"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/copy-to-clipboard.ts",
+      "line": 24,
+      "hash": "cb068128944945d5",
+      "subject": "0545e7f94d7d344a"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/date-format.ts",
+      "line": 36,
+      "hash": "7daab5fc2997dba0",
+      "subject": "1274959fbc7cabeb"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/date-format.ts",
+      "line": 59,
+      "hash": "4ba2ea4a4b0b6fd5",
+      "subject": "76004a98e9fb1bb0"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/featured-article.ts",
+      "line": 576,
+      "hash": "ede6045a581c6cf0",
+      "subject": "7f190a998be3b724"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/featured-article.ts",
+      "line": 674,
+      "hash": "a1d016ab402c65b2",
+      "subject": "f31c6bcdab6227a5"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/featured-podcast-artwork.ts",
+      "line": 46,
+      "hash": "2e63bb28d3822e44",
+      "subject": "2d35a5779413c4e7"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/homepage-articles.ts",
+      "line": 36,
+      "hash": "27f1f8a5d1c7c44c",
+      "subject": "959d221f8f9d717a"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/homepage-audio-warm.ts",
+      "line": 313,
+      "hash": "beee8fede22fbdcd",
+      "subject": "fd6b5b89e930abe4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/local-wikipedia-client.ts",
+      "line": 65,
+      "hash": "2f570bd68ae24625",
+      "subject": "9aec3e87fe5d7bc0"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/nsfw-filter.ts",
+      "line": 135,
+      "hash": "443632e6e6fe8738",
+      "subject": "d327ddb3c876cce7"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/on-this-day-snapshot.ts",
+      "line": 88,
+      "hash": "94d565b29ac9aaf8",
+      "subject": "9430e54d7d0adf38"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/on-this-day.ts",
+      "line": 266,
+      "hash": "487b4d14b69eadb7",
+      "subject": "60ea5fc135a9fdd4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/openai-client.ts",
+      "line": 147,
+      "hash": "719e35d68ab9a9bf",
+      "subject": "b74bbf71b31c3949"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/openai-client.ts",
+      "line": 190,
+      "hash": "fc4fcf54f4f1de25",
+      "subject": "73914e3bc833f63c"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/picture-of-day-audio.ts",
+      "line": 90,
+      "hash": "b0ee6175ad446cc4",
+      "subject": "e6014da643793635"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/podcast-episode.ts",
+      "line": 606,
+      "hash": "fa8ca46e19a801a6",
+      "subject": "16f7fc3f7905c8ba"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/server-attestation.ts",
+      "line": 178,
+      "hash": "4a71cedab0957d0f",
+      "subject": "92838fe6c258770d"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/today-snapshot.ts",
+      "line": 140,
+      "hash": "64ac338b8c21d027",
+      "subject": "45fe135673435ab5"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/trending-brief-prefetch.ts",
+      "line": 34,
+      "hash": "492d55cf8705cd19",
+      "subject": "5bef7ce19a3452d7"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/trending-brief-prefetch.ts",
+      "line": 42,
+      "hash": "38ba9a63bedb2dfb",
+      "subject": "074a1c7c57d39392"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/trending-brief-prefetch.ts",
+      "line": 73,
+      "hash": "c871c3599b91c4ac",
+      "subject": "f3b272ed88ebc1a3"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/trending-brief.ts",
+      "line": 275,
+      "hash": "424ac6b44a78e368",
+      "subject": "436eac2dea23d6fe"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/trending-brief.ts",
+      "line": 304,
+      "hash": "ae74ec6bc05d8a21",
+      "subject": "2a598c4608918bbb"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/trending-podcast-artwork.ts",
+      "line": 107,
+      "hash": "2e63bb28d3822e44",
+      "subject": "2d35a5779413c4e7"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/tts-client.ts",
+      "line": 231,
+      "hash": "e5242af7d0a99879",
+      "subject": "c8731c663497d87a"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/tts-quota-bypass-attestation.ts",
+      "line": 33,
+      "hash": "6661f50c1d0f1fc5",
+      "subject": "25ddfe519569a0bf"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/tts-quota-bypass.ts",
+      "line": 130,
+      "hash": "1aeb6421ecd9cd7e",
+      "subject": "4acfa08cde282b81"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/tts-source-attestation.ts",
+      "line": 64,
+      "hash": "65fb63a748441ad9",
+      "subject": "5c2383d9a57e290e"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/vercel-analytics-drain.ts",
+      "line": 47,
+      "hash": "16ce38f2e8033259",
+      "subject": "5cc2c8da2ac69f67"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/vercel-analytics-drain.ts",
+      "line": 77,
+      "hash": "3b586b0dce7ac5fc",
+      "subject": "eedca2e34dade22d"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/wiki-summary.ts",
+      "line": 42,
+      "hash": "3712331ccb2cb276",
+      "subject": "32eadc6a43b87579"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/wikimedia-media.ts",
+      "line": 102,
+      "hash": "d69f742d6cde81a7",
+      "subject": "8154e477ef505611"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/wikimedia-media.ts",
+      "line": 117,
+      "hash": "d5c2b7334e7c057f",
+      "subject": "f111d229b9b40d59"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/wikimedia-media.ts",
+      "line": 147,
+      "hash": "25e838b80805619d",
+      "subject": "a5822265de437cc1"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/wikimedia-media.ts",
+      "line": 184,
+      "hash": "424ac6b44a78e368",
+      "subject": "436eac2dea23d6fe"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/aiCostLedger.ts",
+      "line": 934,
+      "hash": "0f3a864d2402a2d4",
+      "subject": "54c1543fd617ca03"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/aiCostPipelineInstrumentation.ts",
+      "line": 55,
+      "hash": "6c3e30ca3ad34925",
+      "subject": "2ece3bb50830ccda"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/aiCostPipelineInstrumentation.ts",
+      "line": 101,
+      "hash": "d6e5b4b55ad58a2f",
+      "subject": "e766908ee942a63e"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/aiCostPipelineInstrumentation.ts",
+      "line": 115,
+      "hash": "71fae9f57a2cf526",
+      "subject": "40764c3ced6abbe4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/aiCostPipelineInstrumentation.ts",
+      "line": 142,
+      "hash": "93eab06d27caf347",
+      "subject": "9cd1cfcbf557f653"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/articleAudioPipeline.ts",
+      "line": 227,
+      "hash": "16f70157fe238dca",
+      "subject": "fe2450f60feed5c2"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/articleAudioPipeline.ts",
+      "line": 278,
+      "hash": "41602c5864c97b2b",
+      "subject": "882bd29b31cf72f6"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/personalPlaylistWorker.ts",
+      "line": 114,
+      "hash": "e8c4f7ab24024193",
+      "subject": "dde48820ab8d5550"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/personalPlaylistWorker.ts",
+      "line": 351,
+      "hash": "90dfffe401a3d8d8",
+      "subject": "26df723e70beffb4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/wikipedia.ts",
+      "line": 107,
+      "hash": "95afa9170d6da444",
+      "subject": "ff6096eb5c51317e"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "convex/lib/wikipedia.ts",
+      "line": 240,
+      "hash": "98bff729541f9bae",
+      "subject": "d03ac2d4dc9a4fa7"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 796,
+      "hash": "9688be87b41f0d04",
+      "subject": "b9251f421cbef47c"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 806,
+      "hash": "badea5578f267dfd",
+      "subject": "4981f1dffa2c676f"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 1179,
+      "hash": "435f1be65ee2386c",
+      "subject": "83b90bb2da4123bc"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 2096,
+      "hash": "232fa71514512ca8",
+      "subject": "b2eaf1ada957a257"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 2119,
+      "hash": "875b3450f35890ec",
+      "subject": "cdb0f7318bf6efac"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 2154,
+      "hash": "164392d14cf20128",
+      "subject": "5ea6da48f078ccb4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "lib/mediawiki-document/index.ts",
+      "line": 2996,
+      "hash": "b9506ed0d1d78786",
+      "subject": "699df7bf575eb182"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/(app)/trending/page.tsx",
+      "line": 50,
+      "hash": "7d0162d9694eb68e",
+      "subject": "480cddf305982bb1"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/(app)/trending/page.tsx",
+      "line": 90,
+      "hash": "7d0162d9694eb68e",
+      "subject": "480cddf305982bb1"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/feedback/route.ts",
+      "line": 72,
+      "hash": "1a70ed7f2883eeb6",
+      "subject": "4ea9a0412b01fba4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/feedback/route.ts",
+      "line": 88,
+      "hash": "87a5bddb37dc99af",
+      "subject": "ee8532cdfe909d15"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/feedback/route.ts",
+      "line": 141,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/local-wikipedia/route.ts",
+      "line": 175,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/local-wikipedia/route.ts",
+      "line": 200,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/tts/route.ts",
+      "line": 82,
+      "hash": "1db3b48e2be70de0",
+      "subject": "0b7f0e2083b599e1"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/tts/route.ts",
+      "line": 98,
+      "hash": "d8a568f8777727bd",
+      "subject": "eec46ad97da51d85"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/tts/route.ts",
+      "line": 101,
+      "hash": "d8a568f8777727bd",
+      "subject": "eec46ad97da51d85"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/tts/route.ts",
+      "line": 294,
+      "hash": "2b96959306972c49",
+      "subject": "27389a842df67fdb"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/tts/route.ts",
+      "line": 662,
+      "hash": "d6a74f869476f4ee",
+      "subject": "f660f4445acd401f"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/(app)/article/[slug]/opengraph-image.tsx",
+      "line": 127,
+      "hash": "bd2fcedaed2ffc63",
+      "subject": "28f5687e77b32c09"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/account/delete/route.ts",
+      "line": 45,
+      "hash": "98d99b5888424770",
+      "subject": "5e2eb624c88965f3"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/account/delete/route.ts",
+      "line": 101,
+      "hash": "42a05de1b84f0b2d",
+      "subject": "ea0532ce3a8340e3"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/account/export/route.ts",
+      "line": 39,
+      "hash": "98d99b5888424770",
+      "subject": "5e2eb624c88965f3"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/analytics/costs/route.ts",
+      "line": 53,
+      "hash": "f631f756978b226e",
+      "subject": "ce1bce099a098aea"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/analytics/vercel-drain/route.ts",
+      "line": 62,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/article-context/report/route.ts",
+      "line": 41,
+      "hash": "2c32ca151698a584",
+      "subject": "ca4bb8f60ba37a22"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/webhooks/clerk/route.ts",
+      "line": 36,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/analytics/costs/coverage/route.ts",
+      "line": 38,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/analytics/costs/coverage/route.ts",
+      "line": 52,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/analytics/costs/statements/route.ts",
+      "line": 56,
+      "hash": "5daebbe166ea9c0b",
+      "subject": "6073dadf577da137"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/article/audio/section/route.ts",
+      "line": 71,
+      "hash": "e81da1d31a3e9493",
+      "subject": "6d39bd1a49df6ce8"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/article/audio/section/route.ts",
+      "line": 176,
+      "hash": "60404dd100616c34",
+      "subject": "7337e47222979c0d"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have silent catch blocks (catch must reference the error)",
+      "file": "app/api/article/audio-export/[exportId]/route.ts",
+      "line": 141,
+      "hash": "f631f756978b226e",
+      "subject": "ce1bce099a098aea"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "components/ArticleAudioExportProvider.tsx",
+      "line": 472,
+      "hash": "f2e2dec454108035",
+      "subject": "01f2f96b5dc1fad2"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "components/ArticleAudioExportProvider.tsx",
+      "line": 474,
+      "hash": "8946de1463559257",
+      "subject": "9589d1d0f43ecfb4"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "components/BadgeProgressToastProvider.tsx",
+      "line": 38,
+      "hash": "f71fcaea8b4db3e3",
+      "subject": "afa224b30e626bd8"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "components/BadgeProgressToastProvider.tsx",
+      "line": 298,
+      "hash": "0f96d68fcd080ad2",
+      "subject": "c2b9b7c987051092"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 362,
+      "hash": "01eb7587bf60fc8a",
+      "subject": "46151176a765229b"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 363,
+      "hash": "6e380a27dea56554",
+      "subject": "202162145ce34c17"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 364,
+      "hash": "ecef7fb7a61657f3",
+      "subject": "0526e76251ab5d79"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 365,
+      "hash": "c6161c2127266dcc",
+      "subject": "09c7473a7608d4be"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 366,
+      "hash": "d5ef7a5b4e78a564",
+      "subject": "91af146c81612f6d"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 367,
+      "hash": "a7eba2a386d31395",
+      "subject": "b06ff33a3a0bc097"
+    },
+    {
+      "rule": "that reside in file matching \"{app,components,hooks,lib,convex}/**/*.{ts,tsx}\" should not have an empty body",
+      "file": "hooks/usePersonalPlaylist.tsx",
+      "line": 368,
+      "hash": "8af0c6398b012306",
+      "subject": "629d90812388cda8"
+    }
+  ]
+}

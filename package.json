@@ -19,6 +19,9 @@
     "analytics:costs": "node scripts/ai-cost-report.mjs",
     "feedback": "node scripts/product-feedback-report.mjs",
     "audit:mediawiki": "tsx scripts/mediawiki-corpus-audit.ts",
+    "arch": "ts-archunit check",
+    "arch:baseline": "ts-archunit baseline --output arch-baseline.json",
+    "arch:explain": "ts-archunit explain --format agent",
     "build": "bash scripts/build.sh",
     "start": "next start",
     "lint": "eslint",
@@ -31,7 +34,7 @@
     "test:e2e": "playwright test",
     "test:e2e:auth": "playwright test --config playwright.auth.config.ts",
     "docs:check": "node scripts/validate-doc-links.mjs",
-    "check": "npm-run-all toolchain:check lint typecheck test"
+    "check": "npm-run-all toolchain:check lint typecheck arch test"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.3",
@@ -51,6 +54,7 @@
     "@axe-core/playwright": "^4.12.1",
     "@clerk/testing": "^2.2.16",
     "@eslint/compat": "^2.1.0",
+    "@nielspeter/ts-archunit": "0.55.3",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^24.0.0",
