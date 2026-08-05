@@ -8,6 +8,14 @@
 - [ ] Playwright/axe coverage was added or updated for accessibility-relevant behavior
 - [ ] Not applicable — this PR does not change rendered UI (explain in the summary)
 
+### Native UI changes
+
+- [ ] `npm run mobile:check` passes
+- [ ] Physical iOS VoiceOver evidence was updated
+- [ ] Physical Android TalkBack evidence was updated
+- [ ] Maximum text/display-size evidence was updated
+- [ ] Not applicable, blocked, or not run — explain every unchecked physical gate in the summary; automation is not a substitute
+
 ## Testing
 
 - [ ] `npm run check` passes (ESLint, TypeScript, architecture rules, and all Vitest tests)
