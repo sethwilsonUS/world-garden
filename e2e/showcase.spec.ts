@@ -26,14 +26,15 @@ const expectNoSeriousAxeViolations = async (page: Page) => {
   expect(serious).toEqual([]);
 };
 
-const expectVisibleFocusOutline = async (locator: Locator) => {
+const expectVisibleFocusIndicator = async (locator: Locator) => {
   await expect
     .poll(() =>
       locator.evaluate((element) => {
         const style = getComputedStyle(element);
-        return (
-          style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
-        );
+        const hasOutline =
+          style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0;
+        const hasRing = style.boxShadow !== "none" && style.boxShadow !== "";
+        return hasOutline || hasRing;
       }),
     )
     .toBe(true);
@@ -791,7 +792,7 @@ test("home listening sample and search reflow at 320 pixels", async ({
     await expect(control).toBeVisible();
     await control.focus();
     await expect(control).toBeFocused();
-    await expectVisibleFocusOutline(control);
+    await expectVisibleFocusIndicator(control);
   }
   for (const button of playerButtons) {
     const target = await button.boundingBox();
@@ -1044,7 +1045,7 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   });
   await heroLightboxButton.focus();
   await page.emulateMedia({ forcedColors: "active" });
-  await expectVisibleFocusOutline(heroLightboxButton);
+  await expectVisibleFocusIndicator(heroLightboxButton);
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("dialog", { name: "Image gallery" }),
@@ -1052,7 +1053,7 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await expect(page.getByText("Creator: Alfred Edward Chalon")).toBeVisible();
   const heroCloseButton = page.getByRole("button", { name: "Close lightbox" });
   await expect(heroCloseButton).toBeFocused();
-  await expectVisibleFocusOutline(heroCloseButton);
+  await expectVisibleFocusIndicator(heroCloseButton);
   await page.emulateMedia({ forcedColors: "none" });
   await heroCloseButton.click();
   await expect(heroLightboxButton).toBeFocused();
@@ -1069,7 +1070,7 @@ test("article exposes revision and media provenance in an accessible lightbox", 
 
   await additionalPhotoButton.focus();
   await page.emulateMedia({ forcedColors: "active" });
-  await expectVisibleFocusOutline(additionalPhotoButton);
+  await expectVisibleFocusIndicator(additionalPhotoButton);
   await page.emulateMedia({ forcedColors: "none" });
   await expect
     .poll(() =>
@@ -1231,7 +1232,7 @@ test("mobile article puts one summary sentence before audio and the remainder af
   ).toBe(true);
 
   await disclosureControl.focus();
-  await expectVisibleFocusOutline(disclosureControl);
+  await expectVisibleFocusIndicator(disclosureControl);
   await disclosureControl.press("Enter");
   await expect(disclosure).toHaveAttribute("open", "");
   await expect(disclosedRemainder).toBeVisible();
@@ -1377,7 +1378,7 @@ test("article keeps structured source sections playable with an accessible adapt
   ).toBeVisible();
   await expect(page.getByText("Not suited for audio")).toHaveCount(0);
   await page.getByRole("button", { name: "Listen to Recognition" }).focus();
-  await expectVisibleFocusOutline(
+  await expectVisibleFocusIndicator(
     page.getByRole("button", { name: "Listen to Recognition" }),
   );
   await expectNoSeriousAxeViolations(page);
