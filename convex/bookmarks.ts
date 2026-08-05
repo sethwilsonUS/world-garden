@@ -24,7 +24,7 @@ type ViewerAuthCtx =
 type BookmarkQueryCtx = Pick<QueryCtx, "auth" | "db">;
 type BookmarkMutationCtx = Pick<MutationCtx, "auth" | "db">;
 
-interface NativeBookmarkMutationIdentity {
+interface NativeBookmarkRequestIdentity {
   readonly expectedAccountSubject: string;
   readonly sessionEpochKey: string;
 }
@@ -112,7 +112,7 @@ const listBookmarksForViewer = async (
 
 export const listNativeViewerBookmarksForCtx = async (
   ctx: BookmarkQueryCtx,
-  args: NativeBookmarkMutationIdentity,
+  args: NativeBookmarkRequestIdentity,
 ): Promise<{ sessionEpochKey: string; entries: BookmarkEntry[] }> => {
   const viewerTokenIdentifier = await getBoundNativeViewerTokenIdentifier(
     ctx,
@@ -184,7 +184,7 @@ const saveBookmarkForViewer = async (
 
 export const saveNativeViewerBookmarkForCtx = async (
   ctx: BookmarkMutationCtx,
-  args: NativeBookmarkMutationIdentity & {
+  args: NativeBookmarkRequestIdentity & {
     slug: string;
     title: string;
   },
@@ -232,7 +232,7 @@ const removeBookmarkForViewer = async (
 
 export const removeNativeViewerBookmarkForCtx = async (
   ctx: BookmarkMutationCtx,
-  args: NativeBookmarkMutationIdentity & {
+  args: NativeBookmarkRequestIdentity & {
     slug: string;
   },
 ): Promise<{ removed: boolean; sessionEpochKey: string }> => {

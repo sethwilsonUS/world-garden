@@ -10,6 +10,9 @@ const requiredField = (fieldType: unknown) => ({
   fieldType,
   optional: false,
 });
+// Convex does not expose these helpers on the public registered-function type.
+// These upgrade-sensitive assertions mirror its internal { type, value }
+// validator JSON representation so the native transport contract stays exact.
 const registeredQuery = listNativeViewerBookmarks as unknown as {
   exportArgs(): string;
   exportReturns(): string;

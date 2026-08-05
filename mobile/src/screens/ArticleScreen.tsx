@@ -18,13 +18,15 @@ import {
   useNativeLibrary,
   type NativeLibraryState,
 } from "../library/NativeLibraryContext";
+import {
+  bookmarkEntriesRevision,
+  SAFE_LIBRARY_UPDATE_ERROR,
+} from "../library/bookmarkPresentation";
 import { GardenText } from "../theme/GardenText";
 
 const SAFE_ARTICLE_ERROR =
   "Could not load this article. Check your connection and try again.";
 const SAFE_LINK_ERROR = "Could not open this link. Please try again.";
-const SAFE_LIBRARY_UPDATE_ERROR =
-  "We couldn’t update your Library. Please try again.";
 const ARTICLE_REQUEST_TIMEOUT_MS = 15_000;
 const LIBRARY_ECHO_TIMEOUT_MS = 2_000;
 
@@ -92,14 +94,6 @@ function loadedStatus(article: WikipediaArticle): string {
   const count = readableSectionCount(article);
   if (count === 0) return "Article loaded. No readable sections available.";
   return `Article loaded. ${count} section${count === 1 ? "" : "s"} available.`;
-}
-
-function entriesRevision(
-  entries: Extract<NativeLibraryState, { status: "ready" }>["entries"],
-): string {
-  return JSON.stringify(
-    entries.map(({ savedAt, slug, title }) => [slug, title, savedAt]),
-  );
 }
 
 export function ArticleScreen({
@@ -248,7 +242,7 @@ export function ArticleScreen({
       currentLibraryActionStatus.kind === "notice" ||
       currentLibraryActionStatus.kind === "error")
   ) {
-    const revision = entriesRevision(library.state.entries);
+    const revision = bookmarkEntriesRevision(library.state.entries);
     if (currentLibraryActionStatus.entriesRevision !== revision) {
       const saved = isBookmarkSaved(library.state.entries, slug);
       const stillAwaitingExpectedEcho =
@@ -344,12 +338,7 @@ export function ArticleScreen({
     }, LIBRARY_ECHO_TIMEOUT_MS);
 
     return () => clearTimeout(timer);
-  }, [
-    awaitingLibraryEchoScope,
-    awaitingLibraryEchoTitle,
-    requestKey,
-    slug,
-  ]);
+  }, [awaitingLibraryEchoScope, awaitingLibraryEchoTitle, requestKey, slug]);
 
   useEffect(() => {
     const generation = ++requestGeneration.current;
@@ -475,7 +464,7 @@ export function ArticleScreen({
         latestState.status === "ready"
           ? {
               awaitingExpectedEcho: false,
-              entriesRevision: entriesRevision(latestState.entries),
+              entriesRevision: bookmarkEntriesRevision(latestState.entries),
               expectedSaved: null,
             }
           : {
@@ -501,7 +490,7 @@ export function ArticleScreen({
         latestState.status === "ready"
           ? {
               awaitingExpectedEcho: false,
-              entriesRevision: entriesRevision(latestState.entries),
+              entriesRevision: bookmarkEntriesRevision(latestState.entries),
               expectedSaved: null,
             }
           : {
@@ -528,7 +517,7 @@ export function ArticleScreen({
         ? {
             awaitingExpectedEcho:
               isBookmarkSaved(latestState.entries, slug) !== expectedSaved,
-            entriesRevision: entriesRevision(latestState.entries),
+            entriesRevision: bookmarkEntriesRevision(latestState.entries),
             expectedSaved,
           }
         : {

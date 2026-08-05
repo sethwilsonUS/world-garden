@@ -21,6 +21,9 @@ type BookmarkDoc = {
   updatedAt: number;
 };
 
+const tokenIdentifierForSubject = (subject: string): string =>
+  `https://issuer.example|${subject}`;
+
 const createBookmarkTestDb = (
   seed: BookmarkDoc[] = [],
   deletingViewers: string[] = [],
@@ -89,16 +92,17 @@ const createBookmarkTestDb = (
 
 const createCtx = (
   docs: BookmarkDoc[] = [],
-  tokenIdentifier = "user-1",
+  subject = "user-1",
   deletingViewers: string[] = [],
 ) => {
   const { db, getDocs } = createBookmarkTestDb(docs, deletingViewers);
+  const tokenIdentifier = tokenIdentifierForSubject(subject);
 
   return {
     ctx: {
       auth: {
         getUserIdentity: vi.fn().mockResolvedValue({
-          subject: tokenIdentifier,
+          subject,
           tokenIdentifier,
         }),
       },
@@ -118,7 +122,9 @@ describe("getAuthenticatedViewerTokenIdentifier", () => {
   });
 
   it("blocks a stale signed-in identity after account deletion starts", async () => {
-    const { ctx } = createCtx([], "user-1", ["user-1"]);
+    const { ctx } = createCtx([], "user-1", [
+      tokenIdentifierForSubject("user-1"),
+    ]);
 
     await expect(
       getAuthenticatedViewerTokenIdentifier(ctx as never),
@@ -142,7 +148,7 @@ describe("listViewerBookmarksForCtx", () => {
     const { ctx } = createCtx([
       {
         _id: "bookmark-1",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Mars",
         savedAt: 10,
@@ -150,7 +156,7 @@ describe("listViewerBookmarksForCtx", () => {
       },
       {
         _id: "bookmark-2",
-        viewerTokenIdentifier: "user-2",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-2"),
         slug: "earth",
         title: "Earth",
         savedAt: 50,
@@ -158,7 +164,7 @@ describe("listViewerBookmarksForCtx", () => {
       },
       {
         _id: "bookmark-3",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "venus",
         title: "Venus",
         savedAt: 20,
@@ -178,7 +184,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
     const { ctx } = createCtx([
       {
         _id: "bookmark-1",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Old Mars",
         savedAt: 10,
@@ -186,7 +192,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
       },
       {
         _id: "bookmark-2",
-        viewerTokenIdentifier: "user-2",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-2"),
         slug: "earth",
         title: "Earth",
         savedAt: 100,
@@ -194,7 +200,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
       },
       {
         _id: "bookmark-3",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "venus",
         title: "Venus",
         savedAt: 20,
@@ -202,7 +208,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
       },
       {
         _id: "bookmark-4",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Mars",
         savedAt: 30,
@@ -210,7 +216,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
       },
       {
         _id: "bookmark-5",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: " ",
         title: "Invalid",
         savedAt: 40,
@@ -236,7 +242,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
   it("rejects Account A query args when transport authenticates Account B", async () => {
     const accountABookmark = {
       _id: "bookmark-a",
-      viewerTokenIdentifier: "user-a",
+      viewerTokenIdentifier: tokenIdentifierForSubject("user-a"),
       slug: "mars",
       title: "Mars",
       savedAt: 10,
@@ -244,7 +250,7 @@ describe("listNativeViewerBookmarksForCtx", () => {
     };
     const accountBBookmark = {
       _id: "bookmark-b",
-      viewerTokenIdentifier: "user-b",
+      viewerTokenIdentifier: tokenIdentifierForSubject("user-b"),
       slug: "venus",
       title: "Venus",
       savedAt: 20,
@@ -289,7 +295,7 @@ describe("saveViewerBookmarkForCtx", () => {
     const { ctx, getDocs } = createCtx([
       {
         _id: "bookmark-1",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Old Mars",
         savedAt: 25,
@@ -322,7 +328,7 @@ describe("removeViewerBookmarkForCtx", () => {
     const { ctx, getDocs } = createCtx([
       {
         _id: "bookmark-1",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Mars",
         savedAt: 10,
@@ -339,7 +345,7 @@ describe("removeViewerBookmarkForCtx", () => {
   it("does not let Account B remove Account A's bookmark", async () => {
     const accountABookmark = {
       _id: "bookmark-1",
-      viewerTokenIdentifier: "user-a",
+      viewerTokenIdentifier: tokenIdentifierForSubject("user-a"),
       slug: "mars",
       title: "Mars",
       savedAt: 10,
@@ -394,7 +400,7 @@ describe("native viewer bookmark mutations", () => {
   it("cannot execute a queued Account A write after Account B authenticates", async () => {
     const accountBBookmark = {
       _id: "bookmark-b",
-      viewerTokenIdentifier: "user-b",
+      viewerTokenIdentifier: tokenIdentifierForSubject("user-b"),
       slug: "mars",
       title: "Account B Mars",
       savedAt: 20,
@@ -426,7 +432,7 @@ describe("importGuestBookmarksForCtx", () => {
     const { ctx, getDocs } = createCtx([
       {
         _id: "bookmark-1",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Mars from account",
         savedAt: 100,
@@ -447,14 +453,14 @@ describe("importGuestBookmarksForCtx", () => {
     expect(getDocs()).toEqual([
       {
         _id: "bookmark-1",
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "mars",
         title: "Mars from account",
         savedAt: 100,
         updatedAt: 100,
       },
       expect.objectContaining({
-        viewerTokenIdentifier: "user-1",
+        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
         slug: "venus",
         title: "Venus",
         savedAt: 75,

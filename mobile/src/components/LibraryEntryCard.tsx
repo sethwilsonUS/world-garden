@@ -17,15 +17,22 @@ export interface LibraryEntryCardProps {
   readonly onRequestRemove: NonNullable<PressableProps["onPress"]>;
 }
 
+let savedDateFormatter: Intl.DateTimeFormat | undefined;
+
+function getSavedDateFormatter(): Intl.DateTimeFormat {
+  savedDateFormatter ??= new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  return savedDateFormatter;
+}
+
 export function formatLibrarySavedDate(savedAt: number): string {
   const date = new Date(savedAt);
   if (!Number.isFinite(date.getTime())) return "Saved date unavailable";
 
-  return `Saved ${new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(date)}`;
+  return `Saved ${getSavedDateFormatter().format(date)}`;
 }
 
 /** A visual card with two sibling targets: open the article or remove it. */

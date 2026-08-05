@@ -72,4 +72,19 @@ describe("mergeBookmarkEntries", () => {
       { slug: "jupiter", title: "Jupiter", savedAt: 25 },
     ]);
   });
+
+  it("keeps the newer entry when recency and source preference disagree", () => {
+    expect(
+      mergeBookmarkEntries(
+        [
+          { slug: "mars", title: "Mars from account", savedAt: 30 },
+          { slug: "jupiter", title: "Jupiter", savedAt: 25 },
+        ],
+        [{ slug: "mars", title: "Mars from guest", savedAt: 45 }],
+      ),
+    ).toEqual([
+      { slug: "mars", title: "Mars from guest", savedAt: 45 },
+      { slug: "jupiter", title: "Jupiter", savedAt: 25 },
+    ]);
+  });
 });

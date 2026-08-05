@@ -22,10 +22,11 @@ import {
   useNativeLibrary,
   type NativeLibraryState,
 } from "../library/NativeLibraryContext";
+import {
+  bookmarkEntriesRevision,
+  SAFE_LIBRARY_UPDATE_ERROR,
+} from "../library/bookmarkPresentation";
 import { GardenText } from "../theme/GardenText";
-
-const SAFE_LIBRARY_UPDATE_ERROR =
-  "We couldn’t update your Library. Please try again.";
 
 type LibraryOperationStatus =
   | Readonly<{ kind: "idle"; message: ""; slug: null }>
@@ -139,12 +140,6 @@ function baseStatusMessage(
   }
 }
 
-function entriesRevision(entries: readonly BookmarkEntry[]): string {
-  return JSON.stringify(
-    entries.map(({ savedAt, slug, title }) => [slug, title, savedAt]),
-  );
-}
-
 export function LibraryScreen({
   confirmRemoval = confirmLibraryRemoval,
   focusAfterRemoval = focusLibraryElement,
@@ -211,7 +206,7 @@ export function LibraryScreen({
     library.state.status === "ready" &&
     (operation.kind === "success" || operation.kind === "error")
   ) {
-    const revision = entriesRevision(library.state.entries);
+    const revision = bookmarkEntriesRevision(library.state.entries);
     if (operation.entriesRevision !== revision) {
       const removalEchoArrived =
         operation.kind === "success" &&
@@ -259,7 +254,7 @@ export function LibraryScreen({
       awaitingRemovalEcho:
         awaitingRemovalEcho &&
         currentState.entries.some((entry) => entry.slug === slug),
-      entriesRevision: entriesRevision(currentState.entries),
+      entriesRevision: bookmarkEntriesRevision(currentState.entries),
     };
   };
   const activeOperation =
