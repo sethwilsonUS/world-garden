@@ -468,7 +468,32 @@ describe("POST /api/article/audio/section", () => {
       await Promise.all(pendingAfterTasks);
 
       expect(response.status).toBe(200);
-      expect(generateTtsAudioWithMetadata).toHaveBeenCalledOnce();
+      expect(generateTtsAudioWithMetadata).toHaveBeenCalledWith(
+        { text: summary.text, provider: "edge" },
+        expect.any(Object),
+      );
+      const readCall = fetchMutation.mock.calls.find(
+        ([functionReference]) =>
+          getFunctionName(functionReference) ===
+          "audio:getAllSectionAudioForServer",
+      );
+      expect(readCall?.[1]).toEqual(
+        expect.objectContaining({
+          sourceHashes: [
+            {
+              sectionKey: summary.sectionKey,
+              sourceHash: summary.sourceHash,
+            },
+          ],
+        }),
+      );
+      const saveCall = fetchMutation.mock.calls.find(
+        ([functionReference]) =>
+          getFunctionName(functionReference) === "audio:saveSectionAudioRecord",
+      );
+      expect(saveCall?.[1]).toEqual(
+        expect.objectContaining({ sourceHash: summary.sourceHash }),
+      );
     },
   );
 

@@ -476,9 +476,11 @@ export const POST = async (req: NextRequest) => {
             body.sectionKey,
             identity.sourceHash,
           )
-        : (buildArticleNarrationTracks(article).find(
-            (candidate) => candidate.sectionKey === body.sectionKey,
-          ) ?? null)
+        : (buildArticleNarrationTracks({
+            ...article,
+            revisionId: storedRevisionId ?? identity.revisionId,
+          }).find((candidate) => candidate.sectionKey === body.sectionKey) ??
+          null)
       : null;
     if (!track) {
       return NextResponse.json(
