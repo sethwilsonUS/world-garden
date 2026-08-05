@@ -20,12 +20,8 @@ describe("native canonical route mapping", () => {
   });
 
   it("normalizes only the first usable Expo Router article parameter", () => {
-    expect(normalizeNativeArticleSlug(["  AC/DC  ", "ignored"])).toBe(
-      "AC/DC",
-    );
-    expect(normalizeNativeArticleSlug("  Ada_Lovelace ")).toBe(
-      "Ada_Lovelace",
-    );
+    expect(normalizeNativeArticleSlug(["  AC/DC  ", "ignored"])).toBe("AC/DC");
+    expect(normalizeNativeArticleSlug("  Ada_Lovelace ")).toBe("Ada_Lovelace");
   });
 
   it.each([undefined, [], "", "   ", ["   "]])(
@@ -34,6 +30,19 @@ describe("native canonical route mapping", () => {
       expect(normalizeNativeArticleSlug(slug)).toBeNull();
     },
   );
+
+  it.each([".", "..", "unsafe\u0000title", "x".repeat(513)])(
+    "rejects an unsafe article route parameter: %j",
+    (slug) => {
+      expect(normalizeNativeArticleSlug(slug)).toBeNull();
+    },
+  );
+
+  it("normalizes a decomposed Unicode article route parameter", () => {
+    expect(normalizeNativeArticleSlug("  Lothlo\u0301rien  ")).toBe(
+      "Lothlórien",
+    );
+  });
 
   it.each([
     "curiogarden://article/Taylor_Swift",

@@ -16,8 +16,19 @@ export function normalizeNativeArticleSlug(
   slug: string | string[] | undefined,
 ): string | null {
   const firstSlug = Array.isArray(slug) ? slug[0] : slug;
-  const normalizedSlug = firstSlug?.trim() ?? "";
-  return normalizedSlug || null;
+  const normalizedSlug = firstSlug?.normalize("NFC").trim() ?? "";
+  if (!normalizedSlug || normalizedSlug.length > 512) return null;
+
+  try {
+    return (
+      parseCanonicalArticlePath(
+        `/article/${encodeURIComponent(normalizedSlug)}`,
+      )?.slug ?? null
+    );
+  } catch (error) {
+    if (error instanceof URIError) return null;
+    throw error;
+  }
 }
 
 export function mapCanonicalPathToNativeHref(

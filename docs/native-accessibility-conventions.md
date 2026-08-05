@@ -32,6 +32,18 @@ components or CSS across the architecture boundary.
   and nonempty description form one accessible name; its visual descendants
   are hidden from assistive technology. Never expose a duplicate title or a
   nested control inside the result link.
+- A data-backed route owns one persistent primary heading and one persistent
+  status node. Keep their identities stable across loading, success, error, and
+  retry; changing their text must not remount them or request focus again.
+  Route entry may focus the primary heading once. Async completion, failure,
+  and same-route retry announce useful state without stealing focus.
+- In a long Article, expose every real section title as a heading in source
+  order, including a heading-only parent that introduces populated child
+  subsections. Keep each ordinary paragraph as one bounded screen-reader stop.
+  An exceptionally long source paragraph may split losslessly at safe text
+  boundaries into multiple bounded stops; do not collapse the whole article
+  into one enormous stop, split prose into arbitrary sentence fragments, clamp
+  lines, truncate, or ellipsize task content.
 
 ## Text, reflow, and contrast
 
@@ -72,6 +84,35 @@ components or CSS across the architecture boundary.
 - A form's persistent visible label and accessible input name must agree. Keep
   the text input and its submit button as separate focus stops; do not collapse
   an editable field and an action into one control.
+- Source, license, media-attribution, and richer-web actions expose the `link`
+  role and a name that identifies their destination or purpose. Sanitize every
+  externally supplied target and permit only complete `https` URLs; missing,
+  malformed, credentialed, or non-HTTPS values render as noninteractive text or
+  an unavailable state rather than being passed to the operating system.
+
+## Article content and media
+
+- Preserve the article title, provenance, summary, source section order, and
+  paragraph boundaries. Native presentation may adapt spacing and typography,
+  but it must not invent hierarchy or silently omit text within a supported
+  section.
+- A lead thumbnail is informative content. Give the image a concise accessible
+  name tied to the article, keep creator/source/license attribution visibly
+  adjacent, and expose safe attribution targets as links. Never use attribution
+  text as the image's accessible name.
+- While an image loads, preserve the surrounding article's order. If it is
+  absent, unsafe, or fails to load, remove the broken graphic from the
+  accessibility tree and show persistent visible fallback copy; retain any
+  valid attribution required for the media.
+- The native reader explicitly hands galleries, broader context, and citation
+  details to the richer canonical web article until those structures have an
+  equivalent native representation. The handoff explanation appears before its
+  link and does not imply that opening the web is required to read the summary
+  and supported sections already present natively.
+- Cache metadata describes cache behavior, not editorial history. A value
+  derived from `lastFetchedAt` may be labeled `Fetched` or `Retrieved`, or be
+  omitted. It must never be labeled `Last edited`; only authoritative revision
+  metadata can support an editorial-history claim.
 
 ## Status and motion
 
@@ -81,6 +122,10 @@ components or CSS across the architecture boundary.
 - Search keeps one persistent status node while it transitions from searching
   to an empty, singular, or plural result count. Ignore stale request
   completions and do not move focus when the message changes.
+- Article keeps its single status node mounted while it transitions through
+  loading, loaded, request error, and retry. Use the existing visible alert for
+  a request failure rather than adding a second announcement source; clear or
+  update obsolete status copy and leave retry operable without moving focus.
 - Android uses a visible polite live region. iOS queues one explicit
   announcement for a meaningful state transition. Do not combine both paths on
   the same platform or repeat an unchanged message.
