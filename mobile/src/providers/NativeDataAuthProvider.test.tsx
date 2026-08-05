@@ -10,6 +10,7 @@ import {
   ConvexReactClient,
   useAction,
   useConvexAuth,
+  useMutation,
   useQueries,
 } from "convex/react";
 import type { PropsWithChildren } from "react";
@@ -18,6 +19,7 @@ import { Pressable, Text, View } from "react-native";
 import { useNativeAuth } from "../auth/NativeAuthContext";
 import { convexClientApi } from "../data/convexClientApi";
 import { useWikipediaReader } from "../data/WikipediaReaderContext";
+import { useNativeLibrary } from "../library/NativeLibraryContext";
 import { NativeDataAuthProvider } from "./NativeDataAuthProvider";
 
 const mockClerkProviderBoundary = jest.fn(({ children }: PropsWithChildren) => (
@@ -49,6 +51,7 @@ jest.mock("convex/react", () => ({
     .mockImplementation((convexUrl: string) => ({ convexUrl })),
   useAction: jest.fn(),
   useConvexAuth: jest.fn(),
+  useMutation: jest.fn(),
   useQueries: jest.fn(),
 }));
 
@@ -62,6 +65,7 @@ const useActionMock = useAction as jest.Mock;
 const useAuthMock = jest.mocked(useAuth);
 const useUserMock = jest.mocked(useUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
+const useMutationMock = useMutation as jest.Mock;
 const useQueriesMock = useQueries as jest.Mock;
 const publicSearch = jest.fn();
 const publicFetchArticle = jest.fn();
@@ -69,6 +73,7 @@ const clerkSignOut = jest.fn();
 
 function PublicSignedOutConsumer() {
   const { state } = useNativeAuth();
+  const library = useNativeLibrary();
   const reader = useWikipediaReader();
 
   return (
@@ -78,6 +83,7 @@ function PublicSignedOutConsumer() {
       testID="public-reader-consumer"
     >
       <Text>{state.status}</Text>
+      <Text testID="library-status">library:{library.state.status}</Text>
     </Pressable>
   );
 }
@@ -115,6 +121,7 @@ beforeEach(() => {
     isLoading: false,
     isRefreshing: false,
   });
+  useMutationMock.mockReturnValue(jest.fn());
   useQueriesMock.mockReturnValue({});
 });
 
@@ -175,6 +182,9 @@ describe("NativeDataAuthProvider", () => {
     );
 
     expect(screen.getByText("signedOut")).toBeOnTheScreen();
+    expect(screen.getByTestId("library-status")).toHaveTextContent(
+      "library:signedOut",
+    );
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
 
     fireEvent.press(screen.getByTestId("public-reader-consumer"));

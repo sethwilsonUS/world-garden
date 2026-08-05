@@ -36,10 +36,15 @@ type SearchState =
 
 export interface SearchScreenProps {
   focusHeading?: NonNullable<RouteHeadingProps["focusElement"]>;
+  isRouteActive?: boolean;
   term: string;
 }
 
-export function SearchScreen({ focusHeading, term }: SearchScreenProps) {
+export function SearchScreen({
+  focusHeading,
+  isRouteActive = true,
+  term,
+}: SearchScreenProps) {
   const router = useRouter();
   const { colors } = useGardenTheme();
   const { search } = useWikipediaReader();
@@ -128,6 +133,7 @@ export function SearchScreen({ focusHeading, term }: SearchScreenProps) {
     <GardenScreen contentContainerStyle={styles.screen} testID="search-screen">
       <GardenButton label="Back to home" onPress={goBack} variant="secondary" />
       <RouteHeading
+        active={isRouteActive}
         focusElement={focusHeading}
         focusKey={normalizedTerm}
         testID="search-screen-heading"
@@ -148,6 +154,7 @@ export function SearchScreen({ focusHeading, term }: SearchScreenProps) {
         <>
           <AccessibleStatus
             accessible={Boolean(statusMessage)}
+            announcementMode={isRouteActive ? "automatic" : "none"}
             message={statusMessage}
             testID="search-status"
           />
@@ -164,6 +171,7 @@ export function SearchScreen({ focusHeading, term }: SearchScreenProps) {
             <GardenCard>
               <AccessibleStatus
                 accessibilityRole={errorMessage ? "alert" : undefined}
+                announcementMode={isRouteActive ? "automatic" : "none"}
                 color="critical"
                 message={errorMessage}
                 testID="search-error-status"

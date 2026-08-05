@@ -66,11 +66,13 @@ function readyState(
 function renderAccount({
   focusAuthOpener,
   focusHeading,
+  isRouteActive = true,
   isProductionEnvironment = true,
   onBack = jest.fn(),
 }: {
   focusAuthOpener?: (element: View) => void;
   focusHeading?: (element: View) => void;
+  isRouteActive?: boolean;
   isProductionEnvironment?: boolean;
   onBack?: () => void;
 } = {}) {
@@ -82,6 +84,7 @@ function renderAccount({
       <AccountScreen
         focusAuthOpener={focusAuthOpener}
         focusHeading={focusHeading}
+        isRouteActive={isRouteActive}
         isProductionEnvironment={isProductionEnvironment}
         onBack={onBack}
       />
@@ -410,6 +413,94 @@ describe("AccountScreen", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeOnTheScreen();
     expect(focusAuthOpener).toHaveBeenCalledTimes(1);
     expect(focusAuthOpener).toHaveBeenCalledWith(expect.anything());
+  });
+
+  it("defers sign-out focus recovery while Account is hidden", async () => {
+    authState = readyState();
+    const request = deferred<TestSignOutResult>();
+    const focusAuthOpener = jest.fn();
+    mockSignOut.mockReturnValue(request.promise);
+    const view = renderAccount({ focusAuthOpener });
+
+    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    authState = { profile: null, status: "signedOut" };
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <AccountScreen
+          focusAuthOpener={focusAuthOpener}
+          isProductionEnvironment
+          isRouteActive={false}
+          onBack={jest.fn()}
+        />
+      </GardenThemeProvider>,
+    );
+
+    await act(async () => {
+      request.resolve({ ok: true });
+      await request.promise;
+    });
+    expect(focusAuthOpener).not.toHaveBeenCalled();
+
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <AccountScreen
+          focusAuthOpener={focusAuthOpener}
+          isProductionEnvironment
+          isRouteActive
+          onBack={jest.fn()}
+        />
+      </GardenThemeProvider>,
+    );
+    expect(focusAuthOpener).toHaveBeenCalledTimes(1);
+  });
+
+  it("defers hosted-auth focus recovery while Account is hidden", () => {
+    const focusAuthOpener = jest.fn();
+    const focusHeading = jest.fn();
+    const view = renderAccount({ focusAuthOpener, focusHeading });
+    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    const restoreFocus = mockOpenAuth.mock.calls[0]?.[0]?.restoreFocus;
+
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <AccountScreen
+          focusAuthOpener={focusAuthOpener}
+          focusHeading={focusHeading}
+          isProductionEnvironment
+          isRouteActive={false}
+          onBack={jest.fn()}
+        />
+      </GardenThemeProvider>,
+    );
+    act(() => restoreFocus("cancelled"));
+    expect(focusAuthOpener).not.toHaveBeenCalled();
+    expect(focusHeading).not.toHaveBeenCalled();
+
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <AccountScreen
+          focusAuthOpener={focusAuthOpener}
+          focusHeading={focusHeading}
+          isProductionEnvironment
+          isRouteActive
+          onBack={jest.fn()}
+        />
+      </GardenThemeProvider>,
+    );
+    expect(focusAuthOpener).toHaveBeenCalledTimes(1);
+    expect(focusHeading).not.toHaveBeenCalled();
   });
 
   it("turns a failed sign-out into a safe retryable error", async () => {

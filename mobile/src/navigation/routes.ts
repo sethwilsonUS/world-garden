@@ -2,8 +2,10 @@ import { parseCanonicalArticlePath } from "@curio-garden/domain";
 
 export type NativeArticleHref = Readonly<{
   pathname: "/article/[slug]";
-  params: Readonly<{ slug: string }>;
+  params: Readonly<{ from?: NativeArticleSource; slug: string }>;
 }>;
+
+export type NativeArticleSource = "library";
 
 const nativeSchemes = new Set([
   "curiogarden:",
@@ -41,6 +43,13 @@ export function normalizeNativeArticleSlug(
     if (error instanceof URIError) return null;
     throw error;
   }
+}
+
+export function normalizeNativeArticleSource(
+  source: string | string[] | undefined,
+): NativeArticleSource | null {
+  const firstSource = Array.isArray(source) ? source[0] : source;
+  return firstSource === "library" ? "library" : null;
 }
 
 export function mapCanonicalPathToNativeHref(

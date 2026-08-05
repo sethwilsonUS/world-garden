@@ -49,15 +49,15 @@ older installed client are not representative typography checks.
 
 ## Current product slice
 
-The current native slice mirrors the web search workbench, adds read-only native
-articles, and establishes shared Clerk/Convex account identity. Home accepts a
-Wikipedia topic, Search shows public Wikipedia results, and each complete result
-card is one named link. Activating a result opens a native Article route with
-the article title and provenance, an optional lead thumbnail with visible
-attribution, the summary, and section headings with bounded paragraph reading
-stops. The article also exposes its Wikipedia source and applicable license as
-named external links. Public search and reading continue to work while signed
-out.
+The current native slice mirrors the web search workbench, adds native article
+reading, establishes shared Clerk/Convex account identity, and lets a signed-in
+account save and manage its Library. Home accepts a Wikipedia topic, Search
+shows public Wikipedia results, and each complete result card is one named link.
+Activating a result opens a native Article route with the article title and
+provenance, an optional lead thumbnail with visible attribution, the summary,
+and section headings with bounded paragraph reading stops. The article also
+exposes its Wikipedia source and applicable license as named external links.
+Public search and reading continue to work while signed out.
 
 Account represents loading, signed-out, connecting, connected, and bridge-error
 states without displaying token, issuer, session, or subject identifiers. Both
@@ -70,6 +70,24 @@ sessions use the secure-store token cache, and the UI treats identity as
 connected only after Clerk and the Convex viewer
 agree on the exact account.
 
+The signed-in Library reads and mutates the same account-scoped Convex bookmarks
+as the web application. Every native bookmark read and write binds the private
+expected Clerk/Convex subject and an opaque account epoch at the server
+boundary before accessing data; app-owned screens cannot import that transport
+binding. An Article exposes an explicit save/remove action, and
+Library lists the account's saved articles as separate named article links with
+sibling Remove buttons. Removing an entry from that list requires confirmation,
+then returns focus to the next saved article, the previous saved article, or the
+Library heading when the list becomes empty. Routine query synchronization
+preserves focus while its target remains. If synchronization deletes the
+tracked input-focused row, the app makes a best-effort move to a surviving row
+or the heading; physical VoiceOver and TalkBack cursor behavior remains an
+explicit signed-device gate because React Native does not expose that cursor as
+a cross-platform focus event.
+Changing account epochs clears private entries and operation feedback before the
+new account can load, so an Account A result cannot appear for Account B.
+Signed-out reading stays public, but there is no guest or device-backed Library.
+
 The current web application remains the visual authority for app-owned native
 screens. Hosted Account Portal appearance is managed in the Clerk Dashboard and
 must be kept aligned with that design. The app does not link to web export or
@@ -79,9 +97,9 @@ before native code can safely expose those operations.
 The native reader deliberately stops at the content it can represent faithfully.
 A richer web handoff explains that galleries, broader context, and citation
 details remain available on the canonical
-`https://curiogarden.org/article/...` page. Audio, Library save/list behavior,
-offline downloads or article storage, and push notifications are not part of
-this slice.
+`https://curiogarden.org/article/...` page. Audio and playlist playback, offline
+downloads or article storage, and push notifications are not part of this
+slice.
 
 Web and native share the article-route codec in `@curio-garden/domain`. It
 normalizes titles to NFC, uses underscores for word separators, and encodes a
@@ -99,18 +117,24 @@ web handoff.
 Search terms are normalized without rewriting the user's words. The visible
 search label remains present, the input and Search button remain separate
 controls, and each result's ordinal, title, and optional description form the
-accessible name of one link. Search and Article each keep one persistent route
-heading and one persistent status node through loading, error, and retry states;
-async changes announce useful status without stealing focus. Article paragraphs
-remain complete, separate screen-reader stops beneath real section headings.
-External article, license, and attribution targets are sanitized HTTPS URLs and
-expose the link role. A missing or failed thumbnail leaves visible explanatory
-copy and attribution rather than a blank graphic. Cache retrieval metadata such
-as `lastFetchedAt` may be described as fetched or retrieved, but never as
+accessible name of one link. Search, Article, and Library each keep one
+persistent route heading and one persistent status node through loading, error,
+and retry states; async changes announce useful status without stealing focus.
+The Article Library action uses visible saved/in-progress wording plus matching
+selected, busy, and disabled accessibility state. The native control remains
+focusable while busy and ignores repeat activation so a state update does not
+strand screen-reader focus.
+Article paragraphs remain
+complete, separate screen-reader stops beneath real section headings. External
+article, license, and attribution targets are sanitized HTTPS URLs and expose
+the link role. A missing or failed thumbnail leaves visible explanatory copy
+and attribution rather than a blank graphic. Cache retrieval metadata such as
+`lastFetchedAt` may be described as fetched or retrieved, but never as
 `Last edited`, because it is not Wikipedia revision history.
 
-The exact screen-reader speech, destination-heading focus, long-article reading
-order, image fallback behavior, and back focus still require the signed
+The exact screen-reader speech, destination-heading and post-removal focus,
+long-article reading order, image fallback behavior, same-account Library sync,
+account-switch isolation, and back focus still require the signed
 physical-device runs recorded in the
 [native accessibility test matrix](../docs/mobile-accessibility-test-matrix.md).
 
@@ -188,8 +212,9 @@ config plugin instead of letting plugin order produce a client that builds but
 cannot install or start on its declared iOS floor.
 
 Push notifications are intentionally disabled and not installed. Offline
-downloads and offline article storage are outside the current implementation
-scope, as are native audio playback and authenticated Library operations.
+downloads, offline article storage, and guest/device Library persistence are
+outside the current implementation scope, as are native audio and playlist
+playback.
 
 ## Accessibility verification
 
@@ -202,8 +227,10 @@ tree inspection are supplementary evidence only.
 
 The automated mobile suites cover app-owned roles, names, unclamped task text,
 target geometry, safe error copy, stale-request handling, platform-specific
-status wiring, route-heading focus requests, the Article reading contract, and
-hosted-auth cancellation, completion, error, and focus-restoration behavior.
+status wiring, route-heading focus requests, the Article reading contract,
+Library save/remove state and modeled post-removal input-focus recovery, account-epoch
+isolation, and hosted-auth cancellation, completion, error, and
+focus-restoration behavior.
 Run `npm run mobile:check` for the current test, type, configuration, and
 architecture result instead of relying on a recorded suite count. No automated
 suite proves exact spoken output, actual screen-reader focus landing, browser

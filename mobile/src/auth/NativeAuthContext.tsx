@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { convexClientApi } from "../data/convexClientApi";
+import { NativeAuthTransportBindingProvider } from "./NativeAuthTransportBindingContext";
 
 const BRIDGE_ERROR_MESSAGE =
   "We couldn't connect your account. Please try again.";
@@ -68,8 +69,27 @@ export type NativeSignOutResult =
 export interface NativeAuthValue {
   readonly canSignOut: boolean;
   readonly sessionEpoch: symbol;
+  readonly sessionEpochKey: string;
   readonly signOut: () => Promise<NativeSignOutResult>;
   readonly state: NativeAuthState;
+}
+
+let nextSessionEpochKey = 0;
+
+function createSessionEpochState(sessionId: string | null): {
+  readonly key: string;
+  readonly sessionId: string | null;
+  readonly value: symbol;
+} {
+  nextSessionEpochKey += 1;
+
+  return {
+    // This key is a same-runtime correlation value, not an authentication
+    // credential. Its sequence is intentionally independent of Clerk IDs.
+    key: `native-epoch-${nextSessionEpochKey.toString(36)}`,
+    sessionId,
+    value: Symbol("native-clerk-session"),
+  };
 }
 
 function sanitizeSignOutError(_error: unknown): NativeSignOutResult {
@@ -119,24 +139,21 @@ export function NativeAuthProvider({
 
   const activeSessionId =
     clerkAuth.isLoaded && clerkAuth.isSignedIn ? clerkAuth.sessionId : null;
-  const [sessionEpochState, setSessionEpochState] = useState<{
-    readonly sessionId: string | null;
-    readonly value: symbol;
-  }>(() => ({
-    sessionId: activeSessionId,
-    value: Symbol("native-clerk-session"),
-  }));
-  if (sessionEpochState.sessionId !== activeSessionId) {
-    // State is a semantic identity guarantee, unlike a memo cache. React
-    // restarts this render before committing the replacement session.
-    setSessionEpochState({
-      sessionId: activeSessionId,
-      value: Symbol("native-clerk-session"),
-    });
-  }
-  const sessionEpoch = sessionEpochState.value;
   const isCurrentSessionSuppressed =
     activeSessionId !== null && activeSessionId === suppressedSessionId;
+  const exposedSessionId = isCurrentSessionSuppressed ? null : activeSessionId;
+  const [sessionEpochState, setSessionEpochState] = useState<{
+    readonly key: string;
+    readonly sessionId: string | null;
+    readonly value: symbol;
+  }>(() => createSessionEpochState(exposedSessionId));
+  if (sessionEpochState.sessionId !== exposedSessionId) {
+    // State is a semantic identity guarantee, unlike a memo cache. React
+    // restarts this render before committing the replacement session.
+    setSessionEpochState(createSessionEpochState(exposedSessionId));
+  }
+  const sessionEpoch = sessionEpochState.value;
+  const sessionEpochKey = sessionEpochState.key;
   const clerkIdentityReady =
     clerkAuth.isLoaded &&
     clerkAuth.isSignedIn &&
@@ -266,20 +283,40 @@ export function NativeAuthProvider({
     return operation;
   }, [activeSessionId, clerkAuth]);
 
+  const validatedAccountSubject =
+    state.status === "ready" &&
+    viewer !== undefined &&
+    viewer !== null &&
+    !(viewer instanceof Error)
+      ? viewer.subject
+      : null;
+
   const value = useMemo<NativeAuthValue>(
     () => ({
       canSignOut: activeSessionId !== null && !isCurrentSessionSuppressed,
       sessionEpoch,
+      sessionEpochKey,
       signOut,
       state,
     }),
-    [activeSessionId, isCurrentSessionSuppressed, sessionEpoch, signOut, state],
+    [
+      activeSessionId,
+      isCurrentSessionSuppressed,
+      sessionEpoch,
+      sessionEpochKey,
+      signOut,
+      state,
+    ],
   );
 
   return (
-    <NativeAuthContext.Provider value={value}>
-      {children}
-    </NativeAuthContext.Provider>
+    <NativeAuthTransportBindingProvider
+      expectedAccountSubject={validatedAccountSubject}
+    >
+      <NativeAuthContext.Provider value={value}>
+        {children}
+      </NativeAuthContext.Provider>
+    </NativeAuthTransportBindingProvider>
   );
 }
 

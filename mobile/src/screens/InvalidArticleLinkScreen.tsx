@@ -10,27 +10,38 @@ import { GardenScreen } from "../layout/GardenScreen";
 import { GardenText } from "../theme/GardenText";
 
 export interface InvalidArticleLinkScreenProps {
+  backLabel?: "Back to Library" | "Back to search";
   focusHeading?: NonNullable<RouteHeadingProps["focusElement"]>;
+  isRouteActive?: boolean;
   onBack: () => void;
 }
 
 export function InvalidArticleLinkScreen({
+  backLabel = "Back to search",
   focusHeading,
+  isRouteActive = true,
   onBack,
 }: InvalidArticleLinkScreenProps) {
+  const returnsToLibrary = backLabel === "Back to Library";
+
   return (
     <GardenScreen
       contentContainerStyle={styles.content}
       testID="invalid-article-link-screen"
     >
       <GardenButton
-        hint="Returns to Wikipedia search."
-        label="Back to search"
+        hint={
+          returnsToLibrary
+            ? "Returns to your saved articles."
+            : "Returns to Wikipedia search."
+        }
+        label={backLabel}
         onPress={onBack}
         variant="secondary"
       />
 
       <RouteHeading
+        active={isRouteActive}
         focusElement={focusHeading}
         focusKey="invalid-article-link"
         testID="invalid-article-link-heading"
@@ -42,8 +53,9 @@ export function InvalidArticleLinkScreen({
           Invalid link
         </GardenText>
         <GardenText color="foreground2">
-          This article link is missing a title. Return to search and choose an
-          article.
+          {returnsToLibrary
+            ? "This saved article link is missing a valid title. Return to your Library and choose another article."
+            : "This article link is missing a valid title. Return to search and choose an article."}
         </GardenText>
       </GardenCard>
     </GardenScreen>

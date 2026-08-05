@@ -13,6 +13,30 @@ const convexImplementationImports = join(
   "convex",
   "**",
 ).replaceAll("\\", "/");
+const nativeAuthTransportBindingImport = join(
+  import.meta.dirname,
+  "src",
+  "auth",
+  "NativeAuthTransportBindingContext.tsx",
+).replaceAll("\\", "/");
+const nativeLibraryPersistenceImports = [
+  "@react-native-async-storage/async-storage",
+  "@react-native-async-storage/async-storage/**",
+  "@react-native-community/netinfo",
+  "@react-native-community/netinfo/**",
+  "expo-file-system",
+  "expo-file-system/**",
+  "expo-media-library",
+  "expo-media-library/**",
+  "expo-secure-store",
+  "expo-secure-store/**",
+  "expo-sqlite",
+  "expo-sqlite/**",
+  "react-native-blob-util",
+  "react-native-blob-util/**",
+  "react-native-fs",
+  "react-native-fs/**",
+];
 
 const mobileMustStayIndependentOfWeb = modules(mobileProject)
   .that()
@@ -63,10 +87,50 @@ const convexClientApiMustStayNarrow = modules(mobileProject)
   })
   .asSeverity("error");
 
+const nativeOfflinePersistenceMustStayDeferred = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(...nativeLibraryPersistenceImports)
+  .rule({
+    id: "curio/runtime/native-offline-persistence-deferred",
+    because:
+      "the current native product has no guest storage, offline cache, download system, or device-backed Library",
+    suggestion:
+      "Keep private state behind reviewed online adapters; design offline article and media storage as a separate future capability",
+    imperative:
+      "Do NOT add filesystem, database, device storage, connectivity, or download-library imports anywhere in the current native product",
+  })
+  .asSeverity("error");
+
+const nativeAuthTransportBindingMustStayPrivate = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("src/auth/NativeAuthContext.tsx")))
+  .and()
+  .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.tsx")))
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(nativeAuthTransportBindingImport)
+  .rule({
+    id: "curio/privacy/native-auth-transport-binding-private",
+    because:
+      "the raw validated account subject exists only to bind queued native transport to the account that initiated it",
+    suggestion:
+      "Use the profile-only NativeAuthContext from UI; consume the transport binding only inside an audited data adapter",
+    imperative:
+      "Do NOT import the native auth transport binding into routes, screens, components, or non-audited adapters",
+  })
+  .asSeverity("error");
+
 export default [
   ...recommended(mobileProject, {
     include: "{app,src}/**/*.{ts,tsx}",
   }),
   mobileMustStayIndependentOfWeb,
   convexClientApiMustStayNarrow,
+  nativeOfflinePersistenceMustStayDeferred,
+  nativeAuthTransportBindingMustStayPrivate,
 ];

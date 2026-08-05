@@ -41,6 +41,12 @@ export function HomeScreen() {
           No account needed to begin.
         </GardenText>
         <GardenButton
+          hint="Open articles saved to your Curio Garden account."
+          label="Library"
+          onPress={() => router.push("/library")}
+          variant="secondary"
+        />
+        <GardenButton
           hint="Open sign-in and account settings."
           label="Account"
           onPress={() => router.push("/account")}

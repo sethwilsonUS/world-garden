@@ -10,6 +10,7 @@ export type GardenButtonVariant = "primary" | "secondary";
 export interface GardenButtonProps {
   label: string;
   hint?: string;
+  onFocus?: PressableProps["onFocus"];
   onPress: NonNullable<PressableProps["onPress"]>;
   busy?: boolean;
   disabled?: boolean;
@@ -23,6 +24,7 @@ export interface GardenButtonProps {
 export function GardenButton({
   label,
   hint,
+  onFocus,
   onPress,
   busy = false,
   disabled = false,
@@ -52,7 +54,10 @@ export function GardenButton({
       disabled={unavailable}
       focusable={!unavailable}
       onBlur={() => setFocused(false)}
-      onFocus={() => setFocused(true)}
+      onFocus={(event) => {
+        setFocused(true);
+        onFocus?.(event);
+      }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,

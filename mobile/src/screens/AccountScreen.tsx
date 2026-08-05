@@ -7,14 +7,12 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import {
-  AccessibilityInfo,
-  Pressable,
-  StyleSheet,
-  View,
-} from "react-native";
+import { AccessibilityInfo, Pressable, StyleSheet, View } from "react-native";
 
-import { useHostedAuthFlow } from "../auth/HostedAuthFlow";
+import {
+  useHostedAuthFlow,
+  type HostedAuthOutcome,
+} from "../auth/HostedAuthFlow";
 import { useNativeAuth, type NativeAuthState } from "../auth/NativeAuthContext";
 import { AccessibleStatus } from "../components/AccessibleStatus";
 import { GardenButton } from "../components/GardenButton";
@@ -57,6 +55,7 @@ type AccountStatusPresentation = {
 export interface AccountScreenProps {
   focusAuthOpener?: (element: View) => void;
   focusHeading?: NonNullable<RouteHeadingProps["focusElement"]>;
+  isRouteActive?: boolean;
   isProductionEnvironment: boolean;
   onBack: () => void;
 }
@@ -209,6 +208,7 @@ function ProfileField({ label, value }: { label: string; value: string }) {
 export function AccountScreen({
   focusAuthOpener = focusNativeElement,
   focusHeading,
+  isRouteActive = true,
   isProductionEnvironment,
   onBack,
 }: AccountScreenProps): ReactElement {
@@ -224,7 +224,9 @@ export function AccountScreen({
   const signInButtonRef = useRef<View>(null);
   const signOutGeneration = useRef(0);
   const pendingSignOutFocusRef = useRef<PendingSignOutFocus | null>(null);
+  const pendingHostedAuthFocusRef = useRef<HostedAuthOutcome | null>(null);
   const latestSessionEpochRef = useRef(sessionEpoch);
+  const routeActiveRef = useRef(isRouteActive);
   const [signOutOperation, setSignOutOperation] = useState<SignOutOperation>({
     kind: "idle",
     sessionEpoch: null,
@@ -234,10 +236,15 @@ export function AccountScreen({
     latestSessionEpochRef.current = sessionEpoch;
   }, [sessionEpoch]);
 
+  useLayoutEffect(() => {
+    routeActiveRef.current = isRouteActive;
+  }, [isRouteActive]);
+
   useEffect(
     () => () => {
       signOutGeneration.current += 1;
       pendingSignOutFocusRef.current = null;
+      pendingHostedAuthFocusRef.current = null;
     },
     [],
   );
@@ -287,9 +294,40 @@ export function AccountScreen({
     state.status === "loading" ||
     state.status === "connecting";
 
+  const restoreHostedAuthFocus = useCallback(
+    (outcome: HostedAuthOutcome) => {
+      if (!routeActiveRef.current) {
+        pendingHostedAuthFocusRef.current = outcome;
+        return;
+      }
+
+      pendingHostedAuthFocusRef.current = null;
+      const accountHeading = accountHeadingRef.current;
+      if (outcome === "completed") {
+        if (accountHeading) focusAccountHeading(accountHeading);
+        return;
+      }
+
+      const opener = signInButtonRef.current;
+      if (opener) {
+        focusAuthOpener(opener);
+        return;
+      }
+
+      if (accountHeading) focusAccountHeading(accountHeading);
+    },
+    [focusAccountHeading, focusAuthOpener],
+  );
+
+  useEffect(() => {
+    if (!isRouteActive) return;
+    const outcome = pendingHostedAuthFocusRef.current;
+    if (outcome) restoreHostedAuthFocus(outcome);
+  }, [isRouteActive, restoreHostedAuthFocus]);
+
   useEffect(() => {
     const pendingFocus = pendingSignOutFocusRef.current;
-    if (!pendingFocus) return;
+    if (!pendingFocus || !isRouteActive) return;
 
     if (pendingFocus.generation !== signOutGeneration.current) {
       pendingSignOutFocusRef.current = null;
@@ -302,10 +340,7 @@ export function AccountScreen({
       pendingSignOutFocusRef.current = null;
       return;
     }
-    if (
-      state.status !== "signedOut" ||
-      effectiveSignOutOperation === "busy"
-    ) {
+    if (state.status !== "signedOut" || effectiveSignOutOperation === "busy") {
       return;
     }
 
@@ -322,29 +357,16 @@ export function AccountScreen({
     effectiveSignOutOperation,
     focusAccountHeading,
     focusAuthOpener,
+    isRouteActive,
     sessionEpoch,
     state.status,
   ]);
 
   const openSignIn = useCallback(() => {
     void openAuth({
-      restoreFocus: (outcome) => {
-        const accountHeading = accountHeadingRef.current;
-        if (outcome === "completed") {
-          if (accountHeading) focusAccountHeading(accountHeading);
-          return;
-        }
-
-        const opener = signInButtonRef.current;
-        if (opener) {
-          focusAuthOpener(opener);
-          return;
-        }
-
-        if (accountHeading) focusAccountHeading(accountHeading);
-      },
+      restoreFocus: restoreHostedAuthFocus,
     });
-  }, [focusAccountHeading, focusAuthOpener, openAuth]);
+  }, [openAuth, restoreHostedAuthFocus]);
 
   const performSignOut = async () => {
     if (effectiveSignOutOperation === "busy") return;
@@ -401,6 +423,7 @@ export function AccountScreen({
       />
 
       <RouteHeading
+        active={isRouteActive}
         ref={accountHeadingRef}
         focusElement={focusAccountHeading}
         focusKey="account"
@@ -414,9 +437,11 @@ export function AccountScreen({
       </GardenText>
 
       <AccessibleStatus
-        accessible={!isAccessibilityActive}
+        accessible={isRouteActive && !isAccessibilityActive}
         announceOnReveal={statusPresentation.source === "authError"}
-        announcementMode={isHostedAuthBusy ? "none" : "imperative"}
+        announcementMode={
+          isRouteActive && !isHostedAuthBusy ? "imperative" : "none"
+        }
         accessibilityRole={statusPresentation.isError ? "alert" : undefined}
         accessibilityState={{ busy: statusIsBusy }}
         color={statusPresentation.isError ? "critical" : "foreground2"}

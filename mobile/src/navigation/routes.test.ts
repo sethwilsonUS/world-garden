@@ -1,5 +1,6 @@
 import {
   mapCanonicalPathToNativeHref,
+  normalizeNativeArticleSource,
   normalizeNativeArticleSlug,
   redirectIncomingSystemPath,
 } from "./routes";
@@ -43,6 +44,18 @@ describe("native canonical route mapping", () => {
       "Lothlórien",
     );
   });
+
+  it("accepts only an explicit Library article source marker", () => {
+    expect(normalizeNativeArticleSource("library")).toBe("library");
+    expect(normalizeNativeArticleSource(["library", "search"])).toBe("library");
+  });
+
+  it.each([undefined, "", "search", "library/../account", ["search"]])(
+    "rejects an untrusted source marker: %j",
+    (source) => {
+      expect(normalizeNativeArticleSource(source)).toBeNull();
+    },
+  );
 
   it.each([
     "curiogarden://article/Taylor_Swift",

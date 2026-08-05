@@ -1,4 +1,5 @@
 import type {
+  BookmarkEntry,
   WikipediaArticle,
   WikipediaSearchResult,
 } from "@curio-garden/domain";
@@ -25,6 +26,32 @@ export const convexClientApi = Object.freeze({
       Record<string, never>,
       NativeViewerIdentity | null
     >("auth:nativeViewer"),
+  }),
+  bookmarks: Object.freeze({
+    listNative: makeFunctionReference<
+      "query",
+      { expectedAccountSubject: string; sessionEpochKey: string },
+      { entries: BookmarkEntry[]; sessionEpochKey: string }
+    >("bookmarks:listNativeViewerBookmarks"),
+    removeNative: makeFunctionReference<
+      "mutation",
+      {
+        expectedAccountSubject: string;
+        sessionEpochKey: string;
+        slug: string;
+      },
+      { removed: boolean; sessionEpochKey: string }
+    >("bookmarks:removeNativeViewerBookmark"),
+    saveNative: makeFunctionReference<
+      "mutation",
+      {
+        expectedAccountSubject: string;
+        sessionEpochKey: string;
+        slug: string;
+        title: string;
+      },
+      { entry: BookmarkEntry; sessionEpochKey: string }
+    >("bookmarks:saveNativeViewerBookmark"),
   }),
   wikipedia: Object.freeze({
     fetchArticle: makeFunctionReference<

@@ -37,6 +37,10 @@ components or CSS across the architecture boundary.
   retry; changing their text must not remount them or request focus again.
   Route entry may focus the primary heading once. Async completion, failure,
   and same-route retry announce useful state without stealing focus.
+- A Library entry is a visual card with two sibling focus targets: one named
+  article link and one named Remove button. Never nest the Remove action inside
+  the link or merge the saved date, navigation, and removal into one ambiguous
+  control.
 - In a long Article, expose every real section title as a heading in source
   order, including a heading-only parent that introduces populated child
   subsections. Keep each ordinary paragraph as one bounded screen-reader stop.
@@ -90,6 +94,40 @@ components or CSS across the architecture boundary.
   malformed, credentialed, or non-HTTPS values render as noninteractive text or
   an unavailable state rather than being passed to the operating system.
 
+## Library and saved articles
+
+- The current web application remains the design and copy authority. Native
+  Library presentation adapts its layout to platform conventions without
+  inventing a separate visual language or changing the account-backed meaning.
+- The Article action uses `Save to Library` and `Saved to Library` as visible
+  state labels, with an in-progress suffix while a mutation is pending. Its
+  accessible name includes the article title and the matching save or remove
+  purpose. Expose `selected` when saved and `busy` plus `disabled` while the
+  request is pending. Keep the native control focusable and ignore repeat
+  activation so Android does not strand screen-reader focus. Color is
+  supplementary.
+- Library owns one persistent `Library` heading and one persistent status node
+  across signed-out, connecting, loading, error, empty, list, mutation, and
+  retry states. Query completion and same-account synchronization may update
+  the status and entries without refocusing a target that still exists. If the
+  tracked input-focused row disappears, recover to a surviving row or the
+  heading. React Native input-focus callbacks do not prove where a VoiceOver or
+  TalkBack cursor landed, so that case remains a physical-device acceptance
+  gate.
+- Removing an entry is consequential and requires a named confirmation with
+  distinct Cancel and Remove actions. Cancellation and failure retain a
+  sensible focus position. After a committed removal, move focus
+  deterministically to the next article link, otherwise the previous article
+  link, otherwise the Library heading when the list becomes empty.
+- Library data belongs only to the validated native account. On sign-out or an
+  account-epoch change, clear entries, mutation state, errors, and deferred
+  focus work before another account can load. A stale Account A query or
+  mutation must not update Account B's UI or announce a result.
+- Signed-out users retain public Search and Article reading and receive an
+  honest route to Account. Do not create guest bookmarks, device persistence,
+  downloads, offline article storage, or copy that implies saved articles are
+  available offline.
+
 ## Article content and media
 
 - Preserve the article title, provenance, summary, source section order, and
@@ -126,6 +164,11 @@ components or CSS across the architecture boundary.
   loading, loaded, request error, and retry. Use the existing visible alert for
   a request failure rather than adding a second announcement source; clear or
   update obsolete status copy and leave retry operable without moving focus.
+- Library keeps its single status node mounted while it transitions through
+  account connection, query loading, empty/list results, retry, and save/remove
+  feedback. Ignore stale account epochs, and do not refocus the route when a
+  query or mutation status changes. A committed removal uses the deliberate
+  focus destination defined above instead of the routine status path.
 - Android uses a visible polite live region. iOS queues one explicit
   announcement for a meaningful state transition. Do not combine both paths on
   the same platform or repeat an unchanged message.

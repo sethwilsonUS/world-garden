@@ -5,6 +5,7 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { useState, type PropsWithChildren, type ReactElement } from "react";
 
 import { NativeAuthProvider } from "../auth/NativeAuthContext";
+import { ConvexNativeLibraryProvider } from "../data/ConvexNativeLibraryProvider";
 import { ConvexWikipediaReaderProvider } from "../data/ConvexWikipediaReaderProvider";
 
 export interface NativeDataAuthProviderProps extends PropsWithChildren {
@@ -29,7 +30,11 @@ export function NativeDataAuthProvider({
     <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
       <ConvexProviderWithClerk client={convexClient} useAuth={useAuth}>
         <ConvexWikipediaReaderProvider>
-          <NativeAuthProvider>{children}</NativeAuthProvider>
+          <NativeAuthProvider>
+            <ConvexNativeLibraryProvider>
+              {children}
+            </ConvexNativeLibraryProvider>
+          </NativeAuthProvider>
         </ConvexWikipediaReaderProvider>
       </ConvexProviderWithClerk>
     </ClerkProvider>

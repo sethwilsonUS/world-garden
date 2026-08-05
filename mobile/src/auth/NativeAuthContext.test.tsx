@@ -160,6 +160,38 @@ describe("NativeAuthProvider", () => {
     expect(result.current.sessionEpoch).toBe(signedOutEpoch);
   });
 
+  it("pairs each session epoch with a stable opaque serializable key", () => {
+    const { result, rerender } = renderHook(() => useNativeAuth(), {
+      wrapper: AuthWrapper,
+    });
+    const firstEpoch = result.current.sessionEpoch;
+    const firstEpochKey = result.current.sessionEpochKey;
+
+    expect(typeof firstEpochKey).toBe("string");
+    expect(firstEpochKey).not.toHaveLength(0);
+    expect(firstEpochKey).not.toContain("session-a");
+    expect(firstEpochKey).not.toContain("user-a");
+
+    clerkAuth = signedInAuth("user-a", "session-a");
+    clerkUser = signedInUser("user-a");
+    act(() => rerender(undefined));
+
+    expect(result.current.sessionEpoch).toBe(firstEpoch);
+    expect(result.current.sessionEpochKey).toBe(firstEpochKey);
+
+    clerkAuth = signedInAuth("user-b", "session-b");
+    clerkUser = signedInUser("user-b");
+    act(() => rerender(undefined));
+
+    expect(result.current.sessionEpoch).not.toBe(firstEpoch);
+    expect(result.current.sessionEpochKey).not.toBe(firstEpochKey);
+    expect(result.current.sessionEpochKey).not.toContain("session-b");
+    expect(result.current.sessionEpochKey).not.toContain("user-b");
+    expect(JSON.parse(JSON.stringify(result.current.sessionEpochKey))).toBe(
+      result.current.sessionEpochKey,
+    );
+  });
+
   it("keeps the session epoch stable when React discards memoized values", () => {
     const useMemoSpy = jest
       .spyOn(React, "useMemo")
@@ -170,12 +202,14 @@ describe("NativeAuthProvider", () => {
         wrapper: AuthWrapper,
       });
       const firstEpoch = result.current.sessionEpoch;
+      const firstEpochKey = result.current.sessionEpochKey;
 
       clerkAuth = signedInAuth("user-a", "session-a");
       clerkUser = signedInUser("user-a");
       act(() => rerender(undefined));
 
       expect(result.current.sessionEpoch).toBe(firstEpoch);
+      expect(result.current.sessionEpochKey).toBe(firstEpochKey);
     } finally {
       useMemoSpy.mockRestore();
     }
@@ -342,6 +376,7 @@ describe("NativeAuthProvider", () => {
     expect(result.current.state.profile).not.toHaveProperty("subject");
     expect(result.current.state.profile).not.toHaveProperty("issuer");
     expect(result.current.state.profile).not.toHaveProperty("tokenIdentifier");
+    expect(result.current).not.toHaveProperty("validatedAccountSubject");
   });
 
   it("removes the previous profile synchronously across an account switch", () => {
@@ -403,6 +438,7 @@ describe("NativeAuthProvider", () => {
     const { result, rerender } = renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
+    const signedInEpoch = result.current.sessionEpoch;
     let operation: Promise<NativeSignOutResult> | undefined;
 
     act(() => {
@@ -414,9 +450,12 @@ describe("NativeAuthProvider", () => {
       status: "signedOut",
     });
     expect(result.current.canSignOut).toBe(false);
+    const suppressedEpoch = result.current.sessionEpoch;
+    expect(suppressedEpoch).not.toBe(signedInEpoch);
 
     clerkAuth = signedOutAuth();
     act(() => rerender(undefined));
+    expect(result.current.sessionEpoch).toBe(suppressedEpoch);
 
     await act(async () => {
       resolveSignOut?.();
