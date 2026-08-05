@@ -10,6 +10,63 @@ import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { GardenLink, normalizeSafeExternalUrl } from "./GardenLink";
 
 const validUrl = "https://example.org/long/path?topic=garden#history";
+const validExternalUrls = [
+  "https://example.org",
+  "HTTPS://example.org/a?b=c#d",
+  "https://例え.テスト/庭",
+  "https://192.0.2.42/source",
+  "https://garden-tools.example/source",
+  "https://example.org:8443/source",
+];
+
+// Mirrors the URL properties GardenLink reads from React Native 0.86.2's
+// lightweight Libraries/Blob/URL implementation.
+class ReactNativeLightweightUrl {
+  readonly value: string;
+
+  constructor(value: string) {
+    this.value = value;
+  }
+
+  get hostname() {
+    const match = this.value.match(/^https?:\/\/(?:[^@]+@)?([^:/?#]+)/);
+    return match ? match[1] : "";
+  }
+
+  get password() {
+    const match = this.value.match(/https?:\/\/.*:(.*)@/);
+    return match ? match[1] : "";
+  }
+
+  get protocol() {
+    const match = this.value.match(/^([a-zA-Z][a-zA-Z\d+\-.]*):/);
+    return match ? `${match[1]}:` : "";
+  }
+
+  get username() {
+    const match = this.value.match(/^https?:\/\/([^:@]+)(?::[^@]*)?@/);
+    return match ? match[1] : "";
+  }
+}
+
+function withReactNativeLightweightUrl<Result>(run: () => Result): Result {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, "URL");
+  Object.defineProperty(globalThis, "URL", {
+    configurable: true,
+    value: ReactNativeLightweightUrl,
+    writable: true,
+  });
+
+  try {
+    return run();
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, "URL", originalDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "URL");
+    }
+  }
+}
 
 function renderLink(
   overrides: Partial<React.ComponentProps<typeof GardenLink>> = {},
@@ -48,14 +105,12 @@ function deferred<Value>() {
 }
 
 describe("normalizeSafeExternalUrl", () => {
-  it.each([
-    "https://example.org",
-    "HTTPS://example.org/a?b=c#d",
-    "https://例え.テスト/庭",
-    "https://example.org:8443/source",
-  ])("keeps the original credential-free HTTPS URL: %s", (url) => {
-    expect(normalizeSafeExternalUrl(url)).toBe(url);
-  });
+  it.each(validExternalUrls)(
+    "keeps the original credential-free HTTPS URL: %s",
+    (url) => {
+      expect(normalizeSafeExternalUrl(url)).toBe(url);
+    },
+  );
 
   it.each([
     "",
@@ -74,6 +129,113 @@ describe("normalizeSafeExternalUrl", () => {
   ])("rejects unsafe or malformed input: %p", (url) => {
     expect(normalizeSafeExternalUrl(url)).toBeNull();
   });
+
+  it.each([
+    "https://example.org:invalid/source",
+    "https://example.org:65536/source",
+  ])(
+    "rejects an invalid port with React Native's lightweight URL implementation: %p",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBeNull();
+      });
+    },
+  );
+
+  it("rejects backslash host confusion with React Native's lightweight URL implementation", () => {
+    withReactNativeLightweightUrl(() => {
+      expect(
+        normalizeSafeExternalUrl(String.raw`https://example.org\evil`),
+      ).toBeNull();
+    });
+  });
+
+  it("rejects a bracketed literal host with React Native's lightweight URL implementation", () => {
+    withReactNativeLightweightUrl(() => {
+      expect(normalizeSafeExternalUrl("https://[not-ipv6]/source")).toBeNull();
+    });
+  });
+
+  it("rejects percent-encoded host delimiters with React Native's lightweight URL implementation", () => {
+    withReactNativeLightweightUrl(() => {
+      expect(
+        normalizeSafeExternalUrl("https://%2Fexample.org/source"),
+      ).toBeNull();
+    });
+  });
+
+  it.each([
+    "https://.example.org/source",
+    "https://example..org/source",
+    "https://example.org./source",
+  ])(
+    "rejects an empty DNS label with React Native's lightweight URL implementation: %p",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBeNull();
+      });
+    },
+  );
+
+  it.each([
+    "https://-example.org/source",
+    "https://example-.org/source",
+  ])(
+    "rejects a misplaced DNS-label hyphen with React Native's lightweight URL implementation: %p",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBeNull();
+      });
+    },
+  );
+
+  it.each([
+    "https://256.0.0.1/source",
+    "https://127.1/source",
+    "https://01.2.3.4/source",
+    "https://0x7f.0.0.1/source",
+    "https://1.2.3.4.5/source",
+  ])(
+    "rejects a noncanonical or out-of-range IPv4 host with React Native's lightweight URL implementation: %p",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBeNull();
+      });
+    },
+  );
+
+  it.each([
+    "https://exa_mple.org/source",
+    "https://example;evil.org/source",
+    "https://🌿.example/source",
+    "https://zero\u200bwidth.example/source",
+    `https://${"a".repeat(64)}.example/source`,
+  ])(
+    "rejects forbidden DNS-label syntax with React Native's lightweight URL implementation: %p",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBeNull();
+      });
+    },
+  );
+
+  it.each(validExternalUrls)(
+    "keeps valid HTTPS with React Native's lightweight URL implementation: %s",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBe(url);
+      });
+    },
+  );
+
+  it.each(["https://", "https:///source", "https://?topic=garden"])(
+    "rejects a missing host with React Native's lightweight URL implementation: %p",
+    (url) => {
+      withReactNativeLightweightUrl(() => {
+        expect(normalizeSafeExternalUrl(url)).toBeNull();
+      });
+    },
+  );
 });
 
 describe("GardenLink", () => {

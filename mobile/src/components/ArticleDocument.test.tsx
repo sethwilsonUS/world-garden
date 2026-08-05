@@ -161,6 +161,39 @@ describe("ArticleDocument prose helpers", () => {
     expect(splitArticleProse("👩‍💻tail", 1)[0]).toBe("👩‍💻");
   });
 
+  it("allows a chunk boundary after completed extender sequences", () => {
+    const englandFlagTagSequence =
+      "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}";
+
+    expect(splitArticleProse("e\u0301t", 2)).toEqual(["e\u0301", "t"]);
+    expect(splitArticleProse("👍🏽t", 4)).toEqual(["👍🏽", "t"]);
+    expect(
+      splitArticleProse(
+        `${englandFlagTagSequence}t`,
+        englandFlagTagSequence.length,
+      ),
+    ).toEqual([englandFlagTagSequence, "t"]);
+  });
+
+  it("does not join unrelated text after a standalone zero-width joiner", () => {
+    expect(splitArticleProse("A\u200dB", 2)).toEqual(["A\u200d", "B"]);
+  });
+
+  it("keeps a Hangul Jamo syllable in one chunk", () => {
+    expect(splitArticleProse("\u1100\u1161\u11a8t", 1)).toEqual([
+      "\u1100\u1161\u11a8",
+      "t",
+    ]);
+  });
+
+  it("keeps a Unicode Prepend character with the following grapheme", () => {
+    expect(splitArticleProse("\u0600At", 1)).toEqual(["\u0600A", "t"]);
+  });
+
+  it("allows one grapheme to exceed the chunk target without an empty stop", () => {
+    expect(splitArticleProse("👩‍💻", 1)).toEqual(["👩‍💻"]);
+  });
+
   it("falls back and clamps corrupt or extreme image dimensions", () => {
     expect(resolveLeadImageAspectRatio(undefined, undefined)).toBe(
       DEFAULT_LEAD_IMAGE_ASPECT_RATIO,
@@ -317,6 +350,29 @@ describe("ArticleDocument", () => {
         name: "Image source: Ada portrait file page",
       }),
     ).toBeOnTheScreen();
+  });
+
+  it("keeps a valid image-license link when its name is absent", () => {
+    const props = renderDocument({
+      thumbnailUrl: "https://images.example/ada.png",
+      thumbnailAttribution: {
+        licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+      },
+    });
+
+    const licenseLink = screen.getByRole("link", {
+      name: "Image license: View license terms",
+    });
+    expect(
+      screen.queryByText(
+        "No image credit was included with this source revision.",
+      ),
+    ).not.toBeOnTheScreen();
+
+    fireEvent.press(licenseLink);
+    expect(props.openUrl).toHaveBeenCalledWith(
+      "https://creativecommons.org/licenses/by/4.0/",
+    );
   });
 
   it("shows an inert fallback for an invalid URL or a native image failure", () => {

@@ -27,9 +27,11 @@ const CC_BY_SA_URL = "https://creativecommons.org/licenses/by-sa/4.0/";
 const wikipediaLanguage = /^[a-z]{2,8}(?:-[a-z\d]{1,8})*$/u;
 const urlLikeAttribution = /^[a-z][a-z\d+.-]*:\/\//iu;
 const combiningMark = /\p{M}/u;
+const extendedPictographic = /\p{Extended_Pictographic}/u;
 const ZERO_WIDTH_JOINER = 0x200d;
 
 type LocatedCodePoint = Readonly<{ start: number; value: number }>;
+type HangulSyllableType = "L" | "V" | "T" | "LV" | "LVT";
 
 function codePointBefore(value: string, boundary: number): LocatedCodePoint {
   let start = boundary - 1;
@@ -56,6 +58,89 @@ function isRegionalIndicator(codePoint: number): boolean {
   return codePoint >= 0x1f1e6 && codePoint <= 0x1f1ff;
 }
 
+function resolveHangulSyllableType(
+  codePoint: number,
+): HangulSyllableType | null {
+  if (
+    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+    (codePoint >= 0xa960 && codePoint <= 0xa97c)
+  ) {
+    return "L";
+  }
+  if (
+    (codePoint >= 0x1160 && codePoint <= 0x11a7) ||
+    (codePoint >= 0xd7b0 && codePoint <= 0xd7c6)
+  ) {
+    return "V";
+  }
+  if (
+    (codePoint >= 0x11a8 && codePoint <= 0x11ff) ||
+    (codePoint >= 0xd7cb && codePoint <= 0xd7fb)
+  ) {
+    return "T";
+  }
+  if (codePoint >= 0xac00 && codePoint <= 0xd7a3) {
+    return (codePoint - 0xac00) % 28 === 0 ? "LV" : "LVT";
+  }
+  return null;
+}
+
+function continuesHangulSyllable(previous: number, next: number): boolean {
+  const previousType = resolveHangulSyllableType(previous);
+  const nextType = resolveHangulSyllableType(next);
+
+  return (
+    (previousType === "L" &&
+      (nextType === "L" ||
+        nextType === "V" ||
+        nextType === "LV" ||
+        nextType === "LVT")) ||
+    ((previousType === "LV" || previousType === "V") &&
+      (nextType === "V" || nextType === "T")) ||
+    ((previousType === "LVT" || previousType === "T") && nextType === "T")
+  );
+}
+
+function isGraphemePrepend(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x0600 && codePoint <= 0x0605) ||
+    codePoint === 0x06dd ||
+    codePoint === 0x070f ||
+    (codePoint >= 0x0890 && codePoint <= 0x0891) ||
+    codePoint === 0x08e2 ||
+    codePoint === 0x0d4e ||
+    codePoint === 0x110bd ||
+    codePoint === 0x110cd ||
+    (codePoint >= 0x111c2 && codePoint <= 0x111c3) ||
+    codePoint === 0x113d1 ||
+    codePoint === 0x1193f ||
+    codePoint === 0x11941 ||
+    (codePoint >= 0x11a84 && codePoint <= 0x11a89) ||
+    codePoint === 0x11d46 ||
+    codePoint === 0x11f02
+  );
+}
+
+function isExtendedPictographic(codePoint: number): boolean {
+  return extendedPictographic.test(String.fromCodePoint(codePoint));
+}
+
+function extendsPictographicSequenceBeforeZwj(
+  value: string,
+  zwjStart: number,
+): boolean {
+  let cursor = zwjStart;
+  while (cursor > 0) {
+    const candidate = codePointBefore(value, cursor);
+    if (isGraphemeExtender(candidate.value)) {
+      cursor = candidate.start;
+      continue;
+    }
+    return isExtendedPictographic(candidate.value);
+  }
+  return false;
+}
+
 function isSafeGraphemeBoundary(value: string, boundary: number): boolean {
   if (boundary <= 0 || boundary >= value.length) return true;
 
@@ -72,11 +157,16 @@ function isSafeGraphemeBoundary(value: string, boundary: number): boolean {
 
   const previous = codePointBefore(value, boundary);
   const next = value.codePointAt(boundary) ?? 0;
+  const continuesEmojiZwjSequence =
+    previous.value === ZERO_WIDTH_JOINER &&
+    isExtendedPictographic(next) &&
+    extendsPictographicSequenceBeforeZwj(value, previous.start);
   if (
     (previous.value === 0x0d && next === 0x0a) ||
-    previous.value === ZERO_WIDTH_JOINER ||
+    continuesHangulSyllable(previous.value, next) ||
+    isGraphemePrepend(previous.value) ||
+    continuesEmojiZwjSequence ||
     next === ZERO_WIDTH_JOINER ||
-    isGraphemeExtender(previous.value) ||
     isGraphemeExtender(next)
   ) {
     return false;
@@ -192,7 +282,8 @@ export function normalizeLeadImageUrl(
  * Splits prose into screen-reader-sized stops. Long paragraphs are sliced at a
  * nearby whitespace boundary when possible; after insignificant outer
  * whitespace is normalized, every character is retained, including whitespace
- * at a chunk boundary.
+ * at a chunk boundary. `maxChunkLength` is a target rather than a hard cap: one
+ * intact grapheme may exceed it when splitting that grapheme would corrupt text.
  */
 export function splitArticleProse(
   content: string,
@@ -236,7 +327,7 @@ export function splitArticleProse(
       start = end;
     }
 
-    chunks.push(paragraph.slice(start));
+    if (start < paragraph.length) chunks.push(paragraph.slice(start));
     return chunks;
   });
 }
@@ -312,7 +403,7 @@ function ImageAttribution({
     ? normalizeSafeExternalUrl(attribution.sourceUrl)
     : null;
   const hasAttribution = Boolean(
-    creator || credit || licenseName || sourceTitle || sourceUrl,
+    creator || credit || licenseName || licenseUrl || sourceTitle || sourceUrl,
   );
 
   return (
@@ -339,10 +430,10 @@ function ImageAttribution({
           Credit: {credit}
         </GardenText>
       ) : null}
-      {licenseName && licenseUrl ? (
+      {licenseUrl ? (
         <GardenLink
           hint="Opens the lead image license in your browser."
-          label={`Image license: ${licenseName}`}
+          label={`Image license: ${licenseName ?? "View license terms"}`}
           onOpenError={onExternalLinkError}
           onOpenStart={onExternalLinkStart}
           openUrl={openUrl}

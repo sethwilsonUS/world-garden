@@ -81,6 +81,7 @@ describe("ArticleScreen", () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
@@ -162,6 +163,76 @@ describe("ArticleScreen", () => {
     expect(screen.getByTestId("article-screen-heading")).toBe(heading);
     expect(screen.getByTestId("article-status")).toBe(status);
     expect(heading).toHaveAccessibleName("The Silmaril");
+  });
+
+  it("times out a stalled request and lets the user retry", async () => {
+    jest.useFakeTimers();
+    const stalled = deferred<WikipediaArticle>();
+    mockFetchArticle
+      .mockReturnValueOnce(stalled.promise)
+      .mockResolvedValueOnce(article("The Silmaril"));
+    renderArticle("the_silmaril");
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockFetchArticle).toHaveBeenCalledWith({ slug: "the_silmaril" });
+
+    await act(async () => {
+      jest.advanceTimersByTime(15_000);
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByRole("alert", {
+        name: "Could not load this article. Check your connection and try again.",
+      }),
+    ).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockFetchArticle).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("The Silmaril summary")).toBeOnTheScreen();
+  });
+
+  it("clears a stale timeout when the article route changes", async () => {
+    jest.useFakeTimers();
+    const stalled = deferred<WikipediaArticle>();
+    mockFetchArticle.mockImplementation(({ slug }) =>
+      slug === "Moria"
+        ? stalled.promise
+        : Promise.resolve(article("The Shire")),
+    );
+    const view = renderArticle("Moria");
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <ArticleScreen onBack={view.props.onBack} slug="The_Shire" />
+      </GardenThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("The Shire summary")).toBeOnTheScreen();
+
+    await act(async () => {
+      jest.advanceTimersByTime(15_000);
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("alert")).not.toBeOnTheScreen();
+    expect(screen.getByText("The Shire summary")).toBeOnTheScreen();
   });
 
   it("ignores a stale completion when the article route changes", async () => {

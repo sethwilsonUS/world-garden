@@ -19,7 +19,65 @@ export interface GardenLinkProps {
 }
 
 const unsafeUrlCharacters = /[\s\u0000-\u001f\u007f-\u009f]/u;
+const backslash = /\\/u;
 const explicitHttpsScheme = /^https:\/\//iu;
+const explicitHttpsAuthority = /^https:\/\/([^/?#]*)/iu;
+const decimalPort = /^\d+$/u;
+const dnsLabel =
+  /^[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}-]{0,61}[\p{L}\p{N}\p{M}])?$/u;
+const ipv4NumberLabel = /^(?:0x[\da-f]+|\d+)$/iu;
+
+function hasValidHttpsAuthority(value: string): boolean {
+  const authority = explicitHttpsAuthority.exec(value)?.[1];
+  if (
+    !authority ||
+    authority.includes("@") ||
+    authority.includes("%") ||
+    authority.includes("[") ||
+    authority.includes("]")
+  ) {
+    return false;
+  }
+
+  const portSeparator = authority.lastIndexOf(":");
+  if (
+    portSeparator >= 0 &&
+    (authority.indexOf(":") !== portSeparator || portSeparator === 0)
+  ) {
+    return false;
+  }
+  const hostname =
+    portSeparator < 0 ? authority : authority.slice(0, portSeparator);
+  const port =
+    portSeparator < 0 ? undefined : authority.slice(portSeparator + 1);
+
+  const labels = hostname.split(".");
+  if (
+    hostname.length > 253 ||
+    labels.some((label) => !dnsLabel.test(label))
+  ) {
+    return false;
+  }
+  const finalLabel = labels[labels.length - 1] ?? "";
+  if (
+    ipv4NumberLabel.test(finalLabel) &&
+    (labels.length !== 4 ||
+      labels.some(
+        (label) =>
+          !decimalPort.test(label) ||
+          String(Number(label)) !== label ||
+          Number(label) > 255,
+      ))
+  ) {
+    return false;
+  }
+
+  if (port === undefined || port === "") {
+    return true;
+  }
+
+  return decimalPort.test(port) && Number(port) <= 65_535;
+}
 
 /**
  * Keeps OS handoffs on a deliberately narrow, inspectable boundary.
@@ -30,7 +88,9 @@ export function normalizeSafeExternalUrl(value: string): string | null {
   if (
     !value ||
     unsafeUrlCharacters.test(value) ||
-    !explicitHttpsScheme.test(value)
+    backslash.test(value) ||
+    !explicitHttpsScheme.test(value) ||
+    !hasValidHttpsAuthority(value)
   ) {
     return null;
   }
@@ -38,8 +98,7 @@ export function normalizeSafeExternalUrl(value: string): string | null {
   try {
     const parsed = new URL(value);
     if (
-      parsed.protocol !== "https:" ||
-      !parsed.hostname ||
+      parsed.protocol.toLowerCase() !== "https:" ||
       parsed.username ||
       parsed.password
     ) {

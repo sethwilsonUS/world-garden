@@ -142,7 +142,7 @@ cover roles, names, unclamped task text, target geometry, safe error copy,
 stale-request handling, platform-specific status wiring, and one route-heading
 focus request per new route context. PR4B adds a native Article contract for
 loading, error, retry, headings, paragraph stops, image semantics and fallback,
-and sanitized external links; all 27 mobile suites and 188 tests pass. No
+and sanitized external links; all 27 mobile suites and 227 tests pass. No
 automated suite proves exact spoken output, actual screen-reader focus landing,
 back-focus restoration, touch exploration, or visual reflow at 200% and the
 operating systems' maximum text and display settings. The matrix preserves the

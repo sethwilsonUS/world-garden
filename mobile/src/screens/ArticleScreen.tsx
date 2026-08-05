@@ -18,6 +18,7 @@ import { GardenText } from "../theme/GardenText";
 const SAFE_ARTICLE_ERROR =
   "Could not load this article. Check your connection and try again.";
 const SAFE_LINK_ERROR = "Could not open this link. Please try again.";
+const ARTICLE_REQUEST_TIMEOUT_MS = 15_000;
 
 type ArticleState =
   | { kind: "loading"; requestKey: string }
@@ -82,11 +83,11 @@ export function ArticleScreen({
 
   useEffect(() => {
     const generation = ++requestGeneration.current;
-    let cancelled = false;
+    let active = true;
     latestExternalLinkAttempt.current = null;
 
     queueMicrotask(() => {
-      if (!cancelled && generation === requestGeneration.current) {
+      if (active && generation === requestGeneration.current) {
         setStatus({
           kind: "loading",
           message: `Loading ${provisionalTitle}.`,
@@ -95,10 +96,25 @@ export function ArticleScreen({
       }
     });
 
+    const failRequest = () => {
+      if (!active || generation !== requestGeneration.current) return;
+      active = false;
+      clearTimeout(timeoutId);
+      setState({ kind: "error", requestKey });
+      setStatus({
+        kind: "error",
+        message: SAFE_ARTICLE_ERROR,
+        requestKey,
+      });
+    };
+    const timeoutId = setTimeout(failRequest, ARTICLE_REQUEST_TIMEOUT_MS);
+
     void Promise.resolve()
       .then(() => fetchArticle({ slug }))
       .then((article) => {
-        if (cancelled || generation !== requestGeneration.current) return;
+        if (!active || generation !== requestGeneration.current) return;
+        active = false;
+        clearTimeout(timeoutId);
         setState({ article, kind: "ready", requestKey });
         setStatus({
           kind: "ready",
@@ -106,18 +122,11 @@ export function ArticleScreen({
           requestKey,
         });
       })
-      .catch(() => {
-        if (cancelled || generation !== requestGeneration.current) return;
-        setState({ kind: "error", requestKey });
-        setStatus({
-          kind: "error",
-          message: SAFE_ARTICLE_ERROR,
-          requestKey,
-        });
-      });
+      .catch(failRequest);
 
     return () => {
-      cancelled = true;
+      active = false;
+      clearTimeout(timeoutId);
     };
   }, [fetchArticle, provisionalTitle, requestKey, slug]);
 
