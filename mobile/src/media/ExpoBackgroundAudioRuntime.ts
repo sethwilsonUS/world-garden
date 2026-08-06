@@ -63,7 +63,13 @@ export type ExpoAudioBoundary = Pick<
 type NativeAudioPlaybackStatus = ReturnType<
   ExpoAudioBoundary["createAudioPlayer"]
 >["currentStatus"];
-type NativeAudioPlaylistStatus = InstalledAudioPlaylist["currentStatus"];
+type NativeAudioPlaylistStatus = InstalledAudioPlaylist["currentStatus"] &
+  Readonly<{
+    // Expo Audio 57.0.3 omits this from its playlist status type. The pinned
+    // native patch emits it while this optional seam keeps pristine installs
+    // typecheckable before the native build hook runs.
+    error?: string | null;
+  }>;
 
 export interface BackgroundAudioPlayer {
   getStatus: () => BackgroundAudioPlaybackStatus;
@@ -143,6 +149,105 @@ function queueAudioSessionState(
   return transition;
 }
 
+type BackgroundAudioLifecycleOperations = Readonly<{
+  activateLockScreen: () => void;
+  deactivateLockScreen: () => void;
+  pause: () => void;
+  play: () => void;
+  teardown: () => void;
+}>;
+
+type BackgroundAudioLifecycle = Readonly<{
+  isReleased: () => boolean;
+  play: () => Promise<void>;
+  release: () => Promise<void>;
+}>;
+
+function createBackgroundAudioLifecycle(
+  audio: ExpoAudioBoundary,
+  session: AudioSessionCoordinator,
+  operations: BackgroundAudioLifecycleOperations,
+): BackgroundAudioLifecycle {
+  let lockScreenActive = false;
+  let released = false;
+  let releasePromise: Promise<void> | null = null;
+  let playPromise: Promise<void> | null = null;
+  let sessionRetained = false;
+
+  const play = (): Promise<void> => {
+    if (released) return Promise.resolve();
+    if (playPromise !== null) return playPromise;
+
+    const retainedForThisPlay = !sessionRetained;
+    if (retainedForThisPlay) {
+      sessionRetained = true;
+      session.ownerCount += 1;
+    }
+
+    const pending = (async () => {
+      try {
+        await queueAudioSessionState(audio, session, true);
+        if (released) return;
+
+        if (!lockScreenActive) {
+          operations.activateLockScreen();
+          lockScreenActive = true;
+        }
+        operations.play();
+      } catch (error: unknown) {
+        if (retainedForThisPlay && sessionRetained) {
+          sessionRetained = false;
+          session.ownerCount -= 1;
+          try {
+            await queueAudioSessionState(
+              audio,
+              session,
+              session.ownerCount > 0,
+            );
+          } catch (_recoveryError: unknown) {
+            void _recoveryError;
+          }
+        }
+        throw error;
+      } finally {
+        playPromise = null;
+      }
+    })();
+    playPromise = pending;
+    return pending;
+  };
+
+  const release = (): Promise<void> => {
+    if (releasePromise !== null) return releasePromise;
+    released = true;
+    safely(operations.pause);
+    if (lockScreenActive) {
+      safely(operations.deactivateLockScreen);
+      lockScreenActive = false;
+    }
+    safely(operations.teardown);
+
+    if (sessionRetained) {
+      sessionRetained = false;
+      session.ownerCount -= 1;
+      releasePromise = queueAudioSessionState(
+        audio,
+        session,
+        session.ownerCount > 0,
+      );
+    } else {
+      releasePromise = Promise.resolve();
+    }
+    return releasePromise;
+  };
+
+  return {
+    isReleased: () => released,
+    play,
+    release,
+  };
+}
+
 function normalizeStatus(
   status: NativeAudioPlaybackStatus,
 ): BackgroundAudioPlaybackStatus {
@@ -165,7 +270,7 @@ function normalizePlaylistStatus(
     currentTime: status.currentTime,
     didJustFinish: status.didJustFinish,
     duration: status.duration,
-    error: null,
+    error: typeof status.error === "string" ? status.error : null,
     isBuffering: status.isBuffering,
     isLoaded: status.isLoaded,
     playbackRate: status.playbackRate,
@@ -212,132 +317,72 @@ export function createExpoBackgroundAudioRuntime(
         })),
         updateInterval: 500,
       });
-      let lockScreenActive = false;
-      let released = false;
-      let releasePromise: Promise<void> | null = null;
-      let playPromise: Promise<void> | null = null;
-      let sessionRetained = false;
+      let lastStatus = normalizePlaylistStatus(nativePlaylist.currentStatus);
       let statusSubscription: Readonly<{ remove: () => void }> | null = null;
       let trackSubscription: Readonly<{ remove: () => void }> | null = null;
+      const lifecycle = createBackgroundAudioLifecycle(audio, session, {
+        activateLockScreen: () =>
+          nativePlaylist.setActiveForLockScreen(true, metadata, {
+            isLiveStream: false,
+            showSeekBackward: true,
+            showSeekForward: true,
+          }),
+        deactivateLockScreen: () =>
+          nativePlaylist.setActiveForLockScreen(false),
+        pause: () => nativePlaylist.pause(),
+        play: () => nativePlaylist.play(),
+        teardown: () => {
+          safely(() => statusSubscription?.remove());
+          safely(() => trackSubscription?.remove());
+          safely(() => nativePlaylist.destroy());
+          safely(() => nativePlaylist.release());
+        },
+      });
       try {
         statusSubscription = nativePlaylist.addListener(
           "playlistStatusUpdate",
           (status) => {
-            if (released) return;
-            onStatus(normalizePlaylistStatus(status));
+            if (lifecycle.isReleased()) return;
+            lastStatus = normalizePlaylistStatus(status);
+            onStatus(lastStatus);
           },
         );
         trackSubscription = nativePlaylist.addListener(
           "trackChanged",
           (change) => {
-            if (released) return;
+            if (lifecycle.isReleased()) return;
             onTrackChanged(change);
           },
         );
       } catch (error: unknown) {
-        if (statusSubscription !== null) {
-          safely(() => statusSubscription?.remove());
-        }
-        if (trackSubscription !== null) {
-          safely(() => trackSubscription?.remove());
-        }
-        safely(() => nativePlaylist.pause());
-        safely(() => nativePlaylist.destroy());
-        safely(() => nativePlaylist.release());
+        void lifecycle.release();
         throw error;
       }
 
-      const play = (): Promise<void> => {
-        if (released) return Promise.resolve();
-        if (playPromise !== null) return playPromise;
-
-        const retainedForThisPlay = !sessionRetained;
-        if (retainedForThisPlay) {
-          sessionRetained = true;
-          session.ownerCount += 1;
-        }
-
-        const pending = (async () => {
-          try {
-            await queueAudioSessionState(audio, session, true);
-            if (released) return;
-
-            if (!lockScreenActive) {
-              nativePlaylist.setActiveForLockScreen(true, metadata, {
-                isLiveStream: false,
-                showSeekBackward: true,
-                showSeekForward: true,
-              });
-              lockScreenActive = true;
-            }
-            nativePlaylist.play();
-          } catch (error: unknown) {
-            if (retainedForThisPlay && sessionRetained) {
-              sessionRetained = false;
-              session.ownerCount -= 1;
-              try {
-                await queueAudioSessionState(
-                  audio,
-                  session,
-                  session.ownerCount > 0,
-                );
-              } catch (_recoveryError: unknown) {
-                void _recoveryError;
-              }
-            }
-            throw error;
-          } finally {
-            playPromise = null;
-          }
-        })();
-        playPromise = pending;
-        return pending;
-      };
-
-      const release = (): Promise<void> => {
-        if (releasePromise !== null) return releasePromise;
-        released = true;
-        safely(() => nativePlaylist.pause());
-        if (lockScreenActive) {
-          safely(() => nativePlaylist.setActiveForLockScreen(false));
-          lockScreenActive = false;
-        }
-        safely(() => statusSubscription?.remove());
-        safely(() => trackSubscription?.remove());
-        safely(() => nativePlaylist.destroy());
-        safely(() => nativePlaylist.release());
-
-        if (sessionRetained) {
-          sessionRetained = false;
-          session.ownerCount -= 1;
-          releasePromise = queueAudioSessionState(
-            audio,
-            session,
-            session.ownerCount > 0,
-          );
-        } else {
-          releasePromise = Promise.resolve();
-        }
-        return releasePromise;
-      };
-
       return {
-        getStatus: () => normalizePlaylistStatus(nativePlaylist.currentStatus),
+        getStatus: () => {
+          if (!lifecycle.isReleased()) {
+            lastStatus = normalizePlaylistStatus(nativePlaylist.currentStatus);
+          }
+          return lastStatus;
+        },
         next: () => {
-          if (!released) nativePlaylist.next();
+          if (!lifecycle.isReleased()) nativePlaylist.next();
         },
         pause: () => {
-          if (!released) nativePlaylist.pause();
+          if (!lifecycle.isReleased()) nativePlaylist.pause();
         },
-        play,
+        play: lifecycle.play,
         previous: () => {
-          if (!released) nativePlaylist.previous();
+          if (!lifecycle.isReleased()) nativePlaylist.previous();
         },
-        release,
+        release: lifecycle.release,
         seekTo: (seconds) =>
-          released ? Promise.resolve() : nativePlaylist.seekTo(seconds),
+          lifecycle.isReleased()
+            ? Promise.resolve()
+            : nativePlaylist.seekTo(seconds),
         skipTo: (index) => {
-          if (!released) nativePlaylist.skipTo(index);
+          if (!lifecycle.isReleased()) nativePlaylist.skipTo(index);
         },
       };
     },
@@ -351,110 +396,55 @@ export function createExpoBackgroundAudioRuntime(
         keepAudioSessionActive: true,
         updateInterval: 500,
       });
-      let lockScreenActive = false;
-      let released = false;
-      let releasePromise: Promise<void> | null = null;
-      let playPromise: Promise<void> | null = null;
-      let sessionRetained = false;
+      let lastStatus = normalizeStatus(nativePlayer.currentStatus);
       let subscription: Readonly<{ remove: () => void }> | null = null;
+      const lifecycle = createBackgroundAudioLifecycle(audio, session, {
+        activateLockScreen: () =>
+          nativePlayer.setActiveForLockScreen(true, metadata, {
+            isLiveStream: false,
+            showSeekBackward: true,
+            showSeekForward: true,
+          }),
+        deactivateLockScreen: () => nativePlayer.setActiveForLockScreen(false),
+        pause: () => nativePlayer.pause(),
+        play: () => nativePlayer.play(),
+        teardown: () => {
+          safely(() => subscription?.remove());
+          safely(() => nativePlayer.remove());
+          safely(() => nativePlayer.release());
+        },
+      });
       try {
         subscription = nativePlayer.addListener(
           "playbackStatusUpdate",
           (status) => {
-            if (released) return;
-            onStatus(normalizeStatus(status));
+            if (lifecycle.isReleased()) return;
+            lastStatus = normalizeStatus(status);
+            onStatus(lastStatus);
           },
         );
         nativePlayer.replace({ name: metadata.title, uri });
       } catch (error: unknown) {
-        if (subscription !== null) safely(() => subscription?.remove());
-        safely(() => nativePlayer.remove());
-        safely(() => nativePlayer.release());
+        void lifecycle.release();
         throw error;
       }
 
-      const play = (): Promise<void> => {
-        if (released) return Promise.resolve();
-        if (playPromise !== null) return playPromise;
-
-        const retainedForThisPlay = !sessionRetained;
-        if (retainedForThisPlay) {
-          sessionRetained = true;
-          session.ownerCount += 1;
-        }
-
-        const pending = (async () => {
-          try {
-            await queueAudioSessionState(audio, session, true);
-            if (released) return;
-
-            if (!lockScreenActive) {
-              nativePlayer.setActiveForLockScreen(true, metadata, {
-                isLiveStream: false,
-                showSeekBackward: true,
-                showSeekForward: true,
-              });
-              lockScreenActive = true;
-            }
-            nativePlayer.play();
-          } catch (error: unknown) {
-            if (retainedForThisPlay && sessionRetained) {
-              sessionRetained = false;
-              session.ownerCount -= 1;
-              try {
-                await queueAudioSessionState(
-                  audio,
-                  session,
-                  session.ownerCount > 0,
-                );
-              } catch (_recoveryError: unknown) {
-                void _recoveryError;
-              }
-            }
-            throw error;
-          } finally {
-            playPromise = null;
-          }
-        })();
-        playPromise = pending;
-        return pending;
-      };
-
-      const release = (): Promise<void> => {
-        if (releasePromise !== null) return releasePromise;
-        released = true;
-        safely(() => nativePlayer.pause());
-        if (lockScreenActive) {
-          safely(() => nativePlayer.setActiveForLockScreen(false));
-          lockScreenActive = false;
-        }
-        safely(() => subscription?.remove());
-        safely(() => nativePlayer.remove());
-        safely(() => nativePlayer.release());
-
-        if (sessionRetained) {
-          sessionRetained = false;
-          session.ownerCount -= 1;
-          releasePromise = queueAudioSessionState(
-            audio,
-            session,
-            session.ownerCount > 0,
-          );
-        } else {
-          releasePromise = Promise.resolve();
-        }
-        return releasePromise;
-      };
-
       return {
-        getStatus: () => normalizeStatus(nativePlayer.currentStatus),
-        pause: () => {
-          if (!released) nativePlayer.pause();
+        getStatus: () => {
+          if (!lifecycle.isReleased()) {
+            lastStatus = normalizeStatus(nativePlayer.currentStatus);
+          }
+          return lastStatus;
         },
-        play,
-        release,
+        pause: () => {
+          if (!lifecycle.isReleased()) nativePlayer.pause();
+        },
+        play: lifecycle.play,
+        release: lifecycle.release,
         seekTo: (seconds) =>
-          released ? Promise.resolve() : nativePlayer.seekTo(seconds),
+          lifecycle.isReleased()
+            ? Promise.resolve()
+            : nativePlayer.seekTo(seconds),
       };
     },
   };
@@ -467,6 +457,8 @@ export async function loadExpoBackgroundAudioRuntime(): Promise<BackgroundAudioR
     createAudioPlaylist: (...args) =>
       installedAudio.createAudioPlaylist(...args) as CurioPatchedAudioPlaylist,
     setAudioModeAsync: installedAudio.setAudioModeAsync,
+    // Forward this reference unwrapped: the shared session lease is keyed on
+    // its identity across separately loaded runtime boundaries.
     setIsAudioActiveAsync: installedAudio.setIsAudioActiveAsync,
   };
   return createExpoBackgroundAudioRuntime(audio);

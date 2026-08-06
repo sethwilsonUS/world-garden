@@ -320,6 +320,10 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
       "internal var metadata: List<Metadata?>",
     );
     expect(result.androidAudioPlaylist).toContain(
+      "private var playbackError: String? = null",
+    );
+    expect(result.androidAudioPlaylist).toContain('"error" to playbackError');
+    expect(result.androidAudioPlaylist).toContain(
       "List(trackCount) { index -> metadata?.getOrNull(index) }",
     );
     expect(result.androidAudioPlaylist).toContain(
@@ -352,10 +356,27 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     expect(result.androidPlaybackServiceConnection).toContain(
       "serviceBinder.service.setPlaylistOptions",
     );
+    expect(result.androidPlaybackServiceConnection).toContain(
+      "service?.disconnect(player.get())",
+    );
+    expect(result.androidPlaybackServiceConnection).not.toContain(
+      "disconnect(player.get(), isReleased)",
+    );
+    expect(result.androidControlsService).toContain(
+      "fun disconnect(source: BaseAudioPlayer?)",
+    );
+    expect(result.androidControlsService).not.toContain(
+      "fun disconnect(source: BaseAudioPlayer?, released: Boolean)",
+    );
 
     expect(result.iosAudioPlaylist).toContain(
       "var isActiveForLockScreen = false",
     );
+    expect(result.iosAudioPlaylist).toContain(
+      "private var playbackError: String?",
+    );
+    expect(result.iosAudioPlaylist).toContain("if status == .failed");
+    expect(result.iosAudioPlaylist).toContain('"error": playbackError');
     expect(result.iosAudioPlaylist).toContain(
       "var currentLockScreenMetadata: Metadata?",
     );
@@ -370,6 +391,9 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     );
     expect(result.iosAudioPlaylist).toContain(
       "MediaController.shared.updateNowPlayingInfo(for: self)",
+    );
+    expect(result.iosAudioPlaylist).toMatch(
+      /if active \{\n      lockScreenMetadata = sources\.indices\.map/,
     );
     expect(result.iosMediaController).toContain(
       "remoteCommandCenter.previousTrackCommand",

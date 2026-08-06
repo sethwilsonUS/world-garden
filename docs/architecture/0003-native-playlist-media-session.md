@@ -16,9 +16,9 @@ iOS and Media3 `ExoPlayer` on Android. Its playlist API does not, however,
 publish ordered per-track metadata to the operating-system media session or
 expose previous/next section commands there.
 
-React Native Track Player was evaluated as an alternative. Its current v5 is
-commercially licensed for commercial use, while v4 and earlier remain on an
-Apache-2.0 legacy branch. Adopting v4 would add a second playback stack and a
+React Native Track Player was evaluated as an alternative. Its current v5
+requires a commercial license, while v4 and earlier remain on an Apache-2.0
+legacy branch. Adopting v4 would add a second playback stack and a
 separate React Native 0.86/New Architecture compatibility obligation. That is
 more platform and upgrade risk than extending the Expo Audio version already
 pinned and compiled by the app.
@@ -41,6 +41,9 @@ media-session support:
 - Both platforms keep nullable metadata slots aligned with native queue
   mutations. A missing metadata item degrades to an unlabeled track; it cannot
   label a different section by mistake.
+- Both native playlist engines expose a nullable string error in each status
+  snapshot and clear it only when a new item or ready state supersedes the
+  failure, so the visible queue need not confuse a failed load with buffering.
 - Both platforms release only the media session they own and use identity
   checks when unregistering. A stale disconnect, asynchronous session build,
   or older player release cannot replace or clear the active session.

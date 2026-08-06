@@ -202,6 +202,17 @@ describe("ExpoBackgroundAudioRuntime", () => {
 
     statusListener({ ...initialStatus, currentTime: 3, isLoaded: true });
     expect(onStatus).toHaveBeenCalledTimes(1);
+    Object.defineProperty(nativePlayer, "currentStatus", {
+      get: () => {
+        throw new Error("released native player");
+      },
+    });
+    expect(player.getStatus()).toEqual({
+      ...initialStatus,
+      currentTime: 7,
+      duration: 12,
+      isLoaded: true,
+    });
   });
 
   it("keeps the shared audio session active until the final player releases", async () => {
@@ -380,18 +391,21 @@ describe("ExpoBackgroundAudioRuntime", () => {
     });
     expect(nativePlaylist.setActiveForLockScreen).not.toHaveBeenCalled();
 
-    statusListener({
+    const failedStatus = {
       ...nativePlaylist.currentStatus,
       currentIndex: 0,
       currentTime: 2,
+      error: "History track failed",
       playbackRate: 1,
       playing: false,
-    });
+    };
+    statusListener(failedStatus);
     trackListener({ currentIndex: 1, previousIndex: 0 });
     expect(onStatus).toHaveBeenCalledWith({
       ...initialPlaylistStatus,
       currentTime: 2,
       duration: 12,
+      error: "History track failed",
       isLoaded: true,
     });
     expect(onTrackChanged).toHaveBeenCalledWith({
@@ -456,6 +470,20 @@ describe("ExpoBackgroundAudioRuntime", () => {
     trackListener({ currentIndex: 0, previousIndex: 1 });
     expect(onStatus).toHaveBeenCalledTimes(1);
     expect(onTrackChanged).toHaveBeenCalledTimes(1);
+    Object.defineProperty(nativePlaylist, "currentStatus", {
+      get: () => {
+        throw new Error("released native playlist");
+      },
+    });
+    expect(playlist.getStatus()).toEqual({
+      ...initialPlaylistStatus,
+      currentIndex: 1,
+      currentTime: 7,
+      duration: 12,
+      isLoaded: true,
+      playbackRate: 1.25,
+      playing: true,
+    });
   });
 
   it("keeps the shared audio session active across independently loaded player and playlist runtimes", async () => {
@@ -578,6 +606,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
       addListener: jest.fn(() => {
         throw new Error("native listener");
       }),
+      currentStatus: initialStatus,
       remove: jest.fn(),
       pause: jest.fn(),
       play: jest.fn(),

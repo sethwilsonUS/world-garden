@@ -8,7 +8,7 @@ const EXPO_AUDIO_BACKGROUND_SAFETY_MARKER =
 const EXPO_AUDIO_PLAYLIST_PATCH_PATH =
   require.resolve("../patches/expo-audio-57.0.3-playlist-media-session.patch");
 const EXPO_AUDIO_PLAYLIST_PATCH_SHA256 =
-  "38e7c2d0672322329d1ba875da21d2cc198e36b4c86f85c2166bb486341bfb22";
+  "ee4ed48c8c681e4a91c665aaa1c4a9516f8b1bbb74afced4b1b7cebee419d3fd";
 
 const sourceFiles = {
   androidBaseAudioPlayer: {
@@ -25,7 +25,7 @@ const sourceFiles = {
     backgroundSha256:
       "9bdfdbce6292de8198b1776c6058601a292e8bef38354a784742ad4dfe830015",
     patchedSha256:
-      "f20448b69af194587e18fbff239ed16966570ee86b560be9d9e3de3385602b01",
+      "c95ba5e2a0828b7517a64f63def39f272435c5e96311b55a35882591870d48f5",
   },
   androidAudioModule: {
     path: "android/src/main/java/expo/modules/audio/AudioModule.kt",
@@ -49,7 +49,7 @@ const sourceFiles = {
     backgroundSha256:
       "463ddeeb72337e58ca389dfeffcb789a5ec62ab00a9ae146180c8676313f30d8",
     patchedSha256:
-      "64f38954c04d07fe94eb8686bcfc7738b2cd23ef63915ec6ef9972ddbc4e0e99",
+      "d6f015617297e46d7e6a7b0ae8ee5902945d50f6f7e86032b96a6410232561ee",
   },
   androidControlsService: {
     path: "android/src/main/java/expo/modules/audio/service/AudioControlsService.kt",
@@ -57,7 +57,7 @@ const sourceFiles = {
     backgroundSha256:
       "f819c129b13c6937979f9c2de32a4d908d9876452952718ec7739ced6a20e503",
     patchedSha256:
-      "0f0e4752cbf9da971962d7399bda6c9e6452b684814dc5ff0f9d4d00516b2530",
+      "f3fa08b51b9bf1329123d6d7d44f5b97567f61cb967d9bea54d08401c195cdb8",
   },
   androidMediaSessionCallback: {
     path: "android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt",
@@ -73,7 +73,7 @@ const sourceFiles = {
     backgroundSha256:
       "5c990cc4f73454ab1ec00b189beab2c3f32968b4bb75a7751fe8d438094af81f",
     patchedSha256:
-      "cf63ab0dd3890345472493a583a8af7c9a05fdab0940954c49b02225ae1a9401",
+      "74bead81dbf188c4a12919acce61e4d9050d18bbf627c7436f0a6a804eea55a6",
   },
   iosAudioPlayer: {
     path: "ios/AudioPlayer.swift",
