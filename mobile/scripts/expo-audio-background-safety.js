@@ -1270,6 +1270,7 @@ const replaceFilesTransactionally = (replacements) => {
       ...replacement,
       backupPath: `${replacement.filePath}.curio-garden-${transactionId}-${index}.bak`,
       mode,
+      rollbackPath: `${replacement.filePath}.curio-garden-${transactionId}-${index}.bak.rollback.tmp`,
       temporaryPath: `${replacement.filePath}.curio-garden-${transactionId}-${index}.tmp`,
     };
   });
@@ -1308,6 +1309,7 @@ const replaceFilesTransactionally = (replacements) => {
     }
   } catch (error) {
     for (const entry of staged) {
+      removeIfExists(entry.rollbackPath);
       removeIfExists(entry.temporaryPath);
       removeIfExists(entry.backupPath);
     }
@@ -1329,25 +1331,42 @@ const replaceFilesTransactionally = (replacements) => {
     }
   } catch (error) {
     const rollbackFailures = [];
+    const unrecovered = new Set();
     for (const entry of [...replaced].reverse()) {
       try {
-        fs.renameSync(entry.backupPath, entry.filePath);
+        fs.copyFileSync(
+          entry.backupPath,
+          entry.rollbackPath,
+          fs.constants.COPYFILE_EXCL,
+        );
+        fs.chmodSync(entry.rollbackPath, entry.mode);
+        if (
+          sha256(fs.readFileSync(entry.rollbackPath, "utf8")) !==
+          entry.originalSha256
+        ) {
+          throw new Error("staged rollback source hash did not match");
+        }
+        fs.renameSync(entry.rollbackPath, entry.filePath);
         if (
           sha256(fs.readFileSync(entry.filePath, "utf8")) !==
           entry.originalSha256
         ) {
           throw new Error("restored source hash did not match");
         }
+        removeIfExists(entry.backupPath);
       } catch (rollbackError) {
+        unrecovered.add(entry);
         rollbackFailures.push(
-          `${entry.relativePath}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          `${entry.relativePath} (preserved backup: ${entry.backupPath}): ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
         );
       }
     }
 
     for (const entry of staged) {
+      removeIfExists(entry.rollbackPath);
       removeIfExists(entry.temporaryPath);
-      if (!fs.existsSync(entry.backupPath) || !replaced.includes(entry)) {
+      // Preserve only the concrete recovery artifacts named in the error.
+      if (!unrecovered.has(entry)) {
         removeIfExists(entry.backupPath);
       }
     }
@@ -1362,6 +1381,7 @@ const replaceFilesTransactionally = (replacements) => {
   }
 
   for (const entry of staged) {
+    removeIfExists(entry.rollbackPath);
     removeIfExists(entry.temporaryPath);
     removeIfExists(entry.backupPath);
   }

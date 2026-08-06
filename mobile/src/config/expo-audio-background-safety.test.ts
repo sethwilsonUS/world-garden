@@ -119,6 +119,24 @@ const readFixtureSources = (
   ) as ExpoAudioPlaylistMediaSessionSources;
 };
 
+const listTransactionArtifacts = (projectRoot: string): string[] => {
+  const packageRoot = path.join(projectRoot, "node_modules/expo-audio");
+  return [
+    ...new Set(
+      Object.values(sourcePaths).map((installedPath) =>
+        path.dirname(
+          path.join(packageRoot, path.relative(expoAudioRoot, installedPath)),
+        ),
+      ),
+    ),
+  ].flatMap((directory) =>
+    fs
+      .readdirSync(directory)
+      .filter((name) => name.includes(".curio-garden-"))
+      .map((name) => path.join(directory, name)),
+  );
+};
+
 const getInstalledState = (
   sources: ExpoAudioPlaylistMediaSessionSources,
 ): "background" | "patched" | "pristine" => {
@@ -485,21 +503,75 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
 
     expect(readFixtureSources(projectRoot)).toEqual(original);
 
-    const packageRoot = path.join(projectRoot, "node_modules/expo-audio");
-    const transactionArtifacts = [
-      ...new Set(
-        Object.values(sourcePaths).map((installedPath) =>
-          path.dirname(
-            path.join(packageRoot, path.relative(expoAudioRoot, installedPath)),
-          ),
-        ),
-      ),
-    ].flatMap((directory) =>
-      fs
-        .readdirSync(directory)
-        .filter((name) => name.includes(".curio-garden-")),
+    expect(listTransactionArtifacts(projectRoot)).toEqual([]);
+  });
+
+  it("preserves and identifies a backup when rollback itself fails", () => {
+    const original = readInstalledSources();
+    const projectRoot = createInstalledFixture(original);
+    const originalRenameSync = fs.renameSync;
+    let replacementCount = 0;
+    let injectedRollbackFailure = false;
+    let preservedBackupPath: string | undefined;
+    let recoveryTargetPath: string | undefined;
+    const renameSpy = jest
+      .spyOn(fs, "renameSync")
+      .mockImplementation((oldPath, newPath) => {
+        const sourcePath = oldPath.toString();
+        if (sourcePath.endsWith(".tmp") && replacementCount++ === 2) {
+          throw new Error("injected replacement failure");
+        }
+        if (
+          sourcePath.endsWith(".bak.rollback.tmp") &&
+          !injectedRollbackFailure
+        ) {
+          injectedRollbackFailure = true;
+          preservedBackupPath = sourcePath.slice(
+            0,
+            -".rollback.tmp".length,
+          );
+          recoveryTargetPath = newPath.toString();
+          throw new Error("injected rollback failure");
+        }
+        originalRenameSync(oldPath, newPath);
+      });
+
+    let thrown: unknown;
+    try {
+      patchInstalledExpoAudio(projectRoot, "apply");
+    } catch (error) {
+      thrown = error;
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected the injected transaction failure to throw.");
+    }
+    expect(thrown.message).toContain("rollback was incomplete");
+    expect(preservedBackupPath).toBeDefined();
+    expect(recoveryTargetPath).toBeDefined();
+    if (
+      preservedBackupPath === undefined ||
+      recoveryTargetPath === undefined
+    ) {
+      throw new Error("Expected rollback recovery paths to be captured.");
+    }
+    expect(thrown.message).toContain(preservedBackupPath);
+    const recoveryArtifacts = listTransactionArtifacts(projectRoot);
+    expect(recoveryArtifacts).toHaveLength(1);
+    const recoveryArtifact = recoveryArtifacts[0];
+    if (recoveryArtifact === undefined) {
+      throw new Error("Expected a preserved rollback recovery artifact.");
+    }
+    expect(fs.realpathSync(recoveryArtifact)).toBe(
+      fs.realpathSync(preservedBackupPath),
     );
-    expect(transactionArtifacts).toEqual([]);
+
+    originalRenameSync(preservedBackupPath, recoveryTargetPath);
+    expect(readFixtureSources(projectRoot)).toEqual(original);
+    expect(listTransactionArtifacts(projectRoot)).toEqual([]);
   });
 
   it("does not write any target when version or source preflight fails", () => {
