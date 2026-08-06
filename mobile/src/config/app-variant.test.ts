@@ -33,12 +33,15 @@ type AndroidIntentFilter = {
 type AndroidActivity = AndroidNamedEntry & {
   "intent-filter"?: AndroidIntentFilter[];
 };
+type AndroidService = AndroidNamedEntry & {
+  "intent-filter"?: AndroidIntentFilter[];
+};
 type AndroidManifest = {
   manifest?: {
     "uses-permission"?: AndroidNamedEntry[];
     application?: {
       activity?: AndroidActivity[];
-      service?: AndroidNamedEntry[];
+      service?: AndroidService[];
     }[];
   };
 };
@@ -189,7 +192,7 @@ describe("native application variants", () => {
     );
   });
 
-  it("produces a native-only production config without notification setup", () => {
+  it("produces a native-only production config without push notification setup", () => {
     process.env.APP_VARIANT = "production";
     process.env.EAS_BUILD_PROFILE = "production";
     process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY = LIVE_CLERK_KEY;
@@ -207,6 +210,8 @@ describe("native application variants", () => {
     expect(config.android?.package).toBe("org.curiogarden.app");
     expect(config.android?.versionCode).toBeUndefined();
     expect(config.android?.blockedPermissions).toEqual([
+      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      "android.permission.POST_NOTIFICATIONS",
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.RECORD_AUDIO",
       "android.permission.REORDER_TASKS",
@@ -229,7 +234,7 @@ describe("native application variants", () => {
     expect(config.plugins).toContainEqual([
       "expo-audio",
       {
-        enableBackgroundPlayback: false,
+        enableBackgroundPlayback: true,
         enableBackgroundRecording: false,
         microphonePermission: false,
         recordAudioAndroid: false,
@@ -250,7 +255,7 @@ describe("native application variants", () => {
     });
   });
 
-  it("keeps summary audio foreground-only without recording access", async () => {
+  it("enables playback-only background capabilities without microphone, recording, or push permission", async () => {
     const evaluatedConfig = await evaluateExpoConfig();
     const androidPermissionEntries =
       evaluatedConfig.androidManifest?.manifest?.["uses-permission"] ?? [];
@@ -264,35 +269,72 @@ describe("native application variants", () => {
     const removedAndroidPermissionNames = androidPermissionEntries
       .filter(isRemovalMarker)
       .flatMap((permission) => permission.$?.["android:name"] ?? []);
-    const androidServiceNames =
-      evaluatedConfig.androidManifest?.manifest?.application?.[0]?.service?.flatMap(
-        (service) =>
-          isRemovalMarker(service) ? [] : (service.$?.["android:name"] ?? []),
+    const androidServices =
+      evaluatedConfig.androidManifest?.manifest?.application?.[0]?.service?.filter(
+        (service) => !isRemovalMarker(service),
       ) ?? [];
+    const androidServiceNames = androidServices.flatMap(
+      (service) => service.$?.["android:name"] ?? [],
+    );
 
     expect(evaluatedConfig.ios?.infoPlist).not.toHaveProperty(
       "NSMicrophoneUsageDescription",
     );
+    expect(evaluatedConfig.ios?.infoPlist?.UIBackgroundModes ?? []).toContain(
+      "audio",
+    );
     expect(
       evaluatedConfig.ios?.infoPlist?.UIBackgroundModes ?? [],
-    ).not.toContain("audio");
+    ).not.toContain("remote-notification");
+    expect(evaluatedConfig.ios?.entitlements ?? {}).not.toHaveProperty(
+      "aps-environment",
+    );
     expect(androidPermissionNames).toContain(
       "android.permission.MODIFY_AUDIO_SETTINGS",
+    );
+    expect(androidPermissionNames).toEqual(
+      expect.arrayContaining([
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+      ]),
     );
     expect(removedAndroidPermissionNames).toContain(
       "android.permission.RECORD_AUDIO",
     );
+    expect(removedAndroidPermissionNames).toEqual(
+      expect.arrayContaining([
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.POST_NOTIFICATIONS",
+      ]),
+    );
     for (const forbiddenPermission of [
       "android.permission.RECORD_AUDIO",
-      "android.permission.FOREGROUND_SERVICE",
-      "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
       "android.permission.FOREGROUND_SERVICE_MICROPHONE",
       "android.permission.POST_NOTIFICATIONS",
     ]) {
       expect(androidPermissionNames).not.toContain(forbiddenPermission);
     }
-    for (const forbiddenService of [
+    expect(androidServiceNames).toContain(
       "expo.modules.audio.service.AudioControlsService",
+    );
+    const audioControlsService = androidServices.find(
+      (service) =>
+        service.$?.["android:name"] ===
+        "expo.modules.audio.service.AudioControlsService",
+    );
+    expect(audioControlsService?.$).toMatchObject({
+      "android:exported": "false",
+      "android:foregroundServiceType": "mediaPlayback",
+    });
+    expect(
+      audioControlsService?.["intent-filter"]?.flatMap(
+        (filter) =>
+          filter.action?.flatMap(
+            (action) => action.$?.["android:name"] ?? [],
+          ) ?? [],
+      ) ?? [],
+    ).toContain("androidx.media3.session.MediaSessionService");
+    for (const forbiddenService of [
       "expo.modules.audio.service.AudioRecordingService",
     ]) {
       expect(androidServiceNames).not.toContain(forbiddenService);

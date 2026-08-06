@@ -10,10 +10,10 @@ import { AppState, Platform } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import type {
-  ExpoForegroundAudioRuntime,
-  ForegroundAudioPlaybackStatus,
-  ForegroundAudioPlayer,
-} from "./ExpoForegroundAudioRuntime";
+  BackgroundAudioPlaybackStatus,
+  BackgroundAudioPlayer,
+  BackgroundAudioRuntime,
+} from "./ExpoBackgroundAudioRuntime";
 import {
   NativeArticleAudioAccessContextProvider,
   type NativeArticleAudioAccess,
@@ -56,15 +56,25 @@ function harness() {
     prepare: jest.fn().mockResolvedValue({ status: "ready" }),
     stage: jest.fn().mockResolvedValue({ lease, status: "ready" }),
   };
-  let statusListener!: (status: ForegroundAudioPlaybackStatus) => void;
-  const player: ForegroundAudioPlayer = {
+  let statusListener!: (status: BackgroundAudioPlaybackStatus) => void;
+  let statusSnapshot: BackgroundAudioPlaybackStatus = {
+    currentTime: 0,
+    didJustFinish: false,
+    duration: 90,
+    error: null,
+    isBuffering: false,
+    isLoaded: true,
+    playing: true,
+  };
+  const player: BackgroundAudioPlayer = {
+    getStatus: jest.fn(() => statusSnapshot),
     pause: jest.fn(),
-    play: jest.fn(),
-    release: jest.fn(),
+    play: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
     seekTo: jest.fn().mockResolvedValue(undefined),
   };
-  const runtime: ExpoForegroundAudioRuntime = {
-    configureForegroundMode: jest.fn().mockResolvedValue(undefined),
+  const runtime: BackgroundAudioRuntime = {
+    configureBackgroundMode: jest.fn().mockResolvedValue(undefined),
     createPlayer: jest.fn((_uri, listener) => {
       statusListener = listener;
       return player;
@@ -80,23 +90,23 @@ function harness() {
 
   return {
     access,
-    emitStatus: (overrides: Partial<ForegroundAudioPlaybackStatus>) =>
-      statusListener({
-        currentTime: 0,
-        didJustFinish: false,
-        duration: 90,
-        error: null,
-        isBuffering: false,
-        isLoaded: true,
+    emitStatus: (overrides: Partial<BackgroundAudioPlaybackStatus>) => {
+      statusSnapshot = {
+        ...statusSnapshot,
         playing: false,
         ...overrides,
-      }),
+      };
+      statusListener(statusSnapshot);
+    },
     lease,
     loadRuntime,
     player,
     requestSection,
     responseRelease,
     runtime,
+    setStatusSnapshot: (overrides: Partial<BackgroundAudioPlaybackStatus>) => {
+      statusSnapshot = { ...statusSnapshot, ...overrides };
+    },
     store,
   };
 }
@@ -224,6 +234,10 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     expect(
       screen.getByRole("button", { name: "Play full summary audio" }),
     ).toBeOnTheScreen();
+    expect(screen.getByTestId("summary-audio-control")).toHaveProp(
+      "accessibilityHint",
+      "Continues in the background and provides lock-screen controls for Pumpkin.",
+    );
     expect(screen.getByTestId("summary-audio-time")).toHaveTextContent(
       "Duration available after audio loads.",
     );
@@ -284,7 +298,14 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       expect.any(AbortSignal),
     );
     expect(setup.runtime.createPlayer).toHaveBeenCalledWith(
-      "file:///private-cache/random-id.mp3",
+      {
+        metadata: {
+          albumTitle: "Curio Garden",
+          artist: "Wikipedia",
+          title: "Summary — Pumpkin",
+        },
+        uri: "file:///private-cache/random-id.mp3",
+      },
       expect.any(Function),
     );
     expect(setup.player.play).toHaveBeenCalledTimes(1);
@@ -457,7 +478,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
       "Summary audio is ready when you are.",
     );
-    expect(setup.runtime.configureForegroundMode).not.toHaveBeenCalled();
+    expect(setup.runtime.configureBackgroundMode).not.toHaveBeenCalled();
   });
 
   it("cancels streamed staging on account change before loading expo-audio", async () => {
@@ -535,44 +556,48 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     );
   });
 
-  it("releases the player before deleting private audio on foreground loss and never auto-resumes", async () => {
+  it("keeps an already-playing summary alive through inactive, background, and foreground transitions", async () => {
     const platformDescriptor = Object.getOwnPropertyDescriptor(Platform, "OS");
     Object.defineProperty(Platform, "OS", {
       configurable: true,
       value: "android",
     });
-    const setup = harness();
     try {
+      const setup = harness();
       renderPlayer(setup);
       await beginPlayback(setup);
+      act(() => setup.emitStatus({ currentTime: 12, playing: true }));
 
       expect(screen.getByTestId("summary-audio-status")).toHaveProp(
         "accessibilityLiveRegion",
         "polite",
       );
 
-      await act(async () => {
-        appStateListener?.("background");
-        await Promise.resolve();
-      });
+      act(() => appStateListener?.("inactive"));
+      act(() => appStateListener?.("background"));
 
-      expect(setup.player.release).toHaveBeenCalledTimes(1);
-      expect(setup.lease.release).toHaveBeenCalledTimes(1);
-      expect(
-        (setup.player.release as jest.Mock).mock.invocationCallOrder[0],
-      ).toBeLessThan(
-        (setup.lease.release as jest.Mock).mock.invocationCallOrder[0] ?? 0,
-      );
+      expect(setup.player.release).not.toHaveBeenCalled();
+      expect(setup.lease.release).not.toHaveBeenCalled();
       expect(screen.getByTestId("summary-audio-status")).not.toHaveProp(
         "accessibilityLiveRegion",
         "polite",
       );
       expect(screen.getByTestId("summary-audio-control")).toBeDisabled();
 
+      setup.setStatusSnapshot({ currentTime: 42, playing: false });
       act(() => appStateListener?.("active"));
+
+      expect(setup.player.getStatus).toHaveBeenCalledTimes(1);
       expect(
-        screen.getByRole("button", { name: "Play full summary audio" }),
+        screen.getByRole("button", { name: "Resume full summary audio" }),
       ).toBeEnabled();
+      expect(screen.getByTestId("summary-audio-time")).toHaveTextContent(
+        "0:42 of 1:30",
+      );
+      expect(screen.getByTestId("summary-audio-status")).toHaveProp(
+        "accessibilityLiveRegion",
+        "polite",
+      );
       expect(setup.player.play).toHaveBeenCalledTimes(1);
       expect(setup.requestSection).toHaveBeenCalledTimes(1);
     } finally {
@@ -580,6 +605,70 @@ describe("NativeArticleSummaryAudioPlayer", () => {
         Object.defineProperty(Platform, "OS", platformDescriptor);
       }
     }
+  });
+
+  it("cancels unfinished preparation when backgrounded instead of relying on suspended JavaScript", async () => {
+    const setup = harness();
+    const request =
+      deferred<
+        Awaited<ReturnType<NativeArticleAudioAccess["requestSection"]>>
+      >();
+    setup.requestSection.mockReturnValue(request.promise);
+    renderPlayer(setup);
+
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play full summary audio" }),
+    );
+    await waitFor(() => expect(setup.requestSection).toHaveBeenCalledTimes(1));
+    const signal = setup.requestSection.mock.calls[0]?.[0].signal;
+
+    act(() => appStateListener?.("background"));
+
+    expect(signal?.aborted).toBe(true);
+    expect(setup.loadRuntime).not.toHaveBeenCalled();
+    expect(setup.player.play).not.toHaveBeenCalled();
+    expect(screen.getByTestId("summary-audio-control")).toBeDisabled();
+
+    act(() => appStateListener?.("active"));
+    expect(
+      screen.getByRole("button", { name: "Play full summary audio" }),
+    ).toBeEnabled();
+    expect(setup.requestSection).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      request.resolve({
+        accountEpoch,
+        release: setup.responseRelease,
+        response: readyResponse(),
+        status: "ready",
+      });
+      await request.promise;
+    });
+    expect(setup.responseRelease).toHaveBeenCalledTimes(1);
+    expect(setup.store.stage).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a finished iOS snapshot whose one-shot completion flag was lost in the background", async () => {
+    const setup = harness();
+    renderPlayer(setup);
+    await beginPlayback(setup);
+    act(() => setup.emitStatus({ currentTime: 89, playing: true }));
+
+    act(() => appStateListener?.("background"));
+    setup.setStatusSnapshot({
+      currentTime: 90,
+      didJustFinish: false,
+      playing: false,
+    });
+    act(() => appStateListener?.("active"));
+
+    expect(
+      screen.getByRole("button", { name: "Replay full summary audio" }),
+    ).toBeEnabled();
+    expect(screen.getByTestId("summary-audio-time")).toHaveTextContent(
+      "1:30 of 1:30",
+    );
+    expect(setup.player.play).toHaveBeenCalledTimes(1);
   });
 
   it("tears down ready playback when the route deactivates without late resume", async () => {
@@ -614,10 +703,30 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     ).toBeOnTheScreen();
   });
 
+  it("waits for native session deactivation before deleting staged audio", async () => {
+    const sessionRelease = deferred<void>();
+    const setup = harness();
+    (setup.player.release as jest.Mock).mockReturnValue(sessionRelease.promise);
+    const view = renderPlayer(setup);
+    await beginPlayback(setup);
+
+    view.rerenderProps({ active: false });
+
+    await waitFor(() => expect(setup.player.release).toHaveBeenCalledTimes(1));
+    expect(setup.lease.release).not.toHaveBeenCalled();
+
+    await act(async () => {
+      sessionRelease.resolve();
+      await sessionRelease.promise;
+    });
+
+    await waitFor(() => expect(setup.lease.release).toHaveBeenCalledTimes(1));
+  });
+
   it("never creates a stale player when the article changes during mode configuration", async () => {
     const configuration = deferred<void>();
     const setup = harness();
-    (setup.runtime.configureForegroundMode as jest.Mock).mockReturnValue(
+    (setup.runtime.configureBackgroundMode as jest.Mock).mockReturnValue(
       configuration.promise,
     );
     setup.requestSection.mockResolvedValue({
@@ -632,7 +741,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() =>
-      expect(setup.runtime.configureForegroundMode).toHaveBeenCalledTimes(1),
+      expect(setup.runtime.configureBackgroundMode).toHaveBeenCalledTimes(1),
     );
 
     view.rerenderProps({ revisionId: "5678", slug: "Winter_squash" });
@@ -762,7 +871,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     (setup.store.stage as jest.Mock)
       .mockResolvedValueOnce({ lease: setup.lease, status: "ready" })
       .mockResolvedValueOnce({ lease: secondLease, status: "ready" });
-    (setup.runtime.configureForegroundMode as jest.Mock)
+    (setup.runtime.configureBackgroundMode as jest.Mock)
       .mockReturnValueOnce(oldConfiguration.promise)
       .mockResolvedValue(undefined);
     setup.requestSection.mockResolvedValue({
@@ -777,7 +886,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() =>
-      expect(setup.runtime.configureForegroundMode).toHaveBeenCalledTimes(1),
+      expect(setup.runtime.configureBackgroundMode).toHaveBeenCalledTimes(1),
     );
     await act(async () => {
       await jest.advanceTimersByTimeAsync(240_000);
@@ -803,7 +912,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
     expect(setup.requestSection).toHaveBeenCalledTimes(2);
     expect(setup.loadRuntime).toHaveBeenCalledTimes(2);
-    expect(setup.runtime.configureForegroundMode).toHaveBeenCalledTimes(2);
+    expect(setup.runtime.configureBackgroundMode).toHaveBeenCalledTimes(2);
     expect(setup.runtime.createPlayer).toHaveBeenCalledTimes(1);
     expect(setup.player.play).toHaveBeenCalledTimes(1);
     expect(setup.lease.release).toHaveBeenCalledTimes(1);
@@ -813,7 +922,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
   it("ignores a cancelled mode configuration that completes late", async () => {
     const configuration = deferred<void>();
     const setup = harness();
-    (setup.runtime.configureForegroundMode as jest.Mock).mockReturnValue(
+    (setup.runtime.configureBackgroundMode as jest.Mock).mockReturnValue(
       configuration.promise,
     );
     setup.requestSection.mockResolvedValue({
@@ -828,7 +937,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() =>
-      expect(setup.runtime.configureForegroundMode).toHaveBeenCalledTimes(1),
+      expect(setup.runtime.configureBackgroundMode).toHaveBeenCalledTimes(1),
     );
 
     fireEvent.press(

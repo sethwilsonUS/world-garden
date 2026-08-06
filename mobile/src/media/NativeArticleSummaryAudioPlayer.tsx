@@ -14,11 +14,11 @@ import { GardenCard } from "../components/GardenCard";
 import { GardenText } from "../theme/GardenText";
 import { useGardenTheme } from "../theme/useGardenTheme";
 import {
-  loadExpoForegroundAudioRuntime,
-  type ExpoForegroundAudioRuntime,
-  type ForegroundAudioPlaybackStatus,
-  type ForegroundAudioPlayer,
-} from "./ExpoForegroundAudioRuntime";
+  type BackgroundAudioPlaybackStatus,
+  type BackgroundAudioPlayer,
+  type BackgroundAudioRuntime,
+  loadExpoBackgroundAudioRuntime,
+} from "./ExpoBackgroundAudioRuntime";
 import { useNativeArticleAudioAccess } from "./NativeArticleAudioAccessContext";
 import {
   createNativeArticleAudioEphemeralStore,
@@ -52,7 +52,7 @@ type ActiveOperation = {
   cancelReason: "none" | "user" | "lifecycle" | "timeout" | "failure";
   controller: AbortController;
   lease: NativeArticleAudioEphemeralLease | null;
-  player: ForegroundAudioPlayer | null;
+  player: BackgroundAudioPlayer | null;
   responseRelease: (() => void) | null;
   timeoutId: ReturnType<typeof setTimeout>;
 };
@@ -61,7 +61,7 @@ export interface NativeArticleSummaryAudioPlayerProps {
   readonly active: boolean;
   readonly articleTitle: string;
   readonly ephemeralStore?: NativeArticleAudioEphemeralStore;
-  readonly loadRuntime?: () => Promise<ExpoForegroundAudioRuntime>;
+  readonly loadRuntime?: () => Promise<BackgroundAudioRuntime>;
   readonly narrationVersion: number;
   readonly revisionId: string;
   readonly slug: string;
@@ -126,8 +126,9 @@ async function disposeOperation(operation: ActiveOperation): Promise<void> {
   operation.controller.abort();
   releaseResponse(operation);
   if (operation.player !== null) {
-    safeCall(() => operation.player?.release());
+    const player = operation.player;
     operation.player = null;
+    await safeAwait(player.release());
   }
   if (operation.lease !== null) {
     const lease = operation.lease;
@@ -198,7 +199,7 @@ export function NativeArticleSummaryAudioPlayer({
   active,
   articleTitle,
   ephemeralStore,
-  loadRuntime = loadExpoForegroundAudioRuntime,
+  loadRuntime = loadExpoBackgroundAudioRuntime,
   narrationVersion,
   revisionId,
   slug,
@@ -263,7 +264,7 @@ export function NativeArticleSummaryAudioPlayer({
   );
 
   const handlePlaybackStatus = useCallback(
-    (target: ActiveOperation, status: ForegroundAudioPlaybackStatus) => {
+    (target: ActiveOperation, status: BackgroundAudioPlaybackStatus) => {
       if (operation.current !== target || target.controller.signal.aborted) {
         return;
       }
@@ -274,7 +275,14 @@ export function NativeArticleSummaryAudioPlayer({
 
       const currentTime = normalizeTime(status.currentTime);
       const duration = normalizeTime(status.duration);
-      if (status.didJustFinish) {
+      const finished =
+        status.didJustFinish ||
+        (status.isLoaded &&
+          !status.isBuffering &&
+          !status.playing &&
+          duration > 0 &&
+          currentTime >= duration - 0.25);
+      if (finished) {
         updatePresentation({
           currentTime,
           duration,
@@ -434,7 +442,7 @@ export function NativeArticleSummaryAudioPlayer({
       const runtimePromise = loadRuntime();
       const runtime = await raceWithAbort(runtimePromise, controller.signal);
       if (runtime === OPERATION_ABORTED || operation.current !== target) return;
-      const configuration = runtime.configureForegroundMode();
+      const configuration = runtime.configureBackgroundMode();
       const configured = await raceWithAbort(configuration, controller.signal);
       if (
         configured === OPERATION_ABORTED ||
@@ -444,16 +452,31 @@ export function NativeArticleSummaryAudioPlayer({
         return;
       }
 
-      const player = runtime.createPlayer(staged.lease.uri, (status) =>
-        handlePlaybackStatus(target, status),
+      const player = runtime.createPlayer(
+        {
+          metadata: {
+            albumTitle: "Curio Garden",
+            artist: "Wikipedia",
+            title: `Summary — ${articleTitle}`,
+          },
+          uri: staged.lease.uri,
+        },
+        (status) => handlePlaybackStatus(target, status),
       );
       if (operation.current !== target || controller.signal.aborted) {
-        safeCall(() => player.release());
+        await safeAwait(player.release());
         return;
       }
       target.player = player;
+      const started = await raceWithAbort(player.play(), controller.signal);
+      if (
+        started === OPERATION_ABORTED ||
+        operation.current !== target ||
+        currentAccountEpoch.current !== startingEpoch
+      ) {
+        return;
+      }
       clearTimeout(target.timeoutId);
-      player.play();
       updatePresentation({
         currentTime: 0,
         duration: 0,
@@ -504,30 +527,49 @@ export function NativeArticleSummaryAudioPlayer({
         return;
       case "paused":
         if (target?.player === null || target === null) return;
-        try {
-          target.player.play();
-          updatePresentation({
-            ...presentation,
-            kind: "playing",
-            message: "Playing the full summary.",
+        void target.player
+          .play()
+          .then(() => {
+            if (
+              operation.current === target &&
+              !target.controller.signal.aborted
+            ) {
+              updatePresentation({
+                ...presentation,
+                kind: "playing",
+                message: "Playing the full summary.",
+              });
+            }
+          })
+          .catch((_error: unknown) => {
+            void _error;
+            failOperation(target);
           });
-        } catch (_error: unknown) {
-          void _error;
-          failOperation(target);
-        }
         return;
       case "finished":
         if (target?.player === null || target === null) return;
-        updatePresentation({
-          ...presentation,
-          currentTime: 0,
-          kind: "playing",
-          message: "Playing the full summary from the beginning.",
-        });
         void target.player
           .seekTo(0)
-          .then(() => {
-            if (operation.current === target) target.player?.play();
+          .then(async () => {
+            if (
+              operation.current !== target ||
+              target.controller.signal.aborted ||
+              target.player === null
+            ) {
+              return;
+            }
+            await target.player.play();
+            if (
+              operation.current === target &&
+              !target.controller.signal.aborted
+            ) {
+              updatePresentation({
+                ...presentation,
+                currentTime: 0,
+                kind: "playing",
+                message: "Playing the full summary from the beginning.",
+              });
+            }
           })
           .catch((_error: unknown) => {
             void _error;
@@ -569,9 +611,25 @@ export function NativeArticleSummaryAudioPlayer({
       const nextForeground = nextState === "active";
       foreground.current = nextForeground;
       setIsForeground(nextForeground);
-      if (!nextForeground) {
+      const target = operation.current;
+      if (nextForeground) {
+        if (target !== null && target.player !== null) {
+          try {
+            handlePlaybackStatus(target, target.player.getStatus());
+          } catch (_error: unknown) {
+            void _error;
+            failOperation(target);
+          }
+        }
+        return;
+      }
+      if (
+        nextState === "background" &&
+        target !== null &&
+        target.player === null
+      ) {
         stopCurrent(
-          "Summary audio stopped when the app left the foreground.",
+          "Summary audio preparation cancelled when the app left the foreground.",
           true,
         );
       }
@@ -583,7 +641,7 @@ export function NativeArticleSummaryAudioPlayer({
     // reconciled without waiting for a second transition.
     reconcileAppState(AppState.currentState);
     return () => subscription.remove();
-  }, [stopCurrent]);
+  }, [failOperation, handlePlaybackStatus, stopCurrent]);
 
   return (
     <GardenCard
@@ -599,7 +657,7 @@ export function NativeArticleSummaryAudioPlayer({
       </GardenText>
       <GardenButton
         disabled={!active || !isForeground}
-        hint={`Controls foreground audio for the full summary of ${articleTitle}.`}
+        hint={`Continues in the background and provides lock-screen controls for ${articleTitle}.`}
         label={controlLabel(presentation.kind)}
         onPress={handleControlPress}
         testID="summary-audio-control"

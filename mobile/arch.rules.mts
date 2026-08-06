@@ -33,8 +33,8 @@ const nativeArticleAudioAccessProviderImport = join(
 ).replaceAll("\\", "/");
 const nativeArticleAudioEphemeralStoreFile =
   "src/media/NativeArticleAudioEphemeralStore.ts";
-const expoForegroundAudioRuntimeFile =
-  "src/media/ExpoForegroundAudioRuntime.ts";
+const expoBackgroundAudioRuntimeFile =
+  "src/media/ExpoBackgroundAudioRuntime.ts";
 const nativeLibraryPersistenceImports = [
   "@react-native-async-storage/async-storage",
   "@react-native-async-storage/async-storage/**",
@@ -52,6 +52,20 @@ const nativeLibraryPersistenceImports = [
   "react-native-blob-util/**",
   "react-native-fs",
   "react-native-fs/**",
+];
+const nativePushImports = [
+  "@notifee/react-native",
+  "@notifee/react-native/**",
+  "@react-native-firebase/messaging",
+  "@react-native-firebase/messaging/**",
+  "expo-notifications",
+  "expo-notifications/**",
+  "react-native-notifications",
+  "react-native-notifications/**",
+  "react-native-onesignal",
+  "react-native-onesignal/**",
+  "react-native-push-notification",
+  "react-native-push-notification/**",
 ];
 
 const mobileMustStayIndependentOfWeb = modules(mobileProject)
@@ -116,7 +130,7 @@ const nativeOfflinePersistenceMustStayDeferred = modules(mobileProject)
     because:
       "the current native product has no guest storage, offline article cache, download system, or device-backed Library; its sole filesystem seam is a bounded, disposable audio handoff",
     suggestion:
-      "Keep private state behind reviewed online adapters; use NativeArticleAudioEphemeralStore only for its foreground playback lease, and design offline article or media storage as a separate future capability",
+      "Keep private state behind reviewed online adapters; use NativeArticleAudioEphemeralStore only for its active-playback lease, and design offline article or media storage as a separate future capability",
     imperative:
       "Do NOT add filesystem, database, device storage, connectivity, or download-library imports outside the one reviewed ephemeral audio store",
   })
@@ -136,7 +150,7 @@ const nativeArticleAudioEphemeralStoreMustStayNarrow = modules(mobileProject)
   .rule({
     id: "curio/runtime/native-audio-ephemeral-store-narrow",
     because:
-      "foreground playback needs one bounded cache-file handoff, but that file must never become an offline or durable media store",
+      "active playback needs one bounded cache-file handoff, but that file must never become an offline or durable media store",
     suggestion:
       "Keep randomized naming and cache-file lifecycle inside this adapter; expose only short-lived leases that delete their file on release",
     imperative:
@@ -148,35 +162,52 @@ const nativeAudioRuntimeImportsMustStayIsolated = modules(mobileProject)
   .that()
   .resideInFolder("{app,src}/**")
   .and()
-  .satisfy(not(resideInFile(expoForegroundAudioRuntimeFile)))
+  .satisfy(not(resideInFile(expoBackgroundAudioRuntimeFile)))
   .expectNonEmpty()
   .should()
   .notImportFrom("expo-audio", "expo-audio/**")
   .rule({
     id: "curio/runtime/native-audio-runtime-isolated",
     because:
-      "foreground-only playback policy must be enforced at one reviewed native-library boundary",
+      "background playback policy must be enforced at one reviewed native-library boundary",
     suggestion:
-      "Depend on the tokenless foreground audio contract and keep Expo player creation inside ExpoForegroundAudioRuntime",
+      "Depend on the tokenless background audio contract and keep Expo player creation inside ExpoBackgroundAudioRuntime",
     imperative:
-      "Do NOT import expo-audio outside the dedicated foreground audio runtime",
+      "Do NOT import expo-audio outside the dedicated background audio runtime",
   })
   .asSeverity("error");
 
-const expoForegroundAudioRuntimeMustStayNarrow = modules(mobileProject)
+const expoBackgroundAudioRuntimeMustStayNarrow = modules(mobileProject)
   .that()
-  .resideInFile(expoForegroundAudioRuntimeFile)
+  .resideInFile(expoBackgroundAudioRuntimeFile)
   .expectNonEmpty()
   .should()
   .onlyImportFrom("expo-audio", "expo-audio/**")
   .rule({
     id: "curio/runtime/native-audio-runtime-narrow",
     because:
-      "the Expo player boundary must remain a small foreground-only adapter rather than absorbing transport, storage, or UI responsibilities",
+      "the Expo player boundary must remain a small background-playback adapter rather than absorbing transport, storage, or UI responsibilities",
     suggestion:
       "Keep lifecycle and player-mode translation here; place transport, cache leases, and rendering behind their existing seams",
     imperative:
-      "Only import expo-audio from the dedicated foreground audio runtime",
+      "Only import expo-audio from the dedicated background audio runtime",
+  })
+  .asSeverity("error");
+
+const nativePushMustStayDeferred = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(...nativePushImports)
+  .rule({
+    id: "curio/runtime/native-push-deferred",
+    because:
+      "background media controls use the operating system media session and must not silently introduce the separately deferred push-notification product",
+    suggestion:
+      "Keep playback behind ExpoBackgroundAudioRuntime; design push permissions, credentials, delivery, and user controls as a separate future capability",
+    imperative:
+      "Do NOT import push-notification SDKs into the native application",
   })
   .asSeverity("error");
 
@@ -250,7 +281,8 @@ export default [
   nativeOfflinePersistenceMustStayDeferred,
   nativeArticleAudioEphemeralStoreMustStayNarrow,
   nativeAudioRuntimeImportsMustStayIsolated,
-  expoForegroundAudioRuntimeMustStayNarrow,
+  expoBackgroundAudioRuntimeMustStayNarrow,
+  nativePushMustStayDeferred,
   nativeAuthTransportBindingMustStayPrivate,
   nativeAccountSubjectBindingMustStayPrivate,
   nativeArticleAudioAccessProviderMustStayPrivate,
