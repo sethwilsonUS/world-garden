@@ -94,6 +94,32 @@ components or CSS across the architecture boundary.
   malformed, credentialed, or non-HTTPS values render as noninteractive text or
   an unavailable state rather than being passed to the operating system.
 
+## Article summary audio
+
+- Keep the native Article source and accessibility order as one summary lead
+  sentence, the foreground player, one persistent summary disclosure, the
+  nonduplicated remainder while expanded, and then the article sections. The
+  full canonical summary remains the narration input; the visual split never
+  shortens or rewrites audio.
+- The disclosure exposes its current `expanded` state and changes its visible
+  label between `Show full text summary` and `Hide full text summary` without
+  replacing the focused control. Collapsed summary text is absent from both the
+  visual and accessibility trees.
+- Playback begins only from a user press. Keep one operable player control
+  through preparation, play, pause, completion, replay, cancellation, and safe
+  retry states. Its visible label, accessible name, and action must agree.
+- Announce meaningful preparation, playback, pause, completion, cancellation,
+  and failure transitions through one player status. Do not announce elapsed
+  time ticks, and do not duplicate the Article route's load or Library status.
+- Leaving the active Article route, changing account epoch, or moving the app
+  out of the foreground stops and releases playback; returning to the route or
+  foreground never resumes automatically. Release the native player before
+  deleting its bounded private cache-file lease.
+- This foreground handoff exposes no background mode, lock-screen control,
+  microphone permission, download, or offline-storage promise. Automated state
+  and hierarchy checks are necessary but do not replace named-device
+  VoiceOver/TalkBack operation and spoken-output acceptance.
+
 ## Library and saved articles
 
 - The current web application remains the design and copy authority. Native

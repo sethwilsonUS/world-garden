@@ -58,6 +58,21 @@ describe("GardenButton", () => {
     expect(buttonProps.onPress).toHaveBeenCalledTimes(1);
   });
 
+  it.each([false, true])(
+    "exposes disclosure state without changing its visible name (%s)",
+    (expanded) => {
+      renderButton({ expanded });
+
+      const button = screen.getByRole("button", { name: "Explore a topic" });
+      expect(button).toHaveProp("accessibilityState", {
+        busy: false,
+        disabled: false,
+        expanded,
+      });
+      expect(screen.getByText("Explore a topic")).toBeOnTheScreen();
+    },
+  );
+
   it.each([
     { busy: false, disabled: true },
     { busy: true, disabled: false },

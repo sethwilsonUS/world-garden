@@ -63,9 +63,9 @@ const CANCELLED = Object.freeze({ status: "cancelled" as const });
 const SUPERSEDED = Object.freeze({ status: "superseded" as const });
 const MAX_SLUG_LENGTH = 500;
 const MAX_SECTION_KEY_LENGTH = 500;
-// Keep this mobile-owned default aligned with the web client's 180-second
-// article-section deadline; native builds cannot consume its web-only env knob.
-const ARTICLE_AUDIO_REQUEST_TIMEOUT_MS = 180_000;
+// One transport budget covers credentials, an optional 401 refresh, response
+// headers, and streaming ownership until the consumer releases the response.
+const ARTICLE_AUDIO_REQUEST_TIMEOUT_MS = 240_000;
 const ARTICLE_AUDIO_OPERATION_ABORTED = Symbol(
   "article-audio-operation-aborted",
 );
@@ -113,11 +113,21 @@ function failureForStatus(status: number): NativeArticleAudioSectionResult {
 }
 
 function isAudioResponse(response: Response): boolean {
-  return (
-    response.status === 200 &&
-    response.headers.get("content-type")?.toLowerCase().startsWith("audio/") ===
-      true
-  );
+  const mediaType =
+    response.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase() ?? "";
+  return response.status === 200 && mediaType === "audio/mpeg";
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch (_error: unknown) {
+    void _error;
+  }
 }
 
 export function NativeArticleAudioAccessProvider({
@@ -164,6 +174,20 @@ export function NativeArticleAudioAccessProvider({
       const operationTimeoutId = setTimeout(() => {
         operationController.abort();
       }, ARTICLE_AUDIO_REQUEST_TIMEOUT_MS);
+      let responseOwnershipTransferred = false;
+      let operationReleased = false;
+
+      const releaseOperation = (): void => {
+        if (operationReleased) return;
+        operationReleased = true;
+        operationController.abort();
+        clearTimeout(operationTimeoutId);
+        request.signal?.removeEventListener("abort", cancelForCaller);
+        operationController.signal.removeEventListener(
+          "abort",
+          notifyOperationAborted,
+        );
+      };
 
       const classifyOperationAbort = (): NativeArticleAudioSectionResult => {
         if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
@@ -176,62 +200,75 @@ export function NativeArticleAudioAccessProvider({
       ): Promise<
         NativeArticleAudioSectionResult | Readonly<{ shouldRefresh: true }>
       > => {
-        let credentials: Awaited<
-          ReturnType<typeof binding.resolveRequestCredentials>
-        >;
+        const attemptController = new AbortController();
+        const cancelAttempt = (): void => attemptController.abort();
+        if (operationController.signal.aborted) {
+          attemptController.abort();
+        } else {
+          operationController.signal.addEventListener("abort", cancelAttempt, {
+            once: true,
+          });
+        }
+        let response: Response | null = null;
+        let attemptOwnershipTransferred = false;
+
         try {
-          const credentialResult = await Promise.race([
-            binding.resolveRequestCredentials({ forceRefresh }),
-            operationAborted,
-          ]);
-          if (credentialResult === ARTICLE_AUDIO_OPERATION_ABORTED) {
-            return classifyOperationAbort();
+          let credentials: Awaited<
+            ReturnType<typeof binding.resolveRequestCredentials>
+          >;
+          try {
+            const credentialResult = await Promise.race([
+              binding.resolveRequestCredentials({ forceRefresh }),
+              operationAborted,
+            ]);
+            if (credentialResult === ARTICLE_AUDIO_OPERATION_ABORTED) {
+              return classifyOperationAbort();
+            }
+            credentials = credentialResult;
+          } catch (error: unknown) {
+            void error;
+            if (operationController.signal.aborted) {
+              return classifyOperationAbort();
+            }
+            if (!binding.isCurrentAccountEpoch(operationEpoch))
+              return SUPERSEDED;
+            return request.signal?.aborted ? CANCELLED : ACCOUNT_UNAVAILABLE;
           }
-          credentials = credentialResult;
-        } catch (error: unknown) {
-          void error;
+          if (
+            !binding.isCurrentAccountEpoch(operationEpoch) ||
+            ("accountEpoch" in credentials &&
+              credentials.accountEpoch !== operationEpoch)
+          ) {
+            return SUPERSEDED;
+          }
+          if (credentials.status === "superseded") return SUPERSEDED;
           if (operationController.signal.aborted) {
             return classifyOperationAbort();
           }
-          if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
-          return request.signal?.aborted ? CANCELLED : ACCOUNT_UNAVAILABLE;
-        }
-        if (
-          !binding.isCurrentAccountEpoch(operationEpoch) ||
-          ("accountEpoch" in credentials &&
-            credentials.accountEpoch !== operationEpoch)
-        ) {
-          return SUPERSEDED;
-        }
-        if (credentials.status === "superseded") return SUPERSEDED;
-        if (operationController.signal.aborted) {
-          return classifyOperationAbort();
-        }
-        if (credentials.status === "unavailable") return ACCOUNT_UNAVAILABLE;
-        if (forceRefresh && credentials.status !== "authenticated") {
-          return AUTHENTICATION_REJECTED;
-        }
-        if (
-          credentials.status === "authenticated" &&
-          !webOrigin.startsWith("https://")
-        ) {
-          return AUTHENTICATION_REJECTED;
-        }
+          if (credentials.status === "unavailable") return ACCOUNT_UNAVAILABLE;
+          if (forceRefresh && credentials.status !== "authenticated") {
+            return AUTHENTICATION_REJECTED;
+          }
+          if (
+            credentials.status === "authenticated" &&
+            !webOrigin.startsWith("https://")
+          ) {
+            return AUTHENTICATION_REJECTED;
+          }
 
-        const provider =
-          credentials.status === "authenticated" ? request.provider : "edge";
-        const headers: Record<string, string> = {
-          Accept: "audio/mpeg, audio/*;q=0.9",
-          "Content-Type": "application/json",
-        };
-        if (credentials.status === "authenticated") {
-          headers.Authorization = `Bearer ${credentials.sessionToken}`;
-        }
+          const provider =
+            credentials.status === "authenticated" ? request.provider : "edge";
+          const headers: Record<string, string> = {
+            Accept: "audio/mpeg",
+            "Accept-Encoding": "identity",
+            "Content-Type": "application/json",
+          };
+          if (credentials.status === "authenticated") {
+            headers.Authorization = `Bearer ${credentials.sessionToken}`;
+          }
 
-        let response: Response;
-        try {
-          const fetchResult = await Promise.race([
-            fetchImpl(endpoint, {
+          try {
+            const fetchPromise = fetchImpl(endpoint, {
               body: JSON.stringify({
                 narrationVersion: request.narrationVersion,
                 provider,
@@ -243,42 +280,80 @@ export function NativeArticleAudioAccessProvider({
               headers,
               method: "POST",
               redirect: "error",
-              signal: operationController.signal,
-            }),
-            operationAborted,
-          ]);
-          if (fetchResult === ARTICLE_AUDIO_OPERATION_ABORTED) {
-            return classifyOperationAbort();
+              signal: attemptController.signal,
+            });
+            const fetchResult = await Promise.race([
+              fetchPromise,
+              operationAborted,
+            ]);
+            if (fetchResult === ARTICLE_AUDIO_OPERATION_ABORTED) {
+              // Native transports are allowed to ignore AbortSignal. Retain a
+              // rejection handler and cancel any body that resolves after the
+              // operation has already failed closed.
+              void fetchPromise.then(cancelResponseBody, (_error: unknown) => {
+                void _error;
+              });
+              return classifyOperationAbort();
+            }
+            response = fetchResult;
+          } catch (error: unknown) {
+            // The caller receives only a stable classification; using the caught
+            // value here makes the intentional sanitization visible to static
+            // architecture checks without logging or persisting it.
+            void error;
+            if (operationController.signal.aborted) {
+              return classifyOperationAbort();
+            }
+            if (!binding.isCurrentAccountEpoch(operationEpoch))
+              return SUPERSEDED;
+            if (request.signal?.aborted) return CANCELLED;
+            return TEMPORARILY_UNAVAILABLE;
           }
-          response = fetchResult;
-        } catch (error: unknown) {
-          // The caller receives only a stable classification; using the caught
-          // value here makes the intentional sanitization visible to static
-          // architecture checks without logging or persisting it.
-          void error;
+
+          if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
           if (operationController.signal.aborted) {
             return classifyOperationAbort();
           }
-          if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
-          if (request.signal?.aborted) return CANCELLED;
-          return TEMPORARILY_UNAVAILABLE;
-        }
+          if (
+            response.status === 401 &&
+            credentials.status === "authenticated" &&
+            !forceRefresh
+          ) {
+            return { shouldRefresh: true };
+          }
+          if (!response.ok) return failureForStatus(response.status);
+          if (!isAudioResponse(response)) return INVALID_RESPONSE;
 
-        if (!binding.isCurrentAccountEpoch(operationEpoch)) return SUPERSEDED;
-        if (operationController.signal.aborted) {
-          return classifyOperationAbort();
+          attemptOwnershipTransferred = true;
+          responseOwnershipTransferred = true;
+          let released = false;
+          const readyResponse = response;
+          return {
+            accountEpoch: operationEpoch,
+            release: () => {
+              if (released) return;
+              released = true;
+              operationController.signal.removeEventListener(
+                "abort",
+                cancelAttempt,
+              );
+              attemptController.abort();
+              void cancelResponseBody(readyResponse);
+              releaseOperation();
+            },
+            response: readyResponse,
+            status: "ready",
+          };
+        } finally {
+          if (!attemptOwnershipTransferred) {
+            operationController.signal.removeEventListener(
+              "abort",
+              cancelAttempt,
+            );
+            attemptController.abort();
+            if (response !== null) void cancelResponseBody(response);
+          }
         }
-        if (
-          response.status === 401 &&
-          credentials.status === "authenticated" &&
-          !forceRefresh
-        ) {
-          return { shouldRefresh: true };
-        }
-        if (!response.ok) return failureForStatus(response.status);
-        if (!isAudioResponse(response)) return INVALID_RESPONSE;
-
-        return { accountEpoch: operationEpoch, response, status: "ready" };
       };
 
       try {
@@ -291,12 +366,7 @@ export function NativeArticleAudioAccessProvider({
         }
         return firstResult;
       } finally {
-        clearTimeout(operationTimeoutId);
-        request.signal?.removeEventListener("abort", cancelForCaller);
-        operationController.signal.removeEventListener(
-          "abort",
-          notifyOperationAborted,
-        );
+        if (!responseOwnershipTransferred) releaseOperation();
       }
     },
     [binding, fetchImpl, webOrigin],

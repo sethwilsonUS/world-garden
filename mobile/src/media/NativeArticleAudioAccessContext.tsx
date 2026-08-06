@@ -6,9 +6,7 @@ import {
 } from "react";
 
 export type NativeArticleAudioProvider = "edge" | "openai";
-export type NativeArticleAudioSectionKey =
-  | "summary"
-  | `section-${number}`;
+export type NativeArticleAudioSectionKey = "summary" | `section-${number}`;
 
 export type NativeArticleAudioSectionRequest = Readonly<{
   narrationVersion: number;
@@ -31,6 +29,8 @@ export type NativeArticleAudioFailureReason =
 export type NativeArticleAudioSectionResult =
   | Readonly<{
       accountEpoch: symbol;
+      /** Releases the native response transport after streaming or cancellation. */
+      release: () => void;
       response: Response;
       status: "ready";
     }>

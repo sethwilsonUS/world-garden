@@ -5,7 +5,7 @@ import {
   waitFor,
 } from "@testing-library/react-native";
 import type { WikipediaArticle } from "@curio-garden/domain";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import {
@@ -54,6 +54,7 @@ function renderDocument(
     onExternalLinkError: jest.fn(),
     onExternalLinkStart: jest.fn(),
     openUrl: jest.fn().mockResolvedValue(undefined),
+    summaryAudioPlayer: <View testID="article-summary-audio-player" />,
     ...propOverrides,
   };
 
@@ -66,7 +67,18 @@ function renderDocument(
     </GardenThemeProvider>,
   );
 
-  return { ...props, rerender: view.rerender };
+  return { ...props, ...view };
+}
+
+function collectTestIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(collectTestIds);
+  if (typeof value !== "object" || value === null) return [];
+  const node = value as {
+    children?: unknown;
+    props?: Readonly<{ testID?: unknown }>;
+  };
+  const own = typeof node.props?.testID === "string" ? [node.props.testID] : [];
+  return [...own, ...collectTestIds(node.children)];
 }
 
 describe("ArticleDocument URL helpers", () => {
@@ -264,8 +276,10 @@ describe("ArticleDocument", () => {
     ).not.toBeOnTheScreen();
   });
 
-  it("keeps summary and section prose unclamped and lossless", () => {
-    const summary = "Summary ".repeat(190).trim();
+  it("keeps one lead and the disclosed remainder unclamped and lossless", () => {
+    const lead = "A short opening sentence.";
+    const remainder = "Summary remainder ".repeat(190).trim();
+    const summary = `${lead} ${remainder}`;
     const sectionContent = "Section prose ".repeat(220).trim();
     renderDocument({
       summary,
@@ -279,7 +293,31 @@ describe("ArticleDocument", () => {
       ],
     });
 
-    const summaryStops = screen.getAllByTestId(/^article-summary-paragraph-/u);
+    expect(screen.getByTestId("article-summary-lead")).toHaveTextContent(lead);
+    expect(screen.queryByTestId("article-summary-remainder")).toBeNull();
+    const disclosure = screen.getByRole("button", {
+      name: "Show full text summary",
+    });
+    expect(disclosure).toHaveProp("accessibilityState", {
+      busy: false,
+      disabled: false,
+      expanded: false,
+    });
+
+    fireEvent.press(disclosure);
+
+    const expandedDisclosure = screen.getByRole("button", {
+      name: "Hide full text summary",
+    });
+    expect(expandedDisclosure).toBe(disclosure);
+    expect(expandedDisclosure).toHaveProp("accessibilityState", {
+      busy: false,
+      disabled: false,
+      expanded: true,
+    });
+    const summaryStops = screen.getAllByTestId(
+      /^article-summary-remainder-paragraph-/u,
+    );
     const sectionStops = screen.getAllByTestId(
       /^article-section-0-paragraph-/u,
     );
@@ -287,8 +325,12 @@ describe("ArticleDocument", () => {
     expect(summaryStops.length).toBeGreaterThan(1);
     expect(sectionStops.length).toBeGreaterThan(1);
     expect(summaryStops.map((node) => node.props.children).join("")).toBe(
-      summary,
+      remainder,
     );
+    expect(screen.getAllByText(lead)).toHaveLength(1);
+    expect(
+      screen.getByTestId("article-summary-remainder"),
+    ).not.toHaveTextContent(lead);
     expect(sectionStops.map((node) => node.props.children).join("")).toBe(
       sectionContent,
     );
@@ -297,6 +339,109 @@ describe("ArticleDocument", () => {
       expect(prose.props.numberOfLines).toBeUndefined();
       expect(prose.props.adjustsFontSizeToFit).toBeUndefined();
     }
+
+    fireEvent.press(expandedDisclosure);
+    expect(screen.queryByTestId("article-summary-remainder")).toBeNull();
+    expect(screen.getByRole("button", { name: "Show full text summary" })).toBe(
+      disclosure,
+    );
+  });
+
+  it("orders native reading as lead, audio, disclosure, sections, then media", () => {
+    const view = renderDocument({
+      summary: "Pumpkins are fruits. Their story continues here.",
+      thumbnailUrl: "https://images.example/pumpkin.png",
+    });
+    fireEvent.press(
+      screen.getByRole("button", { name: "Show full text summary" }),
+    );
+    const testIds = collectTestIds(view.toJSON());
+
+    expect(testIds.indexOf("article-summary-lead")).toBeLessThan(
+      testIds.indexOf("article-summary-audio-player"),
+    );
+    expect(testIds.indexOf("article-summary-audio-player")).toBeLessThan(
+      testIds.indexOf("article-summary-disclosure"),
+    );
+    expect(testIds.indexOf("article-summary-disclosure")).toBeLessThan(
+      testIds.indexOf("article-summary-remainder"),
+    );
+    expect(testIds.indexOf("article-summary-remainder")).toBeLessThan(
+      testIds.indexOf("article-section-0"),
+    );
+    expect(testIds.indexOf("article-section-0")).toBeLessThan(
+      testIds.indexOf("article-source-and-media"),
+    );
+    expect(testIds.indexOf("article-source-and-media")).toBeLessThan(
+      testIds.indexOf("article-source-and-license"),
+    );
+  });
+
+  it("omits disclosure for one sentence and omits audio for no summary", () => {
+    const view = renderDocument({ summary: "One complete sentence." });
+
+    expect(
+      screen.getByTestId("article-summary-audio-player"),
+    ).toBeOnTheScreen();
+    expect(screen.queryByTestId("article-summary-disclosure")).toBeNull();
+
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <ArticleDocument
+          article={{ ...baseArticle, summary: " " }}
+          onExternalLinkError={view.onExternalLinkError}
+          onExternalLinkStart={view.onExternalLinkStart}
+          openUrl={view.openUrl}
+          summaryAudioPlayer={<View testID="article-summary-audio-player" />}
+        />
+      </GardenThemeProvider>,
+    );
+
+    expect(screen.queryByTestId("article-summary-audio-player")).toBeNull();
+    expect(screen.queryByTestId("article-summary-disclosure")).toBeNull();
+  });
+
+  it("collapses disclosed text when the rendered article identity changes", () => {
+    const view = renderDocument({
+      summary: "The old lead. The old remainder.",
+    });
+    fireEvent.press(
+      screen.getByRole("button", { name: "Show full text summary" }),
+    );
+    expect(screen.getByText("The old remainder.")).toBeOnTheScreen();
+
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <ArticleDocument
+          article={{
+            ...baseArticle,
+            revisionId: "5678",
+            summary: "The new lead. The new remainder.",
+          }}
+          onExternalLinkError={view.onExternalLinkError}
+          onExternalLinkStart={view.onExternalLinkStart}
+          openUrl={view.openUrl}
+          summaryAudioPlayer={<View testID="article-summary-audio-player" />}
+        />
+      </GardenThemeProvider>,
+    );
+
+    expect(screen.getByText("The new lead.")).toBeOnTheScreen();
+    expect(screen.queryByText("The old remainder.")).toBeNull();
+    expect(screen.queryByText("The new remainder.")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show full text summary" }),
+    ).toHaveProp("accessibilityState", {
+      busy: false,
+      disabled: false,
+      expanded: false,
+    });
   });
 
   it("uses honest provenance labels and provides useful empty-content copy", () => {
@@ -400,6 +545,7 @@ describe("ArticleDocument", () => {
           onExternalLinkError={view.onExternalLinkError}
           onExternalLinkStart={view.onExternalLinkStart}
           openUrl={view.openUrl}
+          summaryAudioPlayer={<View testID="article-summary-audio-player" />}
         />
       </GardenThemeProvider>,
     );

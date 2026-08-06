@@ -1,5 +1,9 @@
 import { getConfig, type ConfigContext } from "expo/config";
-import { compileModsAsync, IOSConfig } from "expo/config-plugins";
+import {
+  AndroidConfig,
+  compileModsAsync,
+  IOSConfig,
+} from "expo/config-plugins";
 
 import createAppConfig, {
   bundledFontFiles,
@@ -31,7 +35,11 @@ type AndroidActivity = AndroidNamedEntry & {
 };
 type AndroidManifest = {
   manifest?: {
-    application?: { activity?: AndroidActivity[] }[];
+    "uses-permission"?: AndroidNamedEntry[];
+    application?: {
+      activity?: AndroidActivity[];
+      service?: AndroidNamedEntry[];
+    }[];
   };
 };
 
@@ -42,6 +50,8 @@ const evaluateExpoConfig = async (): Promise<{
     entitlements?: Record<string, unknown>;
     infoPlist?: {
       CFBundleURLTypes?: { CFBundleURLSchemes?: string[] }[];
+      NSMicrophoneUsageDescription?: string;
+      UIBackgroundModes?: string[];
     };
   };
 }> => {
@@ -61,7 +71,9 @@ const evaluateExpoConfig = async (): Promise<{
     skipSDKVersionRequirement: true,
   });
   const evaluatedConfig = (await compileModsAsync(
-    IOSConfig.Scheme.withScheme(config.exp),
+    AndroidConfig.Permissions.withInternalBlockedPermissions(
+      IOSConfig.Scheme.withScheme(config.exp),
+    ),
     {
       projectRoot: introspectionProjectRoot,
       introspect: true,
@@ -196,6 +208,7 @@ describe("native application variants", () => {
     expect(config.android?.versionCode).toBeUndefined();
     expect(config.android?.blockedPermissions).toEqual([
       "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.RECORD_AUDIO",
       "android.permission.REORDER_TASKS",
       "android.permission.SYSTEM_ALERT_WINDOW",
       "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -213,6 +226,15 @@ describe("native application variants", () => {
       "@clerk/expo",
       { appleSignIn: false },
     ]);
+    expect(config.plugins).toContainEqual([
+      "expo-audio",
+      {
+        enableBackgroundPlayback: false,
+        enableBackgroundRecording: false,
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ]);
     expect(pluginIdentifiers).toContain("expo-secure-store");
     expect(pluginIdentifiers).not.toContain("expo-notifications");
     expect(pluginIdentifiers).not.toContain("expo-file-system");
@@ -226,6 +248,55 @@ describe("native application variants", () => {
       webOrigin: "https://curiogarden.org",
       eas: { projectId: "85f56112-e78d-49c6-9b4c-e5872096a1ea" },
     });
+  });
+
+  it("keeps summary audio foreground-only without recording access", async () => {
+    const evaluatedConfig = await evaluateExpoConfig();
+    const androidPermissionEntries =
+      evaluatedConfig.androidManifest?.manifest?.["uses-permission"] ?? [];
+    const isRemovalMarker = (entry: AndroidNamedEntry) => {
+      const operation = entry.$?.["tools:node"];
+      return operation === "remove" || operation === "removeAll";
+    };
+    const androidPermissionNames = androidPermissionEntries
+      .filter((permission) => !isRemovalMarker(permission))
+      .flatMap((permission) => permission.$?.["android:name"] ?? []);
+    const removedAndroidPermissionNames = androidPermissionEntries
+      .filter(isRemovalMarker)
+      .flatMap((permission) => permission.$?.["android:name"] ?? []);
+    const androidServiceNames =
+      evaluatedConfig.androidManifest?.manifest?.application?.[0]?.service?.flatMap(
+        (service) =>
+          isRemovalMarker(service) ? [] : (service.$?.["android:name"] ?? []),
+      ) ?? [];
+
+    expect(evaluatedConfig.ios?.infoPlist).not.toHaveProperty(
+      "NSMicrophoneUsageDescription",
+    );
+    expect(
+      evaluatedConfig.ios?.infoPlist?.UIBackgroundModes ?? [],
+    ).not.toContain("audio");
+    expect(androidPermissionNames).toContain(
+      "android.permission.MODIFY_AUDIO_SETTINGS",
+    );
+    expect(removedAndroidPermissionNames).toContain(
+      "android.permission.RECORD_AUDIO",
+    );
+    for (const forbiddenPermission of [
+      "android.permission.RECORD_AUDIO",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      "android.permission.POST_NOTIFICATIONS",
+    ]) {
+      expect(androidPermissionNames).not.toContain(forbiddenPermission);
+    }
+    for (const forbiddenService of [
+      "expo.modules.audio.service.AudioControlsService",
+      "expo.modules.audio.service.AudioRecordingService",
+    ]) {
+      expect(androidServiceNames).not.toContain(forbiddenService);
+    }
   });
 
   it.each([

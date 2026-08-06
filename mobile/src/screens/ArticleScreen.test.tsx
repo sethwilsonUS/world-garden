@@ -11,6 +11,7 @@ import type {
   NativeLibraryMutationResult,
   NativeLibraryValue,
 } from "../library/NativeLibraryContext";
+import type { NativeArticleSummaryAudioPlayerProps } from "../media/NativeArticleSummaryAudioPlayer";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { ArticleScreen } from "./ArticleScreen";
@@ -28,6 +29,10 @@ const mockRemoveBookmark = jest.fn<
   Promise<NativeLibraryMutationResult>,
   [{ slug: string }]
 >();
+const mockSummaryAudioPlayer = jest.fn<
+  null,
+  [NativeArticleSummaryAudioPlayerProps]
+>(() => null);
 let mockLibraryValue: NativeLibraryValue;
 const defaultAccountEpoch = Symbol("account-a");
 
@@ -37,6 +42,12 @@ jest.mock("../data/WikipediaReaderContext", () => ({
 
 jest.mock("../library/NativeLibraryContext", () => ({
   useNativeLibrary: () => mockLibraryValue,
+}));
+
+jest.mock("../media/NativeArticleSummaryAudioPlayer", () => ({
+  NativeArticleSummaryAudioPlayer: (
+    props: NativeArticleSummaryAudioPlayerProps,
+  ) => mockSummaryAudioPlayer(props),
 }));
 
 function setLibrary(
@@ -145,6 +156,70 @@ describe("ArticleScreen", () => {
     ).toBeOnTheScreen();
     expect(screen.getAllByRole("header", { name: "AC/DC" })).toHaveLength(1);
     expect(screen.getByRole("header", { name: "History" })).toBeOnTheScreen();
+  });
+
+  it("gives ready summary audio the exact route and revision identity", async () => {
+    const request = deferred<WikipediaArticle>();
+    mockFetchArticle.mockReturnValue(request.promise);
+    renderArticle("AC/DC");
+
+    await waitFor(() => expect(mockFetchArticle).toHaveBeenCalledTimes(1));
+    expect(mockSummaryAudioPlayer).not.toHaveBeenCalled();
+
+    await act(async () => {
+      request.resolve(
+        article("Alternating current/direct current", {
+          narrationVersion: 7,
+          revisionId: "987654",
+        }),
+      );
+      await request.promise;
+    });
+
+    await screen.findByText("Alternating current/direct current summary");
+    expect(mockSummaryAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
+      active: true,
+      articleTitle: "Alternating current/direct current",
+      narrationVersion: 7,
+      revisionId: "987654",
+      slug: "AC/DC",
+    });
+  });
+
+  it("deactivates ready summary audio when its article route is inactive", async () => {
+    mockFetchArticle.mockResolvedValue(
+      article("Moria", {
+        narrationVersion: 11,
+        revisionId: "456789",
+      }),
+    );
+    const view = renderArticle("Moria");
+
+    await screen.findByText("Moria summary");
+    expect(mockSummaryAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
+      active: true,
+      articleTitle: "Moria",
+      narrationVersion: 11,
+      revisionId: "456789",
+      slug: "Moria",
+    });
+
+    view.rerender(
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <ArticleScreen {...view.props} isRouteActive={false} />
+      </GardenThemeProvider>,
+    );
+
+    expect(mockSummaryAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
+      active: false,
+      articleTitle: "Moria",
+      narrationVersion: 11,
+      revisionId: "456789",
+      slug: "Moria",
+    });
   });
 
   it("announces a readable untitled section that receives a fallback heading", async () => {
