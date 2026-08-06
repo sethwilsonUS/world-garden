@@ -4,6 +4,9 @@
 - Date: 2026-08-05
 - Owners: Curio Garden maintainers
 
+Queue and previous/next media-session decisions are extended by
+[ADR 0003](./0003-native-playlist-media-session.md).
+
 ## Context
 
 The native Article already offers user-initiated playback of its complete
@@ -69,8 +72,9 @@ remains disabled so two owners cannot race. On iOS, the backport stores the opaq
 block-based `MPRemoteCommand` registration and removes those exact targets
 before replacement and final release.
 
-The patcher is pinned to exact pristine and patched SHA-256 hashes for five
-files in `expo-audio` 57.0.3. It preflights the complete source set before any
+For this first slice, the patcher was pinned to exact pristine and patched
+SHA-256 hashes for five files in `expo-audio` 57.0.3; ADR 0003 expands that
+contract for native queues. It preflights the complete source set before any
 write, uses exact transforms and per-file atomic replacement, verifies the
 result, and rejects an unknown version, source drift, or mixed state. Local
 native scripts and EAS apply it after dependency installation; the aggregate

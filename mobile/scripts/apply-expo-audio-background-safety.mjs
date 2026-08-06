@@ -28,5 +28,5 @@ const action =
       : "already applied";
 
 process.stdout.write(
-  `Expo Audio ${EXPO_AUDIO_VERSION} safety backport ${action}.\n`,
+  `Expo Audio ${EXPO_AUDIO_VERSION} safety/playlist backport ${action}.\n`,
 );

@@ -5,37 +5,115 @@ const path = require("node:path");
 const EXPO_AUDIO_VERSION = "57.0.3";
 const EXPO_AUDIO_BACKGROUND_SAFETY_MARKER =
   "CurioGardenExpoAudioBackgroundSafetyBackport";
+const EXPO_AUDIO_PLAYLIST_PATCH_PATH =
+  require.resolve("../patches/expo-audio-57.0.3-playlist-media-session.patch");
+const EXPO_AUDIO_PLAYLIST_PATCH_SHA256 =
+  "38e7c2d0672322329d1ba875da21d2cc198e36b4c86f85c2166bb486341bfb22";
 
 const sourceFiles = {
   androidBaseAudioPlayer: {
     path: "android/src/main/java/expo/modules/audio/BaseAudioPlayer.kt",
     sha256: "72048bf31c327cc05e469dc30362f4c1c7d7d61cd546eceada70b1ba49bd90a3",
+    backgroundSha256:
+      "5815ca17f28f1637a4f9196df263a1d717281cf9dd25b1ad25b4d4c49e23317f",
     patchedSha256:
       "5815ca17f28f1637a4f9196df263a1d717281cf9dd25b1ad25b4d4c49e23317f",
+  },
+  androidAudioPlaylist: {
+    path: "android/src/main/java/expo/modules/audio/AudioPlaylist.kt",
+    sha256: "9bdfdbce6292de8198b1776c6058601a292e8bef38354a784742ad4dfe830015",
+    backgroundSha256:
+      "9bdfdbce6292de8198b1776c6058601a292e8bef38354a784742ad4dfe830015",
+    patchedSha256:
+      "f20448b69af194587e18fbff239ed16966570ee86b560be9d9e3de3385602b01",
   },
   androidAudioModule: {
     path: "android/src/main/java/expo/modules/audio/AudioModule.kt",
     sha256: "637fe9bed875e47c3348a1f9623c4e049965efec2ebbe77cff6836c94544177a",
-    patchedSha256:
+    backgroundSha256:
       "bc96dd85aaadd9248c13b9c174fc47b905bbf4078638204bfc565c6551d3a64f",
+    patchedSha256:
+      "d35c8a530a2743cdc49b66d246473e91f425cc5e3e67e395245178da54c9e9f7",
   },
   androidAudioPlayer: {
     path: "android/src/main/java/expo/modules/audio/AudioPlayer.kt",
     sha256: "636f4ef70dac17d7490ec5e99aa60d71dc7ce6d7b4b913c501001079d6b8f33e",
-    patchedSha256:
+    backgroundSha256:
       "53b5a758e4df527ce10c244174fb3d1103166f2f30b8f958865a7c5b1c4cc1f7",
+    patchedSha256:
+      "3e5369ed819c64e37f47c293cf4a98569d3ffff55cde1b98e114b070541a054c",
+  },
+  androidPlaybackServiceConnection: {
+    path: "android/src/main/java/expo/modules/audio/service/AudioPlaybackServiceConnection.kt",
+    sha256: "463ddeeb72337e58ca389dfeffcb789a5ec62ab00a9ae146180c8676313f30d8",
+    backgroundSha256:
+      "463ddeeb72337e58ca389dfeffcb789a5ec62ab00a9ae146180c8676313f30d8",
+    patchedSha256:
+      "64f38954c04d07fe94eb8686bcfc7738b2cd23ef63915ec6ef9972ddbc4e0e99",
   },
   androidControlsService: {
     path: "android/src/main/java/expo/modules/audio/service/AudioControlsService.kt",
     sha256: "a39a43672602c9eda1c11b840fbe2984fd57f37dd7be2152d19271131c90fbb7",
-    patchedSha256:
+    backgroundSha256:
       "f819c129b13c6937979f9c2de32a4d908d9876452952718ec7739ced6a20e503",
+    patchedSha256:
+      "0f0e4752cbf9da971962d7399bda6c9e6452b684814dc5ff0f9d4d00516b2530",
+  },
+  androidMediaSessionCallback: {
+    path: "android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt",
+    sha256: "ea488e034c20fd02053521a80d972e87f3cd8afc5bca762e5695498c66271073",
+    backgroundSha256:
+      "ea488e034c20fd02053521a80d972e87f3cd8afc5bca762e5695498c66271073",
+    patchedSha256:
+      "f8fdb3b4723f7ac8b1d29022d7dc26c1ab70b85bf367dbf4fc0a5ec0b9cfc098",
+  },
+  iosAudioPlaylist: {
+    path: "ios/AudioPlaylist.swift",
+    sha256: "5c990cc4f73454ab1ec00b189beab2c3f32968b4bb75a7751fe8d438094af81f",
+    backgroundSha256:
+      "5c990cc4f73454ab1ec00b189beab2c3f32968b4bb75a7751fe8d438094af81f",
+    patchedSha256:
+      "cf63ab0dd3890345472493a583a8af7c9a05fdab0940954c49b02225ae1a9401",
+  },
+  iosAudioPlayer: {
+    path: "ios/AudioPlayer.swift",
+    sha256: "ec25a72a075180123437450350e7eed1ab7ef669645ebed901c4470c039ee41c",
+    backgroundSha256:
+      "ec25a72a075180123437450350e7eed1ab7ef669645ebed901c4470c039ee41c",
+    patchedSha256:
+      "1ebea5cb64e78f049cb77e8d16ed7ac2e41769564830d3daa0c2fd301e7137a9",
+  },
+  iosAudioModule: {
+    path: "ios/AudioModule.swift",
+    sha256: "988bad3ed7eadf2b79d0de2a02529862e7e04cf5d52c9e8ddb65b55acb133e52",
+    backgroundSha256:
+      "988bad3ed7eadf2b79d0de2a02529862e7e04cf5d52c9e8ddb65b55acb133e52",
+    patchedSha256:
+      "a1f03206d6d8950431cdfd6b51e05ad125715ba6a1a387a42a45a0a83d5ffcdc",
   },
   iosMediaController: {
     path: "ios/MediaController.swift",
     sha256: "8a1d895f13afe02f291a7db1050c4e74b176963598ced7e83213c3fb7ba3d604",
-    patchedSha256:
+    backgroundSha256:
       "275f31f6a01f9180f607f368eece724473bb9c088312199d98393c3efef88018",
+    patchedSha256:
+      "5066fcc08cb514d4472b9e54efea858aeec0316d0ab59d555cd99abb07aea4a4",
+  },
+  typescriptAudioModuleTypes: {
+    path: "src/AudioModule.types.ts",
+    sha256: "fc581e960ba8ab5f9085abd3119caa30f2b48c25334a898944ca25025af9bc13",
+    backgroundSha256:
+      "fc581e960ba8ab5f9085abd3119caa30f2b48c25334a898944ca25025af9bc13",
+    patchedSha256:
+      "12ae85bd20846afc92cd9418705c4b97e57f1c68e50e57206a9a0b91a0d5c024",
+  },
+  builtAudioModuleTypes: {
+    path: "build/AudioModule.types.d.ts",
+    sha256: "a9a11ff056e9577525f0663ccdc6a4155ecbd98b48a0dd666b2eea7768cf959c",
+    backgroundSha256:
+      "a9a11ff056e9577525f0663ccdc6a4155ecbd98b48a0dd666b2eea7768cf959c",
+    patchedSha256:
+      "5114adcc4b7316dc6080c2ea91f11f1f49b6fcb58896878b57b765849657735c",
   },
 };
 
@@ -654,18 +732,30 @@ const applyAndroidAudioPlayerSafety = (source) => {
 
 const applyAndroidControlsSafety = (source) => {
   if (source.includes(EXPO_AUDIO_BACKGROUND_SAFETY_MARKER)) {
-    assertContains(
-      source,
-      [
-        "private fun resolveSessionPlayer",
-        "activePlayer.requestPlaybackFromSystemControls()",
-        "activePlayer.cancelPlaybackFromSystemControls()",
-        "override fun play()",
-        "override fun pause()",
-        "override fun setPlayWhenReady(playWhenReady: Boolean)",
-      ],
-      "Android controls",
-    );
+    const backgroundOnlyShape = [
+      "private fun resolveSessionPlayer",
+      "activePlayer.requestPlaybackFromSystemControls()",
+      "activePlayer.cancelPlaybackFromSystemControls()",
+      "override fun play()",
+      "override fun pause()",
+      "override fun setPlayWhenReady(playWhenReady: Boolean)",
+    ];
+    const playlistShape = [
+      "private sealed class LockScreenPlayback",
+      "activePlayer.requestPlayback()",
+      "activePlayer.cancelPlayback()",
+      "override fun play() = playback.requestPlayback()",
+      "override fun pause() = playback.cancelPlayback()",
+      "override fun setPlayWhenReady(playWhenReady: Boolean)",
+    ];
+    if (
+      !backgroundOnlyShape.every((value) => source.includes(value)) &&
+      !playlistShape.every((value) => source.includes(value))
+    ) {
+      throw new Error(
+        `Expo Audio ${EXPO_AUDIO_VERSION} Android controls source changed; the existing Curio Garden backport is incomplete.`,
+      );
+    }
     return source;
   }
 
@@ -963,6 +1053,202 @@ const applyExpoAudioBackgroundSafety = (sources) => ({
   iosMediaController: applyIosMediaControllerSafety(sources.iosMediaController),
 });
 
+const parseUnifiedDiff = (patchSource) => {
+  const lines = patchSource.replace(/\r\n/g, "\n").split("\n");
+  const files = new Map();
+  let index = 0;
+
+  while (index < lines.length) {
+    if (!lines[index].startsWith("diff --git ")) {
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+    while (index < lines.length && !lines[index].startsWith("--- ")) {
+      if (lines[index].startsWith("diff --git ")) {
+        throw new Error("Expo Audio playlist patch is missing file headers.");
+      }
+      index += 1;
+    }
+
+    const oldHeader = lines[index];
+    const newHeader = lines[index + 1];
+    if (!oldHeader?.startsWith("--- a/") || !newHeader?.startsWith("+++ b/")) {
+      throw new Error("Expo Audio playlist patch has invalid file headers.");
+    }
+
+    const oldPath = oldHeader.slice("--- a/".length);
+    const newPath = newHeader.slice("+++ b/".length);
+    if (oldPath !== newPath || files.has(oldPath)) {
+      throw new Error(
+        `Expo Audio playlist patch has an invalid or duplicate path: ${oldPath}.`,
+      );
+    }
+
+    index += 2;
+    const hunks = [];
+    while (index < lines.length && !lines[index].startsWith("diff --git ")) {
+      if (!lines[index].startsWith("@@ ")) {
+        index += 1;
+        continue;
+      }
+
+      const header = lines[index];
+      const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(header);
+      if (!match) {
+        throw new Error(
+          `Expo Audio playlist patch has an invalid hunk header: ${header}.`,
+        );
+      }
+      index += 1;
+
+      const hunkLines = [];
+      while (
+        index < lines.length &&
+        !lines[index].startsWith("@@ ") &&
+        !lines[index].startsWith("diff --git ")
+      ) {
+        const line = lines[index];
+        if (
+          line.startsWith(" ") ||
+          line.startsWith("+") ||
+          line.startsWith("-") ||
+          line === "\\ No newline at end of file"
+        ) {
+          hunkLines.push(line);
+        } else if (line !== "") {
+          throw new Error(
+            `Expo Audio playlist patch has an invalid hunk line in ${oldPath}.`,
+          );
+        }
+        index += 1;
+      }
+
+      hunks.push({
+        oldStart: Number(match[1]),
+        oldCount: Number(match[2] ?? "1"),
+        newStart: Number(match[3]),
+        newCount: Number(match[4] ?? "1"),
+        lines: hunkLines,
+      });
+    }
+
+    if (hunks.length === 0) {
+      throw new Error(`Expo Audio playlist patch has no hunks for ${oldPath}.`);
+    }
+    files.set(oldPath, hunks);
+  }
+
+  return files;
+};
+
+const applyUnifiedDiffToSource = (source, hunks, filePath) => {
+  const sourceLines = source.split("\n");
+  const result = [];
+  let sourceIndex = 0;
+  let patchedFileHasTerminalNewline;
+
+  for (const hunk of hunks) {
+    const hunkStart = hunk.oldCount === 0 ? hunk.oldStart : hunk.oldStart - 1;
+    if (hunkStart < sourceIndex || hunkStart > sourceLines.length) {
+      throw new Error(
+        `Expo Audio playlist patch hunk is out of order for ${filePath}.`,
+      );
+    }
+    result.push(...sourceLines.slice(sourceIndex, hunkStart));
+    sourceIndex = hunkStart;
+
+    let consumedOldLines = 0;
+    let producedNewLines = 0;
+    let previousOperation;
+    for (const patchLine of hunk.lines) {
+      if (patchLine === "\\ No newline at end of file") {
+        if (previousOperation === "+" || previousOperation === " ") {
+          patchedFileHasTerminalNewline = false;
+        } else if (previousOperation === "-") {
+          patchedFileHasTerminalNewline = true;
+        }
+        continue;
+      }
+
+      const operation = patchLine[0];
+      previousOperation = operation;
+      const content = patchLine.slice(1);
+      if (operation === " " || operation === "-") {
+        if (sourceLines[sourceIndex] !== content) {
+          throw new Error(
+            `Expo Audio playlist patch context did not match ${filePath}.`,
+          );
+        }
+        sourceIndex += 1;
+        consumedOldLines += 1;
+      }
+      if (operation === " " || operation === "+") {
+        result.push(content);
+        producedNewLines += 1;
+      }
+    }
+
+    if (
+      consumedOldLines !== hunk.oldCount ||
+      producedNewLines !== hunk.newCount
+    ) {
+      throw new Error(
+        `Expo Audio playlist patch line counts did not match ${filePath}.`,
+      );
+    }
+  }
+
+  result.push(...sourceLines.slice(sourceIndex));
+  let patchedSource = result.join("\n");
+  if (patchedFileHasTerminalNewline === true && !patchedSource.endsWith("\n")) {
+    patchedSource += "\n";
+  } else if (
+    patchedFileHasTerminalNewline === false &&
+    patchedSource.endsWith("\n")
+  ) {
+    patchedSource = patchedSource.slice(0, -1);
+  }
+  return patchedSource;
+};
+
+const applyExpoAudioPlaylistMediaSession = (sources, patchSource) => {
+  const patchFiles = parseUnifiedDiff(patchSource);
+  const expectedPaths = new Set(
+    Object.values(sourceFiles)
+      .filter(
+        (contract) => contract.backgroundSha256 !== contract.patchedSha256,
+      )
+      .map((contract) => contract.path),
+  );
+
+  if (
+    patchFiles.size !== expectedPaths.size ||
+    [...patchFiles.keys()].some((filePath) => !expectedPaths.has(filePath))
+  ) {
+    throw new Error(
+      "Expo Audio playlist patch paths do not match the reviewed source contract.",
+    );
+  }
+
+  const result = { ...sources };
+  for (const [filePath, hunks] of patchFiles) {
+    const entry = Object.entries(sourceFiles).find(
+      ([, contract]) => contract.path === filePath,
+    );
+    if (!entry) {
+      throw new Error(
+        `Expo Audio playlist patch includes an unreviewed path: ${filePath}.`,
+      );
+    }
+    const [key] = entry;
+    result[key] = applyUnifiedDiffToSource(sources[key], hunks, filePath);
+  }
+
+  return result;
+};
+
 const sha256 = (source) =>
   crypto.createHash("sha256").update(source).digest("hex");
 
@@ -1008,29 +1294,66 @@ const patchInstalledExpoAudio = (projectRoot, mode = "apply") => {
     ]),
   );
 
-  const states = Object.fromEntries(
-    Object.entries(sources).map(([key, source]) => {
-      const actualSha256 = sha256(source);
-      const contract = sourceFiles[key];
-      if (actualSha256 === contract.sha256) {
-        return [key, "pristine"];
-      }
-      if (actualSha256 === contract.patchedSha256) {
-        return [key, "patched"];
-      }
-      throw new Error(
-        `Expo Audio ${EXPO_AUDIO_VERSION} ${contract.path} does not match a reviewed pristine or patched source hash; refusing to continue.`,
-      );
-    }),
+  const patchSource = fs.readFileSync(EXPO_AUDIO_PLAYLIST_PATCH_PATH, "utf8");
+  if (sha256(patchSource) !== EXPO_AUDIO_PLAYLIST_PATCH_SHA256) {
+    throw new Error(
+      "Expo Audio playlist patch does not match its reviewed hash; refusing to continue.",
+    );
+  }
+
+  const actualHashes = Object.fromEntries(
+    Object.entries(sources).map(([key, source]) => [key, sha256(source)]),
   );
-  const distinctStates = new Set(Object.values(states));
-  if (distinctStates.size !== 1) {
+  for (const [key, actualSha256] of Object.entries(actualHashes)) {
+    const contract = sourceFiles[key];
+    if (
+      ![
+        contract.sha256,
+        contract.backgroundSha256,
+        contract.patchedSha256,
+      ].includes(actualSha256)
+    ) {
+      throw new Error(
+        `Expo Audio ${EXPO_AUDIO_VERSION} ${contract.path} does not match a reviewed pristine, background-only, or playlist-patched source hash; refusing to continue.`,
+      );
+    }
+  }
+
+  const matchingStates = [
+    ["pristine", "sha256"],
+    ["background", "backgroundSha256"],
+    ["patched", "patchedSha256"],
+  ].filter(([, hashKey]) =>
+    Object.entries(actualHashes).every(
+      ([key, actualSha256]) => actualSha256 === sourceFiles[key][hashKey],
+    ),
+  );
+  if (matchingStates.length !== 1) {
     throw new Error(
       `Expo Audio ${EXPO_AUDIO_VERSION} has a partial Curio Garden backport; reinstall dependencies before retrying.`,
     );
   }
 
-  const patched = applyExpoAudioBackgroundSafety(sources);
+  const state = matchingStates[0][0];
+  let backgroundSources = sources;
+  if (state === "pristine") {
+    backgroundSources = {
+      ...sources,
+      ...applyExpoAudioBackgroundSafety(sources),
+    };
+    for (const [key, source] of Object.entries(backgroundSources)) {
+      if (sha256(source) !== sourceFiles[key].backgroundSha256) {
+        throw new Error(
+          `Expo Audio ${EXPO_AUDIO_VERSION} ${sourceFiles[key].path} did not produce the reviewed background-safety hash; refusing to write any files.`,
+        );
+      }
+    }
+  }
+
+  const patched =
+    state === "patched"
+      ? sources
+      : applyExpoAudioPlaylistMediaSession(backgroundSources, patchSource);
   for (const [key, source] of Object.entries(patched)) {
     if (sha256(source) !== sourceFiles[key].patchedSha256) {
       throw new Error(
@@ -1039,8 +1362,7 @@ const patchInstalledExpoAudio = (projectRoot, mode = "apply") => {
     }
   }
 
-  const state = distinctStates.values().next().value;
-  const shouldWrite = mode === "apply" && state === "pristine";
+  const shouldWrite = mode === "apply" && state !== "patched";
   if (shouldWrite) {
     for (const [key, source] of Object.entries(patched)) {
       writeAtomically(paths[key], source);
@@ -1061,6 +1383,8 @@ const patchInstalledExpoAudio = (projectRoot, mode = "apply") => {
 };
 
 module.exports.applyExpoAudioBackgroundSafety = applyExpoAudioBackgroundSafety;
+module.exports.applyExpoAudioPlaylistMediaSession =
+  applyExpoAudioPlaylistMediaSession;
 module.exports.patchInstalledExpoAudio = patchInstalledExpoAudio;
 module.exports.EXPO_AUDIO_VERSION = EXPO_AUDIO_VERSION;
 module.exports.EXPO_AUDIO_BACKGROUND_SAFETY_MARKER =

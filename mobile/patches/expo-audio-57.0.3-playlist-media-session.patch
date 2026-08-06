@@ -1,0 +1,993 @@
+diff --git a/android/src/main/java/expo/modules/audio/AudioModule.kt b/android/src/main/java/expo/modules/audio/AudioModule.kt
+index ff92091..539b2cc 100644
+--- a/android/src/main/java/expo/modules/audio/AudioModule.kt
++++ b/android/src/main/java/expo/modules/audio/AudioModule.kt
+@@ -758,0 +759,2 @@ class AudioModule : Module() {
++          playlist.onPlaybackRequested = { playWithAudioFocus(playlist) }
++          playlist.onPlaybackCancelled = { cancelPlayback(playlist) }
+@@ -914,0 +917,12 @@ class AudioModule : Module() {
++
++      Function("setActiveForLockScreen") { playlist: AudioPlaylist, active: Boolean, metadata: List<Metadata>?, options: AudioLockScreenOptions? ->
++        runOnMain {
++          playlist.setActiveForLockScreen(active, metadata, options)
++        }
++      }
++
++      Function("clearLockScreenControls") { playlist: AudioPlaylist ->
++        runOnMain {
++          playlist.setActiveForLockScreen(false)
++        }
++      }
+diff --git a/android/src/main/java/expo/modules/audio/AudioPlayer.kt b/android/src/main/java/expo/modules/audio/AudioPlayer.kt
+index d3f5a14..bb6b096 100644
+--- a/android/src/main/java/expo/modules/audio/AudioPlayer.kt
++++ b/android/src/main/java/expo/modules/audio/AudioPlayer.kt
+@@ -134 +134 @@ class AudioPlayer(
+-      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer()
++      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer(this)
+@@ -155 +155 @@ class AudioPlayer(
+-      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer()
++      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer(this)
+@@ -295 +294,0 @@ class AudioPlayer(
+-    mediaSession.release()
+@@ -297 +296 @@ class AudioPlayer(
+-      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer()
++      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer(this)
+@@ -298,0 +298 @@ class AudioPlayer(
++    mediaSession.release()
+diff --git a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
+index f3536d5..f9592e3 100644
+--- a/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
++++ b/android/src/main/java/expo/modules/audio/AudioPlaylist.kt
+@@ -11,0 +12,3 @@ import androidx.media3.datasource.DataSource
++import androidx.media3.session.MediaSession
++import expo.modules.audio.service.AudioPlaybackServiceConnection
++import expo.modules.audio.service.ServiceBindingState
+@@ -12,0 +16 @@ import expo.modules.kotlin.AppContext
++import java.lang.ref.WeakReference
+@@ -19 +23 @@ class AudioPlaylist(
+-  context: Context,
++  private val context: Context,
+@@ -33,0 +38,8 @@ class AudioPlaylist(
++  var isActiveForLockScreen = false
++  internal var metadata: List<Metadata?> = List(initialSources.size) { null }
++  internal var lockScreenOptions: AudioLockScreenOptions? = null
++  internal var mediaSession: MediaSession = buildBasicMediaSession(context, ref)
++  val serviceConnection = AudioPlaybackServiceConnection(WeakReference(this), appContext)
++  internal var onPlaybackRequested: (() -> Unit)? = null
++  internal var onPlaybackCancelled: (() -> Unit)? = null
++
+@@ -40,0 +53,11 @@ class AudioPlaylist(
++  internal val currentMetadata: Metadata?
++    get() = metadata.getOrNull(currentTrackIndex)
++
++  internal fun requestPlaybackFromSystemControls() {
++    onPlaybackRequested?.invoke()
++  }
++
++  internal fun cancelPlaybackFromSystemControls() {
++    onPlaybackCancelled?.invoke()
++  }
++
+@@ -60,0 +84 @@ class AudioPlaylist(
++    metadata = List(sources.size) { null }
+@@ -82,0 +107,28 @@ class AudioPlaylist(
++  fun setActiveForLockScreen(
++    active: Boolean,
++    metadata: List<Metadata>? = null,
++    options: AudioLockScreenOptions? = null
++  ) {
++    if (active) {
++      this.metadata = List(trackCount) { index -> metadata?.getOrNull(index) }
++      this.lockScreenOptions = options
++      this.isActiveForLockScreen = true
++
++      if (serviceConnection.bindingState == ServiceBindingState.UNBOUND) {
++        serviceConnection.bindWithService()
++      }
++
++      val serviceBinder = serviceConnection.playbackServiceBinder
++      if (serviceBinder != null && serviceConnection.bindingState == ServiceBindingState.BOUND) {
++        serviceBinder.service.setPlaylistOptions(this, this.metadata, options)
++      } else if (serviceConnection.bindingState != ServiceBindingState.BINDING) {
++        appContext?.jsLogger?.error(
++          getPlaybackServiceErrorMessage("Failed to activate playlist lock screen controls - service binding failed")
++        )
++      }
++    } else if (isActiveForLockScreen) {
++      this.isActiveForLockScreen = false
++      serviceConnection.playbackServiceBinder?.service?.unregisterPlaylist(this)
++    }
++  }
++
+@@ -130,0 +183 @@ class AudioPlaylist(
++    metadata = metadata + null
+@@ -138,0 +192 @@ class AudioPlaylist(
++    metadata = metadata.toMutableList().apply { add(index, null) }
+@@ -146,0 +201 @@ class AudioPlaylist(
++    metadata = metadata.toMutableList().apply { removeAt(index) }
+@@ -155,0 +211 @@ class AudioPlaylist(
++    metadata = emptyList()
+@@ -204,0 +261,22 @@ class AudioPlaylist(
++
++  internal fun assignBasicMediaSession() {
++    mediaSession.release()
++    mediaSession = buildBasicMediaSession(context, ref)
++  }
++
++  override fun sharedObjectDidRelease() {
++    onPlaybackCancelled?.invoke()
++    onPlaybackRequested = null
++    onPlaybackCancelled = null
++    serviceConnection.release()
++    super.sharedObjectDidRelease()
++  }
++
++  override fun releasePlayer() {
++    if (isActiveForLockScreen) {
++      serviceConnection.playbackServiceBinder?.service?.unregisterPlaylist(this)
++    }
++    mediaSession.release()
++    serviceConnection.unbind()
++    super.releasePlayer()
++  }
+diff --git a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+index f3222d9..fbec7e8 100644
+--- a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
++++ b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+@@ -18,0 +19 @@ import androidx.media3.common.ForwardingPlayer
++import androidx.media3.common.MediaItem
+@@ -20,0 +22 @@ import androidx.media3.common.util.UnstableApi
++import androidx.media3.exoplayer.ExoPlayer
+@@ -26,0 +29 @@ import expo.modules.audio.AudioLockScreenOptions
++import expo.modules.audio.AudioPlaylist
+@@ -27,0 +31 @@ import expo.modules.audio.AudioPlayer
++import expo.modules.audio.BaseAudioPlayer
+@@ -39,0 +44,51 @@ import java.net.URL
++@OptIn(UnstableApi::class)
++private sealed class LockScreenPlayback {
++  abstract val source: BaseAudioPlayer
++  abstract val metadata: Metadata?
++  abstract var isActive: Boolean
++  abstract var mediaSession: MediaSession
++  abstract val isLive: Boolean
++  abstract val supportsTrackNavigation: Boolean
++
++  val ref: ExoPlayer
++    get() = source.ref
++
++  abstract fun requestPlayback()
++  abstract fun cancelPlayback()
++  abstract fun assignBasicMediaSession()
++
++  fun matches(candidate: BaseAudioPlayer?): Boolean = source === candidate
++
++  class Player(private val player: AudioPlayer) : LockScreenPlayback() {
++    override val source: BaseAudioPlayer get() = player
++    override val metadata: Metadata? get() = player.metadata
++    override var isActive: Boolean
++      get() = player.isActiveForLockScreen
++      set(value) { player.isActiveForLockScreen = value }
++    override var mediaSession: MediaSession
++      get() = player.mediaSession
++      set(value) { player.mediaSession = value }
++    override val isLive: Boolean get() = player.isLive
++    override val supportsTrackNavigation = false
++    override fun requestPlayback() = player.requestPlaybackFromSystemControls()
++    override fun cancelPlayback() = player.cancelPlaybackFromSystemControls()
++    override fun assignBasicMediaSession() = player.assignBasicMediaSession()
++  }
++
++  class Playlist(private val playlist: AudioPlaylist) : LockScreenPlayback() {
++    override val source: BaseAudioPlayer get() = playlist
++    override val metadata: Metadata? get() = playlist.currentMetadata
++    override var isActive: Boolean
++      get() = playlist.isActiveForLockScreen
++      set(value) { playlist.isActiveForLockScreen = value }
++    override var mediaSession: MediaSession
++      get() = playlist.mediaSession
++      set(value) { playlist.mediaSession = value }
++    override val isLive = false
++    override val supportsTrackNavigation = true
++    override fun requestPlayback() = playlist.requestPlaybackFromSystemControls()
++    override fun cancelPlayback() = playlist.cancelPlaybackFromSystemControls()
++    override fun assignBasicMediaSession() = playlist.assignBasicMediaSession()
++  }
++}
++
+@@ -45,0 +101 @@ class AudioControlsService : MediaSessionService() {
++  private var sessionGeneration = 0L
+@@ -47 +103 @@ class AudioControlsService : MediaSessionService() {
+-  private var currentPlayer: AudioPlayer? = null
++  private var currentPlayback: LockScreenPlayback? = null
+@@ -54 +110 @@ class AudioControlsService : MediaSessionService() {
+-    get() = currentPlayer?.hashCode() ?: CHANNEL_ID.hashCode()
++    get() = currentPlayback?.source?.hashCode() ?: CHANNEL_ID.hashCode()
+@@ -69 +125 @@ class AudioControlsService : MediaSessionService() {
+-    val activePlayer = currentPlayer
++    val activePlayer = currentPlayback
+@@ -81 +137 @@ class AudioControlsService : MediaSessionService() {
+-            activePlayer.requestPlaybackFromSystemControls()
++            activePlayer.requestPlayback()
+@@ -84 +140 @@ class AudioControlsService : MediaSessionService() {
+-        ACTION_PAUSE -> activePlayer.cancelPlaybackFromSystemControls()
++        ACTION_PAUSE -> activePlayer.cancelPlayback()
+@@ -87 +143 @@ class AudioControlsService : MediaSessionService() {
+-            activePlayer.cancelPlaybackFromSystemControls()
++            activePlayer.cancelPlayback()
+@@ -89 +145 @@ class AudioControlsService : MediaSessionService() {
+-            activePlayer.requestPlaybackFromSystemControls()
++            activePlayer.requestPlayback()
+@@ -93,0 +150,2 @@ class AudioControlsService : MediaSessionService() {
++        ACTION_PREVIOUS -> currentPlayerRef.seekToPreviousMediaItem()
++        ACTION_NEXT -> currentPlayerRef.seekToNextMediaItem()
+@@ -196 +254,11 @@ class AudioControlsService : MediaSessionService() {
+-      if (currentOptions?.showSeekBackward == true) {
++      if (currentPlayback?.supportsTrackNavigation == true) {
++        builder.addAction(
++          NotificationCompat.Action(
++            androidx.media3.session.R.drawable.media3_icon_previous,
++            "Previous Section",
++            buildActionPendingIntent(ACTION_PREVIOUS)
++          )
++        )
++        compactViewIndices.add(currentIndex)
++        currentIndex++
++      } else if (currentOptions?.showSeekBackward == true) {
+@@ -222 +290,10 @@ class AudioControlsService : MediaSessionService() {
+-      if (currentOptions?.showSeekForward == true) {
++      if (currentPlayback?.supportsTrackNavigation == true) {
++        builder.addAction(
++          NotificationCompat.Action(
++            androidx.media3.session.R.drawable.media3_icon_next,
++            "Next Section",
++            buildActionPendingIntent(ACTION_NEXT)
++          )
++        )
++        compactViewIndices.add(currentIndex)
++      } else if (currentOptions?.showSeekForward == true) {
+@@ -244,2 +321,10 @@ class AudioControlsService : MediaSessionService() {
+-    // Add seek backward button if enabled
+-    if (currentOptions?.showSeekBackward == true) {
++    if (currentPlayback?.supportsTrackNavigation == true) {
++      mediaButtons.add(
++        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
++          .setDisplayName("Previous Section")
++          .setEnabled(session.player.hasPreviousMediaItem())
++          .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
++          .setSlots(CommandButton.SLOT_BACK)
++          .build()
++      )
++    } else if (currentOptions?.showSeekBackward == true) {
+@@ -266,2 +351,10 @@ class AudioControlsService : MediaSessionService() {
+-    // Add seek forward button if enabled
+-    if (currentOptions?.showSeekForward == true) {
++    if (currentPlayback?.supportsTrackNavigation == true) {
++      mediaButtons.add(
++        CommandButton.Builder(CommandButton.ICON_NEXT)
++          .setDisplayName("Next Section")
++          .setEnabled(session.player.hasNextMediaItem())
++          .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
++          .setSlots(CommandButton.SLOT_FORWARD)
++          .build()
++      )
++    } else if (currentOptions?.showSeekForward == true) {
+@@ -325,2 +418,5 @@ class AudioControlsService : MediaSessionService() {
+-  private fun resolveSessionPlayer(player: AudioPlayer, options: AudioLockScreenOptions?): Player {
+-    val isLive = options?.isLiveStream ?: player.isLive
++  private fun resolveSessionPlayer(
++    playback: LockScreenPlayback,
++    options: AudioLockScreenOptions?
++  ): Player {
++    val isLive = options?.isLiveStream ?: playback.isLive
+@@ -328,4 +424,2 @@ class AudioControlsService : MediaSessionService() {
+-    return object : ForwardingPlayer(player.ref) {
+-      override fun play() {
+-        player.requestPlaybackFromSystemControls()
+-      }
++    return object : ForwardingPlayer(playback.ref) {
++      override fun play() = playback.requestPlayback()
+@@ -333,3 +427 @@ class AudioControlsService : MediaSessionService() {
+-      override fun pause() {
+-        player.cancelPlaybackFromSystemControls()
+-      }
++      override fun pause() = playback.cancelPlayback()
+@@ -339 +431 @@ class AudioControlsService : MediaSessionService() {
+-          player.requestPlaybackFromSystemControls()
++          playback.requestPlayback()
+@@ -341 +433 @@ class AudioControlsService : MediaSessionService() {
+-          player.cancelPlaybackFromSystemControls()
++          playback.cancelPlayback()
+@@ -346,6 +438,5 @@ class AudioControlsService : MediaSessionService() {
+-        val commands = super.getAvailableCommands()
+-        return if (isLive) {
+-          commands.buildUpon()
+-            .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+-            .build()
+-        } else {
++        val commands = super.getAvailableCommands().buildUpon()
++        if (isLive) {
++          commands.remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
++        }
++        if (!playback.supportsTrackNavigation) {
+@@ -352,0 +444,4 @@ class AudioControlsService : MediaSessionService() {
++            .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
++            .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
++            .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
++            .remove(Player.COMMAND_SEEK_TO_NEXT)
+@@ -353,0 +449 @@ class AudioControlsService : MediaSessionService() {
++        return commands.build()
+@@ -358,8 +454,9 @@ class AudioControlsService : MediaSessionService() {
+-  private fun setActivePlayerInternal(
+-    player: AudioPlayer?,
+-    metadata: Metadata? = null,
+-    options: AudioLockScreenOptions? = null
+-  ) {
+-    appContext?.mainQueue?.launch {
+-      val playbackListener = playbackListener ?: return@launch
+-      currentPlayer?.ref?.removeListener(playbackListener)
++  private fun updateArtwork(metadata: Metadata?) {
++    val artworkUrl = metadata?.artworkUrl
++    if (artworkUrl == null) {
++      currentArtworkUrl = null
++      currentArtwork = null
++      artworkLoadJob?.cancel()
++      artworkLoadJob = null
++      postOrStartForegroundNotification(startInForeground = false)
++      return
+@@ -368,13 +465,3 @@ class AudioControlsService : MediaSessionService() {
+-    playbackListener = null
+-    currentPlayer?.isActiveForLockScreen = false
+-    hideNotification()
+-
+-    currentPlayer = player
+-    currentMetadata = metadata
+-    currentOptions = options
+-
+-    metadata?.artworkUrl?.let {
+-      loadArtworkFromUrl(it) { bitmap ->
+-        currentArtwork = bitmap
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
++    loadArtworkFromUrl(artworkUrl) { bitmap ->
++      currentArtwork = bitmap
++      postOrStartForegroundNotification(startInForeground = false)
+@@ -382,5 +469 @@ class AudioControlsService : MediaSessionService() {
+-    player?.isActiveForLockScreen = true
+-
+-    if (player != null) {
+-      mediaSession?.release()
+-      sessionMetadataPlayer = null
++  }
+@@ -388,8 +471,7 @@ class AudioControlsService : MediaSessionService() {
+-      appContext?.mainQueue?.launch {
+-        val context = appContext?.reactContext ?: return@launch
+-        val sessionPlayer = MetadataInjectingPlayer(resolveSessionPlayer(player, options)).apply {
+-          updateMetadata(metadata)
+-        }
+-        val session = MediaSession.Builder(context, sessionPlayer)
+-          .setCallback(AudioMediaSessionCallback())
+-          .build()
++  private fun refreshCurrentMetadata(playback: LockScreenPlayback) {
++    if (currentPlayback !== playback) return
++    currentMetadata = playback.metadata
++    sessionMetadataPlayer?.updateMetadata(currentMetadata)
++    updateArtwork(currentMetadata)
++    postOrStartForegroundNotification(startInForeground = false)
++  }
+@@ -397,3 +479,10 @@ class AudioControlsService : MediaSessionService() {
+-        // Replace the basic media session with a session connected to our playback service.
+-        player.mediaSession.release()
+-        player.mediaSession = session
++  private fun setActivePlaybackInternal(
++    playback: LockScreenPlayback,
++    options: AudioLockScreenOptions? = null
++  ) {
++    val previous = currentPlayback
++    sessionGeneration += 1
++    val generation = sessionGeneration
++    removePlayerListener(previous)
++    previous?.isActive = false
++    hideNotification()
+@@ -401,3 +490,5 @@ class AudioControlsService : MediaSessionService() {
+-        addSession(session)
+-        mediaSession = session
+-        sessionMetadataPlayer = sessionPlayer
++    currentPlayback = playback
++    currentMetadata = playback.metadata
++    currentOptions = options
++    playback.isActive = true
++    updateArtwork(currentMetadata)
+@@ -405 +496,3 @@ class AudioControlsService : MediaSessionService() {
+-        updateSessionCustomLayout(player.ref.isPlaying)
++    mediaSession?.release()
++    sessionMetadataPlayer = null
++    previous?.assignBasicMediaSession()
+@@ -407 +500,11 @@ class AudioControlsService : MediaSessionService() {
+-        postOrStartForegroundNotification(startInForeground = true)
++    appContext?.mainQueue?.launch {
++      if (generation != sessionGeneration || currentPlayback !== playback) {
++        return@launch
++      }
++      val context = appContext?.reactContext ?: return@launch
++      val sessionPlayer = MetadataInjectingPlayer(resolveSessionPlayer(playback, options)).apply {
++        updateMetadata(currentMetadata)
++      }
++      val session = MediaSession.Builder(context, sessionPlayer)
++        .setCallback(AudioMediaSessionCallback(playback.supportsTrackNavigation))
++        .build()
+@@ -409 +512,2 @@ class AudioControlsService : MediaSessionService() {
+-        addPlayerListener(player)
++      playback.mediaSession.release()
++      playback.mediaSession = session
+@@ -411,5 +515,7 @@ class AudioControlsService : MediaSessionService() {
+-        // Initial update now that session exists
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
+-    } else {
+-      clearSessionInternal()
++      addSession(session)
++      mediaSession = session
++      sessionMetadataPlayer = sessionPlayer
++      updateSessionCustomLayout(playback.ref.isPlaying)
++      postOrStartForegroundNotification(startInForeground = true)
++      addPlayerListener(playback)
++      postOrStartForegroundNotification(startInForeground = false)
+@@ -420 +526,2 @@ class AudioControlsService : MediaSessionService() {
+-    if (player != currentPlayer || metadata == currentMetadata) {
++    val playback = currentPlayback
++    if (playback?.matches(player) != true || metadata == currentMetadata) {
+@@ -425,6 +532,2 @@ class AudioControlsService : MediaSessionService() {
+-    currentMetadata?.artworkUrl?.let {
+-      loadArtworkFromUrl(it) { bitmap ->
+-        currentArtwork = bitmap
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
+-    } ?: postOrStartForegroundNotification(startInForeground = false)
++    updateArtwork(metadata)
++    postOrStartForegroundNotification(startInForeground = false)
+@@ -433,4 +536,9 @@ class AudioControlsService : MediaSessionService() {
+-  private fun clearSessionInternal() {
+-    currentPlayer?.isActiveForLockScreen = false
+-    removePlayerListener()
+-    currentPlayer = null
++  private fun clearSessionInternal(expected: BaseAudioPlayer? = null) {
++    val playback = currentPlayback ?: return
++    if (expected != null && !playback.matches(expected)) return
++
++    sessionGeneration += 1
++    hideNotification()
++    removePlayerListener(playback)
++    playback.isActive = false
++    currentPlayback = null
+@@ -437,0 +546 @@ class AudioControlsService : MediaSessionService() {
++    currentOptions = null
+@@ -441 +550,5 @@ class AudioControlsService : MediaSessionService() {
+-    currentPlayer?.assignBasicMediaSession()
++    playback.assignBasicMediaSession()
++    currentArtworkUrl = null
++    currentArtwork = null
++    artworkLoadJob?.cancel()
++    artworkLoadJob = null
+@@ -463,17 +576,3 @@ class AudioControlsService : MediaSessionService() {
+-    if (player == currentPlayer) {
+-      currentMetadata = metadata
+-      currentOptions = options
+-
+-      mediaSession?.release()
+-      sessionMetadataPlayer = null
+-      appContext?.mainQueue?.launch {
+-        val context = appContext?.reactContext ?: return@launch
+-        val sessionPlayer = MetadataInjectingPlayer(resolveSessionPlayer(player, options)).apply {
+-          updateMetadata(metadata)
+-        }
+-        val session = MediaSession.Builder(context, sessionPlayer)
+-          .setCallback(AudioMediaSessionCallback())
+-          .build()
+-
+-        player.mediaSession.release()
+-        player.mediaSession = session
++    player.metadata = metadata
++    setActivePlaybackInternal(LockScreenPlayback.Player(player), options)
++  }
+@@ -481,3 +580,8 @@ class AudioControlsService : MediaSessionService() {
+-        addSession(session)
+-        mediaSession = session
+-        sessionMetadataPlayer = sessionPlayer
++  fun setPlaylistOptions(
++    playlist: AudioPlaylist,
++    metadata: List<Metadata?>,
++    options: AudioLockScreenOptions?
++  ) {
++    playlist.metadata = metadata
++    setActivePlaybackInternal(LockScreenPlayback.Playlist(playlist), options)
++  }
+@@ -485,3 +589,3 @@ class AudioControlsService : MediaSessionService() {
+-        updateSessionCustomLayout(player.ref.isPlaying)
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
++  fun unregisterPlayer(player: AudioPlayer) {
++    clearSessionInternal(player)
++  }
+@@ -489,10 +593,2 @@ class AudioControlsService : MediaSessionService() {
+-      // Reload artwork if metadata has changed
+-      metadata?.artworkUrl?.let {
+-        loadArtworkFromUrl(it) { bitmap ->
+-          currentArtwork = bitmap
+-          postOrStartForegroundNotification(startInForeground = false)
+-        }
+-      }
+-    } else {
+-      setActivePlayerInternal(player, metadata, options)
+-    }
++  fun unregisterPlaylist(playlist: AudioPlaylist) {
++    clearSessionInternal(playlist)
+@@ -501,2 +597,7 @@ class AudioControlsService : MediaSessionService() {
+-  fun unregisterPlayer() {
+-    clearSessionInternal()
++  fun disconnect(source: BaseAudioPlayer?, released: Boolean) {
++    val playback = currentPlayback ?: return
++    if (!playback.matches(source)) return
++    removePlayerListener(playback)
++    if (!released) {
++      playbackListener = null
++    }
+@@ -535,0 +637,2 @@ class AudioControlsService : MediaSessionService() {
++    val playback = currentPlayback
++    removePlayerListener(playback)
+@@ -542 +645 @@ class AudioControlsService : MediaSessionService() {
+-    currentPlayer = null
++    currentPlayback = null
+@@ -547 +649,0 @@ class AudioControlsService : MediaSessionService() {
+-    removePlayerListener()
+@@ -550 +652 @@ class AudioControlsService : MediaSessionService() {
+-  private fun addPlayerListener(player: AudioPlayer) {
++  private fun addPlayerListener(playback: LockScreenPlayback) {
+@@ -559,0 +662,9 @@ class AudioControlsService : MediaSessionService() {
++
++      override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
++        refreshCurrentMetadata(playback)
++        updateSessionCustomLayout(playback.ref.isPlaying)
++      }
++
++      override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
++        updateSessionCustomLayout(playback.ref.isPlaying)
++      }
+@@ -562 +673 @@ class AudioControlsService : MediaSessionService() {
+-    player.ref.addListener(listener)
++    playback.ref.addListener(listener)
+@@ -565 +676,3 @@ class AudioControlsService : MediaSessionService() {
+-  private fun removePlayerListener() {
++  private fun removePlayerListener(playback: LockScreenPlayback? = currentPlayback) {
++    val listener = playbackListener ?: return
++    playbackListener = null
+@@ -567,3 +680 @@ class AudioControlsService : MediaSessionService() {
+-      val listener = playbackListener ?: return@launch
+-      currentPlayer?.ref?.removeListener(listener)
+-      playbackListener = null
++      playback?.ref?.removeListener(listener)
+@@ -577,0 +689,2 @@ class AudioControlsService : MediaSessionService() {
++    private const val ACTION_PREVIOUS = "expo.modules.audio.action.PREVIOUS"
++    private const val ACTION_NEXT = "expo.modules.audio.action.NEXT"
+diff --git a/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt b/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
+index 839aaef..fd6ddfe 100644
+--- a/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
++++ b/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
+@@ -13 +13,3 @@ import com.google.common.util.concurrent.ListenableFuture
+-class AudioMediaSessionCallback : MediaSession.Callback {
++class AudioMediaSessionCallback(
++  private val allowTrackNavigation: Boolean = false
++) : MediaSession.Callback {
+@@ -19,0 +22,19 @@ class AudioMediaSessionCallback : MediaSession.Callback {
++      val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
++        // Keep seek commands for the seek slider
++        .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
++        .add(Player.COMMAND_SEEK_FORWARD)
++        .add(Player.COMMAND_SEEK_BACK)
++      if (allowTrackNavigation) {
++        playerCommands
++          .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
++          .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
++          .add(Player.COMMAND_SEEK_TO_PREVIOUS)
++          .add(Player.COMMAND_SEEK_TO_NEXT)
++      } else {
++        playerCommands
++          .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
++          .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
++          .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
++          .remove(Player.COMMAND_SEEK_TO_NEXT)
++      }
++
+@@ -21,13 +42 @@ class AudioMediaSessionCallback : MediaSession.Callback {
+-        .setAvailablePlayerCommands(
+-          MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+-            // Keep seek commands for the seek slider
+-            .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+-            .add(Player.COMMAND_SEEK_FORWARD)
+-            .add(Player.COMMAND_SEEK_BACK)
+-            // Remove track navigation commands
+-            .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+-            .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+-            .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+-            .remove(Player.COMMAND_SEEK_TO_NEXT)
+-            .build()
+-        )
++        .setAvailablePlayerCommands(playerCommands.build())
+diff --git a/android/src/main/java/expo/modules/audio/service/AudioPlaybackServiceConnection.kt b/android/src/main/java/expo/modules/audio/service/AudioPlaybackServiceConnection.kt
+index f183a93..0e1889e 100644
+--- a/android/src/main/java/expo/modules/audio/service/AudioPlaybackServiceConnection.kt
++++ b/android/src/main/java/expo/modules/audio/service/AudioPlaybackServiceConnection.kt
+@@ -7,0 +8 @@ import androidx.media3.session.MediaSessionService.SERVICE_INTERFACE
++import expo.modules.audio.AudioPlaylist
+@@ -8,0 +10 @@ import expo.modules.audio.AudioPlayer
++import expo.modules.audio.BaseAudioPlayer
+@@ -16,2 +18,2 @@ class AudioPlaybackServiceBinder(val service: AudioControlsService) : android.os
+-class AudioPlaybackServiceConnection(
+-  val player: WeakReference<AudioPlayer>,
++class AudioPlaybackServiceConnection<Source : BaseAudioPlayer>(
++  val player: WeakReference<Source>,
+@@ -72,2 +74,8 @@ class AudioPlaybackServiceConnection(
+-    if (player.isActiveForLockScreen) {
+-      serviceBinder.service.setPlayerOptions(player, player.metadata, player.lockScreenOptions)
++    when (player) {
++      is AudioPlayer -> if (player.isActiveForLockScreen) {
++        serviceBinder.service.setPlayerOptions(player, player.metadata, player.lockScreenOptions)
++      }
++      is AudioPlaylist -> if (player.isActiveForLockScreen) {
++        serviceBinder.service.setPlaylistOptions(player, player.metadata, player.lockScreenOptions)
++      }
++      else -> Unit
+@@ -78,9 +86 @@ class AudioPlaybackServiceConnection(
+-    playbackServiceBinder?.service?.let { service ->
+-      service.playbackListener?.let { listener ->
+-        val player = player.get()
+-        if (player != null && !isReleased) {
+-          player.ref.removeListener(listener)
+-        }
+-      }
+-      service.playbackListener = null
+-    }
++    playbackServiceBinder?.service?.disconnect(player.get(), isReleased)
+diff --git a/build/AudioModule.types.d.ts b/build/AudioModule.types.d.ts
+index f3ae4ee..a922339 100644
+--- a/build/AudioModule.types.d.ts
++++ b/build/AudioModule.types.d.ts
+@@ -415,0 +416,8 @@ export declare class AudioPlaylist extends SharedObject<AudioPlaylistEvents> {
++    /**
++     * Enables or disables operating-system media controls for the native queue.
++     * Metadata entries stay aligned with the initial source order so native
++     * background transitions can update the current section without JavaScript.
++     */
++    setActiveForLockScreen(active: boolean, metadata?: AudioMetadata[], options?: AudioLockScreenOptions): void;
++    /** Clears operating-system controls when this playlist owns them. */
++    clearLockScreenControls(): void;
+@@ -441 +449 @@ export declare class AudioPlaylist extends SharedObject<AudioPlaylistEvents> {
+-//# sourceMappingURL=AudioModule.types.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=AudioModule.types.d.ts.map
+diff --git a/ios/AudioModule.swift b/ios/AudioModule.swift
+index d265606..e9f6690 100644
+--- a/ios/AudioModule.swift
++++ b/ios/AudioModule.swift
+@@ -276 +276 @@ public class AudioModule: Module {
+-          MediaController.shared.setActivePlayer(nil)
++          MediaController.shared.clearActivePlayer(player)
+@@ -407,0 +408,10 @@ public class AudioModule: Module {
++
++      Function("setActiveForLockScreen") { (playlist: AudioPlaylist, active: Bool, metadata: [Metadata]?, options: LockScreenOptions?) in
++        playlist.setActiveForLockScreen(active, metadata: metadata, options: options)
++      }
++
++      Function("clearLockScreenControls") { (playlist: AudioPlaylist) in
++        if playlist.isActiveForLockScreen {
++          playlist.setActiveForLockScreen(false, metadata: nil, options: nil)
++        }
++      }
+diff --git a/ios/AudioPlayer.swift b/ios/AudioPlayer.swift
+index 0742943..40788c8 100644
+--- a/ios/AudioPlayer.swift
++++ b/ios/AudioPlayer.swift
+@@ -163 +163 @@ public class AudioPlayer: SharedRef<AVPlayer>, Playable {
+-      MediaController.shared.setActivePlayer(nil)
++      MediaController.shared.clearActivePlayer(self)
+@@ -511 +511 @@ public class AudioPlayer: SharedRef<AVPlayer>, Playable {
+-      MediaController.shared.setActivePlayer(nil)
++      MediaController.shared.clearActivePlayer(self)
+diff --git a/ios/AudioPlaylist.swift b/ios/AudioPlaylist.swift
+index 98dabcf..7fe3bd9 100644
+--- a/ios/AudioPlaylist.swift
++++ b/ios/AudioPlaylist.swift
+@@ -13,0 +14,2 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++  var isActiveForLockScreen = false
++  private var lockScreenMetadata: [Metadata?] = []
+@@ -65,0 +68,15 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++  var currentLockScreenMetadata: Metadata? {
++    guard currentTrackIndex >= 0, currentTrackIndex < lockScreenMetadata.count else {
++      return nil
++    }
++    return lockScreenMetadata[currentTrackIndex]
++  }
++
++  var hasPreviousTrack: Bool {
++    currentTrackIndex > 0 || (loopMode == .all && trackCount > 1)
++  }
++
++  var hasNextTrack: Bool {
++    currentTrackIndex < trackCount - 1 || (loopMode == .all && trackCount > 1)
++  }
++
+@@ -70,0 +88 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    self.lockScreenMetadata = Array(repeating: nil, count: sources.count)
+@@ -80,0 +99,3 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    if isActiveForLockScreen {
++      MediaController.shared.updateNowPlayingInfo(for: self)
++    }
+@@ -84,0 +106,20 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    updateStatus(with: [:])
++  }
++
++  func setActiveForLockScreen(
++    _ active: Bool = true,
++    metadata: [Metadata]? = nil,
++    options: LockScreenOptions?
++  ) {
++    lockScreenMetadata = sources.indices.map { index in
++      guard let metadata, metadata.indices.contains(index) else {
++        return nil
++      }
++      return metadata[index]
++    }
++    isActiveForLockScreen = active
++    if active {
++      MediaController.shared.setActivePlaylist(self, options: options)
++    } else {
++      MediaController.shared.clearActivePlaylist(self)
++    }
+@@ -133,0 +175 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    lockScreenMetadata.append(nil)
+@@ -154,0 +197 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    lockScreenMetadata.insert(nil, at: index)
+@@ -171,0 +215 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    lockScreenMetadata.remove(at: index)
+@@ -200,0 +245 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    lockScreenMetadata.removeAll()
+@@ -246,0 +292,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++
++    if isActiveForLockScreen {
++      MediaController.shared.updateNowPlayingInfo(for: self)
++    }
+@@ -365,0 +415,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    if isActiveForLockScreen {
++      isActiveForLockScreen = false
++      MediaController.shared.clearActivePlaylist(self)
++    }
+diff --git a/ios/MediaController.swift b/ios/MediaController.swift
+index 6bc11ac..b0148be 100644
+--- a/ios/MediaController.swift
++++ b/ios/MediaController.swift
+@@ -4,0 +5,66 @@ import ExpoModulesCore
++private protocol LockScreenPlayable: AnyObject {
++  var id: String { get }
++  var isActiveForLockScreen: Bool { get set }
++  var lockScreenMetadata: Metadata? { get }
++  var lockScreenPlayer: AVPlayer { get }
++  var lockScreenIsLive: Bool { get }
++  var lockScreenHasNext: Bool { get }
++  var lockScreenHasPrevious: Bool { get }
++
++  func lockScreenPlay()
++  func lockScreenPause()
++  func lockScreenNext() -> Bool
++  func lockScreenPrevious() -> Bool
++}
++
++extension AudioPlayer: LockScreenPlayable {
++  fileprivate var lockScreenMetadata: Metadata? { metadata }
++  fileprivate var lockScreenPlayer: AVPlayer { ref }
++  fileprivate var lockScreenIsLive: Bool { isLive }
++  fileprivate var lockScreenHasNext: Bool { false }
++  fileprivate var lockScreenHasPrevious: Bool { false }
++
++  fileprivate func lockScreenPlay() {
++    play(at: Float(currentRate > 0 ? currentRate : 1.0))
++  }
++
++  fileprivate func lockScreenPause() {
++    ref.pause()
++  }
++
++  fileprivate func lockScreenNext() -> Bool { false }
++  fileprivate func lockScreenPrevious() -> Bool { false }
++}
++
++extension AudioPlaylist: LockScreenPlayable {
++  fileprivate var lockScreenMetadata: Metadata? { currentLockScreenMetadata }
++  fileprivate var lockScreenPlayer: AVPlayer { ref }
++  fileprivate var lockScreenIsLive: Bool { false }
++  fileprivate var lockScreenHasNext: Bool { hasNextTrack }
++  fileprivate var lockScreenHasPrevious: Bool { hasPreviousTrack }
++
++  fileprivate func lockScreenPlay() {
++    play(at: Float(currentRate > 0 ? currentRate : 1.0))
++  }
++
++  fileprivate func lockScreenPause() {
++    pause()
++  }
++
++  fileprivate func lockScreenNext() -> Bool {
++    guard hasNextTrack else {
++      return false
++    }
++    next()
++    return true
++  }
++
++  fileprivate func lockScreenPrevious() -> Bool {
++    guard hasPreviousTrack else {
++      return false
++    }
++    previous()
++    return true
++  }
++}
++
+@@ -8 +74 @@ class MediaController {
+-  private var activePlayer: AudioPlayer?
++  private var activePlayer: (any LockScreenPlayable)?
+@@ -22 +88,19 @@ class MediaController {
+-      self.setActivePlayerOnMain(player, options: options)
++      self.setActivePlayableOnMain(player, options: options)
++    }
++  }
++
++  func setActivePlaylist(_ playlist: AudioPlaylist?, options: LockScreenOptions? = nil) {
++    performOnMain {
++      self.setActivePlayableOnMain(playlist, options: options)
++    }
++  }
++
++  func clearActivePlayer(_ player: AudioPlayer) {
++    performOnMain {
++      self.clearActivePlayableOnMain(player)
++    }
++  }
++
++  func clearActivePlaylist(_ playlist: AudioPlaylist) {
++    performOnMain {
++      self.clearActivePlayableOnMain(playlist)
+@@ -32 +116,10 @@ class MediaController {
+-  private func setActivePlayerOnMain(_ player: AudioPlayer?, options: LockScreenOptions? = nil) {
++  func updateNowPlayingInfo(for playlist: AudioPlaylist) {
++    performOnMain {
++      self.updateNowPlayingInfoOnMain(for: playlist)
++    }
++  }
++
++  private func setActivePlayableOnMain(
++    _ player: (any LockScreenPlayable)?,
++    options: LockScreenOptions? = nil
++  ) {
+@@ -41 +134 @@ class MediaController {
+-    isLiveStream = options?.isLiveStream ?? player?.isLive ?? false
++    isLiveStream = options?.isLiveStream ?? player?.lockScreenIsLive ?? false
+@@ -52 +145,9 @@ class MediaController {
+-  private func updateNowPlayingInfoOnMain(for player: AudioPlayer) {
++  private func clearActivePlayableOnMain(_ player: any LockScreenPlayable) {
++    player.isActiveForLockScreen = false
++    guard activePlayer?.id == player.id else {
++      return
++    }
++    setActivePlayableOnMain(nil)
++  }
++
++  private func updateNowPlayingInfoOnMain(for player: any LockScreenPlayable) {
+@@ -57 +158 @@ class MediaController {
+-    let nextArtworkItemIdentifier = player.ref.currentItem.map { ObjectIdentifier($0) }
++    let nextArtworkItemIdentifier = player.lockScreenPlayer.currentItem.map { ObjectIdentifier($0) }
+@@ -65,0 +167,3 @@ class MediaController {
++    nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyTitle)
++    nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyArtist)
++    nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
+@@ -67 +171 @@ class MediaController {
+-    if let userMetadata = player.metadata {
++    if let userMetadata = player.lockScreenMetadata {
+@@ -76,0 +181 @@ class MediaController {
++    updateNavigationCommandAvailability()
+@@ -79 +184 @@ class MediaController {
+-  private func applyPlaybackInfo(_ info: inout [String: Any], for player: AudioPlayer) {
++  private func applyPlaybackInfo(_ info: inout [String: Any], for player: any LockScreenPlayable) {
+@@ -85,2 +190,4 @@ class MediaController {
+-      info[MPMediaItemPropertyPlaybackDuration] = player.duration
+-      info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = player.currentTime
++      let duration = player.lockScreenPlayer.currentItem?.duration.seconds ?? 0.0
++      let currentTime = player.lockScreenPlayer.currentItem?.currentTime().seconds ?? 0.0
++      info[MPMediaItemPropertyPlaybackDuration] = duration.isNaN ? 0.0 : duration
++      info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime.isNaN ? 0.0 : currentTime
+@@ -88 +195,2 @@ class MediaController {
+-    info[MPNowPlayingInfoPropertyPlaybackRate] = player.isPlaying ? player.ref.rate : 0.0
++    info[MPNowPlayingInfoPropertyPlaybackRate] =
++      player.lockScreenPlayer.timeControlStatus == .playing ? player.lockScreenPlayer.rate : 0.0
+@@ -104,2 +212,2 @@ class MediaController {
+-  private func applyAssetMetadata(_ info: inout [String: Any], for player: AudioPlayer) {
+-    guard let currentItem = player.ref.currentItem,
++  private func applyAssetMetadata(_ info: inout [String: Any], for player: any LockScreenPlayable) {
++    guard let currentItem = player.lockScreenPlayer.currentItem,
+@@ -138 +246 @@ class MediaController {
+-    for player: AudioPlayer,
++    for player: any LockScreenPlayable,
+@@ -244 +352 @@ class MediaController {
+-      player.play(at: Float(player.currentRate > 0 ? player.currentRate : 1.0))
++      player.lockScreenPlay()
+@@ -254 +362 @@ class MediaController {
+-      player.ref.pause()
++      player.lockScreenPause()
+@@ -264,2 +372,2 @@ class MediaController {
+-      if player.isPlaying {
+-        player.ref.pause()
++      if player.lockScreenPlayer.timeControlStatus == .playing {
++        player.lockScreenPause()
+@@ -267 +375 @@ class MediaController {
+-        player.play(at: Float(player.currentRate > 0 ? player.currentRate : 1.0))
++        player.lockScreenPlay()
+@@ -280 +388 @@ class MediaController {
+-      player.ref.seek(to: seekTime)
++      player.lockScreenPlayer.seek(to: seekTime)
+@@ -293 +401 @@ class MediaController {
+-      let currentTime = player.ref.currentTime()
++      let currentTime = player.lockScreenPlayer.currentTime()
+@@ -295 +403 @@ class MediaController {
+-      player.ref.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
++      player.lockScreenPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+@@ -308 +416 @@ class MediaController {
+-      let currentTime = player.ref.currentTime()
++      let currentTime = player.lockScreenPlayer.currentTime()
+@@ -310 +418 @@ class MediaController {
+-      player.ref.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
++      player.lockScreenPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+@@ -315,0 +424,16 @@ class MediaController {
++    let previousTrackTarget = remoteCommandCenter.previousTrackCommand.addTarget { [weak self] _ in
++      guard let player = self?.activePlayer else {
++        return .commandFailed
++      }
++      return player.lockScreenPrevious() ? .success : .noSuchContent
++    }
++    remoteCommandTargets.append((remoteCommandCenter.previousTrackCommand, previousTrackTarget))
++
++    let nextTrackTarget = remoteCommandCenter.nextTrackCommand.addTarget { [weak self] _ in
++      guard let player = self?.activePlayer else {
++        return .commandFailed
++      }
++      return player.lockScreenNext() ? .success : .noSuchContent
++    }
++    remoteCommandTargets.append((remoteCommandCenter.nextTrackCommand, nextTrackTarget))
++
+@@ -321,0 +446,6 @@ class MediaController {
++    updateNavigationCommandAvailability()
++  }
++
++  private func updateNavigationCommandAvailability() {
++    remoteCommandCenter.previousTrackCommand.isEnabled = activePlayer?.lockScreenHasPrevious ?? false
++    remoteCommandCenter.nextTrackCommand.isEnabled = activePlayer?.lockScreenHasNext ?? false
+@@ -337,0 +468,2 @@ class MediaController {
++    remoteCommandCenter.previousTrackCommand.isEnabled = false
++    remoteCommandCenter.nextTrackCommand.isEnabled = false
+diff --git a/src/AudioModule.types.ts b/src/AudioModule.types.ts
+index 7e75371..374bdd4 100644
+--- a/src/AudioModule.types.ts
++++ b/src/AudioModule.types.ts
+@@ -509,0 +510,14 @@ export declare class AudioPlaylist extends SharedObject<AudioPlaylistEvents> {
++  /**
++   * Enables or disables operating-system media controls for the native queue.
++   * Metadata entries stay aligned with the initial source order so native
++   * background transitions can update the current section without JavaScript.
++   */
++  setActiveForLockScreen(
++    active: boolean,
++    metadata?: AudioMetadata[],
++    options?: AudioLockScreenOptions,
++  ): void;
++
++  /** Clears operating-system controls when this playlist owns them. */
++  clearLockScreenControls(): void;
++
