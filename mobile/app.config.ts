@@ -114,6 +114,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         package: identity.identifier,
         blockedPermissions: [
           "android.permission.READ_EXTERNAL_STORAGE",
+          "android.permission.RECORD_AUDIO",
           "android.permission.REORDER_TASKS",
           "android.permission.SYSTEM_ALERT_WINDOW",
           "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -128,6 +129,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         "expo-router",
         ["@clerk/expo", { appleSignIn: false }],
         "expo-secure-store",
+        [
+          "expo-audio",
+          {
+            enableBackgroundPlayback: false,
+            enableBackgroundRecording: false,
+            microphonePermission: false,
+            recordAudioAndroid: false,
+          },
+        ],
         "expo-web-browser",
         [
           "expo-font",

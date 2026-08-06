@@ -116,7 +116,8 @@ describe("NativeArticleAudioAccessProvider", () => {
       }),
     );
     expect(requestInit().headers).toEqual({
-      Accept: "audio/mpeg, audio/*;q=0.9",
+      Accept: "audio/mpeg",
+      "Accept-Encoding": "identity",
       "Content-Type": "application/json",
     });
     expect(requestBody()).toEqual({
@@ -131,9 +132,72 @@ describe("NativeArticleAudioAccessProvider", () => {
     expect(JSON.stringify(requestBody())).not.toContain("account-a");
     expect(audioResult).toEqual({
       accountEpoch,
+      release: expect.any(Function),
       response: expect.anything(),
       status: "ready",
     });
+    if (audioResult.status === "ready") audioResult.release();
+  });
+
+  it("keeps native response cancellation owned after headers arrive", async () => {
+    const caller = new AbortController();
+    let fetchSignal: AbortSignal | null | undefined;
+    fetchMock.mockImplementation(async (_input, init) => {
+      fetchSignal = init?.signal;
+      return response(200);
+    });
+    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      wrapper,
+    });
+
+    const audioResult = await result.current.requestSection({
+      ...request,
+      signal: caller.signal,
+    });
+
+    expect(audioResult).toEqual(
+      expect.objectContaining({
+        release: expect.any(Function),
+        status: "ready",
+      }),
+    );
+    expect(fetchSignal?.aborted).toBe(false);
+
+    caller.abort();
+    expect(fetchSignal?.aborted).toBe(true);
+
+    const release = (audioResult as { release: () => void }).release;
+    expect(() => {
+      release();
+      release();
+    }).not.toThrow();
+  });
+
+  it("keeps the 240-second transport deadline alive through body ownership", async () => {
+    jest.useFakeTimers();
+    try {
+      let fetchSignal: AbortSignal | null | undefined;
+      fetchMock.mockImplementation(async (_input, init) => {
+        fetchSignal = init?.signal;
+        return response(200);
+      });
+      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+        wrapper,
+      });
+
+      const audioResult = await result.current.requestSection(request);
+      expect(audioResult.status).toBe("ready");
+      expect(fetchSignal?.aborted).toBe(false);
+
+      await jest.advanceTimersByTimeAsync(239_999);
+      expect(fetchSignal?.aborted).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(fetchSignal?.aborted).toBe(true);
+
+      if (audioResult.status === "ready") audioResult.release();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("keeps a Clerk token only in the authenticated request header", async () => {
@@ -151,13 +215,15 @@ describe("NativeArticleAudioAccessProvider", () => {
     const audioResult = await result.current.requestSection(request);
 
     expect(requestInit().headers).toEqual({
-      Accept: "audio/mpeg, audio/*;q=0.9",
+      Accept: "audio/mpeg",
+      "Accept-Encoding": "identity",
       Authorization: "Bearer secret-clerk-token",
       "Content-Type": "application/json",
     });
     expect(requestBody().provider).toBe("openai");
     expect(JSON.stringify(requestBody())).not.toContain("secret-clerk-token");
     expect(JSON.stringify(audioResult)).not.toContain("secret-clerk-token");
+    if (audioResult.status === "ready") audioResult.release();
   });
 
   it("keeps local HTTP transport public and Edge-only", async () => {
@@ -166,8 +232,10 @@ describe("NativeArticleAudioAccessProvider", () => {
       wrapper: httpWrapper,
     });
 
-    await expect(result.current.requestSection(request)).resolves.toEqual({
+    const audioResult = await result.current.requestSection(request);
+    expect(audioResult).toEqual({
       accountEpoch,
+      release: expect.any(Function),
       response: expect.anything(),
       status: "ready",
     });
@@ -177,6 +245,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     );
     expect(requestInit().headers).not.toHaveProperty("Authorization");
     expect(requestBody().provider).toBe("edge");
+    if (audioResult.status === "ready") audioResult.release();
   });
 
   it("never sends an authenticated Bearer credential to local HTTP", async () => {
@@ -222,8 +291,10 @@ describe("NativeArticleAudioAccessProvider", () => {
       wrapper,
     });
 
-    await expect(result.current.requestSection(request)).resolves.toEqual({
+    const audioResult = await result.current.requestSection(request);
+    expect(audioResult).toEqual({
       accountEpoch,
+      release: expect.any(Function),
       response: expect.anything(),
       status: "ready",
     });
@@ -241,6 +312,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     expect(requestInit(1).headers).toEqual(
       expect.objectContaining({ Authorization: "Bearer refreshed-token" }),
     );
+    if (audioResult.status === "ready") audioResult.release();
   });
 
   it("does not retry a second authentication rejection", async () => {
@@ -330,6 +402,22 @@ describe("NativeArticleAudioAccessProvider", () => {
     });
   });
 
+  it.each(["audio/wav", "audio/mp4", "audio/mpegish"])(
+    "rejects a successful non-MP3 payload (%s)",
+    async (contentType) => {
+      fetchMock.mockResolvedValue(response(200, contentType));
+      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+        wrapper,
+      });
+
+      await expect(result.current.requestSection(request)).resolves.toEqual({
+        reason: "invalid-response",
+        retryable: false,
+        status: "failed",
+      });
+    },
+  );
+
   it("sanitizes a network failure and never retries it automatically", async () => {
     fetchMock.mockRejectedValue(
       new Error("secret-clerk-token issuer.example internal host"),
@@ -369,7 +457,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       });
 
       const pendingResult = result.current.requestSection(request);
-      await jest.advanceTimersByTimeAsync(180_000);
+      await jest.advanceTimersByTimeAsync(240_000);
 
       await expect(pendingResult).resolves.toEqual({
         reason: "temporarily-unavailable",
@@ -387,6 +475,11 @@ describe("NativeArticleAudioAccessProvider", () => {
     jest.useFakeTimers();
     try {
       let resolveFetch: ((value: Response) => void) | undefined;
+      const cancelBody = jest.fn().mockResolvedValue(undefined);
+      const lateResponse = {
+        ...response(200),
+        body: { cancel: cancelBody },
+      } as unknown as Response;
       fetchMock.mockImplementation(
         () =>
           new Promise<Response>((resolve) => {
@@ -400,15 +493,17 @@ describe("NativeArticleAudioAccessProvider", () => {
       const pendingResult = result.current.requestSection(request);
       await jest.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      await jest.advanceTimersByTimeAsync(180_000);
+      await jest.advanceTimersByTimeAsync(240_000);
 
       await expect(pendingResult).resolves.toEqual({
         reason: "temporarily-unavailable",
         retryable: true,
         status: "failed",
       });
-      resolveFetch?.(response(200));
+      resolveFetch?.(lateResponse);
       await Promise.resolve();
+      await Promise.resolve();
+      expect(cancelBody).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
@@ -429,7 +524,7 @@ describe("NativeArticleAudioAccessProvider", () => {
         .mockImplementationOnce(
           () =>
             new Promise<Response>((resolve) => {
-              setTimeout(() => resolve(response(401)), 170_000);
+              setTimeout(() => resolve(response(401)), 230_000);
             }),
         )
         .mockImplementationOnce(
@@ -447,7 +542,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       });
 
       const pendingResult = result.current.requestSection(request);
-      await jest.advanceTimersByTimeAsync(170_000);
+      await jest.advanceTimersByTimeAsync(230_000);
       expect(fetchMock).toHaveBeenCalledTimes(2);
       await jest.advanceTimersByTimeAsync(10_000);
 
@@ -476,7 +571,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       });
 
       const pendingResult = result.current.requestSection(request);
-      await jest.advanceTimersByTimeAsync(180_000);
+      await jest.advanceTimersByTimeAsync(240_000);
 
       await expect(pendingResult).resolves.toEqual({
         reason: "temporarily-unavailable",

@@ -280,20 +280,66 @@ preserve this account and accessibility contract:
   from Account A to Account B clears Account A's entries and operation feedback
   before Account B can load; stale completion is ignored.
 
-| Gate                                                  | Environment and build                           | Settings                                                                                                   | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gate                                                  | Environment and build                           | Settings                                                                                                   | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Supplementary automated Library contract              | Local final PR5B `npm run mobile:check`         | Mocked Convex, account epoch, status, alert, and accessibility APIs; no rendered OS text or spoken output  | Pass    | All 40 mobile suites and 423 tests passed, together with ESLint, native TypeScript, iOS/Android production bundle export, Expo dependency validation, the single-runtime check, and all 20 Expo Doctor checks. Coverage includes subject-bound reads/writes, account-epoch clearing, stale callback and confirmation races, mutation deduplication, query-echo and concurrent-reversal status ordering, hidden-route suppression, label-in-name, state, confirmation, and deterministic mocked input-focus recovery. Automated focus calls do not prove physical screen-reader focus landing. |
-| Supplementary iOS signed-account Library artifact     | No PR5B signed-in iOS artifact run recorded     | 200% and largest text; portrait/landscape; light/dark; Bold Text and Increase Contrast                     | Not run | Install the reviewed artifact, complete a real Account A sign-in, and exercise Article save/remove, same-account web synchronization, Library traversal, confirmation, retry, and account switching. Simulator inspection cannot satisfy VoiceOver or physical gates.                                                                                                                                                                                                  |
-| Supplementary Android signed-account Library artifact | No PR5B signed-in Android artifact run recorded | 200% and maximum font/display separately and together; portrait/landscape; light/dark; High Text Contrast  | Not run | Install the reviewed APK, complete a real Account A sign-in, and exercise Article save/remove, same-account web synchronization, Library traversal, confirmation, retry, and account switching. Emulator evidence remains supplementary.                                                                                                                                                                                                                               |
-| Signed iOS VoiceOver, Library save/remove and sync    | No trusted physical iPhone attached             | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast         | Blocked | Register and connect a supported iPhone, install a signed build, and complete the PR5B additions below. VoiceOver is unavailable in Simulator.                                                                                                                                                                                                                                                                                                                         |
-| Signed Android TalkBack, Library save/remove and sync | No physical Android device attached             | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast | Not run | Install the signed build on named hardware and complete the PR5B additions below. Emulator results remain supplementary.                                                                                                                                                                                                                                                                                                                                               |
+| Supplementary iOS signed-account Library artifact     | No PR5B signed-in iOS artifact run recorded     | 200% and largest text; portrait/landscape; light/dark; Bold Text and Increase Contrast                     | Not run | Install the reviewed artifact, complete a real Account A sign-in, and exercise Article save/remove, same-account web synchronization, Library traversal, confirmation, retry, and account switching. Simulator inspection cannot satisfy VoiceOver or physical gates.                                                                                                                                                                                                                                                                                                                         |
+| Supplementary Android signed-account Library artifact | No PR5B signed-in Android artifact run recorded | 200% and maximum font/display separately and together; portrait/landscape; light/dark; High Text Contrast  | Not run | Install the reviewed APK, complete a real Account A sign-in, and exercise Article save/remove, same-account web synchronization, Library traversal, confirmation, retry, and account switching. Emulator evidence remains supplementary.                                                                                                                                                                                                                                                                                                                                                      |
+| Signed iOS VoiceOver, Library save/remove and sync    | No trusted physical iPhone attached             | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast         | Blocked | Register and connect a supported iPhone, install a signed build, and complete the PR5B additions below. VoiceOver is unavailable in Simulator.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Signed Android TalkBack, Library save/remove and sync | No physical Android device attached             | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast | Not run | Install the signed build on named hardware and complete the PR5B additions below. Emulator results remain supplementary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+## Foreground full-summary audio contract
+
+This slice extends the native Article without carrying earlier Article evidence
+forward as audio evidence. Within the loaded article document, the current
+reading order is the one visible summary lead sentence, the full-summary player,
+the optional full-text disclosure and its expanded remainder, real section
+headings and complete paragraph stops, then source, media, license, and richer-web
+content. Route navigation, heading, status, and Library controls remain ahead of
+the article document. The audio addition must also preserve this contract:
+
+- Loading an Article never requests, stages, or plays audio. Only activation of
+  `Play full summary audio` may begin preparation. The resulting audio covers the
+  canonical full summary even while the text remainder is collapsed.
+- The player remains one operable control whose visible and accessible name
+  follows its state: play, cancel preparation, pause, resume, replay, or retry.
+  Preparing, playing, paused, finished, stopped, cancelled, and safe failure
+  status is visible. Time progress is readable on demand but is not a live region
+  and must not announce on every update.
+- `Show full text summary` begins collapsed with programmatic expanded state set
+  to false and no hidden remainder in the accessibility tree. Activation keeps
+  focus on the same control, changes it to `Hide full text summary` with expanded
+  state true, and reveals the complete unclamped remainder without repeating the
+  lead. A one-sentence summary omits the disclosure; an absent summary omits both
+  disclosure and player.
+- Playback is foreground-only. Leaving the Article, changing article or account
+  epoch, backgrounding the app, or unmounting releases the player and disposable
+  cache lease and deactivates the audio session. Returning never auto-resumes or
+  issues a new request. No lock-screen/background controls, microphone prompt,
+  recording mode, storage permission, download affordance, playlist, or offline
+  claim may appear.
+- The temporary MP3 handoff is content-type and exact-length checked, bounded to
+  16 MiB, stored only under the app cache, and deleted on controlled release.
+  Stale entries are scavenged once by the shared store during a cold JavaScript
+  runtime. It is not Library state or an offline cache.
+- Player, disclosure, status, and error copy remain complete at 200% and maximum
+  text/display settings. The control stays at least 48 by 48, reflows without a
+  fixed text height, exposes visible focus, and does not rely on color, timing,
+  or sound alone.
+
+| Gate                                                   | Environment and build                                             | Settings                                                                                                   | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supplementary foreground-audio configuration and seams | Focused local config Jest and `ts-archunit`; current working tree | Generated iOS/Android config introspection and static import graph; no native audio session                | Pass    | All 15 app-variant tests pass and `npm run arch` passes. Introspection proves no microphone usage string, audio background mode, recording/background service permission, or Expo audio service. Architecture permits `expo-file-system` and `expo-audio` only in the dedicated ephemeral store and foreground runtime. This does not prove hardware behavior. |
+| Signed iOS VoiceOver, foreground summary audio         | No trusted physical iPhone attached                               | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast         | Blocked | Register and connect a supported iPhone, install a signed build, and complete the foreground-audio additions below. VoiceOver is unavailable in Simulator. Record exact order and speech, real playback and interruption behavior, focus retention, lock-screen absence, permission prompts, and cache cleanup; automated tests cannot satisfy this gate.      |
+| Signed Android TalkBack, foreground summary audio      | No physical Android device attached                               | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast | Not run | Install the signed build on named hardware and complete the foreground-audio additions below. Record exact order and speech, real playback and interruption behavior, focus retention, notification/lock-screen absence, permission prompts, and cache cleanup. Emulator results remain supplementary and cannot satisfy this gate.                            |
 
 ## Physical-device script
 
 Record each platform separately. The shared script covers Home, Search, and the
 native Article reading contract while retaining the brand-reflow checks from
-the foundation. Run the PR5A Account and PR5B Library additions afterward. A
-PR4A handoff result is historical and cannot satisfy an Article step.
+the foundation. Run the foreground full-summary audio, PR5A Account, and PR5B
+Library additions afterward. A PR4A handoff result is historical and cannot
+satisfy an Article step.
 
 1. Install the signed preview build from a clean state.
 2. Test a 200% text-size baseline, then set the device to its largest text size.
@@ -326,10 +372,14 @@ PR4A handoff result is historical and cannot satisfy an Article step.
     retrying and confirm that loading and success reuse the heading/status
     identities without stealing focus or exposing stale content.
 11. Traverse a successful Article in both directions and record exact speech for
-    its title, provenance, optional lead image and visible attribution, summary,
-    section headings and paragraphs, source/license links, and richer-web
-    explanation/link. Confirm a cache-derived time is called fetched or
-    retrieved, or omitted, and is never announced or displayed as `Last edited`.
+    its title and route controls. Within the article document, confirm the exact
+    order is one visible summary lead sentence, the full-summary player, the
+    collapsed `Show full text summary` disclosure, section headings and
+    paragraphs, source/media content and any image attribution, source/license
+    links, then the richer-web explanation/link. Expand the disclosure and
+    confirm its remainder follows that same control without duplicating the
+    lead. Confirm a cache-derived time is called fetched or retrieved, or
+    omitted, and is never announced or displayed as `Last edited`.
 12. Choose a long, multi-section article. Use the iOS headings rotor or Android
     Reading Controls to reach every real section heading in source order, with
     no duplicate article title or decorative headings. Confirm that a
@@ -349,8 +399,9 @@ PR4A handoff result is historical and cannot satisfy an Article step.
     behavior. Where a reviewed fixture or blocked-handler scenario permits,
     verify that unsafe/malformed targets are not opened and that an external-app
     launch failure remains visible and retryable. Confirm the web handoff names
-    galleries, broader context, and citation detail without implying that
-    audio, playlist playback, offline/download, or push features exist natively.
+    galleries, broader context, and citation detail without implying that web
+    is required for full-summary audio or that section/playlist playback,
+    background media, offline/download, or push features exist natively.
 15. Activate `Back to search` after reading deep into the Article and record
     where focus returns. Confirm no hidden Article descendants remain reachable.
 16. Cold-launch a valid link for the build's app scheme and confirm it reaches
@@ -367,6 +418,57 @@ PR4A handoff result is historical and cannot satisfy an Article step.
     contrast, and reduced motion where applicable.
 18. Record failures as issues; never convert a simulator, emulator, Jest, or
     accessibility-tree result into a physical-device pass.
+
+### Foreground full-summary audio additions
+
+Run these after the shared Home/Search/Article script on each platform, while
+signed out and again within a signed-in account where the script calls for an
+account transition:
+
+1. Open an Article with a multi-sentence summary over throttled networking. Do
+   not activate the player. Confirm no audio request, preparation status, sound,
+   system media session, or permission prompt occurs. Traverse the visible lead,
+   `Listen to the full summary` player, and collapsed `Show full text summary`
+   control in that order. Confirm the remainder is absent from forward, reverse,
+   rotor/Reading Controls, and touch traversal.
+2. Activate `Play full summary audio` once. Confirm the same control becomes
+   `Cancel preparing summary audio`, preparation is visible and announced once,
+   and no focus jump occurs. Cancel under throttled networking and confirm a late
+   response cannot start sound or revive a stale status. Start again and confirm
+   the full summary plays only after preparation succeeds.
+3. While the disclosure remains collapsed, listen through the transition from
+   its visible lead into the text remainder. Compare against the complete
+   visible summary and record any missing, duplicated, stale-revision, or
+   out-of-order narration as a failure. Expanding or collapsing the text must
+   not interrupt playback or duplicate the lead.
+4. Exercise `Pause full summary audio`, `Resume full summary audio`, completion,
+   and `Replay full summary audio`. Record each exact spoken name, role, state,
+   hint, visible status, and focus position. Confirm status transitions announce
+   once while elapsed-time updates remain quiet unless the user navigates to the
+   time text. Verify the disclosure keeps the same focus stop as its label and
+   expanded state change between `Show` and `Hide`.
+5. While preparing and while playing, separately navigate Back, open another
+   Article, background the app, and lock the device. Confirm playback stops, the
+   audio session and temporary file are released, no lock-screen or notification
+   media control remains, and returning never resumes or requests audio until a
+   new activation. Repeat a signed-in preparation while signing out or switching
+   from Account A to Account B; no prior-account response, status, or sound may
+   survive the epoch change.
+6. Exercise offline start, request timeout, malformed or interrupted response,
+   playback failure, and retry. Confirm only concise safe copy appears, the
+   single control remains operable, no backend or filesystem detail is exposed,
+   and cancelled or failed bytes are not playable later. Restore networking and
+   confirm retry succeeds without stealing focus.
+7. Inspect operating-system permissions and prompts. Confirm the build never
+   requests microphone, recording, media-library, file/storage, notification, or
+   background-audio permission for this feature. No UI may describe the staged
+   cache file as saved, downloaded, available offline, or part of Library.
+8. Repeat the lead/player/disclosure sequence and every player label/status at
+   the 200% baseline and maximum text/display settings, in portrait and
+   landscape, and in light/dark, bold/high-contrast, and reduced-motion modes.
+   Confirm one-dimensional reachability, a visible unobscured 48-point target,
+   complete unclamped labels, and no clipping, overlap, truncation, horizontal
+   scrolling, or sound-only state.
 
 ### PR5A Account additions
 
@@ -530,6 +632,16 @@ TalkBack cursor movement through those cross-platform callbacks, so it cannot
 establish same-account web synchronization against a real signed session,
 exact speech, native dialog behavior, or physical focus landing.
 
+The foreground-audio suites model explicit activation, canonical full-summary
+requests, cancellable preparation, pause/resume/replay labels, quiet progress
+updates, safe failures, route/app/account lifecycle teardown, bounded exact-byte
+cache staging, and idempotent cleanup. Article tests establish the
+lead-player-disclosure source order, lossless disclosure text, stable expanded
+state, and no duplicate lead. Config introspection and architecture rules prove
+the declared background/recording capability exclusions and narrow native
+library import seams. None of that runs a physical audio session or a real
+screen reader.
+
 Those suites cannot prove spoken output, rotor/Reading Controls behavior,
 route-entry or back-focus landing, real long-article reading order, native image
 loading or decoding, native font measurement, actual 200% or maximum OS text
@@ -546,6 +658,10 @@ Exact save/remove speech and state, native confirmation traversal, post-removal
 focus, same-account web synchronization, account-switch isolation, and Library
 reflow likewise remain open until the PR5B signed-account artifact and physical
 device rows are completed.
+Foreground audio output, interruption and route/background teardown, absence of
+system media controls and permission prompts, exact player-status speech, quiet
+progress updates, disclosure focus retention, and cache cleanup likewise remain
+open until the signed iOS and Android foreground-audio rows are completed.
 
 Use Apple's
 [accessibility testing guidance](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)

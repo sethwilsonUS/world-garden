@@ -55,9 +55,12 @@ account save and manage its Library. Home accepts a Wikipedia topic, Search
 shows public Wikipedia results, and each complete result card is one named link.
 Activating a result opens a native Article route with the article title and
 provenance, an optional lead thumbnail with visible attribution, the summary,
-and section headings with bounded paragraph reading stops. The article also
-exposes its Wikipedia source and applicable license as named external links.
-Public search and reading continue to work while signed out.
+and section headings with bounded paragraph reading stops. The summary appears
+as one visible lead sentence, then a foreground-only full-summary player, then
+an optional `Show full text summary` disclosure for the remaining text. The
+article also exposes its Wikipedia source and applicable license as named
+external links. Public search, reading, and foreground summary playback continue
+to work while signed out.
 
 Account represents loading, signed-out, connecting, connected, and bridge-error
 states without displaying token, issuer, session, or subject identifiers. Both
@@ -97,9 +100,11 @@ before native code can safely expose those operations.
 The native reader deliberately stops at the content it can represent faithfully.
 A richer web handoff explains that galleries, broader context, and citation
 details remain available on the canonical
-`https://curiogarden.org/article/...` page. Audio and playlist playback, offline
-downloads or article storage, and push notifications are not part of this
-slice.
+`https://curiogarden.org/article/...` page. Full-summary audio starts only after
+the listener activates its control; it never autoplays, stops when the Article
+route or app leaves the foreground, and does not resume automatically. Section
+or playlist playback, background or lock-screen playback, downloads, offline
+article or audio storage, and push notifications are not part of this slice.
 
 Web and native share the article-route codec in `@curio-garden/domain`. It
 normalizes titles to NFC, uses underscores for word separators, and encodes a
@@ -211,10 +216,16 @@ in `app.config.ts` keeps Expo's build-properties plugin aligned with Clerk's
 config plugin instead of letting plugin order produce a client that builds but
 cannot install or start on its declared iOS floor.
 
-Push notifications are intentionally disabled and not installed. Offline
-downloads, offline article storage, and guest/device Library persistence are
-outside the current implementation scope, as are native audio and playlist
-playback.
+Push notifications are intentionally disabled and not installed. The
+`expo-audio` config explicitly disables background playback, background
+recording, and microphone access; Android additionally blocks `RECORD_AUDIO`.
+Foreground summary playback stages one bounded response in the app cache only
+for the lifetime of the player lease. Controlled release deletes that file; the
+shared store scavenges stale entries once per cold JavaScript runtime without
+disturbing another route's still-releasing lease. This is a disposable native
+handoff, not a download or offline mode. Offline article or audio storage,
+guest/device Library persistence, section or playlist playback, and background
+media controls remain outside the current implementation scope.
 
 ## Accessibility verification
 
@@ -230,15 +241,18 @@ target geometry, safe error copy, stale-request handling, platform-specific
 status wiring, route-heading focus requests, the Article reading contract,
 Library save/remove state and modeled post-removal input-focus recovery, account-epoch
 isolation, and hosted-auth cancellation, completion, error, and
-focus-restoration behavior.
+focus-restoration behavior. They also cover the summary lead/player/disclosure
+order, user-initiated foreground playback, stable control and disclosure state,
+bounded ephemeral staging and cleanup, lifecycle cancellation without
+auto-resume, and generated native permission/background-service configuration.
 Run `npm run mobile:check` for the current test, type, configuration, and
 architecture result instead of relying on a recorded suite count. No automated
 suite proves exact spoken output, actual screen-reader focus landing, browser
 authentication accessibility, back-focus restoration across the browser
-boundary, touch exploration, or visual reflow at 200% and the operating
-systems' maximum text and display settings. Record those signed-build results
-in the matrix rather than carrying an older simulator or emulator result
-forward.
+boundary, physical audio-session behavior, lock-screen absence, touch
+exploration, or visual reflow at 200% and the operating systems' maximum text
+and display settings. Record those signed-build results in the matrix rather
+than carrying an older simulator or emulator result forward.
 
 Reusable screens and controls follow the documented
 [native accessibility conventions](../docs/native-accessibility-conventions.md),

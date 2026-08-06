@@ -1,15 +1,17 @@
 import {
   articleRouteFromTitle,
   normalizeMediaWikiNumericId,
+  splitArticleSummary,
   type WikimediaMediaAttribution,
   type WikipediaArticle,
   type WikipediaSection,
 } from "@curio-garden/domain";
-import { useState, type ReactElement } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { Image, StyleSheet, View } from "react-native";
 
 import { GardenText } from "../theme/GardenText";
 import { useGardenTheme } from "../theme/useGardenTheme";
+import { GardenButton } from "./GardenButton";
 import { GardenCard } from "./GardenCard";
 import {
   GardenLink,
@@ -211,6 +213,7 @@ export interface ArticleDocumentProps {
   onExternalLinkError: (attempt: GardenLinkAttempt) => void;
   onExternalLinkStart?: (attempt: GardenLinkAttempt) => void;
   openUrl?: (url: string) => Promise<unknown>;
+  summaryAudioPlayer: ReactNode;
 }
 
 /** Returns the canonical web destination without decoding and re-encoding it. */
@@ -467,6 +470,7 @@ export function ArticleDocument({
   onExternalLinkError,
   onExternalLinkStart,
   openUrl,
+  summaryAudioPlayer,
 }: ArticleDocumentProps): ReactElement {
   const { colors, radii, spacing } = useGardenTheme();
   const canonicalArticleUrl = buildCanonicalArticleUrl(article.title) ?? "";
@@ -483,7 +487,18 @@ export function ArticleDocument({
   const leadImageFailed =
     requestedLeadImage &&
     (leadImageUrl === null || failedLeadImageUrl === leadImageUrl);
-  const summaryParagraphs = splitArticleProse(article.summary ?? "");
+  const { lead: summaryLead, remainder: summaryRemainder } =
+    splitArticleSummary(article.summary ?? "");
+  const summaryLeadParagraphs = splitArticleProse(summaryLead ?? "");
+  const summaryRemainderParagraphs = splitArticleProse(summaryRemainder ?? "");
+  const summaryIdentity = `${article.wikiPageId}\u0000${article.revisionId}\u0000${article.narrationVersion}\u0000${article.summary ?? ""}`;
+  const [summaryDisclosure, setSummaryDisclosure] = useState(() => ({
+    expanded: false,
+    identity: summaryIdentity,
+  }));
+  const summaryExpanded =
+    summaryDisclosure.identity === summaryIdentity &&
+    summaryDisclosure.expanded;
   const sections = resolveSections(article.sections);
   const readableSectionCount = sections.filter(
     (section) => section.paragraphs.length > 0,
@@ -497,91 +512,81 @@ export function ArticleDocument({
       style={[styles.document, { gap: spacing.xxl }]}
       testID="article-document"
     >
-      <View accessible={false} style={{ gap: spacing.xs }}>
-        <GardenText color="accent" variant="eyebrow">
-          Wikipedia source
-        </GardenText>
-        <GardenText color="muted" variant="metadata">
-          {normalizedLanguage
-            ? `Wikipedia (${normalizedLanguage.toLocaleUpperCase("en-US")})`
-            : "Wikipedia"}
-          {normalizedRevisionId ? ` · Revision ${normalizedRevisionId}` : ""}
-        </GardenText>
-      </View>
+      {summaryLeadParagraphs.length > 0 ? (
+        <>
+          <View
+            accessible={false}
+            style={{ gap: spacing.md }}
+            testID="article-summary-lead"
+          >
+            {summaryLeadParagraphs.map((paragraph, index) => (
+              <GardenText
+                color="foreground2"
+                key={`summary-lead-${index}`}
+                testID={`article-summary-lead-paragraph-${index}`}
+                variant="intro"
+              >
+                {paragraph}
+              </GardenText>
+            ))}
+          </View>
 
-      {leadImageUrl && !leadImageFailed ? (
-        <Image
-          accessibilityLabel={`Lead image for ${article.title}`}
-          accessibilityRole="image"
-          accessible
-          onError={() => setFailedLeadImageUrl(leadImageUrl)}
-          resizeMode="contain"
-          source={{ uri: leadImageUrl }}
-          style={[
-            styles.leadImage,
-            {
-              aspectRatio: resolveLeadImageAspectRatio(
-                article.thumbnailWidth,
-                article.thumbnailHeight,
-              ),
-              backgroundColor: colors.surface3,
-              borderColor: colors.border,
-              borderRadius: radii.xl,
-            },
-          ]}
-          testID="article-lead-image"
-        />
+          {summaryAudioPlayer}
+
+          {summaryRemainderParagraphs.length > 0 ? (
+            <View accessible={false} style={{ gap: spacing.md }}>
+              <GardenButton
+                expanded={summaryExpanded}
+                hint={
+                  summaryExpanded
+                    ? "Hides the remaining text summary."
+                    : "Reveals the remaining text summary."
+                }
+                label={
+                  summaryExpanded
+                    ? "Hide full text summary"
+                    : "Show full text summary"
+                }
+                onPress={() =>
+                  setSummaryDisclosure((current) => ({
+                    expanded:
+                      current.identity === summaryIdentity
+                        ? !current.expanded
+                        : true,
+                    identity: summaryIdentity,
+                  }))
+                }
+                testID="article-summary-disclosure"
+                variant="secondary"
+              />
+              {summaryExpanded ? (
+                <View
+                  accessible={false}
+                  style={{ gap: spacing.md }}
+                  testID="article-summary-remainder"
+                >
+                  {summaryRemainderParagraphs.map((paragraph, index) => (
+                    <GardenText
+                      color="foreground2"
+                      key={`summary-remainder-${index}`}
+                      testID={`article-summary-remainder-paragraph-${index}`}
+                      variant="intro"
+                    >
+                      {paragraph}
+                    </GardenText>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </>
       ) : (
-        <View
-          accessible={false}
-          style={[
-            styles.imageFallback,
-            {
-              backgroundColor: colors.surface2,
-              borderColor: colors.border,
-              borderRadius: radii.xl,
-              padding: spacing.xxl,
-            },
-          ]}
-          testID="article-lead-image-unavailable"
-        >
-          <GardenText color="muted">
-            {requestedLeadImage
-              ? "Lead image unavailable."
-              : "No lead image is available for this revision."}
-          </GardenText>
-        </View>
+        <GardenText color="foreground2" variant="intro">
+          {readableSectionCount > 0
+            ? "No summary is available for this revision. Continue with the article sections below."
+            : "No summary is available for this revision."}
+        </GardenText>
       )}
-
-      {requestedLeadImage || hasLeadImageAttribution ? (
-        <ImageAttribution
-          attribution={article.thumbnailAttribution}
-          onExternalLinkError={onExternalLinkError}
-          onExternalLinkStart={onExternalLinkStart}
-          openUrl={openUrl}
-        />
-      ) : null}
-
-      <View accessible={false} style={{ gap: spacing.md }}>
-        {summaryParagraphs.length > 0 ? (
-          summaryParagraphs.map((paragraph, index) => (
-            <GardenText
-              color="foreground2"
-              key={`summary-${index}`}
-              testID={`article-summary-paragraph-${index}`}
-              variant="intro"
-            >
-              {paragraph}
-            </GardenText>
-          ))
-        ) : (
-          <GardenText color="foreground2" variant="intro">
-            {readableSectionCount > 0
-              ? "No summary is available for this revision. Continue with the article sections below."
-              : "No summary is available for this revision."}
-          </GardenText>
-        )}
-      </View>
 
       <View accessible={false} style={{ gap: spacing.sm }}>
         <GardenText accessibilityRole="header" variant="sectionTitle">
@@ -620,6 +625,77 @@ export function ArticleDocument({
           No article sections are available for this revision.
         </GardenText>
       )}
+
+      <View
+        accessible={false}
+        style={{ gap: spacing.xxl }}
+        testID="article-source-and-media"
+      >
+        <View accessible={false} style={{ gap: spacing.xs }}>
+          <GardenText color="accent" variant="eyebrow">
+            Wikipedia source
+          </GardenText>
+          <GardenText color="muted" variant="metadata">
+            {normalizedLanguage
+              ? `Wikipedia (${normalizedLanguage.toLocaleUpperCase("en-US")})`
+              : "Wikipedia"}
+            {normalizedRevisionId ? ` · Revision ${normalizedRevisionId}` : ""}
+          </GardenText>
+        </View>
+
+        {leadImageUrl && !leadImageFailed ? (
+          <Image
+            accessibilityLabel={`Lead image for ${article.title}`}
+            accessibilityRole="image"
+            accessible
+            onError={() => setFailedLeadImageUrl(leadImageUrl)}
+            resizeMode="contain"
+            source={{ uri: leadImageUrl }}
+            style={[
+              styles.leadImage,
+              {
+                aspectRatio: resolveLeadImageAspectRatio(
+                  article.thumbnailWidth,
+                  article.thumbnailHeight,
+                ),
+                backgroundColor: colors.surface3,
+                borderColor: colors.border,
+                borderRadius: radii.xl,
+              },
+            ]}
+            testID="article-lead-image"
+          />
+        ) : (
+          <View
+            accessible={false}
+            style={[
+              styles.imageFallback,
+              {
+                backgroundColor: colors.surface2,
+                borderColor: colors.border,
+                borderRadius: radii.xl,
+                padding: spacing.xxl,
+              },
+            ]}
+            testID="article-lead-image-unavailable"
+          >
+            <GardenText color="muted">
+              {requestedLeadImage
+                ? "Lead image unavailable."
+                : "No lead image is available for this revision."}
+            </GardenText>
+          </View>
+        )}
+
+        {requestedLeadImage || hasLeadImageAttribution ? (
+          <ImageAttribution
+            attribution={article.thumbnailAttribution}
+            onExternalLinkError={onExternalLinkError}
+            onExternalLinkStart={onExternalLinkStart}
+            openUrl={openUrl}
+          />
+        ) : null}
+      </View>
 
       <GardenCard testID="article-source-and-license">
         <GardenText accessibilityRole="header" variant="sectionTitle">

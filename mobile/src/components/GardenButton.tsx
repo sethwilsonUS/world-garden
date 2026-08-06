@@ -14,6 +14,7 @@ export interface GardenButtonProps {
   onPress: NonNullable<PressableProps["onPress"]>;
   busy?: boolean;
   disabled?: boolean;
+  expanded?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   /** Mirrors React Native's Pressable test hook. */
@@ -28,6 +29,7 @@ export function GardenButton({
   onPress,
   busy = false,
   disabled = false,
+  expanded,
   style,
   testID,
   testOnly_pressed,
@@ -50,7 +52,11 @@ export function GardenButton({
       accessibilityHint={hint}
       accessibilityLabel={visibleLabel}
       accessibilityRole="button"
-      accessibilityState={{ busy, disabled: unavailable }}
+      accessibilityState={{
+        busy,
+        disabled: unavailable,
+        ...(expanded === undefined ? {} : { expanded }),
+      }}
       disabled={unavailable}
       focusable={!unavailable}
       onBlur={() => setFocused(false)}
