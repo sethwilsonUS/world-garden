@@ -437,7 +437,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     expect(applyExpoAudioBackgroundSafety(once)).toEqual(once);
   });
 
-  it("checks without mutation and atomically replaces each preflighted file", () => {
+  it("checks without mutation and transactionally replaces every preflighted file", () => {
     const original = readInstalledSources();
     const projectRoot = createInstalledFixture(original);
     const originalState = getInstalledState(original);
@@ -456,6 +456,50 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
       changed: false,
       state: "patched",
     });
+  });
+
+  it("restores every source when a transactional replacement fails", () => {
+    const original = readInstalledSources();
+    const projectRoot = createInstalledFixture(original);
+    const originalRenameSync = fs.renameSync;
+    let replacementCount = 0;
+    const renameSpy = jest
+      .spyOn(fs, "renameSync")
+      .mockImplementation((oldPath, newPath) => {
+        if (
+          oldPath.toString().endsWith(".tmp") &&
+          replacementCount++ === 2
+        ) {
+          throw new Error("injected replacement failure");
+        }
+        originalRenameSync(oldPath, newPath);
+      });
+
+    try {
+      expect(() => patchInstalledExpoAudio(projectRoot, "apply")).toThrow(
+        /injected replacement failure/,
+      );
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect(readFixtureSources(projectRoot)).toEqual(original);
+
+    const packageRoot = path.join(projectRoot, "node_modules/expo-audio");
+    const transactionArtifacts = [
+      ...new Set(
+        Object.values(sourcePaths).map((installedPath) =>
+          path.dirname(
+            path.join(packageRoot, path.relative(expoAudioRoot, installedPath)),
+          ),
+        ),
+      ),
+    ].flatMap((directory) =>
+      fs
+        .readdirSync(directory)
+        .filter((name) => name.includes(".curio-garden-")),
+    );
+    expect(transactionArtifacts).toEqual([]);
   });
 
   it("does not write any target when version or source preflight fails", () => {

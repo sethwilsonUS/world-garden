@@ -262,9 +262,11 @@ backport for exactly `expo-audio` 57.0.3. It preflights thirteen reviewed source
 files across coherent pristine, prior background-only, and final playlist
 states before writing any file. Exact one-occurrence background transforms feed
 a SHA-256-pinned unified patch that modifies twelve files; every final source
-hash is checked in memory before per-file temporary replacement and verified
-again afterward. An unknown version, changed source, mixed state, or altered
-patch stops the build for review.
+hash is checked in memory, then every replacement and backup is staged and
+verified before any rename. A failed replacement restores every already-renamed
+source before the build exits; all final files are verified again afterward. An
+unknown version, changed source, mixed state, or altered patch stops the build
+for review.
 
 The mobile workspace opts only `expo-audio` out of Expo's precompiled native
 modules on iOS and Android. `preios`, `preandroid`, and EAS's

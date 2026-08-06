@@ -1252,16 +1252,118 @@ const applyExpoAudioPlaylistMediaSession = (sources, patchSource) => {
 const sha256 = (source) =>
   crypto.createHash("sha256").update(source).digest("hex");
 
-const writeAtomically = (filePath, source) => {
-  const temporaryPath = `${filePath}.curio-garden-${process.pid}.tmp`;
-  const mode = fs.statSync(filePath).mode;
+const removeIfExists = (filePath) => {
   try {
-    fs.writeFileSync(temporaryPath, source, { mode });
-    fs.renameSync(temporaryPath, filePath);
-  } finally {
-    if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
     }
+  }
+};
+
+const replaceFilesTransactionally = (replacements) => {
+  const transactionId = `${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+  const staged = replacements.map((replacement, index) => {
+    const mode = fs.statSync(replacement.filePath).mode;
+    return {
+      ...replacement,
+      backupPath: `${replacement.filePath}.curio-garden-${transactionId}-${index}.bak`,
+      mode,
+      temporaryPath: `${replacement.filePath}.curio-garden-${transactionId}-${index}.tmp`,
+    };
+  });
+
+  try {
+    for (const entry of staged) {
+      fs.writeFileSync(entry.temporaryPath, entry.source, {
+        flag: "wx",
+        mode: entry.mode,
+      });
+      fs.writeFileSync(entry.backupPath, entry.originalSource, {
+        flag: "wx",
+        mode: entry.mode,
+      });
+      if (
+        sha256(fs.readFileSync(entry.temporaryPath, "utf8")) !==
+          entry.patchedSha256 ||
+        sha256(fs.readFileSync(entry.backupPath, "utf8")) !==
+          entry.originalSha256
+      ) {
+        throw new Error(
+          `Expo Audio ${EXPO_AUDIO_VERSION} ${entry.relativePath} failed staged-write verification.`,
+        );
+      }
+    }
+
+    for (const entry of staged) {
+      if (
+        sha256(fs.readFileSync(entry.filePath, "utf8")) !==
+        entry.originalSha256
+      ) {
+        throw new Error(
+          `Expo Audio ${EXPO_AUDIO_VERSION} ${entry.relativePath} changed during transactional staging; refusing to replace any files.`,
+        );
+      }
+    }
+  } catch (error) {
+    for (const entry of staged) {
+      removeIfExists(entry.temporaryPath);
+      removeIfExists(entry.backupPath);
+    }
+    throw error;
+  }
+
+  const replaced = [];
+  try {
+    for (const entry of staged) {
+      fs.renameSync(entry.temporaryPath, entry.filePath);
+      replaced.push(entry);
+      if (
+        sha256(fs.readFileSync(entry.filePath, "utf8")) !== entry.patchedSha256
+      ) {
+        throw new Error(
+          `Expo Audio ${EXPO_AUDIO_VERSION} ${entry.relativePath} failed replacement verification.`,
+        );
+      }
+    }
+  } catch (error) {
+    const rollbackFailures = [];
+    for (const entry of [...replaced].reverse()) {
+      try {
+        fs.renameSync(entry.backupPath, entry.filePath);
+        if (
+          sha256(fs.readFileSync(entry.filePath, "utf8")) !==
+          entry.originalSha256
+        ) {
+          throw new Error("restored source hash did not match");
+        }
+      } catch (rollbackError) {
+        rollbackFailures.push(
+          `${entry.relativePath}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
+      }
+    }
+
+    for (const entry of staged) {
+      removeIfExists(entry.temporaryPath);
+      if (!fs.existsSync(entry.backupPath) || !replaced.includes(entry)) {
+        removeIfExists(entry.backupPath);
+      }
+    }
+
+    if (rollbackFailures.length > 0) {
+      throw new Error(
+        `Expo Audio ${EXPO_AUDIO_VERSION} replacement failed and rollback was incomplete (${rollbackFailures.join("; ")}). Preserved backup files require manual recovery.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+
+  for (const entry of staged) {
+    removeIfExists(entry.temporaryPath);
+    removeIfExists(entry.backupPath);
   }
 };
 
@@ -1364,9 +1466,18 @@ const patchInstalledExpoAudio = (projectRoot, mode = "apply") => {
 
   const shouldWrite = mode === "apply" && state !== "patched";
   if (shouldWrite) {
-    for (const [key, source] of Object.entries(patched)) {
-      writeAtomically(paths[key], source);
-    }
+    replaceFilesTransactionally(
+      Object.entries(patched)
+        .filter(([key, source]) => source !== sources[key])
+        .map(([key, source]) => ({
+          filePath: paths[key],
+          originalSha256: actualHashes[key],
+          originalSource: sources[key],
+          patchedSha256: sourceFiles[key].patchedSha256,
+          relativePath: sourceFiles[key].path,
+          source,
+        })),
+    );
     for (const [key, filePath] of Object.entries(paths)) {
       if (
         sha256(fs.readFileSync(filePath, "utf8")) !==
