@@ -6,18 +6,30 @@ import path from "node:path";
 
 import {
   applyExpoAudioBackgroundSafety,
+  applyExpoAudioPlaylistMediaSession,
   EXPO_AUDIO_BACKGROUND_SAFETY_MARKER,
   EXPO_AUDIO_VERSION,
   patchInstalledExpoAudio,
-  type ExpoAudioBackgroundSafetySources,
+  type ExpoAudioPlaylistMediaSessionSources,
 } from "../../scripts/expo-audio-background-safety";
 
 const expoAudioRoot = path.dirname(require.resolve("expo-audio/package.json"));
+const playlistPatchSource = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../patches/expo-audio-57.0.3-playlist-media-session.patch",
+  ),
+  "utf8",
+);
 
 const sourcePaths = {
   androidBaseAudioPlayer: path.join(
     expoAudioRoot,
     "android/src/main/java/expo/modules/audio/BaseAudioPlayer.kt",
+  ),
+  androidAudioPlaylist: path.join(
+    expoAudioRoot,
+    "android/src/main/java/expo/modules/audio/AudioPlaylist.kt",
   ),
   androidAudioModule: path.join(
     expoAudioRoot,
@@ -31,27 +43,40 @@ const sourcePaths = {
     expoAudioRoot,
     "android/src/main/java/expo/modules/audio/service/AudioControlsService.kt",
   ),
+  androidPlaybackServiceConnection: path.join(
+    expoAudioRoot,
+    "android/src/main/java/expo/modules/audio/service/AudioPlaybackServiceConnection.kt",
+  ),
+  androidMediaSessionCallback: path.join(
+    expoAudioRoot,
+    "android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt",
+  ),
+  iosAudioPlaylist: path.join(expoAudioRoot, "ios/AudioPlaylist.swift"),
+  iosAudioPlayer: path.join(expoAudioRoot, "ios/AudioPlayer.swift"),
+  iosAudioModule: path.join(expoAudioRoot, "ios/AudioModule.swift"),
   iosMediaController: path.join(expoAudioRoot, "ios/MediaController.swift"),
+  typescriptAudioModuleTypes: path.join(
+    expoAudioRoot,
+    "src/AudioModule.types.ts",
+  ),
+  builtAudioModuleTypes: path.join(
+    expoAudioRoot,
+    "build/AudioModule.types.d.ts",
+  ),
 } as const;
 
-const readInstalledSources = (): ExpoAudioBackgroundSafetySources => ({
-  androidBaseAudioPlayer: fs.readFileSync(
-    sourcePaths.androidBaseAudioPlayer,
-    "utf8",
-  ),
-  androidAudioModule: fs.readFileSync(sourcePaths.androidAudioModule, "utf8"),
-  androidAudioPlayer: fs.readFileSync(sourcePaths.androidAudioPlayer, "utf8"),
-  androidControlsService: fs.readFileSync(
-    sourcePaths.androidControlsService,
-    "utf8",
-  ),
-  iosMediaController: fs.readFileSync(sourcePaths.iosMediaController, "utf8"),
-});
+const readInstalledSources = (): ExpoAudioPlaylistMediaSessionSources =>
+  Object.fromEntries(
+    Object.entries(sourcePaths).map(([key, filePath]) => [
+      key,
+      fs.readFileSync(filePath, "utf8"),
+    ]),
+  ) as ExpoAudioPlaylistMediaSessionSources;
 
 const fixtureRoots: string[] = [];
 
 const createInstalledFixture = (
-  sources: ExpoAudioBackgroundSafetySources,
+  sources: ExpoAudioPlaylistMediaSessionSources,
   version = "57.0.3",
 ): string => {
   const projectRoot = fs.mkdtempSync(
@@ -73,7 +98,7 @@ const createInstalledFixture = (
     fs.mkdirSync(path.dirname(fixturePath), { recursive: true });
     fs.writeFileSync(
       fixturePath,
-      sources[key as keyof ExpoAudioBackgroundSafetySources],
+      sources[key as keyof ExpoAudioPlaylistMediaSessionSources],
     );
   }
   return projectRoot;
@@ -81,7 +106,7 @@ const createInstalledFixture = (
 
 const readFixtureSources = (
   projectRoot: string,
-): ExpoAudioBackgroundSafetySources => {
+): ExpoAudioPlaylistMediaSessionSources => {
   const packageRoot = path.join(projectRoot, "node_modules/expo-audio");
   return Object.fromEntries(
     Object.entries(sourcePaths).map(([key, installedPath]) => [
@@ -91,7 +116,56 @@ const readFixtureSources = (
         "utf8",
       ),
     ]),
-  ) as ExpoAudioBackgroundSafetySources;
+  ) as ExpoAudioPlaylistMediaSessionSources;
+};
+
+const listTransactionArtifacts = (projectRoot: string): string[] => {
+  const packageRoot = path.join(projectRoot, "node_modules/expo-audio");
+  return [
+    ...new Set(
+      Object.values(sourcePaths).map((installedPath) =>
+        path.dirname(
+          path.join(packageRoot, path.relative(expoAudioRoot, installedPath)),
+        ),
+      ),
+    ),
+  ].flatMap((directory) =>
+    fs
+      .readdirSync(directory)
+      .filter((name) => name.includes(".curio-garden-"))
+      .map((name) => path.join(directory, name)),
+  );
+};
+
+const getInstalledState = (
+  sources: ExpoAudioPlaylistMediaSessionSources,
+): "background" | "patched" | "pristine" => {
+  if (sources.androidAudioPlaylist.includes("isActiveForLockScreen")) {
+    return "patched";
+  }
+  if (
+    sources.androidBaseAudioPlayer.includes(EXPO_AUDIO_BACKGROUND_SAFETY_MARKER)
+  ) {
+    return "background";
+  }
+  return "pristine";
+};
+
+const buildExpectedPatchedSources = (
+  sources: ExpoAudioPlaylistMediaSessionSources,
+): ExpoAudioPlaylistMediaSessionSources => {
+  const state = getInstalledState(sources);
+  if (state === "patched") {
+    return sources;
+  }
+  const backgroundSources =
+    state === "background"
+      ? sources
+      : { ...sources, ...applyExpoAudioBackgroundSafety(sources) };
+  return applyExpoAudioPlaylistMediaSession(
+    backgroundSources,
+    playlistPatchSource,
+  );
 };
 
 afterEach(() => {
@@ -132,7 +206,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
   });
 
   it("keeps one Android audio-focus owner across UI and system play requests", () => {
-    const result = applyExpoAudioBackgroundSafety(readInstalledSources());
+    const result = buildExpectedPatchedSources(readInstalledSources());
 
     expect(result.androidAudioModule).toContain(
       EXPO_AUDIO_BACKGROUND_SAFETY_MARKER,
@@ -211,28 +285,26 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
   });
 
   it("routes modern and legacy Android system controls through that focus gate", () => {
-    const { androidControlsService } = applyExpoAudioBackgroundSafety(
+    const { androidControlsService } = buildExpectedPatchedSources(
       readInstalledSources(),
     );
 
+    expect(androidControlsService).toContain("activePlayer.requestPlayback()");
+    expect(androidControlsService).toContain("activePlayer.cancelPlayback()");
     expect(androidControlsService).toContain(
-      "activePlayer.requestPlaybackFromSystemControls()",
+      "override fun play() = playback.requestPlayback()",
     );
     expect(androidControlsService).toContain(
-      "activePlayer.cancelPlaybackFromSystemControls()",
-    );
-    expect(androidControlsService).toContain("override fun play() {");
-    expect(androidControlsService).toContain(
-      "player.requestPlaybackFromSystemControls()",
+      "override fun requestPlayback() = player.requestPlaybackFromSystemControls()",
     );
     expect(androidControlsService).toContain(
       "override fun setPlayWhenReady(playWhenReady: Boolean)",
     );
     expect(androidControlsService).toContain(
-      "if (playWhenReady) {\n          player.requestPlaybackFromSystemControls()",
+      "if (playWhenReady) {\n          playback.requestPlayback()",
     );
     expect(androidControlsService).toContain(
-      "override fun pause() {\n        player.cancelPlaybackFromSystemControls()",
+      "override fun pause() = playback.cancelPlayback()",
     );
     expect(androidControlsService).not.toMatch(
       /ACTION_PLAY[\s\S]{0,180}currentPlayerRef\.play\(\)/,
@@ -240,7 +312,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
   });
 
   it("removes every opaque iOS remote-command target before replacement", () => {
-    const { iosMediaController } = applyExpoAudioBackgroundSafety(
+    const { iosMediaController } = buildExpectedPatchedSources(
       readInstalledSources(),
     );
 
@@ -252,8 +324,129 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     expect(iosMediaController).toContain("command.removeTarget(target)");
     expect(
       iosMediaController.match(/remoteCommandTargets\.append/g),
-    ).toHaveLength(6);
+    ).toHaveLength(8);
     expect(iosMediaController).not.toContain("removeTarget(self)");
+  });
+
+  it("keeps queue transitions, metadata, and previous/next commands native", () => {
+    const result = buildExpectedPatchedSources(readInstalledSources());
+
+    expect(result.androidAudioPlaylist).toContain(
+      "internal val currentMetadata: Metadata?",
+    );
+    expect(result.androidAudioPlaylist).toContain(
+      "internal var metadata: List<Metadata?>",
+    );
+    expect(result.androidAudioPlaylist).toContain(
+      "private var playbackError: String? = null",
+    );
+    expect(result.androidAudioPlaylist).toContain('"error" to playbackError');
+    expect(result.androidAudioPlaylist).toContain(
+      "List(trackCount) { index -> metadata?.getOrNull(index) }",
+    );
+    expect(result.androidAudioPlaylist).toContain(
+      "serviceBinder.service.setPlaylistOptions(this, this.metadata, options)",
+    );
+    expect(result.androidAudioModule).toContain(
+      "playlist.onPlaybackRequested = { playWithAudioFocus(playlist) }",
+    );
+    expect(result.androidControlsService).toContain(
+      "private sealed class LockScreenPlayback",
+    );
+    expect(result.androidControlsService).toContain(
+      "ACTION_NEXT -> currentPlayerRef.seekToNextMediaItem()",
+    );
+    expect(result.androidControlsService).toContain(
+      "override fun requestPlayback() = playlist.requestPlaybackFromSystemControls()",
+    );
+    expect(result.androidControlsService).toContain(
+      "refreshCurrentMetadata(playback)",
+    );
+    expect(result.androidControlsService).toContain(
+      "private fun clearSessionInternal(expected: BaseAudioPlayer? = null)",
+    );
+    expect(result.androidMediaSessionCallback).toContain(
+      "private val allowTrackNavigation: Boolean",
+    );
+    expect(result.androidMediaSessionCallback).toContain(
+      "Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM",
+    );
+    expect(result.androidPlaybackServiceConnection).toContain(
+      "serviceBinder.service.setPlaylistOptions",
+    );
+    expect(result.androidPlaybackServiceConnection).toContain(
+      "service?.disconnect(player.get())",
+    );
+    expect(result.androidPlaybackServiceConnection).not.toContain(
+      "disconnect(player.get(), isReleased)",
+    );
+    expect(result.androidControlsService).toContain(
+      "fun disconnect(source: BaseAudioPlayer?)",
+    );
+    expect(result.androidControlsService).not.toContain(
+      "fun disconnect(source: BaseAudioPlayer?, released: Boolean)",
+    );
+
+    expect(result.iosAudioPlaylist).toContain(
+      "var isActiveForLockScreen = false",
+    );
+    expect(result.iosAudioPlaylist).toContain(
+      "private var playbackError: String?",
+    );
+    expect(result.iosAudioPlaylist).toContain("if status == .failed");
+    expect(result.iosAudioPlaylist).toContain('"error": playbackError');
+    expect(result.iosAudioPlaylist).toContain(
+      "var currentLockScreenMetadata: Metadata?",
+    );
+    expect(result.iosAudioPlaylist).toContain(
+      "private var lockScreenMetadata: [Metadata?]",
+    );
+    expect(result.iosAudioPlaylist).toContain(
+      "MediaController.shared.clearActivePlaylist(self)",
+    );
+    expect(result.iosAudioPlayer).toContain(
+      "MediaController.shared.clearActivePlayer(self)",
+    );
+    expect(result.iosAudioPlaylist).toContain(
+      "MediaController.shared.updateNowPlayingInfo(for: self)",
+    );
+    expect(result.iosAudioPlaylist).toMatch(
+      /if active \{\n      lockScreenMetadata = sources\.indices\.map/,
+    );
+    expect(result.iosMediaController).toContain(
+      "remoteCommandCenter.previousTrackCommand",
+    );
+    expect(result.iosMediaController).toContain(
+      "remoteCommandCenter.nextTrackCommand",
+    );
+    expect(result.iosMediaController).toContain(
+      "guard activePlayer?.id == player.id else",
+    );
+    expect(result.iosMediaController).toContain(
+      "private func clearActivePlayableOnMain",
+    );
+    expect(result.iosMediaController).toContain(
+      "nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyTitle)",
+    );
+    expect(result.iosMediaController).toContain(
+      "nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyArtist)",
+    );
+    expect(result.iosMediaController).toContain(
+      "nowPlayingInfo.removeValue(forKey: MPMediaItemPropertyAlbumTitle)",
+    );
+    expect(
+      result.iosMediaController.match(/remoteCommandTargets\.append/g),
+    ).toHaveLength(8);
+    expect(result.iosAudioModule).toContain(
+      'Function("setActiveForLockScreen") { (playlist: AudioPlaylist',
+    );
+
+    expect(result.typescriptAudioModuleTypes).toContain(
+      "setActiveForLockScreen(",
+    );
+    expect(result.builtAudioModuleTypes).toContain(
+      "clearLockScreenControls(): void;",
+    );
   });
 
   it("is idempotent after a clean prebuild has already applied it", () => {
@@ -262,14 +455,10 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     expect(applyExpoAudioBackgroundSafety(once)).toEqual(once);
   });
 
-  it("checks without mutation and atomically replaces each preflighted file", () => {
+  it("checks without mutation and transactionally replaces every preflighted file", () => {
     const original = readInstalledSources();
     const projectRoot = createInstalledFixture(original);
-    const originalState = original.androidAudioModule.includes(
-      EXPO_AUDIO_BACKGROUND_SAFETY_MARKER,
-    )
-      ? "patched"
-      : "pristine";
+    const originalState = getInstalledState(original);
 
     expect(patchInstalledExpoAudio(projectRoot, "check")).toEqual({
       changed: false,
@@ -279,12 +468,110 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
 
     patchInstalledExpoAudio(projectRoot, "apply");
     expect(readFixtureSources(projectRoot)).toEqual(
-      applyExpoAudioBackgroundSafety(original),
+      buildExpectedPatchedSources(original),
     );
     expect(patchInstalledExpoAudio(projectRoot, "apply")).toEqual({
       changed: false,
       state: "patched",
     });
+  });
+
+  it("restores every source when a transactional replacement fails", () => {
+    const original = readInstalledSources();
+    const projectRoot = createInstalledFixture(original);
+    const originalRenameSync = fs.renameSync;
+    let replacementCount = 0;
+    const renameSpy = jest
+      .spyOn(fs, "renameSync")
+      .mockImplementation((oldPath, newPath) => {
+        if (
+          oldPath.toString().endsWith(".tmp") &&
+          replacementCount++ === 2
+        ) {
+          throw new Error("injected replacement failure");
+        }
+        originalRenameSync(oldPath, newPath);
+      });
+
+    try {
+      expect(() => patchInstalledExpoAudio(projectRoot, "apply")).toThrow(
+        /injected replacement failure/,
+      );
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect(readFixtureSources(projectRoot)).toEqual(original);
+
+    expect(listTransactionArtifacts(projectRoot)).toEqual([]);
+  });
+
+  it("preserves and identifies a backup when rollback itself fails", () => {
+    const original = readInstalledSources();
+    const projectRoot = createInstalledFixture(original);
+    const originalRenameSync = fs.renameSync;
+    let replacementCount = 0;
+    let injectedRollbackFailure = false;
+    let preservedBackupPath: string | undefined;
+    let recoveryTargetPath: string | undefined;
+    const renameSpy = jest
+      .spyOn(fs, "renameSync")
+      .mockImplementation((oldPath, newPath) => {
+        const sourcePath = oldPath.toString();
+        if (sourcePath.endsWith(".tmp") && replacementCount++ === 2) {
+          throw new Error("injected replacement failure");
+        }
+        if (
+          sourcePath.endsWith(".bak.rollback.tmp") &&
+          !injectedRollbackFailure
+        ) {
+          injectedRollbackFailure = true;
+          preservedBackupPath = sourcePath.slice(
+            0,
+            -".rollback.tmp".length,
+          );
+          recoveryTargetPath = newPath.toString();
+          throw new Error("injected rollback failure");
+        }
+        originalRenameSync(oldPath, newPath);
+      });
+
+    let thrown: unknown;
+    try {
+      patchInstalledExpoAudio(projectRoot, "apply");
+    } catch (error) {
+      thrown = error;
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("Expected the injected transaction failure to throw.");
+    }
+    expect(thrown.message).toContain("rollback was incomplete");
+    expect(preservedBackupPath).toBeDefined();
+    expect(recoveryTargetPath).toBeDefined();
+    if (
+      preservedBackupPath === undefined ||
+      recoveryTargetPath === undefined
+    ) {
+      throw new Error("Expected rollback recovery paths to be captured.");
+    }
+    expect(thrown.message).toContain(preservedBackupPath);
+    const recoveryArtifacts = listTransactionArtifacts(projectRoot);
+    expect(recoveryArtifacts).toHaveLength(1);
+    const recoveryArtifact = recoveryArtifacts[0];
+    if (recoveryArtifact === undefined) {
+      throw new Error("Expected a preserved rollback recovery artifact.");
+    }
+    expect(fs.realpathSync(recoveryArtifact)).toBe(
+      fs.realpathSync(preservedBackupPath),
+    );
+
+    originalRenameSync(preservedBackupPath, recoveryTargetPath);
+    expect(readFixtureSources(projectRoot)).toEqual(original);
+    expect(listTransactionArtifacts(projectRoot)).toEqual([]);
   });
 
   it("does not write any target when version or source preflight fails", () => {
@@ -301,18 +588,23 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     };
     const changedSourceRoot = createInstalledFixture(changedSources);
     expect(() => patchInstalledExpoAudio(changedSourceRoot, "apply")).toThrow(
-      /does not match a reviewed pristine or patched source hash/,
+      /does not match a reviewed pristine, background-only, or playlist-patched source hash/,
     );
     expect(readFixtureSources(changedSourceRoot)).toEqual(changedSources);
   });
 
   it("fails closed when the pinned native source contract changes", () => {
     const sources = readInstalledSources();
+    const reviewedAnchor = sources.androidControlsService.includes(
+      "private sealed class LockScreenPlayback",
+    )
+      ? "private sealed class LockScreenPlayback"
+      : "private fun resolveSessionPlayer";
     const changed = {
       ...sources,
       androidControlsService: sources.androidControlsService.replace(
-        "private fun resolveSessionPlayer",
-        "private fun resolveChangedSessionPlayer",
+        reviewedAnchor,
+        "private fun changedReviewedAnchor",
       ),
     };
 

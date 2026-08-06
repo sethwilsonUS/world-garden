@@ -75,6 +75,7 @@ function harness() {
   };
   const runtime: BackgroundAudioRuntime = {
     configureBackgroundMode: jest.fn().mockResolvedValue(undefined),
+    createPlaylist: jest.fn(),
     createPlayer: jest.fn((_uri, listener) => {
       statusListener = listener;
       return player;

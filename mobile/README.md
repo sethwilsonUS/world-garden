@@ -258,11 +258,16 @@ defects that this slice cannot safely ship around at the JavaScript boundary:
   repeated player activation does not accumulate duplicate commands.
 
 `scripts/expo-audio-background-safety.js` is a mobile-owned, fail-closed source
-backport for exactly `expo-audio` 57.0.3. It verifies reviewed pristine or
-patched SHA-256 hashes for all five native files before writing any file,
-applies exact one-occurrence transforms, writes each file through a temporary
-file and rename, and verifies the resulting hashes. An unknown version, changed
-source, or partial patch stops the build for review.
+backport for exactly `expo-audio` 57.0.3. It preflights thirteen reviewed source
+files across coherent pristine, prior background-only, and final playlist
+states before writing any file. Exact one-occurrence background transforms feed
+a SHA-256-pinned unified patch that modifies twelve files; every final source
+hash is checked in memory, then every replacement and backup is staged and
+verified before any rename. A failed replacement restores every already-renamed
+source before the build exits; if that rollback is itself incomplete, the build
+reports every failure and preserves the named backup files as manual-recovery
+artifacts. All final files are verified again afterward. An unknown version,
+changed source, mixed state, or altered patch stops the build for review.
 
 The mobile workspace opts only `expo-audio` out of Expo's precompiled native
 modules on iOS and Android. `preios`, `preandroid`, and EAS's
@@ -279,9 +284,11 @@ local native builds. Direct `npx expo run:ios`, `npx expo run:android`, and
 a direct Expo command is required.
 
 When upgrading `expo-audio`, first verify in upstream native source that every
-Android UI and media-session play path requests focus through one owner and that
-iOS stores and removes the exact `MPRemoteCommand` tokens. Remove or update the
-backport, its source-build opt-out, and its tests only after both platform fixes
+Android UI and media-session play path requests focus through one owner, native
+playlists publish aligned per-track metadata and errors with previous/next
+commands, stale sessions cannot replace or clear a newer owner, and iOS stores
+and removes the exact `MPRemoteCommand` tokens. Remove or update the backport,
+its source-build opt-out, and its tests only after all four upstream conditions
 are present and the signed physical interruption/repeated-command matrix passes.
 
 ## Accessibility verification
