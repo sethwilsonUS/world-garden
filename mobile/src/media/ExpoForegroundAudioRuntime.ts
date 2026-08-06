@@ -8,39 +8,15 @@ export type ForegroundAudioPlaybackStatus = Readonly<{
   playing: boolean;
 }>;
 
-type NativePlaybackStatus = ForegroundAudioPlaybackStatus &
-  Readonly<Record<string, unknown>>;
+type InstalledExpoAudioModule = typeof import("expo-audio");
 
-interface ExpoAudioPlayerBoundary {
-  addListener: (
-    event: "playbackStatusUpdate",
-    listener: (status: NativePlaybackStatus) => void,
-  ) => Readonly<{ remove: () => void }>;
-  pause: () => void;
-  play: () => void;
-  release: () => void;
-  replace: (source: Readonly<{ uri: string }>) => void;
-  seekTo: (seconds: number) => Promise<void>;
-}
-
-export interface ExpoAudioBoundary {
-  createAudioPlayer: (
-    source: null,
-    options: Readonly<{
-      downloadFirst: false;
-      keepAudioSessionActive: false;
-      updateInterval: 500;
-    }>,
-  ) => ExpoAudioPlayerBoundary;
-  setAudioModeAsync: (mode: {
-    allowsBackgroundRecording: false;
-    allowsRecording: false;
-    interruptionMode: "doNotMix";
-    playsInSilentMode: true;
-    shouldPlayInBackground: false;
-    shouldRouteThroughEarpiece: false;
-  }) => Promise<void>;
-}
+// Keep the seam lazy-loadable and mockable, but derive every native signature
+// from the installed SDK so an Expo API change fails typecheck instead of being
+// hidden behind a structural cast.
+export type ExpoAudioBoundary = Pick<
+  InstalledExpoAudioModule,
+  "createAudioPlayer" | "setAudioModeAsync"
+>;
 
 export interface ForegroundAudioPlayer {
   pause: () => void;
@@ -109,6 +85,7 @@ export function createExpoForegroundAudioRuntime(
         nativePlayer.replace({ uri });
       } catch (error: unknown) {
         if (subscription !== null) safely(() => subscription?.remove());
+        safely(() => nativePlayer.remove());
         safely(() => nativePlayer.release());
         throw error;
       }
@@ -121,6 +98,7 @@ export function createExpoForegroundAudioRuntime(
           released = true;
           safely(() => nativePlayer.pause());
           safely(() => subscription?.remove());
+          safely(() => nativePlayer.remove());
           safely(() => nativePlayer.release());
         },
         seekTo: (seconds) => nativePlayer.seekTo(seconds),
@@ -130,6 +108,6 @@ export function createExpoForegroundAudioRuntime(
 }
 
 export async function loadExpoForegroundAudioRuntime(): Promise<ExpoForegroundAudioRuntime> {
-  const audio = (await import("expo-audio")) as unknown as ExpoAudioBoundary;
+  const audio: ExpoAudioBoundary = await import("expo-audio");
   return createExpoForegroundAudioRuntime(audio);
 }

@@ -650,6 +650,56 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     ).toBeOnTheScreen();
   });
 
+  it("turns an ephemeral store preparation failure into safe retry copy without requesting audio", async () => {
+    const setup = harness();
+    setup.store.prepare = jest.fn().mockResolvedValue({ status: "failed" });
+    renderPlayer(setup);
+
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play full summary audio" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Try summary audio again" }),
+      ).toBeOnTheScreen();
+    });
+    expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
+      "Could not play the summary audio. Please try again.",
+    );
+    expect(setup.requestSection).not.toHaveBeenCalled();
+  });
+
+  it("turns an invalid staged response into safe retry copy and releases the response", async () => {
+    const setup = harness();
+    setup.store.stage = jest.fn().mockResolvedValue({
+      reason: "invalid-response",
+      status: "failed",
+    });
+    setup.requestSection.mockResolvedValue({
+      accountEpoch,
+      release: setup.responseRelease,
+      response: readyResponse(),
+      status: "ready",
+    });
+    renderPlayer(setup);
+
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play full summary audio" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Try summary audio again" }),
+      ).toBeOnTheScreen();
+    });
+    expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
+      "Could not play the summary audio. Please try again.",
+    );
+    expect(screen.queryByText(/invalid-response/iu)).toBeNull();
+    expect(setup.responseRelease).toHaveBeenCalledTimes(1);
+  });
+
   it("turns a transport failure into safe retry copy", async () => {
     const setup = harness();
     setup.requestSection.mockResolvedValue({

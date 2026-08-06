@@ -61,6 +61,7 @@ describe("ExpoForegroundAudioRuntime", () => {
         return { remove: removeSubscription };
       }),
       clearLockScreenControls: jest.fn(),
+      remove: jest.fn(),
       pause: jest.fn(),
       play: jest.fn(),
       release: jest.fn(),
@@ -110,11 +111,15 @@ describe("ExpoForegroundAudioRuntime", () => {
     expect(nativePlayer.pause).toHaveBeenCalledTimes(2);
     expect(nativePlayer.seekTo).toHaveBeenCalledWith(0);
     expect(removeSubscription).toHaveBeenCalledTimes(1);
+    expect(nativePlayer.remove).toHaveBeenCalledTimes(1);
     expect(nativePlayer.release).toHaveBeenCalledTimes(1);
     expect(nativePlayer.pause.mock.invocationCallOrder[1]).toBeLessThan(
       removeSubscription.mock.invocationCallOrder[0] ?? 0,
     );
     expect(removeSubscription.mock.invocationCallOrder[0]).toBeLessThan(
+      nativePlayer.remove.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(nativePlayer.remove.mock.invocationCallOrder[0]).toBeLessThan(
       nativePlayer.release.mock.invocationCallOrder[0] ?? 0,
     );
 
@@ -140,11 +145,12 @@ describe("ExpoForegroundAudioRuntime", () => {
     },
   );
 
-  it("releases a native player when status-listener registration fails", () => {
+  it("removes and releases a native player when status-listener registration fails", () => {
     const nativePlayer = {
       addListener: jest.fn(() => {
         throw new Error("native listener");
       }),
+      remove: jest.fn(),
       pause: jest.fn(),
       play: jest.fn(),
       release: jest.fn(),
@@ -162,6 +168,10 @@ describe("ExpoForegroundAudioRuntime", () => {
       runtime.createPlayer("file:///private-cache/random-id.mp3", jest.fn()),
     ).toThrow("native listener");
     expect(nativePlayer.replace).not.toHaveBeenCalled();
+    expect(nativePlayer.remove).toHaveBeenCalledTimes(1);
     expect(nativePlayer.release).toHaveBeenCalledTimes(1);
+    expect(nativePlayer.remove.mock.invocationCallOrder[0]).toBeLessThan(
+      nativePlayer.release.mock.invocationCallOrder[0] ?? 0,
+    );
   });
 });

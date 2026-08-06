@@ -149,7 +149,9 @@ export function createNativeArticleAudioEphemeralStore({
     initializationPromise ??= (async () => {
       const backend = await resolveBackend();
       backend.ensureDirectory();
-      for (const entry of backend.listEntries()) entry.delete();
+      for (const entry of backend.listEntries()) {
+        await deleteWithBoundedRetry(entry);
+      }
       initialized = true;
     })();
     try {

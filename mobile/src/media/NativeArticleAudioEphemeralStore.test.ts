@@ -74,6 +74,35 @@ describe("NativeArticleAudioEphemeralStore", () => {
     expect(staleDirectory.delete).toHaveBeenCalledTimes(1);
   });
 
+  it("continues preparing and staging after bounded retries cannot delete one stale entry", async () => {
+    const { backend, file, staleDirectory, staleFile } = fakeBackend();
+    staleFile.delete.mockImplementation(() => {
+      throw new Error("stale file remains locked");
+    });
+    const store = createNativeArticleAudioEphemeralStore({
+      loadBackend: async () => backend,
+    });
+
+    await expect(store.prepare(new AbortController().signal)).resolves.toEqual({
+      status: "ready",
+    });
+    await expect(store.prepare(new AbortController().signal)).resolves.toEqual({
+      status: "ready",
+    });
+    const staged = await store.stage(
+      audioResponse(new Uint8Array([1, 2, 3, 4])),
+      new AbortController().signal,
+    );
+
+    expect(backend.listEntries).toHaveBeenCalledTimes(1);
+    expect(staleFile.delete).toHaveBeenCalledTimes(3);
+    expect(staleDirectory.delete).toHaveBeenCalledTimes(1);
+    expect(staged.status).toBe("ready");
+    expect(file.bytes).toEqual([1, 2, 3, 4]);
+    if (staged.status !== "ready") throw new Error("Expected staged audio");
+    await staged.lease.release();
+  });
+
   it("scavenges once per store so a second player cannot delete an active lease", async () => {
     const { backend, staleDirectory, staleFile } = fakeBackend();
     const store = createNativeArticleAudioEphemeralStore({
@@ -257,11 +286,9 @@ describe("NativeArticleAudioEphemeralStore", () => {
       loadBackend: async () => backend,
     });
     const controller = new AbortController();
-    let cancelStream!: () => void;
     const body = new ReadableStream<Uint8Array>({
       start(streamController) {
         streamController.enqueue(new Uint8Array([1, 2]));
-        cancelStream = () => streamController.close();
       },
     });
     const stage = store.stage(
@@ -279,7 +306,6 @@ describe("NativeArticleAudioEphemeralStore", () => {
     }
     expect(backend.createAudioFile).toHaveBeenCalledTimes(1);
     controller.abort();
-    cancelStream();
 
     await expect(stage).resolves.toEqual({ status: "cancelled" });
     expect(file.deleteMock).toHaveBeenCalledTimes(1);
