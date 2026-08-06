@@ -8,9 +8,14 @@
   },
   "scripts": {
     "start": "APP_VARIANT=development expo start --dev-client",
+    "preios": "npm run native:patch:apply",
     "ios": "APP_VARIANT=development expo run:ios",
+    "preandroid": "npm run native:patch:apply",
     "android": "APP_VARIANT=development expo run:android",
-    "lint": "eslint app src plugins app.config.ts",
+    "native:patch:apply": "node scripts/apply-expo-audio-background-safety.mjs --apply",
+    "native:patch:check": "node scripts/apply-expo-audio-background-safety.mjs --check",
+    "eas-build-post-install": "npm run native:patch:apply",
+    "lint": "eslint app src plugins scripts app.config.ts",
     "typecheck": "node scripts/run-typescript.mjs --noEmit",
     "test": "jest",
     "test:ci": "jest --runInBand",
@@ -18,7 +23,7 @@
     "dependencies:check": "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ expo install --check",
     "runtime:check": "node scripts/assert-single-runtime.mjs",
     "doctor": "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_Y2kuY3VyaW9nYXJkZW4uaW52YWxpZCQ expo-doctor",
-    "check": "npm-run-all lint typecheck test:ci bundle:check dependencies:check runtime:check doctor"
+    "check": "npm-run-all native:patch:check lint typecheck test:ci bundle:check dependencies:check runtime:check doctor"
   },
   "dependencies": {
     "@clerk/expo": "^4.2.1",
@@ -67,6 +72,18 @@
     "typescript": "~6.0.3"
   },
   "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-audio"
+        ]
+      },
+      "ios": {
+        "buildFromSource": [
+          "expo-audio"
+        ]
+      }
+    },
     "install": {
       "exclude": [
         "react",

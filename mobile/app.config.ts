@@ -113,6 +113,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       android: {
         package: identity.identifier,
         blockedPermissions: [
+          "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+          "android.permission.POST_NOTIFICATIONS",
           "android.permission.READ_EXTERNAL_STORAGE",
           "android.permission.RECORD_AUDIO",
           "android.permission.REORDER_TASKS",
@@ -132,7 +134,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         [
           "expo-audio",
           {
-            enableBackgroundPlayback: false,
+            enableBackgroundPlayback: true,
             enableBackgroundRecording: false,
             microphonePermission: false,
             recordAudioAndroid: false,

@@ -56,10 +56,10 @@ shows public Wikipedia results, and each complete result card is one named link.
 Activating a result opens a native Article route with the article title and
 provenance, an optional lead thumbnail with visible attribution, the summary,
 and section headings with bounded paragraph reading stops. The summary appears
-as one visible lead sentence, then a foreground-only full-summary player, then
+as one visible lead sentence, then a background-capable full-summary player, then
 an optional `Show full text summary` disclosure for the remaining text. The
 article also exposes its Wikipedia source and applicable license as named
-external links. Public search, reading, and foreground summary playback continue
+external links. Public search, reading, and summary playback continue
 to work while signed out.
 
 Account represents loading, signed-out, connecting, connected, and bridge-error
@@ -101,10 +101,17 @@ The native reader deliberately stops at the content it can represent faithfully.
 A richer web handoff explains that galleries, broader context, and citation
 details remain available on the canonical
 `https://curiogarden.org/article/...` page. Full-summary audio starts only after
-the listener activates its control; it never autoplays, stops when the Article
-route or app leaves the foreground, and does not resume automatically. Section
-or playlist playback, background or lock-screen playback, downloads, offline
-article or audio storage, and push notifications are not part of this slice.
+the listener activates its control and never autoplays. Once established, the
+native player survives ordinary app backgrounding and screen lock, exposes
+play/pause/scrub and ten-second seek controls, and reconciles native state when
+the app returns without regenerating or automatically resuming audio. Leaving
+the Article or changing article or account still releases it. Final release
+serializes native audio-session deactivation before deleting the staged file;
+an older player's deactivation cannot race behind and silence a newer player.
+Play All,
+section-by-section playback, previous/next track commands, a global player,
+downloads, offline article or audio storage, and push notifications are not
+part of this slice.
 
 Web and native share the article-route codec in `@curio-garden/domain`. It
 normalizes titles to NFC, uses underscores for word separators, and encodes a
@@ -217,15 +224,65 @@ config plugin instead of letting plugin order produce a client that builds but
 cannot install or start on its declared iOS floor.
 
 Push notifications are intentionally disabled and not installed. The
-`expo-audio` config explicitly disables background playback, background
-recording, and microphone access; Android additionally blocks `RECORD_AUDIO`.
-Foreground summary playback stages one bounded response in the app cache only
-for the lifetime of the player lease. Controlled release deletes that file; the
-shared store scavenges stale entries once per cold JavaScript runtime without
-disturbing another route's still-releasing lease. This is a disposable native
-handoff, not a download or offline mode. Offline article or audio storage,
-guest/device Library persistence, section or playlist playback, and background
-media controls remain outside the current implementation scope.
+`expo-audio` config enables background playback while explicitly disabling
+background recording and microphone access; Android additionally blocks
+`RECORD_AUDIO`, `FOREGROUND_SERVICE_MICROPHONE`, and `POST_NOTIFICATIONS`.
+Android's playback-only foreground service and media notification are activated
+only for a user-started media session and are not push-notification delivery.
+Summary playback stages one bounded response in the app cache only for the
+lifetime of the active player lease, including ordinary background playback.
+Controlled release first deactivates the final shared audio-session owner and
+then deletes that file; activation/deactivation transitions are serialized so
+a stale release cannot overtake a new play. The shared store scavenges stale
+entries once per cold JavaScript runtime without disturbing another route's
+still-releasing lease. This is a disposable native handoff, not a download or
+offline mode. Offline article or audio storage, guest/device Library
+persistence, Play All, section-by-section queues, previous/next track commands,
+and persisted playback progress remain outside the current implementation
+scope.
+
+### Pinned Expo Audio background-safety backport
+
+The installed `expo-audio` 57.0.3 native source has two background-control
+defects that this slice cannot safely ship around at the JavaScript boundary:
+
+- Android media-session play commands can call ExoPlayer directly and bypass
+  Expo Audio's module-owned audio-focus request. Curio Garden routes both UI and
+  system play/pause commands through one focus state machine, including delayed,
+  denied, cancelled, gained, and released focus. Cancellation clears both
+  delayed-play and interruption-resume intent, and a late gain with no remaining
+  play intent is immediately abandoned.
+- iOS block-based `MPRemoteCommand` registrations return opaque target tokens.
+  Expo Audio 57.0.3 discards those tokens and therefore cannot remove the
+  handlers it registered. Curio Garden retains and removes every exact token so
+  repeated player activation does not accumulate duplicate commands.
+
+`scripts/expo-audio-background-safety.js` is a mobile-owned, fail-closed source
+backport for exactly `expo-audio` 57.0.3. It verifies reviewed pristine or
+patched SHA-256 hashes for all five native files before writing any file,
+applies exact one-occurrence transforms, writes each file through a temporary
+file and rename, and verifies the resulting hashes. An unknown version, changed
+source, or partial patch stops the build for review.
+
+The mobile workspace opts only `expo-audio` out of Expo's precompiled native
+modules on iOS and Android. `preios`, `preandroid`, and EAS's
+`eas-build-post-install` hook apply the backport before a native build;
+`npm run mobile:check` verifies the pinned contract. There is deliberately no
+repository-root or mobile `postinstall`, so ordinary dependency installation
+and the production web build do not mutate native packages or inherit this
+workaround.
+
+Use the mobile workspace's `npm run ios` and `npm run android` entry points for
+local native builds. Direct `npx expo run:ios`, `npx expo run:android`, and
+`npx expo prebuild` invocations bypass `preios`/`preandroid`; run
+`npm run native:patch:apply` first and `npm run native:patch:check` afterward if
+a direct Expo command is required.
+
+When upgrading `expo-audio`, first verify in upstream native source that every
+Android UI and media-session play path requests focus through one owner and that
+iOS stores and removes the exact `MPRemoteCommand` tokens. Remove or update the
+backport, its source-build opt-out, and its tests only after both platform fixes
+are present and the signed physical interruption/repeated-command matrix passes.
 
 ## Accessibility verification
 
@@ -242,14 +299,17 @@ status wiring, route-heading focus requests, the Article reading contract,
 Library save/remove state and modeled post-removal input-focus recovery, account-epoch
 isolation, and hosted-auth cancellation, completion, error, and
 focus-restoration behavior. They also cover the summary lead/player/disclosure
-order, user-initiated foreground playback, stable control and disclosure state,
-bounded ephemeral staging and cleanup, lifecycle cancellation without
-auto-resume, and generated native permission/background-service configuration.
+order, user-initiated background playback, stable control and disclosure state,
+bounded ephemeral staging and cleanup, preparation cancellation, established
+player retention, foreground status reconciliation without auto-resume, and
+generated native permission/background-service configuration. They also cover
+reference-counted audio-session ownership, final deactivation before cache
+deletion, and the old-release/new-play transition race.
 Run `npm run mobile:check` for the current test, type, configuration, and
 architecture result instead of relying on a recorded suite count. No automated
 suite proves exact spoken output, actual screen-reader focus landing, browser
 authentication accessibility, back-focus restoration across the browser
-boundary, physical audio-session behavior, lock-screen absence, touch
+boundary, physical audio-session behavior, lock-screen control speech, touch
 exploration, or visual reflow at 200% and the operating systems' maximum text
 and display settings. Record those signed-build results in the matrix rather
 than carrying an older simulator or emulator result forward.
@@ -278,3 +338,6 @@ merely to silence audit output.
 
 The React 19.2.8 compatibility decision and required validation gates are
 recorded in the [native sidecar ADR](../docs/architecture/0001-expo-native-sidecar.md).
+The single-summary media-session boundary and its deliberate queue limitations
+are recorded in the
+[background summary playback ADR](../docs/architecture/0002-native-background-summary-playback.md).
