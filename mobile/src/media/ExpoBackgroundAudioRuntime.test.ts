@@ -143,10 +143,12 @@ describe("ExpoBackgroundAudioRuntime", () => {
     await player.seekTo(0);
     await player.release();
     await player.release();
+    await player.seekTo(9);
 
     expect(nativePlayer.play).toHaveBeenCalledTimes(1);
     expect(nativePlayer.pause).toHaveBeenCalledTimes(2);
     expect(nativePlayer.seekTo).toHaveBeenCalledWith(0);
+    expect(nativePlayer.seekTo).toHaveBeenCalledTimes(1);
     expect(nativePlayer.setActiveForLockScreen).toHaveBeenNthCalledWith(
       2,
       false,

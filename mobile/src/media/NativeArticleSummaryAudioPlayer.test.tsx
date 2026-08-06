@@ -361,6 +361,35 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     });
   });
 
+  it("preserves status progress received while resume activation is pending", async () => {
+    const resumed = deferred<void>();
+    const setup = harness();
+    renderPlayer(setup);
+    await beginPlayback(setup);
+
+    fireEvent.press(
+      screen.getByRole("button", { name: "Pause full summary audio" }),
+    );
+    (setup.player.play as jest.Mock).mockReturnValueOnce(resumed.promise);
+    fireEvent.press(
+      screen.getByRole("button", { name: "Resume full summary audio" }),
+    );
+
+    act(() => setup.emitStatus({ currentTime: 42, playing: true }));
+    expect(screen.getByTestId("summary-audio-time")).toHaveTextContent(
+      "0:42 of 1:30",
+    );
+
+    await act(async () => {
+      resumed.resolve();
+      await resumed.promise;
+    });
+
+    expect(screen.getByTestId("summary-audio-time")).toHaveTextContent(
+      "0:42 of 1:30",
+    );
+  });
+
   it("keeps preparation cancellable and ignores a late response", async () => {
     const setup = harness();
     const request =

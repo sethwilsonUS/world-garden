@@ -233,7 +233,8 @@ export function createExpoBackgroundAudioRuntime(
         },
         play,
         release,
-        seekTo: (seconds) => nativePlayer.seekTo(seconds),
+        seekTo: (seconds) =>
+          released ? Promise.resolve() : nativePlayer.seekTo(seconds),
       };
     },
   };

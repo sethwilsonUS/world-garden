@@ -272,6 +272,12 @@ repository-root or mobile `postinstall`, so ordinary dependency installation
 and the production web build do not mutate native packages or inherit this
 workaround.
 
+Use the mobile workspace's `npm run ios` and `npm run android` entry points for
+local native builds. Direct `npx expo run:ios`, `npx expo run:android`, and
+`npx expo prebuild` invocations bypass `preios`/`preandroid`; run
+`npm run native:patch:apply` first and `npm run native:patch:check` afterward if
+a direct Expo command is required.
+
 When upgrading `expo-audio`, first verify in upstream native source that every
 Android UI and media-session play path requests focus through one owner and that
 iOS stores and removes the exact `MPRemoteCommand` tokens. Remove or update the

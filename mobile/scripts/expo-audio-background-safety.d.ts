@@ -7,6 +7,7 @@ export type ExpoAudioBackgroundSafetySources = Readonly<{
 }>;
 
 export const EXPO_AUDIO_BACKGROUND_SAFETY_MARKER: string;
+export const EXPO_AUDIO_VERSION: string;
 export const applyExpoAudioBackgroundSafety: (
   sources: ExpoAudioBackgroundSafetySources,
 ) => ExpoAudioBackgroundSafetySources;

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const {
+  EXPO_AUDIO_VERSION,
   patchInstalledExpoAudio,
 } = require("./expo-audio-background-safety.js");
 
@@ -26,4 +27,6 @@ const action =
       ? "applied"
       : "already applied";
 
-process.stdout.write(`Expo Audio 57.0.3 safety backport ${action}.\n`);
+process.stdout.write(
+  `Expo Audio ${EXPO_AUDIO_VERSION} safety backport ${action}.\n`,
+);

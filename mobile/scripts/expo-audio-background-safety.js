@@ -1040,7 +1040,8 @@ const patchInstalledExpoAudio = (projectRoot, mode = "apply") => {
   }
 
   const state = distinctStates.values().next().value;
-  if (mode === "apply" && state === "pristine") {
+  const shouldWrite = mode === "apply" && state === "pristine";
+  if (shouldWrite) {
     for (const [key, source] of Object.entries(patched)) {
       writeAtomically(paths[key], source);
     }
@@ -1056,10 +1057,11 @@ const patchInstalledExpoAudio = (projectRoot, mode = "apply") => {
     }
   }
 
-  return { changed: state === "pristine", state };
+  return { changed: shouldWrite, state };
 };
 
 module.exports.applyExpoAudioBackgroundSafety = applyExpoAudioBackgroundSafety;
 module.exports.patchInstalledExpoAudio = patchInstalledExpoAudio;
+module.exports.EXPO_AUDIO_VERSION = EXPO_AUDIO_VERSION;
 module.exports.EXPO_AUDIO_BACKGROUND_SAFETY_MARKER =
   EXPO_AUDIO_BACKGROUND_SAFETY_MARKER;

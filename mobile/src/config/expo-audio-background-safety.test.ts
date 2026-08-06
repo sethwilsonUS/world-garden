@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   applyExpoAudioBackgroundSafety,
   EXPO_AUDIO_BACKGROUND_SAFETY_MARKER,
+  EXPO_AUDIO_VERSION,
   patchInstalledExpoAudio,
   type ExpoAudioBackgroundSafetySources,
 } from "../../scripts/expo-audio-background-safety";
@@ -103,6 +104,10 @@ afterEach(() => {
 });
 
 describe("the pinned Expo Audio background-playback safety backport", () => {
+  it("reports the exact installed Expo Audio version from one source of truth", () => {
+    expect(EXPO_AUDIO_VERSION).toBe(require("expo-audio/package.json").version);
+  });
+
   it("builds the patched module from source without touching web install hooks", () => {
     const mobilePackage = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"),
@@ -267,7 +272,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
       : "pristine";
 
     expect(patchInstalledExpoAudio(projectRoot, "check")).toEqual({
-      changed: originalState === "pristine",
+      changed: false,
       state: originalState,
     });
     expect(readFixtureSources(projectRoot)).toEqual(original);

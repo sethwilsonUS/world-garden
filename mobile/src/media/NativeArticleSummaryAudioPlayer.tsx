@@ -535,7 +535,7 @@ export function NativeArticleSummaryAudioPlayer({
               !target.controller.signal.aborted
             ) {
               updatePresentation({
-                ...presentation,
+                ...presentationRef.current,
                 kind: "playing",
                 message: "Playing the full summary.",
               });
@@ -564,7 +564,7 @@ export function NativeArticleSummaryAudioPlayer({
               !target.controller.signal.aborted
             ) {
               updatePresentation({
-                ...presentation,
+                ...presentationRef.current,
                 currentTime: 0,
                 kind: "playing",
                 message: "Playing the full summary from the beginning.",
