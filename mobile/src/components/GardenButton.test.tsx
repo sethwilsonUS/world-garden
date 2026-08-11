@@ -46,6 +46,21 @@ describe("GardenButton", () => {
     );
   });
 
+  it("supports a contextual accessible name without lengthening visible task copy", () => {
+    renderButton({
+      accessibilityLabel: "Listen to Origins in Pumpkin",
+      disabled: true,
+      label: "Listen",
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: "Listen to Origins in Pumpkin — unavailable",
+      }),
+    ).toBeDisabled();
+    expect(screen.getByText("Listen — unavailable")).toBeOnTheScreen();
+  });
+
   it("activates only from the release-semantic press event", () => {
     renderButton();
     const button = screen.getByRole("button", { name: "Explore a topic" });
@@ -93,6 +108,25 @@ describe("GardenButton", () => {
     });
     expect(button.props.accessibilityValue?.text).toBeUndefined();
     expect(screen.getByText(visibleLabel)).toBeOnTheScreen();
+
+    fireEvent.press(button);
+    expect(buttonProps.onPress).not.toHaveBeenCalled();
+  });
+
+  it("can retain focus when it becomes unavailable without activating", () => {
+    renderButton({ disabled: true, retainFocusWhenUnavailable: true });
+    const button = screen.getByRole("button", {
+      disabled: true,
+      name: "Explore a topic — unavailable",
+    });
+
+    expect(button).toHaveProp("focusable", true);
+    fireEvent(button, "focus");
+    expect(StyleSheet.flatten(button.props.style)).toMatchObject({
+      outlineOffset: 2,
+      outlineStyle: "solid",
+      outlineWidth: 3,
+    });
 
     fireEvent.press(button);
     expect(buttonProps.onPress).not.toHaveBeenCalled();

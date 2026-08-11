@@ -94,31 +94,47 @@ components or CSS across the architecture boundary.
   malformed, credentialed, or non-HTTPS values render as noninteractive text or
   an unavailable state rather than being passed to the operating system.
 
-## Article summary audio
+## Article audio
 
 - Keep the native Article source and accessibility order as one summary lead
-  sentence, the foreground player, one persistent summary disclosure, the
-  nonduplicated remainder while expanded, and then the article sections. The
-  full canonical summary remains the narration input; the visual split never
-  shortens or rewrites audio.
+  sentence; the article-audio heading, primary controls, time, synthetic-speech
+  notice, and status; one persistent summary disclosure with the nonduplicated remainder while
+  expanded; ordered audio-item rows; and then the complete Article text. The
+  full canonical summary remains the summary narration input; the visual split
+  never shortens or rewrites audio.
 - The disclosure exposes its current `expanded` state and changes its visible
   label between `Show full text summary` and `Hide full text summary` without
   replacing the focused control. Collapsed summary text is absent from both the
   visual and accessibility trees.
-- Playback begins only from a user press. Keep one operable player control
-  through preparation, play, pause, completion, replay, cancellation, and safe
-  retry states. Its visible label, accessible name, and action must agree.
-- Announce meaningful preparation, playback, pause, completion, cancellation,
-  and failure transitions through one player status. Do not announce elapsed
-  time ticks, and do not duplicate the Article route's load or Library status.
-- Leaving the active Article route, changing account epoch, or moving the app
-  out of the foreground stops and releases playback; returning to the route or
-  foreground never resumes automatically. Release the native player before
-  deleting its bounded private cache-file lease.
-- This foreground handoff exposes no background mode, lock-screen control,
-  microphone permission, download, or offline-storage promise. Automated state
-  and hierarchy checks are necessary but do not replace named-device
-  VoiceOver/TalkBack operation and spoken-output acceptance.
+- Playback begins only from a user press. Play All and every individually
+  playable summary/section row retain an operable control through preparation,
+  play, pause, completion, replay, cancellation, and safe retry states. Visible
+  state words remain inside the accessible name while that name adds the
+  article/section context and resulting action. Rows whose titles are spoken
+  equivalently add their stable Play All position so their names remain
+  distinguishable.
+- Heading-only transitions and sections without source text are visibly labeled
+  `Chapter transition` and `No source text`; neither becomes a false Listen
+  control. Previous and Next expose their direction in both visible and
+  accessible names and become programmatically disabled at queue bounds. If a
+  focused boundary control becomes unavailable after a transition, it remains
+  focusable, visibly focused, and inert instead of disappearing from focus.
+- Announce meaningful preparation progress, current-item changes, playback,
+  pause, completion, cancellation, and failure through one player status. Do
+  not announce elapsed-time ticks, and do not duplicate the Article route's
+  load or Library status.
+- Leaving the active Article route or changing article/account epoch releases
+  playback. Moving to the background cancels unfinished preparation, while an
+  activation that has actually started playback survives ordinary backgrounding
+  and screen lock. A created queue whose initial native play is still pending is
+  cancelled rather than allowed to start later.
+  Returning reconciles native status without generating, retrying, or resuming
+  automatically. Release the native player before deleting every bounded
+  private cache-file lease.
+- This handoff exposes no microphone or recording permission, download, offline
+  storage, or push-notification promise. Automated state and hierarchy checks
+  are necessary but do not replace named-device VoiceOver/TalkBack operation,
+  exact spoken-output, lock-screen, interruption, or maximum-text acceptance.
 
 ## Library and saved articles
 

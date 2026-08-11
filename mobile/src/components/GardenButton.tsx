@@ -8,6 +8,7 @@ import { useGardenTheme } from "../theme/useGardenTheme";
 export type GardenButtonVariant = "primary" | "secondary";
 
 export interface GardenButtonProps {
+  accessibilityLabel?: string;
   label: string;
   hint?: string;
   onFocus?: PressableProps["onFocus"];
@@ -15,6 +16,8 @@ export interface GardenButtonProps {
   busy?: boolean;
   disabled?: boolean;
   expanded?: boolean;
+  /** Keeps a currently focused sequential control in the accessibility order. */
+  retainFocusWhenUnavailable?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   /** Mirrors React Native's Pressable test hook. */
@@ -23,6 +26,7 @@ export interface GardenButtonProps {
 }
 
 export function GardenButton({
+  accessibilityLabel,
   label,
   hint,
   onFocus,
@@ -30,6 +34,7 @@ export function GardenButton({
   busy = false,
   disabled = false,
   expanded,
+  retainFocusWhenUnavailable = false,
   style,
   testID,
   testOnly_pressed,
@@ -45,26 +50,29 @@ export function GardenButton({
       ? " — unavailable"
       : "";
   const visibleLabel = `${label}${stateSuffix}`;
+  const accessibleLabel = `${accessibilityLabel ?? label}${stateSuffix}`;
 
   return (
     <Pressable
       accessible
       accessibilityHint={hint}
-      accessibilityLabel={visibleLabel}
+      accessibilityLabel={accessibleLabel}
       accessibilityRole="button"
       accessibilityState={{
         busy,
         disabled: unavailable,
         ...(expanded === undefined ? {} : { expanded }),
       }}
-      disabled={unavailable}
-      focusable={!unavailable}
+      disabled={retainFocusWhenUnavailable ? undefined : unavailable}
+      focusable={!unavailable || retainFocusWhenUnavailable}
       onBlur={() => setFocused(false)}
       onFocus={(event) => {
         setFocused(true);
         onFocus?.(event);
       }}
-      onPress={onPress}
+      onPress={(event) => {
+        if (!unavailable) onPress(event);
+      }}
       style={({ pressed }) => [
         styles.button,
         {
@@ -85,7 +93,7 @@ export function GardenButton({
               },
             ]
           : undefined,
-        focused && !unavailable
+        focused && (!unavailable || retainFocusWhenUnavailable)
           ? [
               styles.focused,
               {
@@ -107,7 +115,9 @@ export function GardenButton({
           style={[
             styles.label,
             { fontFamily: fonts.bodySemiBold },
-            (pressed || focused) && !unavailable && styles.interactionLabel,
+            (pressed || focused) &&
+              (!unavailable || retainFocusWhenUnavailable) &&
+              styles.interactionLabel,
           ]}
         >
           {visibleLabel}

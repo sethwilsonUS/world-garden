@@ -213,7 +213,7 @@ export interface ArticleDocumentProps {
   onExternalLinkError: (attempt: GardenLinkAttempt) => void;
   onExternalLinkStart?: (attempt: GardenLinkAttempt) => void;
   openUrl?: (url: string) => Promise<unknown>;
-  summaryAudioPlayer: ReactNode;
+  renderArticleAudioPlayer: (summaryDisclosure: ReactNode) => ReactNode;
 }
 
 /** Returns the canonical web destination without decoding and re-encoding it. */
@@ -470,7 +470,7 @@ export function ArticleDocument({
   onExternalLinkError,
   onExternalLinkStart,
   openUrl,
-  summaryAudioPlayer,
+  renderArticleAudioPlayer,
 }: ArticleDocumentProps): ReactElement {
   const { colors, radii, spacing } = useGardenTheme();
   const canonicalArticleUrl = buildCanonicalArticleUrl(article.title) ?? "";
@@ -505,6 +505,51 @@ export function ArticleDocument({
   ).length;
   const normalizedLanguage = article.language.normalize("NFC").trim();
   const normalizedRevisionId = normalizeMediaWikiNumericId(article.revisionId);
+  const summaryDisclosureNode =
+    summaryRemainderParagraphs.length > 0 ? (
+      <View accessible={false} style={{ gap: spacing.md }}>
+        <GardenButton
+          expanded={summaryExpanded}
+          hint={
+            summaryExpanded
+              ? "Hides the remaining text summary."
+              : "Reveals the remaining text summary."
+          }
+          label={
+            summaryExpanded
+              ? "Hide full text summary"
+              : "Show full text summary"
+          }
+          onPress={() =>
+            setSummaryDisclosure((current) => ({
+              expanded:
+                current.identity === summaryIdentity ? !current.expanded : true,
+              identity: summaryIdentity,
+            }))
+          }
+          testID="article-summary-disclosure"
+          variant="secondary"
+        />
+        {summaryExpanded ? (
+          <View
+            accessible={false}
+            style={{ gap: spacing.md }}
+            testID="article-summary-remainder"
+          >
+            {summaryRemainderParagraphs.map((paragraph, index) => (
+              <GardenText
+                color="foreground2"
+                key={`summary-remainder-${index}`}
+                testID={`article-summary-remainder-paragraph-${index}`}
+                variant="intro"
+              >
+                {paragraph}
+              </GardenText>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    ) : null;
 
   return (
     <View
@@ -513,73 +558,22 @@ export function ArticleDocument({
       testID="article-document"
     >
       {summaryLeadParagraphs.length > 0 ? (
-        <>
-          <View
-            accessible={false}
-            style={{ gap: spacing.md }}
-            testID="article-summary-lead"
-          >
-            {summaryLeadParagraphs.map((paragraph, index) => (
-              <GardenText
-                color="foreground2"
-                key={`summary-lead-${index}`}
-                testID={`article-summary-lead-paragraph-${index}`}
-                variant="intro"
-              >
-                {paragraph}
-              </GardenText>
-            ))}
-          </View>
-
-          {summaryAudioPlayer}
-
-          {summaryRemainderParagraphs.length > 0 ? (
-            <View accessible={false} style={{ gap: spacing.md }}>
-              <GardenButton
-                expanded={summaryExpanded}
-                hint={
-                  summaryExpanded
-                    ? "Hides the remaining text summary."
-                    : "Reveals the remaining text summary."
-                }
-                label={
-                  summaryExpanded
-                    ? "Hide full text summary"
-                    : "Show full text summary"
-                }
-                onPress={() =>
-                  setSummaryDisclosure((current) => ({
-                    expanded:
-                      current.identity === summaryIdentity
-                        ? !current.expanded
-                        : true,
-                    identity: summaryIdentity,
-                  }))
-                }
-                testID="article-summary-disclosure"
-                variant="secondary"
-              />
-              {summaryExpanded ? (
-                <View
-                  accessible={false}
-                  style={{ gap: spacing.md }}
-                  testID="article-summary-remainder"
-                >
-                  {summaryRemainderParagraphs.map((paragraph, index) => (
-                    <GardenText
-                      color="foreground2"
-                      key={`summary-remainder-${index}`}
-                      testID={`article-summary-remainder-paragraph-${index}`}
-                      variant="intro"
-                    >
-                      {paragraph}
-                    </GardenText>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-        </>
+        <View
+          accessible={false}
+          style={{ gap: spacing.md }}
+          testID="article-summary-lead"
+        >
+          {summaryLeadParagraphs.map((paragraph, index) => (
+            <GardenText
+              color="foreground2"
+              key={`summary-lead-${index}`}
+              testID={`article-summary-lead-paragraph-${index}`}
+              variant="intro"
+            >
+              {paragraph}
+            </GardenText>
+          ))}
+        </View>
       ) : (
         <GardenText color="foreground2" variant="intro">
           {readableSectionCount > 0
@@ -588,9 +582,11 @@ export function ArticleDocument({
         </GardenText>
       )}
 
+      {renderArticleAudioPlayer(summaryDisclosureNode)}
+
       <View accessible={false} style={{ gap: spacing.sm }}>
         <GardenText accessibilityRole="header" variant="sectionTitle">
-          Explore this article
+          Article text
         </GardenText>
         <GardenText color="muted" variant="metadata">
           {readableSectionCount === 1

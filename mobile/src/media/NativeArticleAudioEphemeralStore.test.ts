@@ -154,6 +154,7 @@ describe("NativeArticleAudioEphemeralStore", () => {
 
     expect(result.status).toBe("ready");
     if (result.status !== "ready") throw new Error("Expected staged audio");
+    expect(result.lease.byteLength).toBe(4);
     expect(result.lease.uri).toBe("file:///private-cache/random-id.mp3");
     expect(file.bytes).toEqual([1, 2, 3, 4]);
     expect(backend.createAudioFile).toHaveBeenCalledTimes(1);

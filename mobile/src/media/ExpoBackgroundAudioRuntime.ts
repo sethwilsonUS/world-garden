@@ -11,6 +11,7 @@ export type BackgroundAudioPlaybackStatus = Readonly<{
 export type BackgroundAudioPlaylistStatus = BackgroundAudioPlaybackStatus &
   Readonly<{
     currentIndex: number;
+    ended: boolean;
     playbackRate: number;
     trackCount: number;
   }>;
@@ -65,9 +66,10 @@ type NativeAudioPlaybackStatus = ReturnType<
 >["currentStatus"];
 type NativeAudioPlaylistStatus = InstalledAudioPlaylist["currentStatus"] &
   Readonly<{
-    // Expo Audio 57.0.3 omits this from its playlist status type. The pinned
-    // native patch emits it while this optional seam keeps pristine installs
+    // Expo Audio 57.0.3 omits these from its playlist status type. The pinned
+    // native patch emits them while this optional seam keeps pristine installs
     // typecheckable before the native build hook runs.
+    ended?: boolean;
     error?: string | null;
   }>;
 
@@ -270,6 +272,7 @@ function normalizePlaylistStatus(
     currentTime: status.currentTime,
     didJustFinish: status.didJustFinish,
     duration: status.duration,
+    ended: status.ended === true,
     error: typeof status.error === "string" ? status.error : null,
     isBuffering: status.isBuffering,
     isLoaded: status.isLoaded,

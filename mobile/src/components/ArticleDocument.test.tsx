@@ -5,6 +5,7 @@ import {
   waitFor,
 } from "@testing-library/react-native";
 import type { WikipediaArticle } from "@curio-garden/domain";
+import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
@@ -54,7 +55,9 @@ function renderDocument(
     onExternalLinkError: jest.fn(),
     onExternalLinkStart: jest.fn(),
     openUrl: jest.fn().mockResolvedValue(undefined),
-    summaryAudioPlayer: <View testID="article-summary-audio-player" />,
+    renderArticleAudioPlayer: (summaryDisclosure: ReactNode) => (
+      <View testID="article-audio-player">{summaryDisclosure}</View>
+    ),
     ...propOverrides,
   };
 
@@ -254,7 +257,7 @@ describe("ArticleDocument", () => {
 
     const headings = screen.getAllByRole("header");
     expect(headings).toHaveLength(7);
-    expect(headings[0]).toHaveAccessibleName("Explore this article");
+    expect(headings[0]).toHaveAccessibleName("Article text");
     expect(headings[1]).toHaveAccessibleName("Foundations");
     expect(headings[2]).toHaveAccessibleName("Origins");
     expect(headings[3]).toHaveAccessibleName("Early life");
@@ -358,9 +361,9 @@ describe("ArticleDocument", () => {
     const testIds = collectTestIds(view.toJSON());
 
     expect(testIds.indexOf("article-summary-lead")).toBeLessThan(
-      testIds.indexOf("article-summary-audio-player"),
+      testIds.indexOf("article-audio-player"),
     );
-    expect(testIds.indexOf("article-summary-audio-player")).toBeLessThan(
+    expect(testIds.indexOf("article-audio-player")).toBeLessThan(
       testIds.indexOf("article-summary-disclosure"),
     );
     expect(testIds.indexOf("article-summary-disclosure")).toBeLessThan(
@@ -377,12 +380,10 @@ describe("ArticleDocument", () => {
     );
   });
 
-  it("omits disclosure for one sentence and omits audio for no summary", () => {
+  it("omits disclosure for one sentence and keeps section audio ahead of text when no summary exists", () => {
     const view = renderDocument({ summary: "One complete sentence." });
 
-    expect(
-      screen.getByTestId("article-summary-audio-player"),
-    ).toBeOnTheScreen();
+    expect(screen.getByTestId("article-audio-player")).toBeOnTheScreen();
     expect(screen.queryByTestId("article-summary-disclosure")).toBeNull();
 
     view.rerender(
@@ -395,13 +396,22 @@ describe("ArticleDocument", () => {
           onExternalLinkError={view.onExternalLinkError}
           onExternalLinkStart={view.onExternalLinkStart}
           openUrl={view.openUrl}
-          summaryAudioPlayer={<View testID="article-summary-audio-player" />}
+          renderArticleAudioPlayer={(summaryDisclosure) => (
+            <View testID="article-audio-player">{summaryDisclosure}</View>
+          )}
         />
       </GardenThemeProvider>,
     );
 
-    expect(screen.queryByTestId("article-summary-audio-player")).toBeNull();
+    expect(screen.getByTestId("article-audio-player")).toBeOnTheScreen();
     expect(screen.queryByTestId("article-summary-disclosure")).toBeNull();
+    const noSummaryTestIds = collectTestIds(view.toJSON());
+    expect(
+      noSummaryTestIds.indexOf("article-audio-player"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(noSummaryTestIds.indexOf("article-audio-player")).toBeLessThan(
+      noSummaryTestIds.indexOf("article-section-0"),
+    );
   });
 
   it("collapses disclosed text when the rendered article identity changes", () => {
@@ -427,7 +437,9 @@ describe("ArticleDocument", () => {
           onExternalLinkError={view.onExternalLinkError}
           onExternalLinkStart={view.onExternalLinkStart}
           openUrl={view.openUrl}
-          summaryAudioPlayer={<View testID="article-summary-audio-player" />}
+          renderArticleAudioPlayer={(summaryDisclosure) => (
+            <View testID="article-audio-player">{summaryDisclosure}</View>
+          )}
         />
       </GardenThemeProvider>,
     );
@@ -545,7 +557,9 @@ describe("ArticleDocument", () => {
           onExternalLinkError={view.onExternalLinkError}
           onExternalLinkStart={view.onExternalLinkStart}
           openUrl={view.openUrl}
-          summaryAudioPlayer={<View testID="article-summary-audio-player" />}
+          renderArticleAudioPlayer={(summaryDisclosure) => (
+            <View testID="article-audio-player">{summaryDisclosure}</View>
+          )}
         />
       </GardenThemeProvider>,
     );

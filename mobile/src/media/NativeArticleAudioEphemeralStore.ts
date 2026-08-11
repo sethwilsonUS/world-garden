@@ -1,5 +1,7 @@
 export const MAX_NATIVE_ARTICLE_AUDIO_BYTES = 16 * 1024 * 1024;
 
+// Preserve the original directory name across upgrades so the first activation
+// still scavenges files created by the earlier summary-only player.
 const ARTICLE_AUDIO_CACHE_DIRECTORY = "curio-article-summary-audio";
 const STAGED_FILE_DELETE_ATTEMPTS = 3;
 
@@ -20,6 +22,7 @@ export interface NativeArticleAudioEphemeralBackend {
 }
 
 export interface NativeArticleAudioEphemeralLease {
+  readonly byteLength: number;
   readonly uri: string;
   release: () => Promise<void>;
 }
@@ -253,6 +256,7 @@ export function createNativeArticleAudioEphemeralStore({
         file = null;
         return {
           lease: {
+            byteLength: declaredLength,
             release: async () => {
               if (released) return;
               released = await deleteWithBoundedRetry(stagedFile);
@@ -292,3 +296,10 @@ export function createNativeArticleAudioEphemeralStore({
     },
   };
 }
+
+/**
+ * All article-audio surfaces share one activation boundary so a newly mounted
+ * player cannot scavenge files still leased by the player it is replacing.
+ */
+export const defaultNativeArticleAudioEphemeralStore =
+  createNativeArticleAudioEphemeralStore();

@@ -288,41 +288,59 @@ preserve this account and accessibility contract:
 | Signed iOS VoiceOver, Library save/remove and sync    | No trusted physical iPhone attached             | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast         | Blocked | Register and connect a supported iPhone, install a signed build, and complete the PR5B additions below. VoiceOver is unavailable in Simulator.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Signed Android TalkBack, Library save/remove and sync | No physical Android device attached             | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast | Not run | Install the signed build on named hardware and complete the PR5B additions below. Emulator results remain supplementary.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
-## Full-summary background audio contract
+## Article background audio contract
 
 This slice extends the native Article without carrying earlier Article evidence
 forward as audio evidence. Within the loaded article document, the current
-reading order is the one visible summary lead sentence, the full-summary player,
-the optional full-text disclosure and its expanded remainder, real section
-headings and complete paragraph stops, then source, media, license, and richer-web
-content. Route navigation, heading, status, and Library controls remain ahead of
-the article document. The audio addition must also preserve this contract:
+reading order is the one visible summary lead sentence; the article-audio
+heading, controls, time, synthetic-speech notice, and status; the optional
+full-text disclosure and expanded remainder; ordered audio-item rows; real
+section headings and complete paragraph stops; then source, media, license, and
+richer-web content. Route navigation, heading, status, and Library controls
+remain ahead of the article document. The audio addition must also preserve this
+contract:
 
 - Loading an Article never requests, stages, or plays audio. Only activation of
-  `Play full summary audio` may begin preparation. The resulting audio covers the
-  canonical full summary even while the text remainder is collapsed.
-- The player remains one operable control whose visible and accessible name
-  follows its state: play, cancel preparation, pause, resume, replay, or retry.
+  Play All or an individually playable Summary/section row may begin
+  preparation. Summary audio still covers the canonical full summary while its
+  text remainder is collapsed; source-array indexes remain unchanged when
+  empty headings are shown or skipped.
+- Play All and each playable row expose an operable control whose visible and
+  accessible name follows its state: play/listen, cancel preparation, pause,
+  resume, replay, or retry. The visible state word remains in the accessible
+  name while article/section context and the resulting action are added.
+  Spoken-equivalent duplicate titles include a stable queue position so their
+  controls remain distinguishable.
   Preparing, playing, paused, finished, stopped, cancelled, and safe failure
-  status is visible. Time progress is readable on demand but is not a live region
-  and must not announce on every update.
+  status is visible. Time progress is readable on demand but is not a live
+  region and must not announce on every update.
 - `Show full text summary` begins collapsed with programmatic expanded state set
   to false and no hidden remainder in the accessibility tree. Activation keeps
   focus on the same control, changes it to `Hide full text summary` with expanded
   state true, and reveals the complete unclamped remainder without repeating the
-  lead. A one-sentence summary omits the disclosure; an absent summary omits both
-  disclosure and player.
-- Preparation remains foreground-bound: reaching the background before a native
-  player exists cancels the request and cleans up any late response. Once the
-  player is established, ordinary `inactive` transitions, app backgrounding,
-  and screen lock retain the player and disposable cache lease. Returning reads
-  the native status without issuing a new request or automatically resuming.
-- Lock-screen/media controls expose the summary title, Wikipedia source, Curio
-  Garden identity, play/pause, scrub, and ten-second seek actions. Leaving the
-  Article, changing article or account epoch, unmounting, cancellation, or
-  failure revokes those controls, releases the player, and then deletes the
-  private file. Play All, section-by-section queues, previous/next track
-  commands, and automatic background section transitions remain absent.
+  lead. A one-sentence summary omits the disclosure. An absent summary omits its
+  summary row but must not hide available section audio.
+- Heading-only parents are visibly labeled `Chapter transition`, participate in
+  Play All, and expose no false individual Listen action. Empty headings with no
+  narration are labeled `No source text` and remain noninteractive. Current
+  item state is conveyed by status and text as well as color. Previous and Next
+  are 48-point controls and expose disabled state at the first/last item. A
+  currently focused boundary control remains focusable, visibly focused, and
+  inert if a transition makes it unavailable.
+- Preparation remains foreground-bound: reaching the background before initial
+  native playback activation completes cancels the request and cleans up any
+  late response, queue, or lease. Once playback has started, ordinary `inactive`
+  transitions, app
+  backgrounding, and screen lock retain the queue and disposable cache leases.
+  Returning reads native status without issuing a new request or automatically
+  resuming.
+- Lock-screen/media controls expose the current summary/section title,
+  Wikipedia source, Curio Garden identity, play/pause, scrub/seek, and bounded
+  previous/next actions. Native transitions update aligned metadata and the
+  visible current-item status. Durable terminal state lets app and system replay
+  restart an exhausted queue at item zero. Leaving the Article, changing article or account
+  epoch, unmounting, cancellation, or failure revokes those controls, releases
+  the player, and then deletes every private file.
 - Native play awaits shared audio-session activation. The final owning player
   awaits session deactivation before its private file is deleted, and an older
   release cannot overtake and silence a newer play. On physical hardware,
@@ -337,31 +355,36 @@ the article document. The audio addition must also preserve this contract:
   and releasing the summary player must not multiply play, pause, toggle, scrub,
   or skip callbacks; one system action produces one state transition.
 - No microphone prompt, recording mode, storage permission, download affordance,
-  push-notification permission, playlist, or offline claim may appear. Android's
-  active media-session notification is expected only after user-started playback
-  and must not be described as push delivery.
-- The temporary MP3 handoff is content-type and exact-length checked, bounded to
-  16 MiB, stored only under the app cache, and deleted on controlled release.
-  Stale entries are scavenged once by the shared store during a cold JavaScript
-  runtime. It is not Library state or an offline cache.
+  push-notification permission, personal Playlist, or offline claim may appear.
+  Android's active media-session notification is expected only after
+  user-started playback and must not be described as push delivery.
+- Every temporary MP3 handoff is content-type and exact-length checked, bounded
+  to 16 MiB, stored only under the app cache, and deleted on controlled release.
+  Play All additionally fails closed above 64 tracks or 256 MiB of active
+  leases while individual section playback remains available. Declared bytes
+  are checked before staging and actual lease bytes before aggregate retention.
+  Stale entries are
+  scavenged once by the shared store during a cold JavaScript runtime. These
+  files are not Library state or an offline cache.
 - Player, disclosure, status, and error copy remain complete at 200% and maximum
   text/display settings. The control stays at least 48 by 48, reflows without a
   fixed text height, exposes visible focus, and does not rely on color, timing,
   or sound alone.
 
-| Gate                                                   | Environment and build                                      | Settings                                                                                                                                   | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Supplementary background-audio configuration and seams | Final local pre-PR mobile validation; current working tree | Generated iOS/Android config, injected runtime, lifecycle model, both platform bundles, and static import graph; no physical audio session | Pass    | Mobile lint and TypeScript, all 47 suites and 620 tests, both Expo bundles, dependency and single-runtime validation, all 20 Expo Doctor checks, and `npm run arch` pass. Introspection proves playback-only iOS background mode and Android media-service declarations while microphone, recording, push permission, and recording service stay absent. Architecture permits `expo-file-system` and `expo-audio` only in the dedicated ephemeral store and background runtime and bans push SDK imports. This does not prove hardware behavior. |
-| Supplementary Android native source build              | Local arm64 debug APK; Android API 36 toolchain            | No screen reader or competing physical audio route                                                                                         | Pass    | Gradle compiled patched `expo-audio` 57.0.3 from Kotlin source and assembled the complete 94 MB debug APK. The merged manifest contains `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and no microphone, recording, storage, or notification permission. This proves compilation and packaging, not TalkBack, real focus competition, notification behavior, or hardware audio.                                                                                                                                                                            |
-| Supplementary iOS native source build                  | Local iOS Simulator debug app; Xcode 26.6 / iOS 26.5 SDK   | No VoiceOver or physical interruption route                                                                                                | Pass    | CocoaPods excluded `ExpoAudio` from the precompiled-module list, Xcode compiled the patched Swift target from source, and the complete simulator app built successfully. VoiceOver is unavailable in Simulator, and this does not prove a physical audio session, lock-screen speech, interruption recovery, or repeated hardware commands.                                                                                                                                                                                                      |
-| Signed iOS VoiceOver, background summary audio         | No trusted physical iPhone attached                        | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast                                         | Blocked | Register and connect a supported iPhone, install the exact reviewed build, and complete the background-audio additions below. VoiceOver is unavailable in Simulator. Record exact order and speech, real playback and interruption behavior, lock-screen controls, permission prompts, and cache cleanup; automated tests cannot satisfy this gate.                                                                                                                                                                                              |
-| Signed Android TalkBack, background summary audio      | No physical Android device attached                        | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast                                 | Not run | Install the exact reviewed APK on named hardware and complete the background-audio additions below. Record exact speech, background playback, media notification and lock-screen controls, interruption behavior, permission prompts, and cleanup. Emulator results remain supplementary and cannot satisfy this gate.                                                                                                                                                                                                                           |
+| Gate                                                   | Environment and build                                                                                 | Settings                                                                                                                                   | Result  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Supplementary background-audio configuration and seams | Final local pre-PR mobile validation; current working tree                                            | Generated iOS/Android config, injected runtime, lifecycle model, both platform bundles, and static import graph; no physical audio session | Pass    | Mobile lint and TypeScript, all 47 suites and 620 tests, both Expo bundles, dependency and single-runtime validation, all 20 Expo Doctor checks, and `npm run arch` pass. Introspection proves playback-only iOS background mode and Android media-service declarations while microphone, recording, push permission, and recording service stay absent. Architecture permits `expo-file-system` and `expo-audio` only in the dedicated ephemeral store and background runtime and bans push SDK imports. This does not prove hardware behavior.                                                                                                                                                                                                                      |
+| Supplementary visible Play All and section controls    | Local visible-controls working tree                                                                   | React Native renderer, mocked tokenless access/store/runtime boundaries, AppState, and native status/track callbacks; no physical speech   | Pass    | All 49 mobile suites and 663 tests pass. Focused coverage preserves canonical source indexes, classifies transitions/unavailable headings, requests and stages fixed queues in order, exercises Play All and individual rows, label-in-name, 48-point controls, current-item announcements, bounded Previous/Next, summary-disclosure placement, background preparation cancellation, foreground reconciliation, durable terminal replay, account/route teardown, safe native errors, per-file byte reporting, and 64-track/256 MiB Play All refusal with preflight and post-stage lease cleanup. TypeScript, ESLint, and `ts-archunit` also pass. This does not establish rendered maximum-text reflow, exact VoiceOver/TalkBack speech, or physical media controls. |
+| Supplementary Android native source build              | Current visible-controls tree; local arm64 debug APK; Android API 36 toolchain                        | No screen reader or competing physical audio route                                                                                         | Pass    | Gradle compiled patched `expo-audio` 57.0.3 from Kotlin source and assembled the complete 94 MB debug APK. The compile includes durable terminal replay plus legacy Previous/Next queue-bound guards. The merged manifest contains `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and no microphone, recording, storage, or notification permission. This proves compilation and packaging, not TalkBack, real focus competition, notification behavior, or hardware audio.                                                                                                                                                                                                                                                                                                      |
+| Supplementary iOS native source build                  | Current visible-controls tree; local dual-architecture Simulator debug app; Xcode 26.6 / iOS 26.5 SDK | No VoiceOver or physical interruption route                                                                                                | Pass    | CocoaPods excluded `ExpoAudio` from the precompiled-module list. Xcode compiled the patched `AudioPlaylist.swift` into arm64 and x86_64 objects, linked the complete simulator app, retained the iOS 17 floor, and declared only the `audio` background mode. VoiceOver is unavailable in Simulator, and this does not prove a physical audio session, lock-screen speech, interruption recovery, or repeated hardware commands.                                                                                                                                                                                                                                                                                                                                      |
+| Signed iOS VoiceOver, background article audio         | No trusted physical iPhone attached                                                                   | Largest Larger Accessibility Size; portrait/landscape; light/dark; Bold Text and Increase Contrast                                         | Blocked | Register and connect a supported iPhone, install the exact reviewed build, and complete the background-audio additions below. VoiceOver is unavailable in Simulator. Record exact order and speech, Play All/individual playback, real transitions and interruption behavior, lock-screen controls, permission prompts, and cache cleanup; automated tests cannot satisfy this gate.                                                                                                                                                                                                                                                                                                                                                                                  |
+| Signed Android TalkBack, background article audio      | No physical Android device attached                                                                   | Maximum font and display sizes separately and together; portrait/landscape; light/dark; High Text Contrast                                 | Not run | Install the exact reviewed APK on named hardware and complete the background-audio additions below. Record exact speech, Play All/individual playback, background transitions, media notification and lock-screen controls, interruption behavior, permission prompts, and cleanup. Emulator results remain supplementary and cannot satisfy this gate.                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## Physical-device script
 
 Record each platform separately. The shared script covers Home, Search, and the
 native Article reading contract while retaining the brand-reflow checks from
-the foundation. Run the full-summary background audio, PR5A Account, and PR5B
+the foundation. Run the Article background audio, PR5A Account, and PR5B
 Library additions afterward. A PR4A handoff result is historical and cannot
 satisfy an Article step.
 
@@ -443,79 +466,77 @@ satisfy an Article step.
 18. Record failures as issues; never convert a simulator, emulator, Jest, or
     accessibility-tree result into a physical-device pass.
 
-### Full-summary background audio additions
+### Article background audio additions
 
 Run these after the shared Home/Search/Article script on each platform, while
 signed out and again within a signed-in account where the script calls for an
 account transition:
 
-1. Open an Article with a multi-sentence summary over throttled networking. Do
-   not activate the player. Confirm no audio request, preparation status, sound,
-   system media session, or permission prompt occurs. Traverse the visible lead,
-   `Listen to the full summary` player, and collapsed `Show full text summary`
-   control in that order. Confirm the remainder is absent from forward, reverse,
-   rotor/Reading Controls, and touch traversal.
-2. Activate `Play full summary audio` once. Confirm the same control becomes
-   `Cancel preparing summary audio`, preparation is visible and announced once,
-   and no focus jump occurs. Cancel under throttled networking and confirm a late
-   response cannot start sound or revive a stale status. Start again and confirm
-   the full summary plays only after preparation succeeds.
-3. While the disclosure remains collapsed, listen through the transition from
-   its visible lead into the text remainder. Compare against the complete
-   visible summary and record any missing, duplicated, stale-revision, or
-   out-of-order narration as a failure. Expanding or collapsing the text must
-   not interrupt playback or duplicate the lead.
-4. Exercise `Pause full summary audio`, `Resume full summary audio`, completion,
-   and `Replay full summary audio`. Record each exact spoken name, role, state,
-   hint, visible status, and focus position. Confirm status transitions announce
-   once while elapsed-time updates remain quiet unless the user navigates to the
-   time text. Verify the disclosure keeps the same focus stop as its label and
-   expanded state change between `Show` and `Hide`.
-5. While preparing, background the app and confirm preparation cancels, any late
-   response is discarded, and returning does not retry. Start playback again,
-   then background and lock the device. Confirm audio continues and the system
-   surface names `Summary — article title`, `Wikipedia`, and `Curio Garden` with
-   play/pause, scrub, and ten-second seek controls. Exercise those controls and
-   confirm returning reconciles the exact position and state without a new
-   request or automatic resume. Then separately navigate Back, open another
-   Article, sign out, and switch from Account A to Account B. Each ownership
-   change must stop sound, remove system controls, release the player, and delete
-   the temporary file; no prior-account response, status, or sound may survive.
-6. Exercise offline start, request timeout, malformed or interrupted response,
-   playback failure, and retry. Confirm only concise safe copy appears, the
-   single control remains operable, no backend or filesystem detail is exposed,
-   and cancelled or failed bytes are not playable later. Restore networking and
-   confirm retry succeeds without stealing focus.
-7. Inspect operating-system permissions and prompts. Confirm the build never
-   requests microphone, recording, media-library, file/storage, notification, or
-   background-audio runtime permission for this feature. On Android, confirm a
-   media-session notification appears only after user-started playback and is
+1. Open an Article with a multi-sentence summary, playable sections, one
+   heading-only parent, and one empty heading over throttled networking. Do not
+   activate audio. Confirm no request, preparation status, sound, system media
+   session, or permission prompt occurs. Traverse the visible lead; `Explore
+this article` heading, Play All, time, synthetic-speech notice, and status;
+   collapsed `Show full text summary`; Summary and section rows; then `Article
+text`. Confirm the remainder is absent from forward, reverse, rotor/Reading
+   Controls, and touch traversal.
+2. Confirm the heading-only row speaks `Chapter transition` without a Listen
+   control and the empty row speaks `No source text` without a Listen control.
+   Confirm every playable row has one contextual Listen name whose visible word
+   remains in that name, and no row is collapsed into one oversized stop.
+3. Activate Play All once. Confirm its control becomes `Cancel preparing Play
+All`, ordered preparation progress is visible and announced without moving
+   focus, and no item plays early. Cancel under throttled networking and confirm
+   late responses/leases cannot start sound or revive stale status. Start again
+   and confirm playback begins only after the complete fixed queue is ready.
+4. While the disclosure remains collapsed, listen through the complete summary,
+   its text remainder, playable sections, and heading transition in source
+   order. Compare against the canonical source and record missing, duplicated,
+   stale-revision, or out-of-order narration as a failure. Expanding/collapsing
+   the summary must not interrupt playback or duplicate its lead.
+5. Exercise Play All pause, resume, completion, replay, Stop, Previous, and Next
+   at both queue bounds. Then start Summary and two sections individually and
+   switch between them. Record every exact visible/spoken name, role, disabled
+   state, hint, current-item announcement, and focus position. Status changes
+   announce once; elapsed-time ticks remain quiet unless navigated to directly.
+   The disclosure retains one focus stop while its Show/Hide label and expanded
+   state change.
+6. While preparing, background the app and confirm preparation cancels, late
+   work is discarded, and returning does not retry. Start Play All again, then
+   background and lock the device. Confirm native section transitions continue
+   and the system surface updates `item title — article title`, `Wikipedia`, and
+   `Curio Garden` with play/pause, seek, Previous, and Next. Exercise app and
+   system controls and confirm returning reconciles the exact item, position,
+   and state without a request or automatic resume. Separately navigate Back,
+   open another Article, sign out, and switch Account A to B. Each ownership
+   change stops sound, removes controls, releases the player, and then deletes
+   every lease; no prior-account response, status, or sound survives.
+7. Exercise offline start, request timeout, malformed/interrupted response,
+   oversized track count/total leases, native playback failure, and retry.
+   Confirm concise safe copy, individual rows remain available when only Play
+   All exceeds its bound, no backend/filesystem detail appears, and cancelled or
+   failed bytes are not playable later. Restore networking and confirm retry
+   succeeds without stealing focus.
+8. Inspect operating-system permissions and prompts. Confirm the build never
+   requests microphone, recording, media-library, file/storage, notification,
+   or background-audio runtime permission for this feature. On Android, confirm
+   a media-session notification appears only after user-started playback and is
    removed at final release without a notification-permission prompt. No UI may
-   describe the staged cache file as saved, downloaded, available offline, or
-   part of Library.
-8. Repeat the lead/player/disclosure sequence and every player label/status at
-   the 200% baseline and maximum text/display settings, in portrait and
-   landscape, and in light/dark, bold/high-contrast, and reduced-motion modes.
-   Confirm one-dimensional reachability, a visible unobscured 48-point target,
-   complete unclamped labels, and no clipping, overlap, truncation, horizontal
-   scrolling, or sound-only state.
-9. On Android, begin with another music or podcast app playing. Start Curio
-   Garden from its app control, then repeat from the notification/lock-screen
-   play action on both an API 31-or-32 device and an API 36 device when
-   available. Confirm the competing app pauses or ducks consistently with
-   `doNotMix`, Curio Garden never starts while focus is denied or delayed, and a
-   pause issued before delayed gain prevents later surprise playback. Exercise
-   transient loss, permanent loss, and gain through another media app, a call,
-   headphones, and Bluetooth where supported; record the exact state and speech
-   rather than assuming recovery.
-10. On iOS, start and fully release the player from at least 20 Article visits,
-    including Back navigation and account changes. On the final visit, invoke
-    each available Control Center or lock-screen play, pause, scrub, and
-    ten-second skip action once. Confirm each command causes exactly one state
-    transition and one appropriate announcement, with no duplicate seek or
-    play/pause callback. Repeat after interruption and route changes. After the
-    final release, confirm the app relinquishes its audio session and another
-    music or podcast app can resume normally.
+   describe staged files as saved, downloaded, available offline, or Library.
+9. Repeat the full audio surface and every label/status at the 200% baseline and
+   maximum text/display settings, in portrait/landscape and light/dark,
+   bold/high-contrast, and reduced-motion modes. Confirm one-dimensional
+   reachability, visible unobscured 48-point targets, complete unclamped labels,
+   and no clipping, overlap, truncation, horizontal scrolling, or sound-only
+   state. On Android, also dispute audio focus from API 31/32 and API 36 devices
+   when available using another media app, calls, headphones, and Bluetooth;
+   delayed/denied focus or cancellation must never cause surprise playback.
+10. On iOS, start and fully release both individual and Play All queues from at
+    least 20 Article visits, including Back and account changes. On the final
+    visit invoke each Control Center/lock-screen play, pause, seek, Previous, and
+    Next action once. Confirm one action causes one transition with aligned
+    metadata and no duplicate callback. Repeat after interruption/route changes;
+    final release relinquishes the session so other media can resume normally.
 
 ### PR5A Account additions
 
@@ -680,19 +701,21 @@ establish same-account web synchronization against a real signed session,
 exact speech, native dialog behavior, or physical focus landing.
 
 The background-audio suites model explicit activation, canonical full-summary
-requests, cancellable preparation, pause/resume/replay labels, quiet progress
-updates, safe failures, background retention, foreground status reconciliation,
-route/article/account lifecycle teardown, serialized shared-session ownership,
-final deactivation before cache deletion, bounded exact-byte cache staging, and
-idempotent media-session cleanup. Article tests establish the
-lead-player-disclosure source order, lossless disclosure text, stable expanded
-state, and no duplicate lead. Native patch contract tests cover exact version
-and source hashes, all-target preflight, idempotence, mobile-only build hooks,
-Android UI/legacy/modern focus routing, and iOS opaque-target removal. Config
+and original-index section requests, cancellable ordered queue preparation,
+individual and Play All pause/resume/replay labels, bounded previous/next,
+current-item status, quiet time updates, safe failures, background retention,
+foreground status reconciliation, route/article/account lifecycle teardown,
+serialized shared-session ownership, final deactivation before cache deletion,
+16 MiB per-file plus 64-track/256 MiB Play All bounds, and idempotent
+media-session cleanup. Article tests establish the
+lead-player-disclosure-item-row-text source order, lossless disclosure text, stable expanded state, and no
+duplicate lead. Native patch contract tests cover exact version and source
+hashes, all-target preflight, idempotence, mobile-only build hooks, Android
+UI/legacy/modern focus routing, and iOS opaque-target removal. Config
 introspection and architecture rules prove the required playback-only
 background declarations, recording/microphone/push exclusions, and narrow
 native-library import seams. None of that runs a physical audio-focus dispute,
-remote command center, audio route, or real screen reader.
+remote command center, audio route, maximum-text renderer, or real screen reader.
 
 Those suites cannot prove spoken output, rotor/Reading Controls behavior,
 route-entry or back-focus landing, real long-article reading order, native image
@@ -710,11 +733,12 @@ Exact save/remove speech and state, native confirmation traversal, post-removal
 focus, same-account web synchronization, account-switch isolation, and Library
 reflow likewise remain open until the PR5B signed-account artifact and physical
 device rows are completed.
-Background audio output and continuation, interruption handling, route/account
-teardown, lock-screen/media-notification controls, absence of permission prompts,
-exact player-status speech, quiet progress updates, disclosure focus retention,
-and cache cleanup likewise remain open until the signed iOS and Android
-background-audio rows are completed.
+Background audio output and native section continuation, interruption handling,
+route/account teardown, lock-screen/media-notification Previous/Next and
+metadata, absence of permission prompts, exact player/current-item speech,
+quiet time updates, disclosure focus retention, maximum-text reflow, and cache
+cleanup likewise remain open until the signed iOS and Android background-audio
+rows are completed.
 
 Use Apple's
 [accessibility testing guidance](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)

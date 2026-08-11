@@ -37,13 +37,17 @@ media-session support:
   `MediaSessionService`. A player-or-playlist adapter preserves Expo Audio's
   single audio-focus owner, publishes current metadata on native media-item
   transitions, advertises previous/next commands to modern controllers, and
-  supplies explicit section actions for older notification surfaces.
+  supplies explicit section actions for older notification surfaces only when
+  a previous or next item actually exists.
 - Both platforms keep nullable metadata slots aligned with native queue
   mutations. A missing metadata item degrades to an unlabeled track; it cannot
   label a different section by mistake.
 - Both native playlist engines expose a nullable string error in each status
   snapshot and clear it only when a new item or ready state supersedes the
   failure, so the visible queue need not confuse a failed load with buffering.
+- Both engines expose durable terminal state. Replaying an exhausted queue
+  restarts from item zero for app and operating-system controls instead of
+  depending on a transient final status event or a depleted native queue.
 - Both platforms release only the media session they own and use identity
   checks when unregistering. A stale disconnect, asynchronous session build,
   or older player release cannot replace or clear the active session.
@@ -57,12 +61,23 @@ metadata array immediately before user-initiated playback and shares the
 serialized, reference-counted audio-session coordinator used by single-track
 summary playback.
 
-This ADR establishes infrastructure only. It does not expose a partial Play All
-interface. The next PR must assemble bounded temporary section files, wire
-visible Play All and section-by-section controls, and apply the established
-WCAG 2.2 AA and physical VoiceOver/TalkBack gates. Downloads, offline storage,
-push notifications, automatic playback, and persistent background work remain
-out of scope.
+The foundation PR established infrastructure only. Its follow-up visible-controls
+slice now consumes that boundary without widening it: a mobile-owned planner
+preserves canonical source-array section keys, includes heading transitions in
+Play All, and marks genuinely empty headings unavailable. The Article surface
+offers user-initiated Play All, individually playable summary/section rows, and
+bounded previous/next actions while keeping the current item and consequential
+state changes visible and politely announced.
+
+The consumer stages sources sequentially under short-lived cache leases before
+constructing the fixed queue. Each response retains the existing 16 MiB
+exact-length limit; Play All additionally rejects more than 64 native tracks or
+more than 256 MiB of leased audio without disabling individual section playback.
+Declared bytes are checked before staging, and staged lease bytes are checked
+again before the lease joins the active aggregate.
+Native player/session release completes before any leased file is deleted.
+Downloads, offline storage, push notifications, automatic playback, playback
+speed, persisted progress, and persistent background work remain out of scope.
 
 The patcher now preflights thirteen reviewed Expo Audio source files across
 three coherent states: pristine 57.0.3, the previously shipped
@@ -78,8 +93,7 @@ builds remain outside the mutation path.
 Background section transitions and operating-system previous/next commands can
 now be native and deterministic without introducing another playback library.
 The application boundary is fixed-source by design, which keeps metadata
-alignment reviewable and makes temporary file ownership explicit in the next
-vertical slice.
+alignment and the visible consumer's temporary-file ownership reviewable.
 
 This remains a temporary fork of Expo Audio 57.0.3. Every Expo upgrade must
 re-evaluate upstream playlist media-session support, Android focus routing,
@@ -89,11 +103,14 @@ pass.
 
 Automated checks cover exact-version application, pristine and prior-backport
 upgrades, mixed-state refusal, session ownership, metadata ordering, native
-command declarations, TypeScript lifecycle ordering, and Kotlin/Swift
-compilation. They cannot prove lock-screen speech, Bluetooth/headphone behavior,
-interruption recovery, or notification presentation. Those remain named
-physical-device VoiceOver and TalkBack gates before the visible queue feature
-can be called complete.
+command declarations, TypeScript lifecycle ordering, canonical queue planning,
+individual and Play All controls, preparation/storage bounds, current-item
+status, durable terminal replay, account/background cleanup, and Kotlin/Swift
+compilation. They cannot
+prove lock-screen speech, Bluetooth/headphone behavior, interruption recovery,
+notification presentation, exact screen-reader speech, or maximum-text reflow.
+Those remain named physical-device VoiceOver and TalkBack gates before the
+visible queue feature can be called complete.
 
 ## References
 

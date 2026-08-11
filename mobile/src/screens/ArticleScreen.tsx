@@ -22,7 +22,7 @@ import {
   bookmarkEntriesRevision,
   SAFE_LIBRARY_UPDATE_ERROR,
 } from "../library/bookmarkPresentation";
-import { NativeArticleSummaryAudioPlayer } from "../media/NativeArticleSummaryAudioPlayer";
+import { NativeArticleAudioPlayer } from "../media/NativeArticleAudioPlayer";
 import { GardenText } from "../theme/GardenText";
 
 const SAFE_ARTICLE_ERROR =
@@ -657,15 +657,14 @@ export function ArticleScreen({
             setStatus({ kind: "idle", message: "", requestKey });
           }}
           openUrl={openUrl}
-          summaryAudioPlayer={
-            <NativeArticleSummaryAudioPlayer
+          renderArticleAudioPlayer={(summaryDisclosure) => (
+            <NativeArticleAudioPlayer
               active={isRouteActive}
-              articleTitle={currentState.article.title}
-              narrationVersion={currentState.article.narrationVersion}
-              revisionId={currentState.article.revisionId}
+              article={currentState.article}
               slug={slug}
+              summaryDisclosure={summaryDisclosure}
             />
-          }
+          )}
         />
       ) : null}
     </GardenScreen>

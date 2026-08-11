@@ -8,7 +8,7 @@ const EXPO_AUDIO_BACKGROUND_SAFETY_MARKER =
 const EXPO_AUDIO_PLAYLIST_PATCH_PATH =
   require.resolve("../patches/expo-audio-57.0.3-playlist-media-session.patch");
 const EXPO_AUDIO_PLAYLIST_PATCH_SHA256 =
-  "ee4ed48c8c681e4a91c665aaa1c4a9516f8b1bbb74afced4b1b7cebee419d3fd";
+  "c43fff525fd95b6ba16f865ade97e10bbe8ce78037606afb3613c12480e28964";
 
 const sourceFiles = {
   androidBaseAudioPlayer: {
@@ -25,7 +25,7 @@ const sourceFiles = {
     backgroundSha256:
       "9bdfdbce6292de8198b1776c6058601a292e8bef38354a784742ad4dfe830015",
     patchedSha256:
-      "c95ba5e2a0828b7517a64f63def39f272435c5e96311b55a35882591870d48f5",
+      "958f3b9f98e81bc9c9b7d620972ac1b5e7f37c1bcfcbe8df46c47b81d99f04ed",
   },
   androidAudioModule: {
     path: "android/src/main/java/expo/modules/audio/AudioModule.kt",
@@ -57,7 +57,7 @@ const sourceFiles = {
     backgroundSha256:
       "f819c129b13c6937979f9c2de32a4d908d9876452952718ec7739ced6a20e503",
     patchedSha256:
-      "f3fa08b51b9bf1329123d6d7d44f5b97567f61cb967d9bea54d08401c195cdb8",
+      "5667c5dbc8ab133b330fcadd4b5c19c8a1220f53e5eb2fad87bcfeefde23b46e",
   },
   androidMediaSessionCallback: {
     path: "android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt",
@@ -73,7 +73,7 @@ const sourceFiles = {
     backgroundSha256:
       "5c990cc4f73454ab1ec00b189beab2c3f32968b4bb75a7751fe8d438094af81f",
     patchedSha256:
-      "74bead81dbf188c4a12919acce61e4d9050d18bbf627c7436f0a6a804eea55a6",
+      "5568d02a770d1ace5594038fa51f7e032b5fe62f24b7325a40daf21fedd1059a",
   },
   iosAudioPlayer: {
     path: "ios/AudioPlayer.swift",
@@ -1299,8 +1299,7 @@ const replaceFilesTransactionally = (replacements) => {
 
     for (const entry of staged) {
       if (
-        sha256(fs.readFileSync(entry.filePath, "utf8")) !==
-        entry.originalSha256
+        sha256(fs.readFileSync(entry.filePath, "utf8")) !== entry.originalSha256
       ) {
         throw new Error(
           `Expo Audio ${EXPO_AUDIO_VERSION} ${entry.relativePath} changed during transactional staging; refusing to replace any files.`,

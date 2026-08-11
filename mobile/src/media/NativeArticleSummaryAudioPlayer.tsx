@@ -21,15 +21,12 @@ import {
 } from "./ExpoBackgroundAudioRuntime";
 import { useNativeArticleAudioAccess } from "./NativeArticleAudioAccessContext";
 import {
-  createNativeArticleAudioEphemeralStore,
+  defaultNativeArticleAudioEphemeralStore,
   type NativeArticleAudioEphemeralLease,
   type NativeArticleAudioEphemeralStore,
 } from "./NativeArticleAudioEphemeralStore";
 
 export const NATIVE_ARTICLE_AUDIO_OPERATION_TIMEOUT_MS = 240_000;
-
-const defaultNativeArticleAudioEphemeralStore =
-  createNativeArticleAudioEphemeralStore();
 
 const OPERATION_ABORTED = Symbol("native-article-audio-operation-aborted");
 
