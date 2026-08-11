@@ -168,6 +168,18 @@ const buildExpectedPatchedSources = (
   );
 };
 
+const sourceBetween = (
+  source: string,
+  startMarker: string,
+  endMarker: string,
+): string => {
+  const start = source.indexOf(startMarker);
+  if (start < 0) throw new Error(`Missing source marker: ${startMarker}`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  if (end < 0) throw new Error(`Missing source marker: ${endMarker}`);
+  return source.slice(start, end);
+};
+
 afterEach(() => {
   while (fixtureRoots.length > 0) {
     const fixtureRoot = fixtureRoots.pop();
@@ -489,12 +501,27 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
 
   it("replays an ended native playlist through the existing focus-owned play paths", () => {
     const result = buildExpectedPatchedSources(readInstalledSources());
+    const androidPlaylistPlay = sourceBetween(
+      result.androidAudioModule,
+      'Function("play") { playlist: AudioPlaylist ->',
+      'Function("pause") { playlist: AudioPlaylist ->',
+    );
+    const androidFocusPlayback = sourceBetween(
+      result.androidAudioModule,
+      "private fun playWithAudioFocus(playable: BaseAudioPlayer)",
+      "private fun cancelPlayback(playable: BaseAudioPlayer)",
+    );
+    const iosPlaylistLockScreen = sourceBetween(
+      result.iosMediaController,
+      "extension AudioPlaylist: LockScreenPlayable {",
+      "class MediaController {",
+    );
 
     expect(result.androidAudioPlaylist).toMatch(
       /override fun play\(\) \{\n    if \(ref\.playbackState == Player\.STATE_ENDED\) \{\n      ref\.seekToDefaultPosition\(0\)\n    \}\n    ref\.play\(\)\n  \}/,
     );
-    expect(result.androidAudioModule).toContain("playWithAudioFocus(playlist)");
-    expect(result.androidAudioModule).toContain("playable.play()");
+    expect(androidPlaylistPlay).toContain("playWithAudioFocus(playlist)");
+    expect(androidFocusPlayback).toContain("playable.play()");
     expect(result.androidControlsService).toContain(
       "override fun requestPlayback() = playlist.requestPlaybackFromSystemControls()",
     );
@@ -505,8 +532,8 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     expect(result.iosAudioModule).toContain(
       "playlist.play(at: playlist.currentRate)",
     );
-    expect(result.iosMediaController).toMatch(
-      /extension AudioPlaylist: LockScreenPlayable[\s\S]*?fileprivate func lockScreenPlay\(\) \{\n    play\(at:/,
+    expect(iosPlaylistLockScreen).toMatch(
+      /fileprivate func lockScreenPlay\(\) \{\n    play\(at:/,
     );
   });
 

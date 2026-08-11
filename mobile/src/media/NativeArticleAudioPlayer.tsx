@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -318,7 +319,25 @@ function NativeArticlePlaylistAudioPlayer({
   const access = useNativeArticleAudioAccess();
   const { colors, fonts, radii, spacing } = useGardenTheme();
   const store = ephemeralStore ?? defaultNativeArticleAudioEphemeralStore;
-  const playAllItems = items.filter((item) => item.includedInPlayAll);
+  const { playAllIndexByKey, playAllItems, spokenTitleCounts } = useMemo(() => {
+    const nextPlayAllItems = items.filter((item) => item.includedInPlayAll);
+    const nextSpokenTitleCounts = new Map<string, number>();
+    for (const item of items) {
+      if (!item.individuallyPlayable) continue;
+      const titleKey = spokenTitleKey(item.title);
+      nextSpokenTitleCounts.set(
+        titleKey,
+        (nextSpokenTitleCounts.get(titleKey) ?? 0) + 1,
+      );
+    }
+    return {
+      playAllIndexByKey: new Map(
+        nextPlayAllItems.map((item, index) => [item.sectionKey, index]),
+      ),
+      playAllItems: nextPlayAllItems,
+      spokenTitleCounts: nextSpokenTitleCounts,
+    };
+  }, [items]);
   const canPlayAll =
     playAllItems.length > 0 &&
     playAllItems.length <= MAX_NATIVE_ARTICLE_PLAYLIST_TRACKS;
@@ -520,7 +539,10 @@ function NativeArticlePlaylistAudioPlayer({
         let totalBytes = 0;
         for (let index = 0; index < selectedItems.length; index += 1) {
           const item = selectedItems[index];
-          if (item === undefined) continue;
+          if (item === undefined) {
+            failOperation(target);
+            return;
+          }
           if (mode === "all") {
             updatePresentation({
               currentIndex: index,
@@ -994,13 +1016,7 @@ function NativeArticlePlaylistAudioPlayer({
           accessibilityLabel="Stop article audio"
           disabled={!active || !isForeground}
           label="Stop"
-          onPress={() =>
-            cancelPreparation(
-              presentation.kind === "preparing"
-                ? "Article audio preparation cancelled."
-                : "Article audio stopped.",
-            )
-          }
+          onPress={() => cancelPreparation("Article audio stopped.")}
           testID="article-audio-stop"
           variant="secondary"
         />
@@ -1085,14 +1101,9 @@ function NativeArticlePlaylistAudioPlayer({
       <View accessible={false} style={{ gap: spacing.sm }}>
         {items.map((item) => {
           const selected = currentItem?.sectionKey === item.sectionKey;
-          const duplicateTitleCount = items.filter(
-            (candidate) =>
-              candidate.individuallyPlayable &&
-              spokenTitleKey(candidate.title) === spokenTitleKey(item.title),
-          ).length;
-          const playAllIndex = playAllItems.findIndex(
-            (candidate) => candidate.sectionKey === item.sectionKey,
-          );
+          const duplicateTitleCount =
+            spokenTitleCounts.get(spokenTitleKey(item.title)) ?? 0;
+          const playAllIndex = playAllIndexByKey.get(item.sectionKey) ?? -1;
           const control = item.individuallyPlayable
             ? itemControl(
                 item,

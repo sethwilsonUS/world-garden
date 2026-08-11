@@ -252,6 +252,8 @@ describe("NativeArticleAudioPlayer", () => {
         "currentState",
         appStateCurrentStateDescriptor,
       );
+    } else {
+      delete (AppState as unknown as { currentState?: unknown }).currentState;
     }
   });
 
@@ -733,6 +735,8 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("releases an over-budget lease when staged bytes exceed the declared aggregate", async () => {
     const perTrackBytes = 15 * 1024 * 1024;
+    const overBudgetTrackCount =
+      Math.floor(MAX_NATIVE_ARTICLE_PLAYLIST_AUDIO_BYTES / perTrackBytes) + 1;
     const setup = harness({ leaseByteLength: perTrackBytes });
     setup.requestSection.mockImplementation(async () => ({
       accountEpoch,
@@ -742,7 +746,7 @@ describe("NativeArticleAudioPlayer", () => {
     }));
     renderPlayer(setup, {
       ...article(),
-      sections: Array.from({ length: 18 }, (_, index) => ({
+      sections: Array.from({ length: overBudgetTrackCount }, (_, index) => ({
         content: `Readable section ${index + 1}`,
         level: 2,
         title: `Section ${index + 1}`,
@@ -752,7 +756,9 @@ describe("NativeArticleAudioPlayer", () => {
     });
 
     fireEvent.press(
-      screen.getByRole("button", { name: "Play all 18 audio items" }),
+      screen.getByRole("button", {
+        name: `Play all ${overBudgetTrackCount} audio items`,
+      }),
     );
 
     await waitFor(() =>
@@ -760,14 +766,15 @@ describe("NativeArticleAudioPlayer", () => {
         /This article's Play All audio is too large to prepare safely\./u,
       ),
     );
-    expect(setup.leases).toHaveLength(18);
+    expect(setup.leases).toHaveLength(overBudgetTrackCount);
     await waitFor(() => {
       for (const lease of setup.leases) {
         expect(lease.release).toHaveBeenCalledTimes(1);
       }
     });
     expect(
-      (setup.leases[17]?.release as jest.Mock).mock.invocationCallOrder[0],
+      (setup.leases[overBudgetTrackCount - 1]?.release as jest.Mock).mock
+        .invocationCallOrder[0],
     ).toBeLessThan(
       (setup.leases[0]?.release as jest.Mock).mock.invocationCallOrder[0] ?? 0,
     );
