@@ -70,14 +70,24 @@ resume purpose, export inclusion, and deletion behavior.
 
 ## Consequences
 
-This contract is UI-free. A following native consumer may reconcile native
-player status snapshots and lifecycle transitions against it without widening
-the server or account-data interfaces. It must still keep the account epoch in
-every asynchronous decision and present an explicit, accessible Resume or Start
-Over choice where product behavior requires one. That consumer must also make a
-deliberate integration decision before native playback contributes heard ranges,
-badges, meaningful-use state, or cost-ledger observations; this cursor mutation
-must not be treated as an atomic replacement for the existing progress writer.
+The native data adapter is also UI-free. It performs one-shot, on-demand reads,
+serializes compare-and-swap writes per opened article session, and exposes only
+the normalized cursor plus `save` and `clear` operations. Account subjects,
+session-epoch keys, server timestamps, and cursor versions remain private to the
+audited adapter. To bound high-frequency checkpoint backpressure, it retains at
+most 32 pending mutations and coalesces consecutive pending saves to the newest
+position without crossing a clear barrier. An account switch or provider
+teardown supersedes pending and queued work before an older cursor can be
+exposed; a stale identical write converges, while a stale different write
+freezes that session as a conflict until the caller reopens it.
+
+A following native player consumer may reconcile native status snapshots and
+lifecycle transitions through that adapter without widening the server or
+account-data interfaces. It must present an explicit, accessible Resume or Start
+Over choice where product behavior requires one. It must also make a deliberate
+integration decision before native playback contributes heard ranges, badges,
+meaningful-use state, or cost-ledger observations; this cursor mutation must not
+be treated as an atomic replacement for the existing progress writer.
 
 This decision does not add downloaded audio, offline article storage, background
 JavaScript timers, a global Player route, push notifications, or a web-player

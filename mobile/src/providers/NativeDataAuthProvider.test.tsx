@@ -9,6 +9,7 @@ import {
 import {
   ConvexReactClient,
   useAction,
+  useConvex,
   useConvexAuth,
   useMutation,
   useQueries,
@@ -20,6 +21,7 @@ import { useNativeAuth } from "../auth/NativeAuthContext";
 import { convexClientApi } from "../data/convexClientApi";
 import { useWikipediaReader } from "../data/WikipediaReaderContext";
 import { useNativeLibrary } from "../library/NativeLibraryContext";
+import { useNativeListeningProgress } from "../listening/NativeListeningProgressContext";
 import { useNativeArticleAudioAccess } from "../media/NativeArticleAudioAccessContext";
 import { NativeDataAuthProvider } from "./NativeDataAuthProvider";
 
@@ -52,6 +54,7 @@ jest.mock("convex/react", () => ({
     .fn()
     .mockImplementation((convexUrl: string) => ({ convexUrl })),
   useAction: jest.fn(),
+  useConvex: jest.fn(),
   useConvexAuth: jest.fn(),
   useMutation: jest.fn(),
   useQueries: jest.fn(),
@@ -68,15 +71,18 @@ const useAuthMock = jest.mocked(useAuth);
 const useSessionMock = jest.mocked(useSession);
 const useUserMock = jest.mocked(useUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
+const useConvexMock = jest.mocked(useConvex);
 const useMutationMock = useMutation as jest.Mock;
 const useQueriesMock = useQueries as jest.Mock;
 const publicSearch = jest.fn();
 const publicFetchArticle = jest.fn();
+const progressQuery = jest.fn();
 const clerkSignOut = jest.fn();
 
 function PublicSignedOutConsumer() {
   const { state } = useNativeAuth();
   const library = useNativeLibrary();
+  const listeningProgress = useNativeListeningProgress();
   const articleAudio = useNativeArticleAudioAccess();
   const reader = useWikipediaReader();
 
@@ -91,6 +97,28 @@ function PublicSignedOutConsumer() {
       <Text testID="media-access">
         media:{typeof articleAudio.requestSection}
       </Text>
+      <Text testID="listening-progress-status">
+        progress:{listeningProgress.availability}
+      </Text>
+    </Pressable>
+  );
+}
+
+function ReadyProgressConsumer() {
+  const progress = useNativeListeningProgress();
+
+  return (
+    <Pressable
+      onPress={() =>
+        void progress.openArticle({
+          narrationVersion: 2,
+          revisionId: "1234",
+          wikiPageId: "736",
+        })
+      }
+      testID="ready-progress-consumer"
+    >
+      <Text>progress:{progress.availability}</Text>
     </Pressable>
   );
 }
@@ -133,6 +161,9 @@ beforeEach(() => {
     isLoading: false,
     isRefreshing: false,
   });
+  useConvexMock.mockReturnValue({
+    query: progressQuery,
+  } as unknown as ReturnType<typeof useConvex>);
   useMutationMock.mockReturnValue(jest.fn());
   useQueriesMock.mockReturnValue({});
 });
@@ -202,6 +233,9 @@ describe("NativeDataAuthProvider", () => {
     expect(screen.getByTestId("media-access")).toHaveTextContent(
       "media:function",
     );
+    expect(screen.getByTestId("listening-progress-status")).toHaveTextContent(
+      "progress:unavailable",
+    );
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
 
     fireEvent.press(screen.getByTestId("public-reader-consumer"));
@@ -261,6 +295,75 @@ describe("NativeDataAuthProvider", () => {
 
     await waitFor(() =>
       expect(publicSearch).toHaveBeenCalledWith({ term: "Ada" }),
+    );
+  });
+
+  it("composes the ready progress adapter with the audited account binding", async () => {
+    useAuthMock.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: true,
+      sessionId: "session-a",
+      signOut: clerkSignOut,
+      userId: "user-a",
+    } as unknown as ReturnType<typeof useAuth>);
+    useUserMock.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: true,
+      user: { id: "user-a" },
+    } as ReturnType<typeof useUser>);
+    useSessionMock.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: true,
+      session: {
+        getToken: jest.fn(),
+        id: "session-a",
+        user: { id: "user-a" },
+      },
+    } as unknown as ReturnType<typeof useSession>);
+    useConvexAuthMock.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      isRefreshing: false,
+    });
+    useQueriesMock.mockReturnValue({
+      nativeViewer: {
+        email: "ada@example.com",
+        name: "Ada Lovelace",
+        subject: "user-a",
+      },
+    });
+    progressQuery.mockImplementation(
+      async (_reference: unknown, args: { sessionEpochKey: string }) => ({
+        cursor: null,
+        cursorVersion: 0,
+        sessionEpochKey: args.sessionEpochKey,
+      }),
+    );
+
+    render(
+      <NativeDataAuthProvider
+        clerkPublishableKey="pk_test_public-example"
+        convexUrl="https://standing-finch-735.convex.cloud"
+        webOrigin="https://curiogarden.org"
+      >
+        <ReadyProgressConsumer />
+      </NativeDataAuthProvider>,
+    );
+
+    expect(screen.getByText("progress:ready")).toBeOnTheScreen();
+    expect(progressQuery).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId("ready-progress-consumer"));
+
+    await waitFor(() => expect(progressQuery).toHaveBeenCalledTimes(1));
+    expect(progressQuery).toHaveBeenCalledWith(
+      convexClientApi.listeningProgress.getNative,
+      expect.objectContaining({
+        expectedAccountSubject: "user-a",
+        wikiPageId: "736",
+      }),
+    );
+    expect(progressQuery.mock.calls[0]?.[1].sessionEpochKey).toMatch(
+      /^native-epoch-/u,
     );
   });
 });
