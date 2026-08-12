@@ -22,5 +22,11 @@ describe("convexClientApi", () => {
     expect(getFunctionName(convexClientApi.bookmarks.removeNative)).toBe(
       "bookmarks:removeNativeViewerBookmark",
     );
+    expect(getFunctionName(convexClientApi.listeningProgress.getNative)).toBe(
+      "listeningProgress:getNativeViewerArticleResume",
+    );
+    expect(getFunctionName(convexClientApi.listeningProgress.writeNative)).toBe(
+      "listeningProgress:writeNativeViewerArticleResume",
+    );
   });
 });

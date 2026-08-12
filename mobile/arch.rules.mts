@@ -34,11 +34,35 @@ const nativeAccountSubjectBindingImport = join(
   "auth",
   "NativeAccountSubjectBindingContext.tsx",
 ).replaceAll("\\", "/");
+const nativeAuthContextImport = join(
+  import.meta.dirname,
+  "src",
+  "auth",
+  "NativeAuthContext.tsx",
+).replaceAll("\\", "/");
+const nativeListeningProgressContextImport = join(
+  import.meta.dirname,
+  "src",
+  "listening",
+  "NativeListeningProgressContext.tsx",
+).replaceAll("\\", "/");
+const convexClientApiImport = join(
+  import.meta.dirname,
+  "src",
+  "data",
+  "convexClientApi.ts",
+).replaceAll("\\", "/");
 const nativeArticleAudioAccessProviderImport = join(
   import.meta.dirname,
   "src",
   "media",
   "NativeArticleAudioAccessProvider.tsx",
+).replaceAll("\\", "/");
+const convexNativeListeningProgressProviderImport = join(
+  import.meta.dirname,
+  "src",
+  "data",
+  "ConvexNativeListeningProgressProvider.tsx",
 ).replaceAll("\\", "/");
 const nativeArticleAudioEphemeralStoreFile =
   "src/media/NativeArticleAudioEphemeralStore.ts";
@@ -133,6 +157,26 @@ const useOnlyPublicDomainPackageImports =
       }),
   );
 
+const avoidCommonJsRequire = defineCondition<MobileProjectSourceFile>(
+  "avoid CommonJS require calls in production native modules",
+  (sourceFiles, context) =>
+    sourceFiles.flatMap((sourceFile) =>
+      collectCalls(sourceFile)
+        .filter(
+          (call) =>
+            call.getObjectName() === undefined &&
+            call.getMethodName() === "require",
+        )
+        .map((call) =>
+          createViolation(
+            call.getNode(),
+            "production native module bypasses static import architecture boundaries with CommonJS require",
+            context,
+          ),
+        ),
+    ),
+);
+
 const mobileMustStayIndependentOfWeb = modules(mobileProject)
   .that()
   .resideInFolder("{app,src}/**")
@@ -184,6 +228,24 @@ const mobileDomainConsumersMustUseThePublicPackageInterface = modules(
   })
   .asSeverity("error");
 
+const mobileProductionModulesMustAvoidCommonJsRequire = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("**/*.test.{ts,tsx}")))
+  .expectNonEmpty()
+  .should()
+  .satisfy(avoidCommonJsRequire)
+  .rule({
+    id: "curio/runtime/native-production-no-commonjs-require",
+    because:
+      "CommonJS require calls are invisible to static importer boundaries and can bypass reviewed native privacy and runtime seams",
+    suggestion:
+      "Use static ESM imports, or a reviewed literal dynamic import when lazy loading is required",
+    imperative: "Do NOT use CommonJS require in production native modules",
+  })
+  .asSeverity("error");
+
 const convexClientApiMustStayNarrow = modules(mobileProject)
   .that()
   .resideInFile("**/src/data/convexClientApi.ts")
@@ -198,6 +260,43 @@ const convexClientApiMustStayNarrow = modules(mobileProject)
       "Add reviewed client function references to this adapter and keep server implementations outside mobile",
     imperative:
       "Only import domain contracts and Convex's documented function-reference factory from the native client API seam",
+  })
+  .asSeverity("error");
+
+const convexClientApiMustStayPrivate = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("src/auth/NativeAuthContext.tsx")))
+  .and()
+  .satisfy(not(resideInFile("src/data/ConvexWikipediaReaderProvider.tsx")))
+  .and()
+  .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.tsx")))
+  .and()
+  .satisfy(
+    not(resideInFile("src/data/ConvexNativeListeningProgressProvider.tsx")),
+  )
+  .and()
+  .satisfy(not(resideInFile("src/data/convexClientApi.test.ts")))
+  .and()
+  .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.test.tsx")))
+  .and()
+  .satisfy(
+    not(
+      resideInFile("src/data/ConvexNativeListeningProgressProvider.test.tsx"),
+    ),
+  )
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(convexClientApiImport)
+  .rule({
+    id: "curio/privacy/native-convex-client-api-private",
+    because:
+      "raw account-bound function references expose private subjects, session epochs, and cursor versions that UI must reach only through audited tokenless adapters",
+    suggestion:
+      "Consume feature contexts from routes and screens; add exact function references only through a reviewed data adapter",
+    imperative:
+      "Do NOT import the native Convex client API seam outside audited auth, reader, Library, and listening-progress adapters",
   })
   .asSeverity("error");
 
@@ -346,17 +445,69 @@ const nativeAccountSubjectBindingMustStayPrivate = modules(mobileProject)
   .satisfy(not(resideInFile("src/auth/NativeAuthContext.tsx")))
   .and()
   .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.tsx")))
+  .and()
+  .satisfy(
+    not(resideInFile("src/data/ConvexNativeListeningProgressProvider.tsx")),
+  )
   .expectNonEmpty()
   .should()
   .notImportFrom(nativeAccountSubjectBindingImport)
   .rule({
     id: "curio/privacy/native-account-subject-binding-private",
     because:
-      "the validated Clerk-to-Convex subject is private account correlation data for the Library adapter, not UI state",
+      "the validated Clerk-to-Convex subject is private account correlation data for audited account adapters, not UI state",
     suggestion:
       "Consume tokenless feature contexts from routes and screens; keep raw account correlation inside audited adapters",
     imperative:
-      "Do NOT import the native account-subject binding outside NativeAuthContext or ConvexNativeLibraryProvider",
+      "Do NOT import the native account-subject binding outside NativeAuthContext, ConvexNativeLibraryProvider, or ConvexNativeListeningProgressProvider",
+  })
+  .asSeverity("error");
+
+const convexNativeListeningProgressProviderMustStayPrivate = modules(
+  mobileProject,
+)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("src/providers/NativeDataAuthProvider.tsx")))
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(convexNativeListeningProgressProviderImport)
+  .rule({
+    id: "curio/privacy/native-listening-progress-provider-private",
+    because:
+      "the concrete progress adapter owns account correlation and server cursor versions while its public context remains tokenless and versionless",
+    suggestion:
+      "Consume NativeListeningProgressContext from feature code and compose the concrete Convex adapter only in NativeDataAuthProvider",
+    imperative:
+      "Do NOT import ConvexNativeListeningProgressProvider outside the reviewed native provider graph",
+  })
+  .asSeverity("error");
+
+const convexNativeListeningProgressProviderMustStayNarrow = modules(
+  mobileProject,
+)
+  .that()
+  .resideInFile("src/data/ConvexNativeListeningProgressProvider.tsx")
+  .expectNonEmpty()
+  .should()
+  .onlyImportFrom(
+    "@curio-garden/domain",
+    "convex/react",
+    "react",
+    nativeAuthContextImport,
+    nativeAccountSubjectBindingImport,
+    nativeListeningProgressContextImport,
+    convexClientApiImport,
+  )
+  .rule({
+    id: "curio/privacy/native-listening-progress-provider-narrow",
+    because:
+      "the account-bound progress adapter should translate only public domain cursors, audited native identity, and exact Convex client references",
+    suggestion:
+      "Keep player policy, storage, media runtime, heard ranges, and UI behind their own modules",
+    imperative:
+      "Only import React, Convex client hooks, public domain contracts, and the exact audited native identity/context seams from the listening-progress adapter",
   })
   .asSeverity("error");
 
@@ -385,7 +536,9 @@ export default [
   }),
   mobileMustStayIndependentOfWeb,
   mobileDomainConsumersMustUseThePublicPackageInterface,
+  mobileProductionModulesMustAvoidCommonJsRequire,
   convexClientApiMustStayNarrow,
+  convexClientApiMustStayPrivate,
   nativeOfflinePersistenceMustStayDeferred,
   nativeArticleAudioEphemeralStoreMustStayNarrow,
   nativePlaybackRatePreferenceStoreMustStayNarrow,
@@ -395,4 +548,6 @@ export default [
   nativeAuthTransportBindingMustStayPrivate,
   nativeAccountSubjectBindingMustStayPrivate,
   nativeArticleAudioAccessProviderMustStayPrivate,
+  convexNativeListeningProgressProviderMustStayPrivate,
+  convexNativeListeningProgressProviderMustStayNarrow,
 ];

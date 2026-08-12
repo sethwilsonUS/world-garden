@@ -1,5 +1,6 @@
 import type {
   BookmarkEntry,
+  ResumeCursor,
   WikipediaArticle,
   WikipediaSearchResult,
 } from "@curio-garden/domain";
@@ -10,6 +11,23 @@ interface NativeViewerIdentity {
   readonly name: string | null;
   readonly subject: string;
 }
+
+type NativeResumeIdentity = {
+  expectedAccountSubject: string;
+  sessionEpochKey: string;
+  wikiPageId: string;
+};
+
+type ServerResumeCursor = ResumeCursor & {
+  cursorVersion: number;
+  updatedAt: number;
+};
+
+type NativeResumeResponse = {
+  sessionEpochKey: string;
+  cursorVersion: number;
+  cursor: ServerResumeCursor | null;
+};
 
 /**
  * Convex functions consumed by the native client.
@@ -52,6 +70,21 @@ export const convexClientApi = Object.freeze({
       },
       { entry: BookmarkEntry; sessionEpochKey: string }
     >("bookmarks:saveNativeViewerBookmark"),
+  }),
+  listeningProgress: Object.freeze({
+    getNative: makeFunctionReference<
+      "query",
+      NativeResumeIdentity,
+      NativeResumeResponse
+    >("listeningProgress:getNativeViewerArticleResume"),
+    writeNative: makeFunctionReference<
+      "mutation",
+      NativeResumeIdentity & {
+        expectedCursorVersion: number;
+        cursor: ResumeCursor | null;
+      },
+      NativeResumeResponse & { disposition: "applied" | "stale" }
+    >("listeningProgress:writeNativeViewerArticleResume"),
   }),
   wikipedia: Object.freeze({
     fetchArticle: makeFunctionReference<

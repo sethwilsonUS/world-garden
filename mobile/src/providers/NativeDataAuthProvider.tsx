@@ -6,6 +6,7 @@ import { useState, type PropsWithChildren, type ReactElement } from "react";
 
 import { NativeAuthProvider } from "../auth/NativeAuthContext";
 import { ConvexNativeLibraryProvider } from "../data/ConvexNativeLibraryProvider";
+import { ConvexNativeListeningProgressProvider } from "../data/ConvexNativeListeningProgressProvider";
 import { ConvexWikipediaReaderProvider } from "../data/ConvexWikipediaReaderProvider";
 import { NativeArticleAudioAccessProvider } from "../media/NativeArticleAudioAccessProvider";
 
@@ -36,7 +37,9 @@ export function NativeDataAuthProvider({
           <NativeAuthProvider>
             <NativeArticleAudioAccessProvider webOrigin={webOrigin}>
               <ConvexNativeLibraryProvider>
-                {children}
+                <ConvexNativeListeningProgressProvider>
+                  {children}
+                </ConvexNativeListeningProgressProvider>
               </ConvexNativeLibraryProvider>
             </NativeArticleAudioAccessProvider>
           </NativeAuthProvider>
