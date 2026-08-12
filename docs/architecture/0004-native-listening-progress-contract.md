@@ -74,10 +74,12 @@ The native data adapter is also UI-free. It performs one-shot, on-demand reads,
 serializes compare-and-swap writes per opened article session, and exposes only
 the normalized cursor plus `save` and `clear` operations. Account subjects,
 session-epoch keys, server timestamps, and cursor versions remain private to the
-audited adapter. An account switch or provider teardown supersedes pending and
-queued work before an older cursor can be exposed; a stale identical write
-converges, while a stale different write freezes that session as a conflict
-until the caller reopens it.
+audited adapter. To bound high-frequency checkpoint backpressure, it retains at
+most 32 pending mutations and coalesces consecutive pending saves to the newest
+position without crossing a clear barrier. An account switch or provider
+teardown supersedes pending and queued work before an older cursor can be
+exposed; a stale identical write converges, while a stale different write
+freezes that session as a conflict until the caller reopens it.
 
 A following native player consumer may reconcile native status snapshots and
 lifecycle transitions through that adapter without widening the server or

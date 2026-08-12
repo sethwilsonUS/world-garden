@@ -34,6 +34,7 @@ const LOAD_ERROR_MESSAGE =
   "We couldn’t load your saved position. Please try again.";
 const SAVE_ERROR_MESSAGE =
   "We couldn’t update your saved position. Please try again.";
+const MAX_PENDING_MUTATIONS = 32;
 
 type ActiveIdentity = Readonly<{
   accountEpoch: symbol;
@@ -223,6 +224,12 @@ type NativeResumeWriteArgs = Readonly<{
   wikiPageId: string;
 }>;
 
+type PendingMutation = Readonly<{
+  intent: ResumeCursor | null;
+  kind: "clear" | "save";
+  resolve: (result: NativeListeningProgressMutationResult) => void;
+}>;
+
 const createSession = ({
   currentIdentity,
   identity,
@@ -241,7 +248,8 @@ const createSession = ({
     | Extract<NativeListeningProgressMutationResult, { status: "conflict" }>
     | undefined;
   let terminallySuperseded = false;
-  let tail: Promise<void> = Promise.resolve();
+  let activeMutation = false;
+  const pendingMutations: PendingMutation[] = [];
 
   const run = async (
     intent: ResumeCursor | null,
@@ -306,22 +314,53 @@ const createSession = ({
     }
   };
 
+  const drain = async (): Promise<void> => {
+    if (activeMutation) return;
+    activeMutation = true;
+    try {
+      while (pendingMutations.length > 0) {
+        const operation = pendingMutations.shift();
+        if (operation === undefined) continue;
+        operation.resolve(await run(operation.intent));
+      }
+    } finally {
+      activeMutation = false;
+    }
+  };
+
   const enqueue = (
     intent: ResumeCursor | null,
+    kind: PendingMutation["kind"],
   ): Promise<NativeListeningProgressMutationResult> => {
-    const operation = tail.then(
-      () => run(intent),
-      () => run(intent),
+    if (terminallySuperseded || !identityMatches(currentIdentity(), identity)) {
+      terminallySuperseded = true;
+      return Promise.resolve(SUPERSEDED_RESULT);
+    }
+    if (terminalConflict !== undefined) {
+      return Promise.resolve(terminalConflict);
+    }
+    if (kind === "save") {
+      const previous = pendingMutations.at(-1);
+      if (previous?.kind === "save") {
+        pendingMutations.pop();
+        previous.resolve(SUPERSEDED_RESULT);
+      }
+    }
+    if (pendingMutations.length >= MAX_PENDING_MUTATIONS) {
+      return Promise.resolve(sanitizeMutationError(null, SAVE_ERROR_MESSAGE));
+    }
+
+    const operation = new Promise<NativeListeningProgressMutationResult>(
+      (resolve) => {
+        pendingMutations.push({ intent, kind, resolve });
+      },
     );
-    tail = operation.then(
-      () => undefined,
-      () => undefined,
-    );
+    void drain();
     return operation;
   };
 
   return {
-    clear: () => enqueue(null),
+    clear: () => enqueue(null, "clear"),
     save: (value) => {
       if (
         terminallySuperseded ||
@@ -340,7 +379,7 @@ const createSession = ({
             sanitizeMutationError(null, SAVE_ERROR_MESSAGE),
           );
         }
-        return enqueue(cursor);
+        return enqueue(cursor, "save");
       } catch (error: unknown) {
         return Promise.resolve(
           sanitizeMutationError(error, SAVE_ERROR_MESSAGE),

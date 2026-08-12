@@ -125,6 +125,26 @@ describe("ConvexNativeListeningProgressProvider", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("reports connecting without querying while native auth is loading", async () => {
+    const accountEpoch = Symbol("loading");
+    useNativeAuthMock.mockReturnValue({
+      canSignOut: false,
+      sessionEpoch: accountEpoch,
+      sessionEpochKey: "native-epoch-loading",
+      signOut: jest.fn(),
+      state: { profile: null, status: "loading" },
+    });
+    const { result } = renderHook(() => useNativeListeningProgress(), {
+      wrapper: Wrapper,
+    });
+
+    expect(result.current.availability).toBe("connecting");
+    await expect(result.current.openArticle(target)).resolves.toEqual({
+      status: "unavailable",
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("opens one account-bound article session without exposing server metadata", async () => {
     useNativeAuthMock.mockReturnValue(readyAuth());
     useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
@@ -475,6 +495,186 @@ describe("ConvexNativeListeningProgressProvider", () => {
       expectedCursorVersion: 4,
       sessionEpochKey: "native-epoch-a",
       wikiPageId: "736",
+    });
+  });
+
+  it("coalesces consecutive pending saves while preserving clear as an ordering barrier", async () => {
+    useNativeAuthMock.mockReturnValue(readyAuth());
+    useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
+    query.mockResolvedValue({
+      cursor: null,
+      cursorVersion: 3,
+      sessionEpochKey: "native-epoch-a",
+    });
+    const firstCursor = Object.freeze({ ...cursor, positionSeconds: 10 });
+    const replacedBeforeClear = Object.freeze({
+      ...cursor,
+      positionSeconds: 20,
+    });
+    const latestBeforeClear = Object.freeze({
+      ...cursor,
+      positionSeconds: 30,
+    });
+    const replacedAfterClear = Object.freeze({
+      ...cursor,
+      positionSeconds: 40,
+    });
+    const latestAfterClear = Object.freeze({
+      ...cursor,
+      positionSeconds: 50,
+    });
+    let resolveFirst: ((value: unknown) => void) | undefined;
+    writeMutation
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        cursor: {
+          ...latestBeforeClear,
+          cursorVersion: 5,
+          updatedAt: 1_786_000_000_002,
+        },
+        cursorVersion: 5,
+        disposition: "applied",
+        sessionEpochKey: "native-epoch-a",
+      })
+      .mockResolvedValueOnce({
+        cursor: null,
+        cursorVersion: 6,
+        disposition: "applied",
+        sessionEpochKey: "native-epoch-a",
+      })
+      .mockResolvedValueOnce({
+        cursor: {
+          ...latestAfterClear,
+          cursorVersion: 7,
+          updatedAt: 1_786_000_000_004,
+        },
+        cursorVersion: 7,
+        disposition: "applied",
+        sessionEpochKey: "native-epoch-a",
+      });
+    const { result } = renderHook(() => useNativeListeningProgress(), {
+      wrapper: Wrapper,
+    });
+    const opened = await result.current.openArticle(target);
+    if (opened.status !== "opened") throw new Error("Expected opened session");
+
+    const first = opened.session.save(firstCursor);
+    const replacedBefore = opened.session.save(replacedBeforeClear);
+    const latestBefore = opened.session.save(latestBeforeClear);
+    const clear = opened.session.clear();
+    const replacedAfter = opened.session.save(replacedAfterClear);
+    const latestAfter = opened.session.save(latestAfterClear);
+    await waitFor(() => expect(writeMutation).toHaveBeenCalledTimes(1));
+
+    resolveFirst?.({
+      cursor: {
+        ...firstCursor,
+        cursorVersion: 4,
+        updatedAt: 1_786_000_000_001,
+      },
+      cursorVersion: 4,
+      disposition: "applied",
+      sessionEpochKey: "native-epoch-a",
+    });
+
+    await expect(first).resolves.toEqual({ status: "committed" });
+    await expect(replacedBefore).resolves.toEqual({ status: "superseded" });
+    await expect(latestBefore).resolves.toEqual({ status: "committed" });
+    await expect(clear).resolves.toEqual({ status: "committed" });
+    await expect(replacedAfter).resolves.toEqual({ status: "superseded" });
+    await expect(latestAfter).resolves.toEqual({ status: "committed" });
+    expect(writeMutation).toHaveBeenCalledTimes(4);
+    expect(writeMutation.mock.calls[1]?.[0].cursor).toEqual(latestBeforeClear);
+    expect(writeMutation.mock.calls[2]?.[0].cursor).toBeNull();
+    expect(writeMutation.mock.calls[3]?.[0].cursor).toEqual(latestAfterClear);
+    expect(
+      writeMutation.mock.calls.map(([args]) => args.expectedCursorVersion),
+    ).toEqual([3, 4, 5, 6]);
+  });
+
+  it("bounds queued clear barriers while a mutation is active", async () => {
+    useNativeAuthMock.mockReturnValue(readyAuth());
+    useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
+    query.mockResolvedValue({
+      cursor: null,
+      cursorVersion: 3,
+      sessionEpochKey: "native-epoch-a",
+    });
+    let resolveActive: ((value: unknown) => void) | undefined;
+    writeMutation
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveActive = resolve;
+        }),
+      )
+      .mockImplementation((args) =>
+        Promise.resolve({
+          cursor: null,
+          cursorVersion: args.expectedCursorVersion + 1,
+          disposition: "applied",
+          sessionEpochKey: "native-epoch-a",
+        }),
+      );
+    const { result } = renderHook(() => useNativeListeningProgress(), {
+      wrapper: Wrapper,
+    });
+    const opened = await result.current.openArticle(target);
+    if (opened.status !== "opened") throw new Error("Expected opened session");
+
+    void opened.session.save(cursor);
+    const queuedClears = Array.from({ length: 32 }, () =>
+      opened.session.clear(),
+    );
+    await waitFor(() => expect(writeMutation).toHaveBeenCalledTimes(1));
+
+    await expect(opened.session.clear()).resolves.toEqual({
+      message: "We couldn’t update your saved position. Please try again.",
+      status: "failed",
+    });
+    resolveActive?.({
+      cursor: { ...cursor, cursorVersion: 4, updatedAt: 1_786_000_000_001 },
+      cursorVersion: 4,
+      disposition: "applied",
+      sessionEpochKey: "native-epoch-a",
+    });
+    await expect(Promise.all(queuedClears)).resolves.toEqual(
+      Array.from({ length: 32 }, () => ({ status: "committed" })),
+    );
+    expect(writeMutation).toHaveBeenCalledTimes(33);
+  });
+
+  it("supersedes a stale clear before applying queue capacity", async () => {
+    useNativeAuthMock.mockReturnValue(readyAuth());
+    useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
+    query.mockResolvedValue({
+      cursor: null,
+      cursorVersion: 3,
+      sessionEpochKey: "native-epoch-a",
+    });
+    writeMutation.mockReturnValue(new Promise(() => undefined));
+    const { result, rerender } = renderHook(
+      () => useNativeListeningProgress(),
+      { wrapper: Wrapper },
+    );
+    const opened = await result.current.openArticle(target);
+    if (opened.status !== "opened") throw new Error("Expected opened session");
+
+    void opened.session.save(cursor);
+    Array.from({ length: 32 }, () => void opened.session.clear());
+    await waitFor(() => expect(writeMutation).toHaveBeenCalledTimes(1));
+
+    useNativeAuthMock.mockReturnValue(
+      readyAuth(accountBEpoch, "native-epoch-b"),
+    );
+    useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
+    rerender({});
+
+    await expect(opened.session.clear()).resolves.toEqual({
+      status: "superseded",
     });
   });
 
