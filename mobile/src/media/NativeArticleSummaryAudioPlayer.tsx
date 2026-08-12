@@ -49,6 +49,7 @@ type ActiveOperation = {
   cancelReason: "none" | "user" | "lifecycle" | "timeout" | "failure";
   controller: AbortController;
   lease: NativeArticleAudioEphemeralLease | null;
+  playbackStarted: boolean;
   player: BackgroundAudioPlayer | null;
   responseRelease: (() => void) | null;
   timeoutId: ReturnType<typeof setTimeout>;
@@ -326,6 +327,7 @@ export function NativeArticleSummaryAudioPlayer({
       cancelReason: "none",
       controller,
       lease: null,
+      playbackStarted: false,
       player: null,
       responseRelease: null,
       timeoutId: 0 as unknown as ReturnType<typeof setTimeout>,
@@ -473,6 +475,7 @@ export function NativeArticleSummaryAudioPlayer({
       ) {
         return;
       }
+      target.playbackStarted = true;
       clearTimeout(target.timeoutId);
       updatePresentation({
         currentTime: 0,
@@ -610,7 +613,11 @@ export function NativeArticleSummaryAudioPlayer({
       setIsForeground(nextForeground);
       const target = operation.current;
       if (nextForeground) {
-        if (target !== null && target.player !== null) {
+        if (
+          target !== null &&
+          target.player !== null &&
+          target.playbackStarted
+        ) {
           try {
             handlePlaybackStatus(target, target.player.getStatus());
           } catch (_error: unknown) {
@@ -623,7 +630,7 @@ export function NativeArticleSummaryAudioPlayer({
       if (
         nextState === "background" &&
         target !== null &&
-        target.player === null
+        !target.playbackStarted
       ) {
         stopCurrent(
           "Summary audio preparation cancelled when the app left the foreground.",
