@@ -482,6 +482,17 @@ describe("getViewerAccountDataPageForCtx", () => {
             ],
           },
           meaningfulUseSessionExpiresAt: 4_102_444_800_000,
+          resumeCursorVersion: 4,
+          resumeCursor: {
+            revisionId: "revision-7",
+            narrationVersion: 3,
+            mode: "all",
+            sectionKey: "section-1",
+            positionSeconds: 27,
+            durationSeconds: 120,
+            updatedAt: 1_975,
+            internalCursorMarker: "must-not-leak",
+          },
           createdAt: 1_000,
           updatedAt: 2_000,
           internalMarker: "must-not-leak",
@@ -527,6 +538,17 @@ describe("getViewerAccountDataPageForCtx", () => {
               heardRanges: [{ startSecond: 15, endSecond: 30.25 }],
             },
           ],
+        },
+        resumeCursor: {
+          wikiPageId: "wiki-1",
+          revisionId: "revision-7",
+          narrationVersion: 3,
+          mode: "all",
+          sectionKey: "section-1",
+          positionSeconds: 27,
+          durationSeconds: 120,
+          cursorVersion: 4,
+          updatedAt: 1_975,
         },
         createdAt: 1_000,
         updatedAt: 2_000,
@@ -577,6 +599,8 @@ describe("getViewerAccountDataPageForCtx", () => {
     expect(result.page).toHaveLength(2);
     expect(result.page[0]).not.toHaveProperty("meaningfulUseSession");
     expect(result.page[1]).not.toHaveProperty("meaningfulUseSession");
+    expect(result.page[0]).not.toHaveProperty("resumeCursor");
+    expect(result.page[1]).not.toHaveProperty("resumeCursor");
   });
 
   it("exports earned badge credit as article context rather than database records", async () => {

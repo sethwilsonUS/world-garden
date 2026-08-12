@@ -49,6 +49,16 @@ type ListenProgressDoc = {
     }>;
   };
   meaningfulUseSessionExpiresAt?: number;
+  resumeCursorVersion?: number;
+  resumeCursor?: {
+    revisionId: string;
+    narrationVersion: number;
+    mode: "all" | "single";
+    sectionKey: string;
+    positionSeconds: number;
+    durationSeconds: number;
+    updatedAt: number;
+  };
   createdAt: number;
   updatedAt: number;
 };
@@ -436,6 +446,71 @@ describe("cleanupExpiredMeaningfulUseSessionsForCtx", () => {
 });
 
 describe("recordViewerArticleListenProgressForCtx", () => {
+  it("preserves an existing native resume cursor while web heard ranges advance", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "off");
+    const articleId = "article-resume-preservation" as Id<"articles">;
+    const resumeCursor = {
+      revisionId: "99",
+      narrationVersion: 2,
+      mode: "all" as const,
+      sectionKey: "summary",
+      positionSeconds: 14,
+      durationSeconds: 90,
+      updatedAt: 1_786_467_600_000,
+    };
+    const { ctx, getProgressDocs } = createCtx({
+      articles: [
+        {
+          _id: articleId,
+          wikiPageId: "42",
+          title: "Pumpkin",
+          slug: "Pumpkin",
+          summary: "A sufficiently long canonical summary for narration.",
+        },
+      ],
+      progress: [
+        {
+          _id: "progress-resume-preservation" as Id<"viewerArticleListenProgress">,
+          viewerTokenIdentifier: "viewer-1",
+          articleId,
+          wikiPageId: "42",
+          slug: "Pumpkin",
+          title: "Pumpkin",
+          totalDurationSeconds: 90,
+          heardSeconds: 5,
+          sections: [
+            {
+              sectionKey: "summary",
+              durationSeconds: 90,
+              heardRanges: [{ startSecond: 0, endSecond: 5 }],
+            },
+          ],
+          resumeCursorVersion: 7,
+          resumeCursor,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+    });
+
+    await recordViewerArticleListenProgressForCtx(ctx as never, {
+      articleId,
+      wikiPageId: "42",
+      slug: "Pumpkin",
+      title: "Pumpkin",
+      totalDurationSeconds: 90,
+      sectionKey: "summary",
+      sectionDurationSeconds: 90,
+      heardRanges: [{ startSecond: 5, endSecond: 8 }],
+    });
+
+    expect(getProgressDocs()[0]).toMatchObject({
+      heardSeconds: 8,
+      resumeCursorVersion: 7,
+      resumeCursor,
+    });
+  });
+
   it("keeps listen progress successful when its idempotent ledger enqueue fails", async () => {
     vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
     vi.spyOn(crypto, "randomUUID").mockReturnValue(

@@ -129,6 +129,17 @@ describe("account data export assembler", () => {
           },
         ],
       },
+      resumeCursor: {
+        wikiPageId: "wiki-1",
+        revisionId: "revision-7",
+        narrationVersion: 3,
+        mode: "all",
+        sectionKey: "section-1",
+        positionSeconds: 27,
+        durationSeconds: 120,
+        cursorVersion: 4,
+        updatedAt: 1_760_000_004_500,
+      },
       createdAt: 1_760_000_004_000,
       updatedAt: 1_760_000_005_000,
     } satisfies ListeningProgressExport;

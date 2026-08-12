@@ -1,4 +1,5 @@
 import {
+  collectCalls,
   createViolation,
   defineCondition,
   definePredicate,
@@ -8,6 +9,7 @@ import {
   resideInFolder,
 } from "@nielspeter/ts-archunit";
 import { recommended } from "@nielspeter/ts-archunit/presets";
+import ts from "typescript";
 
 // arch-baseline.json contains reviewed legacy findings from the preset's
 // advisory rules. Fix new findings; never regenerate the baseline merely to
@@ -138,6 +140,49 @@ const useOnlyClientSafeNextCacheExports = defineCondition<ProjectSourceFile>(
     }),
 );
 
+const useOnlyPublicDomainPackageImports = defineCondition<ProjectSourceFile>(
+  "use only the public @curio-garden/domain package interface",
+  (sourceFiles, context) =>
+    sourceFiles.flatMap((sourceFile) => {
+      const staticDeclarations = [
+        ...sourceFile.getImportDeclarations(),
+        ...sourceFile.getExportDeclarations(),
+      ].filter((declaration) =>
+        /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
+          declaration.getModuleSpecifierValue() ?? "",
+        ),
+      );
+      const literalCalls = collectCalls(sourceFile)
+        .filter((call) => {
+          if (
+            call.getObjectName() !== undefined ||
+            (call.getMethodName() !== "import" &&
+              call.getMethodName() !== "require")
+          ) {
+            return false;
+          }
+          const argument = call.getArguments()[0];
+          const compilerNode = argument?.compilerNode as unknown as
+            | ts.Node
+            | undefined;
+          return (
+            compilerNode !== undefined &&
+            ts.isStringLiteralLike(compilerNode) &&
+            /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(compilerNode.text)
+          );
+        })
+        .map((call) => call.getNode());
+
+      return [...staticDeclarations, ...literalCalls].map((declaration) =>
+        createViolation(
+          declaration,
+          "domain consumer bypasses the public @curio-garden/domain package interface",
+          context,
+        ),
+      );
+    }),
+);
+
 const convexMustStayIndependentOfWeb = modules(p)
   .that()
   .resideInFolder("convex/**")
@@ -186,6 +231,23 @@ const webMustStayIndependentOfMobile = modules(p)
       "Move platform-neutral behavior into packages/domain and retain separate web and mobile adapters",
     imperative:
       "Do NOT import mobile implementation or native runtime packages from the web application",
+  })
+  .asSeverity("error");
+
+const domainConsumersMustUseThePublicPackageInterface = modules(p)
+  .that()
+  .resideInFolder("{app,components,hooks,lib,convex,mobile}/**")
+  .expectNonEmpty()
+  .should()
+  .satisfy(useOnlyPublicDomainPackageImports)
+  .rule({
+    id: "curio/domain/public-package-interface",
+    because:
+      "shared domain internals must remain replaceable behind the package's reviewed public exports",
+    suggestion:
+      'Import shared values from "@curio-garden/domain" and export any newly earned seam from packages/domain/src/index.ts',
+    imperative:
+      "Do NOT import packages/domain/src implementation files from web, Convex, or mobile consumers",
   })
   .asSeverity("error");
 
@@ -268,6 +330,7 @@ const architectureRules = [
   }),
   convexMustStayIndependentOfWeb,
   webMustStayIndependentOfMobile,
+  domainConsumersMustUseThePublicPackageInterface,
   webEntrypointsMustStayIndependentOfMobile,
   clientModulesMustStayOutOfServerRuntimes,
   clientModulesMustUseClientSafeNextCacheExports,

@@ -237,6 +237,22 @@ export const getViewerAccountDataPageForCtx = async (
                 },
               }
             : {}),
+          ...(progress.resumeCursor &&
+          progress.resumeCursorVersion !== undefined
+            ? {
+                resumeCursor: {
+                  wikiPageId: progress.wikiPageId,
+                  revisionId: progress.resumeCursor.revisionId,
+                  narrationVersion: progress.resumeCursor.narrationVersion,
+                  mode: progress.resumeCursor.mode,
+                  sectionKey: progress.resumeCursor.sectionKey,
+                  positionSeconds: progress.resumeCursor.positionSeconds,
+                  durationSeconds: progress.resumeCursor.durationSeconds,
+                  cursorVersion: progress.resumeCursorVersion,
+                  updatedAt: progress.resumeCursor.updatedAt,
+                },
+              }
+            : {}),
           createdAt: progress.createdAt,
           updatedAt: progress.updatedAt,
         })),

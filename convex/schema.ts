@@ -187,6 +187,18 @@ const heardRange = v.object({
   endSecond: v.number(),
 });
 
+const resumeCursorMode = v.union(v.literal("all"), v.literal("single"));
+
+const viewerArticleResumeCursor = v.object({
+  revisionId: v.string(),
+  narrationVersion: v.number(),
+  mode: resumeCursorMode,
+  sectionKey: v.string(),
+  positionSeconds: v.number(),
+  durationSeconds: v.number(),
+  updatedAt: v.number(),
+});
+
 const wikimediaMediaAttribution = v.object({
   creator: v.optional(v.string()),
   credit: v.optional(v.string()),
@@ -1114,6 +1126,10 @@ export default defineSchema({
       }),
     ),
     meaningfulUseSessionExpiresAt: v.optional(v.number()),
+    // Version remains after a clear so a stale device cannot resurrect an
+    // older cursor. Both fields are optional for pre-resume legacy rows.
+    resumeCursorVersion: v.optional(v.number()),
+    resumeCursor: v.optional(viewerArticleResumeCursor),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
