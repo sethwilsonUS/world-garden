@@ -37,6 +37,7 @@ import type * as lib_personalPlaylistWorker from "../lib/personalPlaylistWorker.
 import type * as lib_storageUpload from "../lib/storageUpload.js";
 import type * as lib_ttsAudioVariants from "../lib/ttsAudioVariants.js";
 import type * as lib_wikipedia from "../lib/wikipedia.js";
+import type * as listeningProgress from "../listeningProgress.js";
 import type * as personalPlaylist from "../personalPlaylist.js";
 import type * as pictureOfDay from "../pictureOfDay.js";
 import type * as podcast from "../podcast.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "lib/storageUpload": typeof lib_storageUpload;
   "lib/ttsAudioVariants": typeof lib_ttsAudioVariants;
   "lib/wikipedia": typeof lib_wikipedia;
+  listeningProgress: typeof listeningProgress;
   personalPlaylist: typeof personalPlaylist;
   pictureOfDay: typeof pictureOfDay;
   podcast: typeof podcast;

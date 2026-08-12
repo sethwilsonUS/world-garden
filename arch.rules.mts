@@ -138,6 +138,29 @@ const useOnlyClientSafeNextCacheExports = defineCondition<ProjectSourceFile>(
     }),
 );
 
+const useOnlyPublicDomainPackageImports = defineCondition<ProjectSourceFile>(
+  "use only the public @curio-garden/domain package interface",
+  (sourceFiles, context) =>
+    sourceFiles.flatMap((sourceFile) =>
+      [
+        ...sourceFile.getImportDeclarations(),
+        ...sourceFile.getExportDeclarations(),
+      ]
+        .filter((declaration) =>
+          /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
+            declaration.getModuleSpecifierValue() ?? "",
+          ),
+        )
+        .map((declaration) =>
+          createViolation(
+            declaration,
+            "domain consumer bypasses the public @curio-garden/domain package interface",
+            context,
+          ),
+        ),
+    ),
+);
+
 const convexMustStayIndependentOfWeb = modules(p)
   .that()
   .resideInFolder("convex/**")
@@ -186,6 +209,23 @@ const webMustStayIndependentOfMobile = modules(p)
       "Move platform-neutral behavior into packages/domain and retain separate web and mobile adapters",
     imperative:
       "Do NOT import mobile implementation or native runtime packages from the web application",
+  })
+  .asSeverity("error");
+
+const domainConsumersMustUseThePublicPackageInterface = modules(p)
+  .that()
+  .resideInFolder("{app,components,hooks,lib,convex,mobile}/**")
+  .expectNonEmpty()
+  .should()
+  .satisfy(useOnlyPublicDomainPackageImports)
+  .rule({
+    id: "curio/domain/public-package-interface",
+    because:
+      "shared domain internals must remain replaceable behind the package's reviewed public exports",
+    suggestion:
+      'Import shared values from "@curio-garden/domain" and export any newly earned seam from packages/domain/src/index.ts',
+    imperative:
+      "Do NOT import packages/domain/src implementation files from web, Convex, or mobile consumers",
   })
   .asSeverity("error");
 
@@ -268,6 +308,7 @@ const architectureRules = [
   }),
   convexMustStayIndependentOfWeb,
   webMustStayIndependentOfMobile,
+  domainConsumersMustUseThePublicPackageInterface,
   webEntrypointsMustStayIndependentOfMobile,
   clientModulesMustStayOutOfServerRuntimes,
   clientModulesMustUseClientSafeNextCacheExports,

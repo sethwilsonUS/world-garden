@@ -77,6 +77,17 @@ export type ListeningProgressExport = {
       heardRanges: HeardRangeExport[];
     }>;
   };
+  resumeCursor?: {
+    wikiPageId: string;
+    revisionId: string;
+    narrationVersion: number;
+    mode: "all" | "single";
+    sectionKey: string;
+    positionSeconds: number;
+    durationSeconds: number;
+    cursorVersion: number;
+    updatedAt: number;
+  };
   createdAt: number;
   updatedAt: number;
 };

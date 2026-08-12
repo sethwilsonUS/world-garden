@@ -112,6 +112,20 @@ describe("PrivacyPage", () => {
     );
   });
 
+  it("discloses cross-device resume position throughout its account-data lifecycle", () => {
+    const markup = renderToStaticMarkup(createElement(PrivacyPage));
+
+    expect(markup).toContain(
+      "latest listening section and position so playback can resume across signed-in devices",
+    );
+    expect(markup).toContain(
+      "The exported listening progress includes the latest saved section and position",
+    );
+    expect(markup).toContain(
+      "Deletion also removes the latest saved listening section and position",
+    );
+  });
+
   it("describes the privacy-minimized AI cost ledger without overstating listening coverage", () => {
     const markup = renderToStaticMarkup(createElement(PrivacyPage));
 

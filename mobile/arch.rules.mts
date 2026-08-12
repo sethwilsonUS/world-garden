@@ -1,4 +1,11 @@
-import { modules, not, project, resideInFile } from "@nielspeter/ts-archunit";
+import {
+  createViolation,
+  defineCondition,
+  modules,
+  not,
+  project,
+  resideInFile,
+} from "@nielspeter/ts-archunit";
 import { recommended } from "@nielspeter/ts-archunit/presets";
 import { join } from "node:path";
 
@@ -76,6 +83,34 @@ const nativePushImports = [
   "react-native-push-notification/**",
 ];
 
+type MobileProjectSourceFile = ReturnType<
+  (typeof mobileProject)["getSourceFiles"]
+>[number];
+
+const useOnlyPublicDomainPackageImports =
+  defineCondition<MobileProjectSourceFile>(
+    "use only the public @curio-garden/domain package interface",
+    (sourceFiles, context) =>
+      sourceFiles.flatMap((sourceFile) =>
+        [
+          ...sourceFile.getImportDeclarations(),
+          ...sourceFile.getExportDeclarations(),
+        ]
+          .filter((declaration) =>
+            /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
+              declaration.getModuleSpecifierValue() ?? "",
+            ),
+          )
+          .map((declaration) =>
+            createViolation(
+              declaration,
+              "native domain consumer bypasses the public @curio-garden/domain package interface",
+              context,
+            ),
+          ),
+      ),
+  );
+
 const mobileMustStayIndependentOfWeb = modules(mobileProject)
   .that()
   .resideInFolder("{app,src}/**")
@@ -105,6 +140,25 @@ const mobileMustStayIndependentOfWeb = modules(mobileProject)
       "Move reusable behavior into packages/domain, or implement it behind a mobile-owned adapter",
     imperative:
       "Do NOT import Next.js, React DOM, web or Convex implementation folders, or server-only Convex APIs from mobile code",
+  })
+  .asSeverity("error");
+
+const mobileDomainConsumersMustUseThePublicPackageInterface = modules(
+  mobileProject,
+)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .expectNonEmpty()
+  .should()
+  .satisfy(useOnlyPublicDomainPackageImports)
+  .rule({
+    id: "curio/domain/mobile-public-package-interface",
+    because:
+      "native domain consumers must remain behind the same reviewed package interface as web and Convex",
+    suggestion:
+      'Import shared values from "@curio-garden/domain" and export newly earned seams from packages/domain/src/index.ts',
+    imperative:
+      "Do NOT import packages/domain/src implementation files from the native application",
   })
   .asSeverity("error");
 
@@ -308,6 +362,7 @@ export default [
     include: "{app,src}/**/*.{ts,tsx}",
   }),
   mobileMustStayIndependentOfWeb,
+  mobileDomainConsumersMustUseThePublicPackageInterface,
   convexClientApiMustStayNarrow,
   nativeOfflinePersistenceMustStayDeferred,
   nativeArticleAudioEphemeralStoreMustStayNarrow,

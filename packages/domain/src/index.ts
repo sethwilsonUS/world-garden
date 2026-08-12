@@ -19,6 +19,25 @@ export {
   type BookmarkStorageMode,
 } from "./bookmarks";
 export {
+  calculateNewlyHeardSeconds,
+  CONTINUOUS_PLAYBACK_TOLERANCE_SECONDS,
+  detectContinuousPlaybackWindow,
+  getMeaningfulUseQualification,
+  mergeHeardRanges,
+  normalizeResumeCursor,
+  normalizeHeardRanges,
+  RESUME_CURSOR_LIMITS,
+  resumeCursorMatchesTarget,
+  sumHeardRangeSeconds,
+  type HeardRange,
+  type MeaningfulUseQualification,
+  type MeaningfulUseSection,
+  type ResumeCursor,
+  type ResumeCursorMode,
+  type ResumeCursorSectionKey,
+  type ResumeCursorTarget,
+} from "./listening-progress";
+export {
   formatWikipediaSearchStatus,
   normalizeWikipediaSearchTerm,
 } from "./search";

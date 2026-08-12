@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPageLayout, LegalSection } from "@/components/LegalPageLayout";
 
-const LAST_UPDATED = "July 28, 2026";
+const LAST_UPDATED = "August 11, 2026";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Curio Garden",
@@ -53,8 +53,9 @@ export default function PrivacyPage() {
           </li>
           <li>
             Signed-in article listening progress, including heard ranges and
-            qualification timestamps, along with topic-badge credit earned from
-            qualifying listening.
+            qualification timestamps, and the latest listening section and
+            position so playback can resume across signed-in devices, along with
+            topic-badge credit earned from qualifying listening.
           </li>
           <li>
             Signed-in article-audio export records and generated files, plus
@@ -262,13 +263,14 @@ export default function PrivacyPage() {
             data. It includes bookmarks, Personal Playlist order and episode
             status, listening progress, topic-badge credit, personal feed state,
             and metadata about article-audio exports and generation quota
-            windows. While the feed URL is active, the active private RSS feed
-            token is included and remains a bearer credential, so keep the
-            export private. Revoked feed tokens are not included. The export
-            contains metadata about article-audio exports, not the generated
-            audio files themselves. Device-local history and preferences,
-            anonymous feedback, shared caches, and aggregated analytics are
-            excluded.
+            windows. The exported listening progress includes the latest saved
+            section and position. While the feed URL is active, the active
+            private RSS feed token is included and remains a bearer credential,
+            so keep the export private. Revoked feed tokens are not included.
+            The export contains metadata about article-audio exports, not the
+            generated audio files themselves. Device-local history and
+            preferences, anonymous feedback, shared caches, and aggregated
+            analytics are excluded.
           </li>
           <li>
             From the same Account &amp; data page, you can permanently delete
@@ -277,8 +279,9 @@ export default function PrivacyPage() {
             records and account-linked generated episode files, private RSS feed
             access, signed-in listening progress, topic-badge credit,
             account-linked article-audio export records and generated files, and
-            related generation quota windows. Private RSS access is turned off
-            as the deletion is accepted. Some removal may finish in the
+            related generation quota windows. Deletion also removes the latest
+            saved listening section and position. Private RSS access is turned
+            off as the deletion is accepted. Some removal may finish in the
             background after sign-in ends.
           </li>
           <li>
