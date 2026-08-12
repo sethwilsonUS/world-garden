@@ -15,7 +15,7 @@ const originalAnnouncementOptionsDescriptor = Object.getOwnPropertyDescriptor(
   "announceForAccessibilityWithOptions",
 );
 
-function usePlatform(os: "android" | "ios") {
+function setPlatformOS(os: "android" | "ios") {
   Object.defineProperty(Platform, "OS", {
     configurable: true,
     value: os,
@@ -129,7 +129,7 @@ describe("NativePlaybackSpeedControl", () => {
   });
 
   it("cycles rapid accepted presses from the latest requested rate and keeps focus", () => {
-    usePlatform("ios");
+    setPlatformOS("ios");
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announceWithOptions = jest.spyOn(
       AccessibilityInfo,
@@ -173,7 +173,7 @@ describe("NativePlaybackSpeedControl", () => {
   });
 
   it("announces an accepted iOS change only after its controlled prop commits", () => {
-    usePlatform("ios");
+    setPlatformOS("ios");
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     const announceWithOptions = jest.spyOn(
@@ -201,7 +201,7 @@ describe("NativePlaybackSpeedControl", () => {
   });
 
   it("uses one imperative Android announcement and wraps 2x to 0.5x", () => {
-    usePlatform("android");
+    setPlatformOS("android");
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     const announceWithOptions = jest.spyOn(
@@ -225,7 +225,7 @@ describe("NativePlaybackSpeedControl", () => {
   });
 
   it("keeps the prior rate silent when the requested change is rejected", () => {
-    usePlatform("ios");
+    setPlatformOS("ios");
     const onChange = jest.fn((_next: NativePlaybackRate) => false);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     const announceWithOptions = jest.spyOn(
