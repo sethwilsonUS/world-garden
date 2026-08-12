@@ -126,7 +126,12 @@ export const detectContinuousPlaybackWindow = (args: {
   const toleranceSeconds =
     args.toleranceSeconds ?? CONTINUOUS_PLAYBACK_TOLERANCE_SECONDS;
 
-  if (args.previousTime == null || args.elapsedMs <= 0) {
+  if (
+    args.previousTime == null ||
+    args.elapsedMs <= 0 ||
+    !Number.isFinite(args.playbackRate) ||
+    args.playbackRate <= 0
+  ) {
     return null;
   }
 

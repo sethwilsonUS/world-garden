@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  detectContinuousPlaybackWindow,
   mergeHeardRanges,
   normalizeResumeCursor,
   RESUME_CURSOR_LIMITS,
@@ -26,6 +27,23 @@ describe("shared listening progress", () => {
         { startSecond: 2, endSecond: 5 },
       ]),
     ).toEqual([{ startSecond: 0, endSecond: 7 }]);
+  });
+
+  it.each([
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative infinity", Number.NEGATIVE_INFINITY],
+    ["zero", 0],
+    ["a negative value", -1],
+  ])("rejects %s as a playback rate", (_label, playbackRate) => {
+    expect(
+      detectContinuousPlaybackWindow({
+        previousTime: 4,
+        currentTime: 4.5,
+        elapsedMs: 1_000,
+        playbackRate,
+      }),
+    ).toBeNull();
   });
 
   it("normalizes a client resume cursor into one canonical immutable value", () => {

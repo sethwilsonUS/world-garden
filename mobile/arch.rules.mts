@@ -1,4 +1,5 @@
 import {
+  collectCalls,
   createViolation,
   defineCondition,
   modules,
@@ -8,6 +9,7 @@ import {
 } from "@nielspeter/ts-archunit";
 import { recommended } from "@nielspeter/ts-archunit/presets";
 import { join } from "node:path";
+import ts from "typescript";
 
 const mobileProject = project("mobile/tsconfig.arch.json");
 const webImplementationImports = ["app", "components", "hooks", "lib"].map(
@@ -91,24 +93,44 @@ const useOnlyPublicDomainPackageImports =
   defineCondition<MobileProjectSourceFile>(
     "use only the public @curio-garden/domain package interface",
     (sourceFiles, context) =>
-      sourceFiles.flatMap((sourceFile) =>
-        [
+      sourceFiles.flatMap((sourceFile) => {
+        const staticDeclarations = [
           ...sourceFile.getImportDeclarations(),
           ...sourceFile.getExportDeclarations(),
-        ]
-          .filter((declaration) =>
-            /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
-              declaration.getModuleSpecifierValue() ?? "",
-            ),
-          )
-          .map((declaration) =>
-            createViolation(
-              declaration,
-              "native domain consumer bypasses the public @curio-garden/domain package interface",
-              context,
-            ),
+        ].filter((declaration) =>
+          /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
+            declaration.getModuleSpecifierValue() ?? "",
           ),
-      ),
+        );
+        const literalCalls = collectCalls(sourceFile)
+          .filter((call) => {
+            if (
+              call.getObjectName() !== undefined ||
+              (call.getMethodName() !== "import" &&
+                call.getMethodName() !== "require")
+            ) {
+              return false;
+            }
+            const argument = call.getArguments()[0];
+            const compilerNode = argument?.compilerNode as unknown as
+              | ts.Node
+              | undefined;
+            return (
+              compilerNode !== undefined &&
+              ts.isStringLiteralLike(compilerNode) &&
+              /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(compilerNode.text)
+            );
+          })
+          .map((call) => call.getNode());
+
+        return [...staticDeclarations, ...literalCalls].map((declaration) =>
+          createViolation(
+            declaration,
+            "native domain consumer bypasses the public @curio-garden/domain package interface",
+            context,
+          ),
+        );
+      }),
   );
 
 const mobileMustStayIndependentOfWeb = modules(mobileProject)
