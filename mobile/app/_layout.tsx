@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { HostedAuthProvider } from "../src/auth/HostedAuthFlow";
 import { getMobileRuntimeConfig } from "../src/config/runtime-config";
+import { NativePlaybackRateProvider } from "../src/media/NativePlaybackRateContext";
 import { NativeDataAuthProvider } from "../src/providers/NativeDataAuthProvider";
 import {
   GardenThemeProvider,
@@ -47,17 +48,19 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <NativeDataAuthProvider
-        clerkPublishableKey={clerkPublishableKey}
-        convexUrl={convexUrl}
-        webOrigin={webOrigin}
-      >
-        <GardenThemeProvider>
-          <HostedAuthProvider>
-            <NativeNavigationShell />
-          </HostedAuthProvider>
-        </GardenThemeProvider>
-      </NativeDataAuthProvider>
+      <NativePlaybackRateProvider>
+        <NativeDataAuthProvider
+          clerkPublishableKey={clerkPublishableKey}
+          convexUrl={convexUrl}
+          webOrigin={webOrigin}
+        >
+          <GardenThemeProvider>
+            <HostedAuthProvider>
+              <NativeNavigationShell />
+            </HostedAuthProvider>
+          </GardenThemeProvider>
+        </NativeDataAuthProvider>
+      </NativePlaybackRateProvider>
     </SafeAreaProvider>
   );
 }

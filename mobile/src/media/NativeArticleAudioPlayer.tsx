@@ -29,6 +29,9 @@ import {
   type NativeArticleAudioEphemeralLease,
   type NativeArticleAudioEphemeralStore,
 } from "./NativeArticleAudioEphemeralStore";
+import type { NativePlaybackRate } from "./NativePlaybackRate";
+import { useNativePlaybackRate } from "./NativePlaybackRateContext";
+import { NativePlaybackSpeedControl } from "./NativePlaybackSpeedControl";
 import { NativeArticleSummaryAudioPlayer } from "./NativeArticleSummaryAudioPlayer";
 import {
   buildNativeArticleAudioItems,
@@ -61,6 +64,7 @@ type PlayerPresentation = Readonly<{
 }>;
 
 type ActiveOperation = {
+  appliedPlaybackRate: NativePlaybackRate | null;
   controller: AbortController;
   currentIndex: number;
   items: readonly NativeArticleAudioItem[];
@@ -317,6 +321,8 @@ function NativeArticlePlaylistAudioPlayer({
   summaryDisclosure,
 }: PlaylistPlayerProps): ReactElement {
   const access = useNativeArticleAudioAccess();
+  const { rate: playbackRate, setRate: setPlaybackRate } =
+    useNativePlaybackRate();
   const { colors, fonts, radii, spacing } = useGardenTheme();
   const store = ephemeralStore ?? defaultNativeArticleAudioEphemeralStore;
   const { playAllIndexByKey, playAllItems, spokenTitleCounts } = useMemo(() => {
@@ -350,6 +356,7 @@ function NativeArticlePlaylistAudioPlayer({
   const [isForeground, setIsForeground] = useState(initiallyForeground);
   const [presentation, setPresentation] = useState<PlayerPresentation>(initial);
   const presentationRef = useRef(presentation);
+  const playbackRateRef = useRef(playbackRate);
 
   useLayoutEffect(() => {
     currentAccountEpoch.current = access.accountEpoch;
@@ -380,6 +387,31 @@ function NativeArticlePlaylistAudioPlayer({
     },
     [updatePresentation],
   );
+
+  const applyPlaybackRate = useCallback(
+    (target: ActiveOperation, nextRate: NativePlaybackRate): boolean => {
+      if (target.playlist === null || target.appliedPlaybackRate === nextRate) {
+        return true;
+      }
+
+      try {
+        target.playlist.setPlaybackRate(nextRate);
+        target.appliedPlaybackRate = nextRate;
+        return true;
+      } catch (_error: unknown) {
+        void _error;
+        failOperation(target);
+        return false;
+      }
+    },
+    [failOperation],
+  );
+
+  useLayoutEffect(() => {
+    playbackRateRef.current = playbackRate;
+    const target = operation.current;
+    if (target !== null) applyPlaybackRate(target, playbackRate);
+  }, [applyPlaybackRate, playbackRate]);
 
   const stopCurrent = useCallback(
     (message: string, announce: boolean) => {
@@ -485,6 +517,7 @@ function NativeArticlePlaylistAudioPlayer({
 
       const controller = new AbortController();
       const target: ActiveOperation = {
+        appliedPlaybackRate: null,
         controller,
         currentIndex: 0,
         items: selectedItems,
@@ -715,6 +748,7 @@ function NativeArticlePlaylistAudioPlayer({
           return;
         }
         target.playlist = playlist;
+        if (!applyPlaybackRate(target, playbackRateRef.current)) return;
         const started = await raceWithAbort(playlist.play(), controller.signal);
         if (
           started === OPERATION_ABORTED ||
@@ -747,6 +781,7 @@ function NativeArticlePlaylistAudioPlayer({
       article.narrationVersion,
       article.revisionId,
       article.title,
+      applyPlaybackRate,
       failOperation,
       handlePlaybackStatus,
       loadRuntime,
@@ -874,6 +909,18 @@ function NativeArticlePlaylistAudioPlayer({
     }
     if (canPlayAll) replacePlayback(playAllItems, "all");
   };
+
+  const handlePlaybackRateChange = useCallback(
+    (nextRate: NativePlaybackRate): boolean => {
+      const target = operation.current;
+      if (target !== null && !applyPlaybackRate(target, nextRate)) return false;
+
+      playbackRateRef.current = nextRate;
+      setPlaybackRate(nextRate);
+      return true;
+    },
+    [applyPlaybackRate, setPlaybackRate],
+  );
 
   const handleItem = (item: NativeArticleAudioItem) => {
     const target = operation.current;
@@ -1068,6 +1115,13 @@ function NativeArticlePlaylistAudioPlayer({
           />
         </View>
       ) : null}
+
+      <NativePlaybackSpeedControl
+        disabled={!active || !isForeground}
+        onChange={handlePlaybackRateChange}
+        rate={playbackRate}
+        testID="article-audio-speed"
+      />
 
       <GardenText
         accessibilityLabel={timeAccessibilityLabel(presentation)}

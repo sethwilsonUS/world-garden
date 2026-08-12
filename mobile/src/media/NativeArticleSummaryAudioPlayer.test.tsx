@@ -22,6 +22,8 @@ import type {
   NativeArticleAudioEphemeralLease,
   NativeArticleAudioEphemeralStore,
 } from "./NativeArticleAudioEphemeralStore";
+import { NativePlaybackRateProvider } from "./NativePlaybackRateContext";
+import type { NativePlaybackRatePreferenceStore } from "./NativePlaybackRatePreferenceStore";
 import { NativeArticleSummaryAudioPlayer } from "./NativeArticleSummaryAudioPlayer";
 
 const accountEpoch = Symbol("account-a");
@@ -73,6 +75,7 @@ function harness() {
     play: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
     seekTo: jest.fn().mockResolvedValue(undefined),
+    setPlaybackRate: jest.fn(),
   };
   const runtime: BackgroundAudioRuntime = {
     configureBackgroundMode: jest.fn().mockResolvedValue(undefined),
@@ -89,6 +92,10 @@ function harness() {
     accountEpoch,
     requestSection,
   };
+  const playbackRateStore: jest.Mocked<NativePlaybackRatePreferenceStore> = {
+    load: jest.fn().mockResolvedValue(1),
+    save: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     access,
@@ -103,6 +110,7 @@ function harness() {
     lease,
     loadRuntime,
     player,
+    playbackRateStore,
     requestSection,
     responseRelease,
     runtime,
@@ -139,9 +147,11 @@ function renderPlayer(
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
     >
-      <NativeArticleAudioAccessContextProvider value={access}>
-        <NativeArticleSummaryAudioPlayer {...playerProps} />
-      </NativeArticleAudioAccessContextProvider>
+      <NativePlaybackRateProvider store={setup.playbackRateStore}>
+        <NativeArticleAudioAccessContextProvider value={access}>
+          <NativeArticleSummaryAudioPlayer {...playerProps} />
+        </NativeArticleAudioAccessContextProvider>
+      </NativePlaybackRateProvider>
     </GardenThemeProvider>
   );
   const view = render(
@@ -236,6 +246,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     expect(
       screen.getByRole("button", { name: "Play full summary audio" }),
     ).toBeOnTheScreen();
+    expect(
+      screen.getByRole("button", { name: "Playback speed 1x" }),
+    ).toHaveProp("accessibilityHint", "Changes to 1.25x.");
     expect(screen.getByTestId("summary-audio-control")).toHaveProp(
       "accessibilityHint",
       "Continues in the background and provides lock-screen controls for Pumpkin.",
@@ -318,6 +331,63 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
       "Playing the full summary.",
     );
+  });
+
+  it("restores playback speed before first play and updates active summary audio", async () => {
+    const setup = harness();
+    setup.playbackRateStore.load.mockResolvedValue(1.5);
+    renderPlayer(setup);
+
+    const speedControl = await screen.findByRole("button", {
+      name: "Playback speed 1.5x",
+    });
+    await beginPlayback(setup);
+
+    expect(setup.player.setPlaybackRate).toHaveBeenNthCalledWith(1, 1.5);
+    expect(
+      (setup.player.setPlaybackRate as jest.Mock).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (setup.player.play as jest.Mock).mock.invocationCallOrder[0] ?? 0,
+    );
+
+    fireEvent.press(speedControl);
+
+    expect(screen.getByRole("button", { name: "Playback speed 1.75x" })).toBe(
+      speedControl,
+    );
+    expect(setup.player.setPlaybackRate).toHaveBeenNthCalledWith(2, 1.75);
+    await waitFor(() =>
+      expect(setup.playbackRateStore.save).toHaveBeenCalledWith(1.75),
+    );
+    expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
+      "Playing the full summary.",
+    );
+  });
+
+  it("keeps the saved speed when active summary audio rejects a rate change", async () => {
+    const setup = harness();
+    setup.playbackRateStore.load.mockResolvedValue(1.5);
+    renderPlayer(setup);
+
+    const speedControl = await screen.findByRole("button", {
+      name: "Playback speed 1.5x",
+    });
+    await beginPlayback(setup);
+    setup.player.setPlaybackRate = jest.fn(() => {
+      throw new Error("native rate failure");
+    });
+
+    fireEvent.press(speedControl);
+
+    expect(screen.getByRole("button", { name: "Playback speed 1.5x" })).toBe(
+      speedControl,
+    );
+    expect(setup.playbackRateStore.save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
+      "Could not play the summary audio. Please try again.",
+    );
+    await waitFor(() => expect(setup.player.release).toHaveBeenCalledTimes(1));
+    expect(setup.lease.release).toHaveBeenCalledTimes(1);
   });
 
   it("keeps one operable control through pause, resume, finish, and replay", async () => {
@@ -506,6 +576,10 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
     act(() => appStateListener?.("background"));
 
+    expect(screen.getByTestId("summary-audio-speed")).toBeDisabled();
+    expect(screen.getByTestId("summary-audio-speed")).not.toHaveProp(
+      "accessibilityHint",
+    );
     expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
       "Summary audio is ready when you are.",
     );
@@ -614,11 +688,20 @@ describe("NativeArticleSummaryAudioPlayer", () => {
         "polite",
       );
       expect(screen.getByTestId("summary-audio-control")).toBeDisabled();
+      expect(screen.getByTestId("summary-audio-speed")).toBeDisabled();
+      expect(screen.getByTestId("summary-audio-speed")).not.toHaveProp(
+        "accessibilityHint",
+      );
 
       setup.setStatusSnapshot({ currentTime: 42, playing: false });
       act(() => appStateListener?.("active"));
 
       expect(setup.player.getStatus).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("summary-audio-speed")).toBeEnabled();
+      expect(screen.getByTestId("summary-audio-speed")).toHaveProp(
+        "accessibilityHint",
+        "Changes to 1.25x.",
+      );
       expect(
         screen.getByRole("button", { name: "Resume full summary audio" }),
       ).toBeEnabled();
