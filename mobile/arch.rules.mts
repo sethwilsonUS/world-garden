@@ -33,6 +33,14 @@ const nativeArticleAudioAccessProviderImport = join(
 ).replaceAll("\\", "/");
 const nativeArticleAudioEphemeralStoreFile =
   "src/media/NativeArticleAudioEphemeralStore.ts";
+const nativePlaybackRatePreferenceStoreFile =
+  "src/media/NativePlaybackRatePreferenceStore.ts";
+const nativePlaybackRateImport = join(
+  import.meta.dirname,
+  "src",
+  "media",
+  "NativePlaybackRate.ts",
+).replaceAll("\\", "/");
 const expoBackgroundAudioRuntimeFile =
   "src/media/ExpoBackgroundAudioRuntime.ts";
 const nativeLibraryPersistenceImports = [
@@ -122,17 +130,19 @@ const nativeOfflinePersistenceMustStayDeferred = modules(mobileProject)
   .resideInFolder("{app,src}/**")
   .and()
   .satisfy(not(resideInFile(nativeArticleAudioEphemeralStoreFile)))
+  .and()
+  .satisfy(not(resideInFile(nativePlaybackRatePreferenceStoreFile)))
   .expectNonEmpty()
   .should()
   .notImportFrom(...nativeLibraryPersistenceImports)
   .rule({
     id: "curio/runtime/native-offline-persistence-deferred",
     because:
-      "the current native product has no guest storage, offline article cache, download system, or device-backed Library; its sole filesystem seam is a bounded, disposable audio handoff",
+      "the current native product has no guest storage, offline article cache, download system, or device-backed Library; its only reviewed device-storage seams are a bounded disposable audio handoff and one scalar playback-speed preference",
     suggestion:
-      "Keep private state behind reviewed online adapters; use NativeArticleAudioEphemeralStore only for its active-playback lease, and design offline article or media storage as a separate future capability",
+      "Keep private state behind reviewed online adapters; use NativeArticleAudioEphemeralStore only for active-playback leases, NativePlaybackRatePreferenceStore only for its bounded scalar preference, and design offline article or media storage separately",
     imperative:
-      "Do NOT add filesystem, database, device storage, connectivity, or download-library imports outside the one reviewed ephemeral audio store",
+      "Do NOT add filesystem, database, device storage, connectivity, or download-library imports outside the two exact reviewed storage seams",
   })
   .asSeverity("error");
 
@@ -155,6 +165,27 @@ const nativeArticleAudioEphemeralStoreMustStayNarrow = modules(mobileProject)
       "Keep randomized naming and cache-file lifecycle inside this adapter; expose only short-lived leases that delete their file on release",
     imperative:
       "Only import Expo crypto and filesystem APIs from the dedicated native article-audio ephemeral store",
+  })
+  .asSeverity("error");
+
+const nativePlaybackRatePreferenceStoreMustStayNarrow = modules(mobileProject)
+  .that()
+  .resideInFile(nativePlaybackRatePreferenceStoreFile)
+  .expectNonEmpty()
+  .should()
+  .onlyImportFrom(
+    "expo-secure-store",
+    "expo-secure-store/**",
+    nativePlaybackRateImport,
+  )
+  .rule({
+    id: "curio/runtime/native-playback-rate-preference-store-narrow",
+    because:
+      "playback speed is one non-sensitive device preference and must not become a general content, account, progress, or offline store",
+    suggestion:
+      "Keep exact rate validation in NativePlaybackRate and expose only load and save for the bounded scalar preference",
+    imperative:
+      "Only import Expo SecureStore and the pure playback-rate model from the dedicated preference store",
   })
   .asSeverity("error");
 
@@ -280,6 +311,7 @@ export default [
   convexClientApiMustStayNarrow,
   nativeOfflinePersistenceMustStayDeferred,
   nativeArticleAudioEphemeralStoreMustStayNarrow,
+  nativePlaybackRatePreferenceStoreMustStayNarrow,
   nativeAudioRuntimeImportsMustStayIsolated,
   expoBackgroundAudioRuntimeMustStayNarrow,
   nativePushMustStayDeferred,

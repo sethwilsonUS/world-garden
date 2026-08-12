@@ -79,6 +79,7 @@ export interface BackgroundAudioPlayer {
   play: () => Promise<void>;
   release: () => Promise<void>;
   seekTo: (seconds: number) => Promise<void>;
+  setPlaybackRate: (rate: number) => void;
 }
 
 export interface BackgroundAudioPlaylist {
@@ -89,6 +90,7 @@ export interface BackgroundAudioPlaylist {
   previous: () => void;
   release: () => Promise<void>;
   seekTo: (seconds: number) => Promise<void>;
+  setPlaybackRate: (rate: number) => void;
   skipTo: (index: number) => void;
 }
 
@@ -384,6 +386,9 @@ export function createExpoBackgroundAudioRuntime(
           lifecycle.isReleased()
             ? Promise.resolve()
             : nativePlaylist.seekTo(seconds),
+        setPlaybackRate: (rate) => {
+          if (!lifecycle.isReleased()) nativePlaylist.playbackRate = rate;
+        },
         skipTo: (index) => {
           if (!lifecycle.isReleased()) nativePlaylist.skipTo(index);
         },
@@ -448,6 +453,11 @@ export function createExpoBackgroundAudioRuntime(
           lifecycle.isReleased()
             ? Promise.resolve()
             : nativePlayer.seekTo(seconds),
+        setPlaybackRate: (rate) => {
+          if (!lifecycle.isReleased()) {
+            nativePlayer.setPlaybackRate(rate, "high");
+          }
+        },
       };
     },
   };

@@ -24,6 +24,8 @@ import type {
   NativeArticleAudioEphemeralLease,
   NativeArticleAudioEphemeralStore,
 } from "./NativeArticleAudioEphemeralStore";
+import { NativePlaybackRateProvider } from "./NativePlaybackRateContext";
+import type { NativePlaybackRatePreferenceStore } from "./NativePlaybackRatePreferenceStore";
 import {
   MAX_NATIVE_ARTICLE_PLAYLIST_AUDIO_BYTES,
   MAX_NATIVE_ARTICLE_PLAYLIST_TRACKS,
@@ -128,6 +130,7 @@ function harness({ leaseByteLength = 1 }: { leaseByteLength?: number } = {}) {
     previous: jest.fn(),
     release: jest.fn().mockResolvedValue(undefined),
     seekTo: jest.fn().mockResolvedValue(undefined),
+    setPlaybackRate: jest.fn(),
     skipTo: jest.fn(),
   };
   const runtime: BackgroundAudioRuntime = {
@@ -164,6 +167,10 @@ function harness({ leaseByteLength = 1 }: { leaseByteLength?: number } = {}) {
     };
   });
   const access: NativeArticleAudioAccess = { accountEpoch, requestSection };
+  const playbackRateStore: jest.Mocked<NativePlaybackRatePreferenceStore> = {
+    load: jest.fn().mockResolvedValue(1),
+    save: jest.fn().mockResolvedValue(undefined),
+  };
 
   return {
     access,
@@ -178,6 +185,7 @@ function harness({ leaseByteLength = 1 }: { leaseByteLength?: number } = {}) {
     leases,
     loadRuntime: jest.fn().mockResolvedValue(runtime),
     playlist,
+    playbackRateStore,
     requestSection,
     responseReleases,
     runtime,
@@ -205,14 +213,16 @@ function renderPlayer(
     access: NativeArticleAudioAccess,
     playerProps: typeof props = props,
   ) => (
-    <GardenThemeProvider
-      accessibilityPreferencesOverride={{}}
-      colorSchemeOverride="light"
-    >
-      <NativeArticleAudioAccessContextProvider value={access}>
-        <NativeArticleAudioPlayer {...playerProps} />
-      </NativeArticleAudioAccessContextProvider>
-    </GardenThemeProvider>
+    <NativePlaybackRateProvider store={setup.playbackRateStore}>
+      <GardenThemeProvider
+        accessibilityPreferencesOverride={{}}
+        colorSchemeOverride="light"
+      >
+        <NativeArticleAudioAccessContextProvider value={access}>
+          <NativeArticleAudioPlayer {...playerProps} />
+        </NativeArticleAudioAccessContextProvider>
+      </GardenThemeProvider>
+    </NativePlaybackRateProvider>
   );
   const view = render(tree(setup.access));
   return {
@@ -267,6 +277,9 @@ describe("NativeArticleAudioPlayer", () => {
     expect(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Playback speed 1x" }),
+    ).toHaveProp("accessibilityHint", "Changes to 1.25x.");
     expect(
       screen.getByRole("button", { name: "Listen to summary of Pumpkin" }),
     ).toBeEnabled();
@@ -377,6 +390,106 @@ describe("NativeArticleAudioPlayer", () => {
     expect(screen.queryByTestId("article-audio-player")).toBeNull();
     expect(screen.queryByTestId("article-summary-audio-player")).toBeNull();
     expect(screen.queryByTestId("test-summary-disclosure")).toBeNull();
+  });
+
+  it("restores playback speed, applies it before Play All, and updates the active queue", async () => {
+    const setup = harness();
+    setup.playbackRateStore.load.mockResolvedValue(1.5);
+    renderPlayer(setup);
+
+    const speedControl = await screen.findByRole("button", {
+      name: "Playback speed 1.5x",
+    });
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play all 4 audio items" }),
+    );
+
+    await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
+    expect(setup.playlist.setPlaybackRate).toHaveBeenNthCalledWith(1, 1.5);
+    expect(
+      (setup.playlist.setPlaybackRate as jest.Mock).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (setup.playlist.play as jest.Mock).mock.invocationCallOrder[0] ?? 0,
+    );
+
+    fireEvent.press(speedControl);
+
+    expect(screen.getByRole("button", { name: "Playback speed 1.75x" })).toBe(
+      speedControl,
+    );
+    expect(setup.playlist.setPlaybackRate).toHaveBeenNthCalledWith(2, 1.75);
+    await waitFor(() =>
+      expect(setup.playbackRateStore.save).toHaveBeenCalledWith(1.75),
+    );
+    expect(screen.getByTestId("article-audio-status")).toHaveTextContent(
+      "Playing Summary. Audio item 1 of 4.",
+    );
+  });
+
+  it("applies the latest speed selected during preparation before native playback", async () => {
+    const preparation =
+      deferred<
+        Awaited<ReturnType<NativeArticleAudioEphemeralStore["prepare"]>>
+      >();
+    const setup = harness();
+    setup.store.prepare = jest.fn().mockReturnValue(preparation.promise);
+    renderPlayer(setup);
+
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play all 4 audio items" }),
+    );
+    await waitFor(() => expect(setup.store.prepare).toHaveBeenCalledTimes(1));
+    fireEvent.press(screen.getByRole("button", { name: "Playback speed 1x" }));
+    expect(
+      screen.getByRole("button", { name: "Playback speed 1.25x" }),
+    ).toBeEnabled();
+
+    await act(async () => {
+      preparation.resolve({ status: "ready" });
+      await preparation.promise;
+    });
+
+    await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
+    expect(setup.playlist.setPlaybackRate).toHaveBeenCalledTimes(1);
+    expect(setup.playlist.setPlaybackRate).toHaveBeenCalledWith(1.25);
+    expect(
+      (setup.playlist.setPlaybackRate as jest.Mock).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (setup.playlist.play as jest.Mock).mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("keeps the saved speed when an active queue rejects a rate change", async () => {
+    const setup = harness();
+    setup.playbackRateStore.load.mockResolvedValue(1.5);
+    renderPlayer(setup);
+
+    const speedControl = await screen.findByRole("button", {
+      name: "Playback speed 1.5x",
+    });
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play all 4 audio items" }),
+    );
+    await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
+    setup.playlist.setPlaybackRate = jest.fn(() => {
+      throw new Error("native rate failure");
+    });
+
+    fireEvent.press(speedControl);
+
+    expect(screen.getByRole("button", { name: "Playback speed 1.5x" })).toBe(
+      speedControl,
+    );
+    expect(setup.playbackRateStore.save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("article-audio-status")).toHaveTextContent(
+      "Could not play the article audio. Please try again.",
+    );
+    await waitFor(() =>
+      expect(setup.playlist.release).toHaveBeenCalledTimes(1),
+    );
+    for (const lease of setup.leases) {
+      expect(lease.release).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("prepares the fixed local queue in canonical order and starts Play All", async () => {
@@ -859,6 +972,10 @@ describe("NativeArticleAudioPlayer", () => {
     expect(signal?.aborted).toBe(true);
     expect(setup.loadRuntime).not.toHaveBeenCalled();
     expect(screen.getByTestId("article-audio-control")).toBeDisabled();
+    expect(screen.getByTestId("article-audio-speed")).toBeDisabled();
+    expect(screen.getByTestId("article-audio-speed")).not.toHaveProp(
+      "accessibilityHint",
+    );
     expect(screen.getByTestId("article-audio-status")).toHaveTextContent(
       "Article audio preparation cancelled when the app left the foreground.",
     );
@@ -957,6 +1074,10 @@ describe("NativeArticleAudioPlayer", () => {
 
     act(() => appStateListener?.("background"));
     expect(setup.playlist.release).not.toHaveBeenCalled();
+    expect(screen.getByTestId("article-audio-speed")).toBeDisabled();
+    expect(screen.getByTestId("article-audio-speed")).not.toHaveProp(
+      "accessibilityHint",
+    );
     for (const lease of setup.leases) {
       expect(lease.release).not.toHaveBeenCalled();
     }
@@ -970,6 +1091,11 @@ describe("NativeArticleAudioPlayer", () => {
     act(() => appStateListener?.("active"));
 
     expect(setup.playlist.getStatus).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("article-audio-speed")).toBeEnabled();
+    expect(screen.getByTestId("article-audio-speed")).toHaveProp(
+      "accessibilityHint",
+      "Changes to 1.25x.",
+    );
     expect(
       screen.getByRole("button", { name: "Resume playing all audio" }),
     ).toBeEnabled();

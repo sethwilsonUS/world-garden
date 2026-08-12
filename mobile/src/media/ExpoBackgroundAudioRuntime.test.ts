@@ -90,7 +90,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
     expect(setIsAudioActiveAsync).not.toHaveBeenCalled();
   });
 
-  it("publishes one private summary track to lock-screen controls before playback", async () => {
+  it("publishes one private summary track and forwards active or paused playback-rate changes", async () => {
     let statusListener!: (status: BackgroundAudioPlaybackStatus) => void;
     const removeSubscription = jest.fn();
     const nativePlayer = {
@@ -112,6 +112,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
       replace: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
+      setPlaybackRate: jest.fn(),
     };
     const createAudioPlayer = jest.fn(() => nativePlayer);
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
@@ -172,16 +173,28 @@ describe("ExpoBackgroundAudioRuntime", () => {
     expect(
       nativePlayer.setActiveForLockScreen.mock.invocationCallOrder[0],
     ).toBeLessThan(nativePlayer.play.mock.invocationCallOrder[0] ?? 0);
+    player.setPlaybackRate(1.25);
     player.pause();
+    player.setPlaybackRate(2);
+    nativePlayer.setPlaybackRate.mockImplementationOnce(() => {
+      throw new Error("native player rate");
+    });
+    expect(() => player.setPlaybackRate(1.75)).toThrow("native player rate");
     await player.seekTo(0);
     await player.release();
     await player.release();
     await player.seekTo(9);
+    player.setPlaybackRate(1.5);
 
     expect(nativePlayer.play).toHaveBeenCalledTimes(1);
     expect(nativePlayer.pause).toHaveBeenCalledTimes(2);
     expect(nativePlayer.seekTo).toHaveBeenCalledWith(0);
     expect(nativePlayer.seekTo).toHaveBeenCalledTimes(1);
+    expect(nativePlayer.setPlaybackRate.mock.calls).toEqual([
+      [1.25, "high"],
+      [2, "high"],
+      [1.75, "high"],
+    ]);
     expect(nativePlayer.setActiveForLockScreen).toHaveBeenNthCalledWith(
       2,
       false,
@@ -230,6 +243,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
       replace: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
+      setPlaybackRate: jest.fn(),
     });
     const firstNativePlayer = makeNativePlayer();
     const secondNativePlayer = makeNativePlayer();
@@ -278,6 +292,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
       replace: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
+      setPlaybackRate: jest.fn(),
     });
     const firstNativePlayer = makeNativePlayer();
     const secondNativePlayer = makeNativePlayer();
@@ -304,8 +319,10 @@ describe("ExpoBackgroundAudioRuntime", () => {
 
     await firstPlayer.play();
     const releasing = firstPlayer.release();
+    firstPlayer.setPlaybackRate(1.5);
     const starting = secondPlayer.play();
 
+    expect(firstNativePlayer.setPlaybackRate).not.toHaveBeenCalled();
     expect(secondNativePlayer.play).not.toHaveBeenCalled();
 
     finishDeactivation();
@@ -317,7 +334,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
     await secondPlayer.release();
   });
 
-  it("publishes a fixed private queue and native track metadata before playback", async () => {
+  it("publishes a fixed private queue and forwards active or paused playback-rate changes", async () => {
     let statusListener!: (status: AudioPlaylistStatus) => void;
     let trackListener!: (change: {
       currentIndex: number;
@@ -325,6 +342,10 @@ describe("ExpoBackgroundAudioRuntime", () => {
     }) => void;
     const removeStatusSubscription = jest.fn();
     const removeTrackSubscription = jest.fn();
+    let nativePlaylistRate = 1;
+    const setNativePlaylistRate = jest.fn((rate: number) => {
+      nativePlaylistRate = rate;
+    });
     const nativePlaylist = {
       addListener: jest.fn((event, listener) => {
         if (event === "playlistStatusUpdate") {
@@ -352,6 +373,12 @@ describe("ExpoBackgroundAudioRuntime", () => {
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
       skipTo: jest.fn(),
+      get playbackRate() {
+        return nativePlaylistRate;
+      },
+      set playbackRate(rate: number) {
+        setNativePlaylistRate(rate);
+      },
     };
     const createAudioPlaylist = jest.fn(() => nativePlaylist);
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
@@ -441,7 +468,15 @@ describe("ExpoBackgroundAudioRuntime", () => {
       nativePlaylist.setActiveForLockScreen.mock.invocationCallOrder[0],
     ).toBeLessThan(nativePlaylist.play.mock.invocationCallOrder[0] ?? 0);
 
+    playlist.setPlaybackRate(1.25);
     playlist.pause();
+    playlist.setPlaybackRate(2);
+    setNativePlaylistRate.mockImplementationOnce(() => {
+      throw new Error("native playlist rate");
+    });
+    expect(() => playlist.setPlaybackRate(1.75)).toThrow(
+      "native playlist rate",
+    );
     playlist.next();
     playlist.previous();
     playlist.skipTo(1);
@@ -452,6 +487,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
     playlist.previous();
     playlist.skipTo(0);
     await playlist.seekTo(9);
+    playlist.setPlaybackRate(1.5);
 
     expect(nativePlaylist.pause).toHaveBeenCalledTimes(2);
     expect(nativePlaylist.next).toHaveBeenCalledTimes(1);
@@ -460,6 +496,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
     expect(nativePlaylist.skipTo).toHaveBeenCalledWith(1);
     expect(nativePlaylist.seekTo).toHaveBeenCalledTimes(1);
     expect(nativePlaylist.seekTo).toHaveBeenCalledWith(4);
+    expect(setNativePlaylistRate.mock.calls).toEqual([[1.25], [2], [1.75]]);
     expect(nativePlaylist.setActiveForLockScreen).toHaveBeenNthCalledWith(
       2,
       false,
