@@ -679,6 +679,67 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     expect(setup.store.stage).not.toHaveBeenCalled();
   });
 
+  it("cancels native startup when backgrounded before playback activation resolves", async () => {
+    const activation = deferred<void>();
+    const setup = harness();
+    (setup.player.play as jest.Mock).mockReturnValue(activation.promise);
+    setup.requestSection.mockResolvedValue({
+      accountEpoch,
+      release: setup.responseRelease,
+      response: readyResponse(),
+      status: "ready",
+    });
+    renderPlayer(setup);
+
+    fireEvent.press(
+      screen.getByRole("button", { name: "Play full summary audio" }),
+    );
+    await waitFor(() => expect(setup.player.play).toHaveBeenCalledTimes(1));
+
+    act(() => appStateListener?.("inactive"));
+    act(() => appStateListener?.("active"));
+
+    expect(setup.player.getStatus).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Cancel preparing summary audio" }),
+    ).toBeEnabled();
+
+    act(() => appStateListener?.("background"));
+
+    await waitFor(() => expect(setup.player.release).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(setup.lease.release).toHaveBeenCalledTimes(1));
+    expect(
+      (setup.player.release as jest.Mock).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (setup.lease.release as jest.Mock).mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(setup.responseRelease).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
+      "Summary audio preparation cancelled when the app left the foreground.",
+    );
+
+    await act(async () => {
+      activation.resolve();
+      await activation.promise;
+    });
+    act(() => appStateListener?.("active"));
+
+    expect(
+      screen.getByRole("button", { name: "Play full summary audio" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Pause full summary audio" }),
+    ).not.toBeOnTheScreen();
+    expect(screen.getByTestId("summary-audio-status")).toHaveTextContent(
+      "Summary audio preparation cancelled when the app left the foreground.",
+    );
+    expect(setup.player.getStatus).not.toHaveBeenCalled();
+    expect(setup.player.play).toHaveBeenCalledTimes(1);
+    expect(setup.requestSection).toHaveBeenCalledTimes(1);
+    expect(setup.player.release).toHaveBeenCalledTimes(1);
+    expect(setup.lease.release).toHaveBeenCalledTimes(1);
+  });
+
   it("reconciles a finished iOS snapshot whose one-shot completion flag was lost in the background", async () => {
     const setup = harness();
     renderPlayer(setup);
