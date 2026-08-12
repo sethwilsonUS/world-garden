@@ -56,11 +56,13 @@ shows public Wikipedia results, and each complete result card is one named link.
 Activating a result opens a native Article route with the article title and
 provenance, an optional lead thumbnail with visible attribution, the summary,
 and section headings with bounded paragraph reading stops. The summary appears
-as one visible lead sentence, then a background-capable full-summary player, then
-an optional `Show full text summary` disclosure for the remaining text. The
-article also exposes its Wikipedia source and applicable license as named
-external links. Public search, reading, and summary playback continue
-to work while signed out.
+as one visible lead sentence followed by the background-capable article-audio
+surface. Play All, individually playable summary/section rows, current-item
+status, and bounded previous/next controls mirror the current web hierarchy;
+the optional `Show full text summary` disclosure remains ahead of those item
+rows. The article also exposes its Wikipedia source and applicable license as
+named external links. Public search, reading, and article playback continue to
+work while signed out.
 
 Account represents loading, signed-out, connecting, connected, and bridge-error
 states without displaying token, issuer, session, or subject identifiers. Both
@@ -100,18 +102,21 @@ before native code can safely expose those operations.
 The native reader deliberately stops at the content it can represent faithfully.
 A richer web handoff explains that galleries, broader context, and citation
 details remain available on the canonical
-`https://curiogarden.org/article/...` page. Full-summary audio starts only after
-the listener activates its control and never autoplays. Once established, the
-native player survives ordinary app backgrounding and screen lock, exposes
-play/pause/scrub and ten-second seek controls, and reconciles native state when
-the app returns without regenerating or automatically resuming audio. Leaving
-the Article or changing article or account still releases it. Final release
-serializes native audio-session deactivation before deleting the staged file;
-an older player's deactivation cannot race behind and silence a newer player.
-Play All,
-section-by-section playback, previous/next track commands, a global player,
-downloads, offline article or audio storage, and push notifications are not
-part of this slice.
+`https://curiogarden.org/article/...` page. Audio starts only after the listener
+activates Play All or one playable row and never autoplays. Once established,
+the native queue survives ordinary app backgrounding and screen lock, exposes
+play/pause/scrub plus previous/next media commands, and reconciles native state
+when the app returns without regenerating or automatically resuming audio.
+Backgrounding before native playback activation completes cancels that startup,
+even if the queue object has already been created. A completed queue exposes a
+durable terminal state and restarts from its first item from either app or
+operating-system controls.
+Leaving the Article or changing article or account still releases it. Final
+release serializes native audio-session deactivation before deleting every
+staged file; an older player's deactivation cannot race behind and silence a
+newer player. Playback speed, persisted progress/resume, a global Player route,
+personal Playlist management, downloads, offline article or audio storage, and
+push notifications are not part of this slice.
 
 Web and native share the article-route codec in `@curio-garden/domain`. It
 normalizes titles to NFC, uses underscores for word separators, and encodes a
@@ -229,17 +234,20 @@ background recording and microphone access; Android additionally blocks
 `RECORD_AUDIO`, `FOREGROUND_SERVICE_MICROPHONE`, and `POST_NOTIFICATIONS`.
 Android's playback-only foreground service and media notification are activated
 only for a user-started media session and are not push-notification delivery.
-Summary playback stages one bounded response in the app cache only for the
-lifetime of the active player lease, including ordinary background playback.
-Controlled release first deactivates the final shared audio-session owner and
-then deletes that file; activation/deactivation transitions are serialized so
-a stale release cannot overtake a new play. The shared store scavenges stale
-entries once per cold JavaScript runtime without disturbing another route's
-still-releasing lease. This is a disposable native handoff, not a download or
-offline mode. Offline article or audio storage, guest/device Library
-persistence, Play All, section-by-section queues, previous/next track commands,
-and persisted playback progress remain outside the current implementation
-scope.
+Article playback stages exact-length MP3 responses in the app cache only for
+the lifetime of active player leases, including ordinary background playback.
+One file remains capped at 16 MiB; Play All rejects more than 64 queue items or
+more than 256 MiB of leased audio while leaving individual section controls
+available. The aggregate is checked against declared response bytes before
+staging and against actual staged lease bytes before retention. Controlled
+release first deactivates the final shared audio-session
+owner and then deletes every file; activation/deactivation transitions are
+serialized so a stale release cannot overtake a new play. The shared store
+scavenges stale entries once per cold JavaScript runtime without disturbing
+another route's still-releasing lease. This is a disposable native handoff, not
+a download or offline mode. Offline article or audio storage, guest/device
+Library persistence, and persisted playback progress remain outside the current
+implementation scope.
 
 ### Pinned Expo Audio background-safety backport
 
@@ -345,6 +353,7 @@ merely to silence audit output.
 
 The React 19.2.8 compatibility decision and required validation gates are
 recorded in the [native sidecar ADR](../docs/architecture/0001-expo-native-sidecar.md).
-The single-summary media-session boundary and its deliberate queue limitations
-are recorded in the
-[background summary playback ADR](../docs/architecture/0002-native-background-summary-playback.md).
+The first single-summary media-session slice is recorded in the
+[background summary playback ADR](../docs/architecture/0002-native-background-summary-playback.md),
+and the fixed native queue plus visible consumer are recorded in the
+[playlist media-session ADR](../docs/architecture/0003-native-playlist-media-session.md).

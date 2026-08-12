@@ -11,7 +11,7 @@ import type {
   NativeLibraryMutationResult,
   NativeLibraryValue,
 } from "../library/NativeLibraryContext";
-import type { NativeArticleSummaryAudioPlayerProps } from "../media/NativeArticleSummaryAudioPlayer";
+import type { NativeArticleAudioPlayerProps } from "../media/NativeArticleAudioPlayer";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { ArticleScreen } from "./ArticleScreen";
@@ -29,10 +29,9 @@ const mockRemoveBookmark = jest.fn<
   Promise<NativeLibraryMutationResult>,
   [{ slug: string }]
 >();
-const mockSummaryAudioPlayer = jest.fn<
-  null,
-  [NativeArticleSummaryAudioPlayerProps]
->(() => null);
+const mockArticleAudioPlayer = jest.fn<null, [NativeArticleAudioPlayerProps]>(
+  () => null,
+);
 let mockLibraryValue: NativeLibraryValue;
 const defaultAccountEpoch = Symbol("account-a");
 
@@ -44,10 +43,9 @@ jest.mock("../library/NativeLibraryContext", () => ({
   useNativeLibrary: () => mockLibraryValue,
 }));
 
-jest.mock("../media/NativeArticleSummaryAudioPlayer", () => ({
-  NativeArticleSummaryAudioPlayer: (
-    props: NativeArticleSummaryAudioPlayerProps,
-  ) => mockSummaryAudioPlayer(props),
+jest.mock("../media/NativeArticleAudioPlayer", () => ({
+  NativeArticleAudioPlayer: (props: NativeArticleAudioPlayerProps) =>
+    mockArticleAudioPlayer(props),
 }));
 
 function setLibrary(
@@ -158,13 +156,13 @@ describe("ArticleScreen", () => {
     expect(screen.getByRole("header", { name: "History" })).toBeOnTheScreen();
   });
 
-  it("gives ready summary audio the exact route and revision identity", async () => {
+  it("gives ready article audio the exact route and immutable article identity", async () => {
     const request = deferred<WikipediaArticle>();
     mockFetchArticle.mockReturnValue(request.promise);
     renderArticle("AC/DC");
 
     await waitFor(() => expect(mockFetchArticle).toHaveBeenCalledTimes(1));
-    expect(mockSummaryAudioPlayer).not.toHaveBeenCalled();
+    expect(mockArticleAudioPlayer).not.toHaveBeenCalled();
 
     await act(async () => {
       request.resolve(
@@ -177,16 +175,18 @@ describe("ArticleScreen", () => {
     });
 
     await screen.findByText("Alternating current/direct current summary");
-    expect(mockSummaryAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
+    expect(mockArticleAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
       active: true,
-      articleTitle: "Alternating current/direct current",
-      narrationVersion: 7,
-      revisionId: "987654",
+      article: article("Alternating current/direct current", {
+        narrationVersion: 7,
+        revisionId: "987654",
+      }),
       slug: "AC/DC",
+      summaryDisclosure: null,
     });
   });
 
-  it("deactivates ready summary audio when its article route is inactive", async () => {
+  it("deactivates ready article audio when its article route is inactive", async () => {
     mockFetchArticle.mockResolvedValue(
       article("Moria", {
         narrationVersion: 11,
@@ -196,12 +196,14 @@ describe("ArticleScreen", () => {
     const view = renderArticle("Moria");
 
     await screen.findByText("Moria summary");
-    expect(mockSummaryAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
+    expect(mockArticleAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
       active: true,
-      articleTitle: "Moria",
-      narrationVersion: 11,
-      revisionId: "456789",
+      article: article("Moria", {
+        narrationVersion: 11,
+        revisionId: "456789",
+      }),
       slug: "Moria",
+      summaryDisclosure: null,
     });
 
     view.rerender(
@@ -213,12 +215,14 @@ describe("ArticleScreen", () => {
       </GardenThemeProvider>,
     );
 
-    expect(mockSummaryAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
+    expect(mockArticleAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
       active: false,
-      articleTitle: "Moria",
-      narrationVersion: 11,
-      revisionId: "456789",
+      article: article("Moria", {
+        narrationVersion: 11,
+        revisionId: "456789",
+      }),
       slug: "Moria",
+      summaryDisclosure: null,
     });
   });
 

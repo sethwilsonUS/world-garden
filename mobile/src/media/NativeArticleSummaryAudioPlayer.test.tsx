@@ -49,6 +49,7 @@ function readyResponse(): Response {
 
 function harness() {
   const lease: NativeArticleAudioEphemeralLease = {
+    byteLength: 1,
     release: jest.fn().mockResolvedValue(undefined),
     uri: "file:///private-cache/random-id.mp3",
   };
@@ -895,6 +896,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     const oldConfiguration = deferred<void>();
     const setup = harness();
     const secondLease: NativeArticleAudioEphemeralLease = {
+      byteLength: 1,
       release: jest.fn().mockResolvedValue(undefined),
       uri: "file:///private-cache/second-random-id.mp3",
     };

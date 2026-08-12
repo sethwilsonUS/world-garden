@@ -73,7 +73,14 @@ index f3536d5..3492d09 100644
 +
 @@ -60,0 +85 @@ class AudioPlaylist(
 +    metadata = List(sources.size) { null }
-@@ -82,0 +108,28 @@ class AudioPlaylist(
+@@ -82,0 +108,35 @@ class AudioPlaylist(
++  override fun play() {
++    if (ref.playbackState == Player.STATE_ENDED) {
++      ref.seekToDefaultPosition(0)
++    }
++    ref.play()
++  }
++
 +  fun setActiveForLockScreen(
 +    active: Boolean,
 +    metadata: List<Metadata>? = null,
@@ -102,7 +109,7 @@ index f3536d5..3492d09 100644
 +    }
 +  }
 +
-@@ -84 +137,9 @@ class AudioPlaylist(
+@@ -84 +144,9 @@ class AudioPlaylist(
 -    sendStatusUpdate(mapOf("isLoaded" to (ref.playbackState == Player.STATE_READY)))
 +    if (ref.playbackState == Player.STATE_READY) {
 +      playbackError = null
@@ -113,9 +120,9 @@ index f3536d5..3492d09 100644
 +        "error" to playbackError
 +      )
 +    )
-@@ -87,0 +149 @@ class AudioPlaylist(
+@@ -87,0 +156 @@ class AudioPlaylist(
 +    playbackError = null
-@@ -97,8 +159,2 @@ class AudioPlaylist(
+@@ -97,8 +166,2 @@ class AudioPlaylist(
 -    sendStatusUpdate(
 -      mapOf(
 -        "error" to mapOf(
@@ -126,19 +133,20 @@ index f3536d5..3492d09 100644
 -    )
 +    playbackError = error.message ?: "Unknown error"
 +    sendStatusUpdate(mapOf("error" to playbackError))
-@@ -130,0 +187 @@ class AudioPlaylist(
+@@ -130,0 +194 @@ class AudioPlaylist(
 +    metadata = metadata + null
-@@ -138,0 +196 @@ class AudioPlaylist(
+@@ -138,0 +203 @@ class AudioPlaylist(
 +    metadata = metadata.toMutableList().apply { add(index, null) }
-@@ -146,0 +205 @@ class AudioPlaylist(
+@@ -146,0 +212 @@ class AudioPlaylist(
 +    metadata = metadata.toMutableList().apply { removeAt(index) }
-@@ -155,0 +215 @@ class AudioPlaylist(
+@@ -155,0 +222 @@ class AudioPlaylist(
 +    metadata = emptyList()
-@@ -191 +251,2 @@ class AudioPlaylist(
+@@ -191 +258,3 @@ class AudioPlaylist(
 -      "didJustFinish" to false
 +      "didJustFinish" to false,
++      "ended" to (ref.playbackState == Player.STATE_ENDED),
 +      "error" to playbackError
-@@ -204,0 +266,22 @@ class AudioPlaylist(
+@@ -204,0 +274,22 @@ class AudioPlaylist(
 +
 +  internal fun assignBasicMediaSession() {
 +    mediaSession.release()
@@ -253,7 +261,7 @@ index f3222d9..5f7069e 100644
 +        ACTION_NEXT -> currentPlayerRef.seekToNextMediaItem()
 @@ -196 +254,11 @@ class AudioControlsService : MediaSessionService() {
 -      if (currentOptions?.showSeekBackward == true) {
-+      if (currentPlayback?.supportsTrackNavigation == true) {
++      if (currentPlayback?.supportsTrackNavigation == true && session.player.hasPreviousMediaItem()) {
 +        builder.addAction(
 +          NotificationCompat.Action(
 +            androidx.media3.session.R.drawable.media3_icon_previous,
@@ -263,10 +271,10 @@ index f3222d9..5f7069e 100644
 +        )
 +        compactViewIndices.add(currentIndex)
 +        currentIndex++
-+      } else if (currentOptions?.showSeekBackward == true) {
++      } else if (currentPlayback?.supportsTrackNavigation != true && currentOptions?.showSeekBackward == true) {
 @@ -222 +290,10 @@ class AudioControlsService : MediaSessionService() {
 -      if (currentOptions?.showSeekForward == true) {
-+      if (currentPlayback?.supportsTrackNavigation == true) {
++      if (currentPlayback?.supportsTrackNavigation == true && session.player.hasNextMediaItem()) {
 +        builder.addAction(
 +          NotificationCompat.Action(
 +            androidx.media3.session.R.drawable.media3_icon_next,
@@ -275,7 +283,7 @@ index f3222d9..5f7069e 100644
 +          )
 +        )
 +        compactViewIndices.add(currentIndex)
-+      } else if (currentOptions?.showSeekForward == true) {
++      } else if (currentPlayback?.supportsTrackNavigation != true && currentOptions?.showSeekForward == true) {
 @@ -244,2 +321,10 @@ class AudioControlsService : MediaSessionService() {
 -    // Add seek backward button if enabled
 -    if (currentOptions?.showSeekBackward == true) {
@@ -724,11 +732,12 @@ diff --git a/ios/AudioPlaylist.swift b/ios/AudioPlaylist.swift
 index 98dabcf..ccd5aac 100644
 --- a/ios/AudioPlaylist.swift
 +++ b/ios/AudioPlaylist.swift
-@@ -13,0 +14,3 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -13,0 +14,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +  var isActiveForLockScreen = false
++  private var hasEnded = false
 +  private var lockScreenMetadata: [Metadata?] = []
 +  private var playbackError: String?
-@@ -65,0 +69,15 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -65,0 +70,15 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +  var currentLockScreenMetadata: Metadata? {
 +    guard currentTrackIndex >= 0, currentTrackIndex < lockScreenMetadata.count else {
 +      return nil
@@ -744,13 +753,18 @@ index 98dabcf..ccd5aac 100644
 +    currentTrackIndex < trackCount - 1 || (loopMode == .all && trackCount > 1)
 +  }
 +
-@@ -70,0 +89 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -70,0 +90 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    self.lockScreenMetadata = Array(repeating: nil, count: sources.count)
-@@ -80,0 +100,3 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -78,0 +99,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    if hasEnded {
++      rebuildPlaylist(startingAt: 0)
++    }
++    hasEnded = false
+@@ -80,0 +105,3 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    if isActiveForLockScreen {
 +      MediaController.shared.updateNowPlayingInfo(for: self)
 +    }
-@@ -84,0 +107,20 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -84,0 +112,20 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    updateStatus(with: [:])
 +  }
 +
@@ -771,30 +785,35 @@ index 98dabcf..ccd5aac 100644
 +    } else {
 +      MediaController.shared.clearActivePlaylist(self)
 +    }
-@@ -133,0 +176 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -120,0 +168 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    hasEnded = false
+@@ -133,0 +182 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    lockScreenMetadata.append(nil)
-@@ -154,0 +198 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -154,0 +204 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    lockScreenMetadata.insert(nil, at: index)
-@@ -171,0 +216 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -171,0 +222 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    lockScreenMetadata.remove(at: index)
-@@ -200,0 +246 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -200,0 +252 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    lockScreenMetadata.removeAll()
-@@ -225 +271 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -225 +277 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 -  func currentStatus() -> [String: Any] {
 +  func currentStatus() -> [String: Any?] {
-@@ -239 +285,2 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -239 +291,3 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 -      "didJustFinish": false
 +      "didJustFinish": false,
++      "ended": hasEnded,
 +      "error": playbackError
-@@ -243 +290 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -243 +297 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 -  func updateStatus(with dict: [String: Any]) {
 +  func updateStatus(with dict: [String: Any?]) {
-@@ -246,0 +294,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -246,0 +301,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +
 +    if isActiveForLockScreen {
 +      MediaController.shared.updateNowPlayingInfo(for: self)
 +    }
-@@ -283 +334,9 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -261,0 +320 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++    hasEnded = false
+@@ -283 +342,9 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 -          self.updateStatus(with: ["isLoaded": true])
 +          self.playbackError = nil
 +          self.updateStatus(with: [
@@ -805,9 +824,11 @@ index 98dabcf..ccd5aac 100644
 +        if status == .failed {
 +          self.playbackError = self.ref.currentItem?.error?.localizedDescription ?? "Unknown error"
 +          self.updateStatus(with: ["error": self.playbackError])
-@@ -292,0 +352 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -292,0 +360 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +        self.playbackError = nil
-@@ -365,0 +426,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
+@@ -330,0 +399 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
++          self.hasEnded = true
+@@ -365,0 +435,4 @@ public class AudioPlaylist: SharedRef<AVQueuePlayer>, Playable {
 +    if isActiveForLockScreen {
 +      isActiveForLockScreen = false
 +      MediaController.shared.clearActivePlaylist(self)

@@ -29,6 +29,7 @@ const sectionMetadata = {
 const initialPlaylistStatus: BackgroundAudioPlaylistStatus = {
   ...initialStatus,
   currentIndex: 0,
+  ended: false,
   playbackRate: 1,
   trackCount: 2,
 };
@@ -47,6 +48,9 @@ const initialNativePlaylistStatus: AudioPlaylistStatus = {
   trackCount: 2,
   volume: 1,
 };
+
+type DurableNativePlaylistStatus = AudioPlaylistStatus &
+  Readonly<{ ended: boolean }>;
 
 describe("ExpoBackgroundAudioRuntime", () => {
   it("configures playback-only background mode without owning the global session switch", async () => {
@@ -484,6 +488,74 @@ describe("ExpoBackgroundAudioRuntime", () => {
       playbackRate: 1.25,
       playing: true,
     });
+  });
+
+  it("preserves durable native playlist completion after the one-shot finish flag clears", () => {
+    let statusListener!: (status: DurableNativePlaylistStatus) => void;
+    let nativeStatus: DurableNativePlaylistStatus = {
+      ...initialNativePlaylistStatus,
+      currentIndex: 1,
+      didJustFinish: true,
+      ended: true,
+      trackCount: 2,
+    };
+    const nativePlaylist = {
+      addListener: jest.fn((event, listener) => {
+        if (event === "playlistStatusUpdate") statusListener = listener;
+        return { remove: jest.fn() };
+      }),
+      get currentStatus() {
+        return nativeStatus;
+      },
+      destroy: jest.fn(),
+      next: jest.fn(),
+      pause: jest.fn(),
+      play: jest.fn(),
+      previous: jest.fn(),
+      release: jest.fn(),
+      seekTo: jest.fn().mockResolvedValue(undefined),
+      setActiveForLockScreen: jest.fn(),
+      skipTo: jest.fn(),
+    };
+    const runtime = createExpoBackgroundAudioRuntime({
+      createAudioPlayer: jest.fn(),
+      createAudioPlaylist: jest.fn(() => nativePlaylist),
+      setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
+      setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
+    } as unknown as ExpoAudioBoundary);
+    const onStatus = jest.fn();
+    const playlist = runtime.createPlaylist(
+      [
+        {
+          metadata: summaryMetadata,
+          uri: "file:///private-cache/summary.mp3",
+        },
+        {
+          metadata: sectionMetadata,
+          uri: "file:///private-cache/history.mp3",
+        },
+      ],
+      onStatus,
+      jest.fn(),
+    );
+
+    statusListener(nativeStatus);
+    expect(onStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        currentIndex: 1,
+        didJustFinish: true,
+        ended: true,
+      }),
+    );
+
+    nativeStatus = { ...nativeStatus, didJustFinish: false };
+    expect(playlist.getStatus()).toEqual(
+      expect.objectContaining({
+        currentIndex: 1,
+        didJustFinish: false,
+        ended: true,
+      }),
+    );
   });
 
   it("keeps the shared audio session active across independently loaded player and playlist runtimes", async () => {

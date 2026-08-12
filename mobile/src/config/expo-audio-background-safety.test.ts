@@ -168,6 +168,18 @@ const buildExpectedPatchedSources = (
   );
 };
 
+const sourceBetween = (
+  source: string,
+  startMarker: string,
+  endMarker: string,
+): string => {
+  const start = source.indexOf(startMarker);
+  if (start < 0) throw new Error(`Missing source marker: ${startMarker}`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  if (end < 0) throw new Error(`Missing source marker: ${endMarker}`);
+  return source.slice(start, end);
+};
+
 afterEach(() => {
   while (fixtureRoots.length > 0) {
     const fixtureRoot = fixtureRoots.pop();
@@ -311,6 +323,25 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     );
   });
 
+  it("omits unavailable legacy Android playlist actions at queue bounds", () => {
+    const { androidControlsService } = buildExpectedPatchedSources(
+      readInstalledSources(),
+    );
+
+    expect(androidControlsService).toContain(
+      "if (currentPlayback?.supportsTrackNavigation == true && session.player.hasPreviousMediaItem()) {\n        builder.addAction(\n          NotificationCompat.Action(\n            androidx.media3.session.R.drawable.media3_icon_previous,",
+    );
+    expect(androidControlsService).toContain(
+      "if (currentPlayback?.supportsTrackNavigation == true && session.player.hasNextMediaItem()) {\n        builder.addAction(\n          NotificationCompat.Action(\n            androidx.media3.session.R.drawable.media3_icon_next,",
+    );
+    expect(androidControlsService).toContain(
+      "} else if (currentPlayback?.supportsTrackNavigation != true && currentOptions?.showSeekBackward == true) {",
+    );
+    expect(androidControlsService).toContain(
+      "} else if (currentPlayback?.supportsTrackNavigation != true && currentOptions?.showSeekForward == true) {",
+    );
+  });
+
   it("removes every opaque iOS remote-command target before replacement", () => {
     const { iosMediaController } = buildExpectedPatchedSources(
       readInstalledSources(),
@@ -449,6 +480,63 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     );
   });
 
+  it("keeps playlist completion durable in native status snapshots", () => {
+    const result = buildExpectedPatchedSources(readInstalledSources());
+
+    expect(result.androidAudioPlaylist).toContain(
+      '"ended" to (ref.playbackState == Player.STATE_ENDED)',
+    );
+    expect(result.iosAudioPlaylist).toContain("private var hasEnded = false");
+    expect(result.iosAudioPlaylist).toContain('"ended": hasEnded');
+    expect(result.iosAudioPlaylist).toMatch(
+      /func seekTo\(seconds: Double\) async \{\n    hasEnded = false/,
+    );
+    expect(result.iosAudioPlaylist).toMatch(
+      /private func rebuildPlaylist\(startingAt index: Int\) \{\n    hasEnded = false/,
+    );
+    expect(result.iosAudioPlaylist).toMatch(
+      /if isLastTrack \{\n          self\.hasEnded = true\n          self\.updateStatus/,
+    );
+  });
+
+  it("replays an ended native playlist through the existing focus-owned play paths", () => {
+    const result = buildExpectedPatchedSources(readInstalledSources());
+    const androidPlaylistPlay = sourceBetween(
+      result.androidAudioModule,
+      'Function("play") { playlist: AudioPlaylist ->',
+      'Function("pause") { playlist: AudioPlaylist ->',
+    );
+    const androidFocusPlayback = sourceBetween(
+      result.androidAudioModule,
+      "private fun playWithAudioFocus(playable: BaseAudioPlayer)",
+      "private fun cancelPlayback(playable: BaseAudioPlayer)",
+    );
+    const iosPlaylistLockScreen = sourceBetween(
+      result.iosMediaController,
+      "extension AudioPlaylist: LockScreenPlayable {",
+      "class MediaController {",
+    );
+
+    expect(result.androidAudioPlaylist).toMatch(
+      /override fun play\(\) \{\n    if \(ref\.playbackState == Player\.STATE_ENDED\) \{\n      ref\.seekToDefaultPosition\(0\)\n    \}\n    ref\.play\(\)\n  \}/,
+    );
+    expect(androidPlaylistPlay).toContain("playWithAudioFocus(playlist)");
+    expect(androidFocusPlayback).toContain("playable.play()");
+    expect(result.androidControlsService).toContain(
+      "override fun requestPlayback() = playlist.requestPlaybackFromSystemControls()",
+    );
+
+    expect(result.iosAudioPlaylist).toMatch(
+      /func play\(at rate: Float\) \{\n    if hasEnded \{\n      rebuildPlaylist\(startingAt: 0\)\n    \}\n    hasEnded = false/,
+    );
+    expect(result.iosAudioModule).toContain(
+      "playlist.play(at: playlist.currentRate)",
+    );
+    expect(iosPlaylistLockScreen).toMatch(
+      /fileprivate func lockScreenPlay\(\) \{\n    play\(at:/,
+    );
+  });
+
   it("is idempotent after a clean prebuild has already applied it", () => {
     const once = applyExpoAudioBackgroundSafety(readInstalledSources());
 
@@ -484,10 +572,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     const renameSpy = jest
       .spyOn(fs, "renameSync")
       .mockImplementation((oldPath, newPath) => {
-        if (
-          oldPath.toString().endsWith(".tmp") &&
-          replacementCount++ === 2
-        ) {
+        if (oldPath.toString().endsWith(".tmp") && replacementCount++ === 2) {
           throw new Error("injected replacement failure");
         }
         originalRenameSync(oldPath, newPath);
@@ -526,10 +611,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
           !injectedRollbackFailure
         ) {
           injectedRollbackFailure = true;
-          preservedBackupPath = sourcePath.slice(
-            0,
-            -".rollback.tmp".length,
-          );
+          preservedBackupPath = sourcePath.slice(0, -".rollback.tmp".length);
           recoveryTargetPath = newPath.toString();
           throw new Error("injected rollback failure");
         }
@@ -552,10 +634,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     expect(thrown.message).toContain("rollback was incomplete");
     expect(preservedBackupPath).toBeDefined();
     expect(recoveryTargetPath).toBeDefined();
-    if (
-      preservedBackupPath === undefined ||
-      recoveryTargetPath === undefined
-    ) {
+    if (preservedBackupPath === undefined || recoveryTargetPath === undefined) {
       throw new Error("Expected rollback recovery paths to be captured.");
     }
     expect(thrown.message).toContain(preservedBackupPath);
