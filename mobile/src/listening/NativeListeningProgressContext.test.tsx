@@ -22,14 +22,16 @@ function ListeningProgressWrapper({ children }: PropsWithChildren) {
 }
 
 describe("NativeListeningProgressContext", () => {
-  it("fails clearly when the hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativeListeningProgress())).toThrow(
+  it("fails clearly when the hook escapes its provider", async () => {
+    await expect(
+      renderHook(() => useNativeListeningProgress()),
+    ).rejects.toThrow(
       "useNativeListeningProgress() must be used within NativeListeningProgressProvider",
     );
   });
 
-  it("exposes the provider's tokenless account-bound contract", () => {
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+  it("exposes the provider's tokenless account-bound contract", async () => {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: ListeningProgressWrapper,
     });
 

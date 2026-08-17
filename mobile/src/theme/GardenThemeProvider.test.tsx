@@ -17,7 +17,7 @@ describe("GardenThemeProvider", () => {
     expect(resolveGardenColorScheme("dark")).toBe("dark");
   });
 
-  it("provides a deterministic theme override for tests and previews", () => {
+  it("provides a deterministic theme override for tests and previews", async () => {
     const wrapper = ({ children }: PropsWithChildren) => (
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
@@ -26,7 +26,7 @@ describe("GardenThemeProvider", () => {
         {children}
       </GardenThemeProvider>
     );
-    const { result } = renderHook(() => useGardenTheme(), { wrapper });
+    const { result } = await renderHook(() => useGardenTheme(), { wrapper });
 
     expect(result.current.colorScheme).toBe("dark");
     expect(result.current.isDark).toBe(true);
@@ -34,8 +34,8 @@ describe("GardenThemeProvider", () => {
     expect(result.current.navigationTheme.dark).toBe(true);
   });
 
-  it("fails clearly when the hook is used outside its provider", () => {
-    expect(() => renderHook(() => useGardenTheme())).toThrow(
+  it("fails clearly when the hook is used outside its provider", async () => {
+    await expect(renderHook(() => useGardenTheme())).rejects.toThrow(
       "useGardenTheme must be used within GardenThemeProvider",
     );
   });
@@ -47,7 +47,7 @@ describe("GardenThemeProvider", () => {
 
   it.each(["darkerSystemColors", "highTextContrast"] as const)(
     "strengthens secondary text and boundaries for %s",
-    (preference) => {
+    async (preference) => {
       const wrapper = ({ children }: PropsWithChildren) => (
         <GardenThemeProvider
           accessibilityPreferencesOverride={{ [preference]: true }}
@@ -56,7 +56,7 @@ describe("GardenThemeProvider", () => {
           {children}
         </GardenThemeProvider>
       );
-      const { result } = renderHook(() => useGardenTheme(), { wrapper });
+      const { result } = await renderHook(() => useGardenTheme(), { wrapper });
 
       expect(result.current.increasedContrast).toBe(true);
       expect(result.current.colors).toMatchObject({

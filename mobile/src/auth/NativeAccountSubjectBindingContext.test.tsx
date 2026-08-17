@@ -7,15 +7,17 @@ import {
 } from "./NativeAccountSubjectBindingContext";
 
 describe("NativeAccountSubjectBindingProvider", () => {
-  it("fails clearly when the account hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativeAccountSubjectBinding())).toThrow(
+  it("fails clearly when the account hook escapes its provider", async () => {
+    await expect(
+      renderHook(() => useNativeAccountSubjectBinding()),
+    ).rejects.toThrow(
       "useNativeAccountSubjectBinding() must be used within NativeAuthProvider",
     );
   });
 
   it.each(["user-a", null])(
     "exposes only the validated subject %s",
-    (subject) => {
+    async (subject) => {
       function Wrapper({ children }: PropsWithChildren) {
         return (
           <NativeAccountSubjectBindingProvider subject={subject}>
@@ -24,9 +26,12 @@ describe("NativeAccountSubjectBindingProvider", () => {
         );
       }
 
-      const { result } = renderHook(() => useNativeAccountSubjectBinding(), {
-        wrapper: Wrapper,
-      });
+      const { result } = await renderHook(
+        () => useNativeAccountSubjectBinding(),
+        {
+          wrapper: Wrapper,
+        },
+      );
 
       expect(result.current).toBe(subject);
     },

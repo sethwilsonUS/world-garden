@@ -46,7 +46,7 @@ const baseArticle: WikipediaArticle = {
   ],
 };
 
-function renderDocument(
+async function renderDocument(
   articleOverrides: Partial<WikipediaArticle> = {},
   propOverrides: Partial<React.ComponentProps<typeof ArticleDocument>> = {},
 ) {
@@ -61,7 +61,7 @@ function renderDocument(
     ...propOverrides,
   };
 
-  const view = render(
+  const view = await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -230,8 +230,8 @@ describe("ArticleDocument prose helpers", () => {
 });
 
 describe("ArticleDocument", () => {
-  it("starts below the parent title and exposes article headings in order", () => {
-    renderDocument({
+  it("starts below the parent title and exposes article headings in order", async () => {
+    await renderDocument({
       sections: [
         {
           wikiSectionIndex: "0",
@@ -279,12 +279,12 @@ describe("ArticleDocument", () => {
     ).not.toBeOnTheScreen();
   });
 
-  it("keeps one lead and the disclosed remainder unclamped and lossless", () => {
+  it("keeps one lead and the disclosed remainder unclamped and lossless", async () => {
     const lead = "A short opening sentence.";
     const remainder = "Summary remainder ".repeat(190).trim();
     const summary = `${lead} ${remainder}`;
     const sectionContent = "Section prose ".repeat(220).trim();
-    renderDocument({
+    await renderDocument({
       summary,
       sections: [
         {
@@ -307,7 +307,7 @@ describe("ArticleDocument", () => {
       expanded: false,
     });
 
-    fireEvent.press(disclosure);
+    await fireEvent.press(disclosure);
 
     const expandedDisclosure = screen.getByRole("button", {
       name: "Hide full text summary",
@@ -343,19 +343,19 @@ describe("ArticleDocument", () => {
       expect(prose.props.adjustsFontSizeToFit).toBeUndefined();
     }
 
-    fireEvent.press(expandedDisclosure);
+    await fireEvent.press(expandedDisclosure);
     expect(screen.queryByTestId("article-summary-remainder")).toBeNull();
     expect(screen.getByRole("button", { name: "Show full text summary" })).toBe(
       disclosure,
     );
   });
 
-  it("orders native reading as lead, audio, disclosure, sections, then media", () => {
-    const view = renderDocument({
+  it("orders native reading as lead, audio, disclosure, sections, then media", async () => {
+    const view = await renderDocument({
       summary: "Pumpkins are fruits. Their story continues here.",
       thumbnailUrl: "https://images.example/pumpkin.png",
     });
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Show full text summary" }),
     );
     const testIds = collectTestIds(view.toJSON());
@@ -380,13 +380,13 @@ describe("ArticleDocument", () => {
     );
   });
 
-  it("omits disclosure for one sentence and keeps section audio ahead of text when no summary exists", () => {
-    const view = renderDocument({ summary: "One complete sentence." });
+  it("omits disclosure for one sentence and keeps section audio ahead of text when no summary exists", async () => {
+    const view = await renderDocument({ summary: "One complete sentence." });
 
     expect(screen.getByTestId("article-audio-player")).toBeOnTheScreen();
     expect(screen.queryByTestId("article-summary-disclosure")).toBeNull();
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -414,16 +414,16 @@ describe("ArticleDocument", () => {
     );
   });
 
-  it("collapses disclosed text when the rendered article identity changes", () => {
-    const view = renderDocument({
+  it("collapses disclosed text when the rendered article identity changes", async () => {
+    const view = await renderDocument({
       summary: "The old lead. The old remainder.",
     });
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Show full text summary" }),
     );
     expect(screen.getByText("The old remainder.")).toBeOnTheScreen();
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -456,8 +456,8 @@ describe("ArticleDocument", () => {
     });
   });
 
-  it("uses honest provenance labels and provides useful empty-content copy", () => {
-    renderDocument({ summary: " ", sections: undefined });
+  it("uses honest provenance labels and provides useful empty-content copy", async () => {
+    await renderDocument({ summary: " ", sections: undefined });
 
     expect(
       screen.getByText("Wikipedia (EN) · Revision 1234"),
@@ -473,8 +473,8 @@ describe("ArticleDocument", () => {
     expect(screen.getByText("0 readable sections follow.")).toBeOnTheScreen();
   });
 
-  it("contains a guarded contain-fit lead image with visible attribution", () => {
-    renderDocument({
+  it("contains a guarded contain-fit lead image with visible attribution", async () => {
+    await renderDocument({
       thumbnailUrl: "https://images.example/ada.png",
       thumbnailWidth: 400,
       thumbnailHeight: 800,
@@ -509,8 +509,8 @@ describe("ArticleDocument", () => {
     ).toBeOnTheScreen();
   });
 
-  it("keeps a valid image-license link when its name is absent", () => {
-    const props = renderDocument({
+  it("keeps a valid image-license link when its name is absent", async () => {
+    const props = await renderDocument({
       thumbnailUrl: "https://images.example/ada.png",
       thumbnailAttribution: {
         licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
@@ -526,14 +526,14 @@ describe("ArticleDocument", () => {
       ),
     ).not.toBeOnTheScreen();
 
-    fireEvent.press(licenseLink);
+    await fireEvent.press(licenseLink);
     expect(props.openUrl).toHaveBeenCalledWith(
       "https://creativecommons.org/licenses/by/4.0/",
     );
   });
 
-  it("shows an inert fallback for an invalid URL or a native image failure", () => {
-    const view = renderDocument({
+  it("shows an inert fallback for an invalid URL or a native image failure", async () => {
+    const view = await renderDocument({
       thumbnailUrl: "http://images.example/unsafe.png",
       thumbnailWidth: Number.NaN,
       thumbnailHeight: -10,
@@ -544,7 +544,7 @@ describe("ArticleDocument", () => {
     expect(screen.queryByRole("alert")).not.toBeOnTheScreen();
     expect(screen.queryByRole("status")).not.toBeOnTheScreen();
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -564,15 +564,17 @@ describe("ArticleDocument", () => {
       </GardenThemeProvider>,
     );
     const image = screen.getByTestId("article-lead-image");
-    fireEvent(image, "error", { nativeEvent: { error: "network detail" } });
+    await fireEvent(image, "error", {
+      nativeEvent: { error: "network detail" },
+    });
 
     expect(screen.queryByTestId("article-lead-image")).not.toBeOnTheScreen();
     expect(screen.getByText("Lead image unavailable.")).toBeOnTheScreen();
     expect(screen.queryByRole("alert")).not.toBeOnTheScreen();
   });
 
-  it("shows honest fallback copy for an absent image and retains stray attribution", () => {
-    renderDocument({
+  it("shows honest fallback copy for an absent image and retains stray attribution", async () => {
+    await renderDocument({
       thumbnailUrl: undefined,
       thumbnailAttribution: {
         creator: "Archived contributor",
@@ -593,18 +595,18 @@ describe("ArticleDocument", () => {
     ).toBeOnTheScreen();
   });
 
-  it("opens every exact source destination through the shared link boundary", () => {
-    const props = renderDocument({ title: "AC/DC" });
+  it("opens every exact source destination through the shared link boundary", async () => {
+    const props = await renderDocument({ title: "AC/DC" });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("link", { name: "View Wikipedia revision 1234" }),
     );
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("link", {
         name: "Read the Creative Commons Attribution-ShareAlike 4.0 License",
       }),
     );
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("link", {
         name: "Open richer article features on Curio Garden web",
       }),
@@ -625,8 +627,8 @@ describe("ArticleDocument", () => {
     expect(props.onExternalLinkStart).toHaveBeenCalledTimes(3);
   });
 
-  it("names the richer-web features without claiming unsupported native ones", () => {
-    renderDocument();
+  it("names the richer-web features without claiming unsupported native ones", async () => {
+    await renderDocument();
 
     expect(
       screen.getByText(
@@ -639,14 +641,14 @@ describe("ArticleDocument", () => {
   });
 
   it("forwards launch failures without exposing the raw error", async () => {
-    const props = renderDocument(
+    const props = await renderDocument(
       {},
       {
         openUrl: jest.fn().mockRejectedValue(new Error("browser secret")),
       },
     );
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("link", {
         name: "Open richer article features on Curio Garden web",
       }),
@@ -662,8 +664,8 @@ describe("ArticleDocument", () => {
     expect(screen.queryByText(/browser secret/iu)).not.toBeOnTheScreen();
   });
 
-  it("keeps unsafe attribution destinations inert and visibly unavailable", () => {
-    renderDocument({
+  it("keeps unsafe attribution destinations inert and visibly unavailable", async () => {
+    await renderDocument({
       thumbnailUrl: "https://images.example/ada.png",
       thumbnailAttribution: {
         licenseName: "Mystery license",

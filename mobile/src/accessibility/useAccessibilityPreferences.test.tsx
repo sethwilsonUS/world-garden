@@ -85,16 +85,23 @@ describe("useAccessibilityPreferences", () => {
     queries.grayscale.mockResolvedValue(true);
     queries.reduceTransparency.mockResolvedValue(true);
     queries.darkerSystemColors.mockResolvedValue(true);
+    let resolveReduceMotion: ((enabled: boolean) => void) | undefined;
+    queries.reduceMotion.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveReduceMotion = resolve;
+        }),
+    );
     const { listeners, removers } = capturePreferenceListeners();
 
-    const { result, unmount } = renderHook(() => useAccessibilityPreferences());
+    const { result, unmount } = await renderHook(() =>
+      useAccessibilityPreferences(),
+    );
 
     expect(result.current.reduceMotion).toBe(true);
     expect(result.current.isReady).toBe(false);
 
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await act(() => resolveReduceMotion?.(false));
     await waitFor(() => expect(result.current.isReady).toBe(true));
 
     expect(result.current).toEqual({
@@ -119,10 +126,10 @@ describe("useAccessibilityPreferences", () => {
     );
     expect(queries.highTextContrast).not.toHaveBeenCalled();
 
-    act(() => listeners.get("boldTextChanged")?.(false));
+    await act(() => listeners.get("boldTextChanged")?.(false));
     expect(result.current.boldText).toBe(false);
 
-    unmount();
+    await unmount();
     expect(removers).toHaveLength(6);
     removers.forEach((remove) => expect(remove).toHaveBeenCalledTimes(1));
   });
@@ -140,7 +147,9 @@ describe("useAccessibilityPreferences", () => {
     queries.highTextContrast.mockResolvedValue(true);
     const { listeners, removers } = capturePreferenceListeners();
 
-    const { result, unmount } = renderHook(() => useAccessibilityPreferences());
+    const { result, unmount } = await renderHook(() =>
+      useAccessibilityPreferences(),
+    );
 
     await act(async () => {
       await Promise.resolve();
@@ -155,14 +164,14 @@ describe("useAccessibilityPreferences", () => {
     expect(queries.grayscale).not.toHaveBeenCalled();
     expect(queries.invertColors).not.toHaveBeenCalled();
 
-    act(() => listeners.get("reduceMotionChanged")?.(true));
-    act(() => resolveReduceMotion?.(false));
+    await act(() => listeners.get("reduceMotionChanged")?.(true));
+    await act(() => resolveReduceMotion?.(false));
 
     await waitFor(() => expect(result.current.isReady).toBe(true));
     expect(result.current.reduceMotion).toBe(true);
     expect(result.current.highTextContrast).toBe(true);
 
-    unmount();
+    await unmount();
     expect(removers).toHaveLength(2);
     removers.forEach((remove) => expect(remove).toHaveBeenCalledTimes(1));
   });
@@ -173,7 +182,7 @@ describe("useAccessibilityPreferences", () => {
     queries.reduceMotion.mockRejectedValue(new Error("native API unavailable"));
     capturePreferenceListeners();
 
-    const { result } = renderHook(() => useAccessibilityPreferences());
+    const { result } = await renderHook(() => useAccessibilityPreferences());
 
     await act(async () => {
       await Promise.resolve();

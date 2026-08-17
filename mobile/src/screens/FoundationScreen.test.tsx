@@ -3,8 +3,8 @@ import { render, screen } from "@testing-library/react-native";
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { FoundationScreen } from "./FoundationScreen";
 
-function renderScreen() {
-  return render(
+async function renderScreen() {
+  return await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -15,8 +15,8 @@ function renderScreen() {
 }
 
 describe("FoundationScreen", () => {
-  it("exposes one useful screen heading and the signed-build contract", () => {
-    renderScreen();
+  it("exposes one useful screen heading and the signed-build contract", async () => {
+    await renderScreen();
 
     expect(
       screen.getAllByRole("header", { name: "Curio Garden" }),
@@ -37,8 +37,8 @@ describe("FoundationScreen", () => {
     ).toBeOnTheScreen();
   });
 
-  it("keeps the foundation informational until the real search slice lands", () => {
-    renderScreen();
+  it("keeps the foundation informational until the real search slice lands", async () => {
+    await renderScreen();
 
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(screen.getByTestId("foundation-screen-scroll")).toHaveProp(

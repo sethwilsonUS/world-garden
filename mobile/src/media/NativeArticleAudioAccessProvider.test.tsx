@@ -90,15 +90,17 @@ beforeEach(() => {
 });
 
 describe("NativeArticleAudioAccessProvider", () => {
-  it("fails clearly when the hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativeArticleAudioAccess())).toThrow(
+  it("fails clearly when the hook escapes its provider", async () => {
+    await expect(
+      renderHook(() => useNativeArticleAudioAccess()),
+    ).rejects.toThrow(
       "useNativeArticleAudioAccess() must be used within NativeArticleAudioAccessProvider",
     );
   });
 
   it("sends a revision-aware public request without credentials and forces Edge", async () => {
     fetchMock.mockResolvedValue(response(200));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -146,7 +148,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       fetchSignal = init?.signal;
       return response(200);
     });
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -181,7 +183,7 @@ describe("NativeArticleAudioAccessProvider", () => {
         fetchSignal = init?.signal;
         return response(200);
       });
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -208,7 +210,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     });
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
     fetchMock.mockResolvedValue(response(200));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -228,7 +230,7 @@ describe("NativeArticleAudioAccessProvider", () => {
 
   it("keeps local HTTP transport public and Edge-only", async () => {
     fetchMock.mockResolvedValue(response(200));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper: httpWrapper,
     });
 
@@ -258,7 +260,7 @@ describe("NativeArticleAudioAccessProvider", () => {
         }),
       ),
     );
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper: httpWrapper,
     });
 
@@ -287,7 +289,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     fetchMock
       .mockResolvedValueOnce(response(401))
       .mockResolvedValueOnce(response(200));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -330,7 +332,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       });
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
     fetchMock.mockResolvedValue(response(401));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -353,7 +355,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       .mockResolvedValueOnce({ accountEpoch, status: "public" });
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
     fetchMock.mockResolvedValue(response(401));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -376,7 +378,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     "maps HTTP %i to a sanitized terminal result without a general retry",
     async (status, reason, retryable) => {
       fetchMock.mockResolvedValue(response(status));
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -391,7 +393,7 @@ describe("NativeArticleAudioAccessProvider", () => {
 
   it("rejects an unexpected successful payload without consuming it", async () => {
     fetchMock.mockResolvedValue(response(200, "application/json"));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -406,7 +408,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     "rejects a successful non-MP3 payload (%s)",
     async (contentType) => {
       fetchMock.mockResolvedValue(response(200, contentType));
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -422,7 +424,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     fetchMock.mockRejectedValue(
       new Error("secret-clerk-token issuer.example internal host"),
     );
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -452,7 +454,7 @@ describe("NativeArticleAudioAccessProvider", () => {
             );
           }),
       );
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -486,7 +488,7 @@ describe("NativeArticleAudioAccessProvider", () => {
             resolveFetch = resolve;
           }),
       );
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -537,7 +539,7 @@ describe("NativeArticleAudioAccessProvider", () => {
               );
             }),
         );
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -566,7 +568,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       useTransportBindingMock.mockReturnValue(
         binding(resolveRequestCredentials),
       );
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -589,7 +591,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       .fn()
       .mockRejectedValue(new Error("secret-token issuer.example"));
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -613,7 +615,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       throw new Error("private credential failure");
     });
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -630,7 +632,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       return { status: "unavailable" } as const;
     });
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -643,7 +645,7 @@ describe("NativeArticleAudioAccessProvider", () => {
   it("returns cancelled for a caller abort", async () => {
     const controller = new AbortController();
     controller.abort();
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -665,7 +667,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       controller.abort();
       return response(401);
     });
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -696,7 +698,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     );
     const privateBinding = binding(resolveRequestCredentials);
     useTransportBindingMock.mockReturnValue(privateBinding);
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
     const pending = result.current.requestSection(request);
@@ -722,7 +724,7 @@ describe("NativeArticleAudioAccessProvider", () => {
       useTransportBindingMock.mockReturnValue(
         binding(jest.fn().mockResolvedValue({ status })),
       );
-      const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+      const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
         wrapper,
       });
 
@@ -742,7 +744,7 @@ describe("NativeArticleAudioAccessProvider", () => {
   it("rejects malformed caller input before credentials or transport", async () => {
     const resolveRequestCredentials = jest.fn();
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 
@@ -768,7 +770,7 @@ describe("NativeArticleAudioAccessProvider", () => {
   ])("sanitizes %s at the runtime boundary", async (_label, malformed) => {
     const resolveRequestCredentials = jest.fn();
     useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
-    const { result } = renderHook(() => useNativeArticleAudioAccess(), {
+    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
       wrapper,
     });
 

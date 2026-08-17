@@ -30,8 +30,8 @@ function wrapperFor(store: NativePlaybackRatePreferenceStore) {
 }
 
 describe("NativePlaybackRateProvider", () => {
-  it("fails clearly when the hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativePlaybackRate())).toThrow(
+  it("fails clearly when the hook escapes its provider", async () => {
+    await expect(renderHook(() => useNativePlaybackRate())).rejects.toThrow(
       "useNativePlaybackRate() must be used within NativePlaybackRateProvider",
     );
   });
@@ -42,7 +42,7 @@ describe("NativePlaybackRateProvider", () => {
       load: () => load.promise,
       save: async () => undefined,
     };
-    const { result } = renderHook(() => useNativePlaybackRate(), {
+    const { result } = await renderHook(() => useNativePlaybackRate(), {
       wrapper: wrapperFor(store),
     });
 
@@ -65,11 +65,11 @@ describe("NativePlaybackRateProvider", () => {
         savedRates.push(rate);
       },
     };
-    const { result } = renderHook(() => useNativePlaybackRate(), {
+    const { result } = await renderHook(() => useNativePlaybackRate(), {
       wrapper: wrapperFor(store),
     });
 
-    act(() => result.current.setRate(1.25));
+    await act(() => result.current.setRate(1.25));
     await waitFor(() => expect(savedRates).toEqual([1.25]));
 
     await act(async () => {
@@ -92,12 +92,12 @@ describe("NativePlaybackRateProvider", () => {
         committedRates.push(rate);
       },
     };
-    const { result } = renderHook(() => useNativePlaybackRate(), {
+    const { result } = await renderHook(() => useNativePlaybackRate(), {
       wrapper: wrapperFor(store),
     });
     let cycledRates: NativePlaybackRate[] = [];
 
-    act(() => {
+    await act(() => {
       cycledRates = [result.current.cycleRate(), result.current.cycleRate()];
     });
 
@@ -128,11 +128,11 @@ describe("NativePlaybackRateProvider", () => {
         throw new Error("private native detail");
       },
     };
-    const { result } = renderHook(() => useNativePlaybackRate(), {
+    const { result } = await renderHook(() => useNativePlaybackRate(), {
       wrapper: wrapperFor(store),
     });
 
-    act(() => {
+    await act(() => {
       result.current.setRate(1.25);
       result.current.setRate(1.5);
     });

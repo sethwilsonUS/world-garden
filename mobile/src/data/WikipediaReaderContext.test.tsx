@@ -23,8 +23,8 @@ function Consumer() {
 }
 
 describe("WikipediaReaderContext", () => {
-  it("provides the injected public reader seam", () => {
-    render(
+  it("provides the injected public reader seam", async () => {
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -38,8 +38,8 @@ describe("WikipediaReaderContext", () => {
     expect(screen.getByText("Reader ready")).toBeOnTheScreen();
   });
 
-  it("fails clearly when a screen escapes the data boundary", () => {
-    expect(() => render(<Consumer />)).toThrow(
+  it("fails clearly when a screen escapes the data boundary", async () => {
+    await expect(render(<Consumer />)).rejects.toThrow(
       "useWikipediaReader() must be used within WikipediaReaderProvider",
     );
   });

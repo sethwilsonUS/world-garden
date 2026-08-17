@@ -73,21 +73,21 @@ afterEach(() => {
 });
 
 describe("AccessibleStatus", () => {
-  it("activates one polite Android live region without an imperative announcement", () => {
+  it("activates one polite Android live region without an imperative announcement", async () => {
     usePlatform("android");
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     const announceWithOptions = jest.spyOn(
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const { rerender } = render(status(""));
+    const { rerender } = await render(status(""));
 
     expect(screen.getByTestId("status")).not.toHaveProp(
       "accessibilityLiveRegion",
       "polite",
     );
 
-    rerender(status("Saving"));
+    await rerender(status("Saving"));
 
     expect(screen.getByText("Saving")).toHaveProp(
       "accessibilityLiveRegion",
@@ -95,21 +95,21 @@ describe("AccessibleStatus", () => {
     );
     expect(screen.getAllByTestId("status")).toHaveLength(1);
 
-    rerender(status("Saved"));
+    await rerender(status("Saved"));
 
     expect(screen.getByText("Saved")).toBeOnTheScreen();
     expect(announce).not.toHaveBeenCalled();
     expect(announceWithOptions).not.toHaveBeenCalled();
   });
 
-  it("announces only changed, nonempty iOS messages with polite options", () => {
+  it("announces only changed, nonempty iOS messages with polite options", async () => {
     usePlatform("ios");
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     const announceWithOptions = jest.spyOn(
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const { rerender } = render(status(""));
+    const { rerender } = await render(status(""));
 
     expect(screen.getByTestId("status")).not.toHaveProp(
       "accessibilityLiveRegion",
@@ -117,11 +117,11 @@ describe("AccessibleStatus", () => {
     );
     expect(announceWithOptions).not.toHaveBeenCalled();
 
-    rerender(status("Saving"));
-    rerender(status("Saving"));
-    rerender(status("  Saved  "));
-    rerender(status("Saved"));
-    rerender(status("   "));
+    await rerender(status("Saving"));
+    await rerender(status("Saving"));
+    await rerender(status("  Saved  "));
+    await rerender(status("Saved"));
+    await rerender(status("   "));
 
     expect(announceWithOptions).toHaveBeenCalledTimes(2);
     expect(announceWithOptions).toHaveBeenNthCalledWith(1, "Saving", {
@@ -135,7 +135,7 @@ describe("AccessibleStatus", () => {
     expect(announce).not.toHaveBeenCalled();
   });
 
-  it("falls back to the basic iOS announcement API", () => {
+  it("falls back to the basic iOS announcement API", async () => {
     usePlatform("ios");
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     Object.defineProperty(
@@ -146,15 +146,15 @@ describe("AccessibleStatus", () => {
         value: undefined,
       },
     );
-    const { rerender } = render(status(""));
+    const { rerender } = await render(status(""));
 
-    rerender(status("Saved"));
+    await rerender(status("Saved"));
 
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith("Saved");
   });
 
-  it("does not announce an explicitly hidden message until it becomes active", () => {
+  it("does not announce an explicitly hidden message until it becomes active", async () => {
     usePlatform("ios");
     const announceWithOptions = jest.spyOn(
       AccessibilityInfo,
@@ -168,11 +168,11 @@ describe("AccessibleStatus", () => {
         <AccessibleStatus accessible={accessible} message="Search failed" />
       </GardenThemeProvider>
     );
-    const { rerender } = render(content(false));
+    const { rerender } = await render(content(false));
 
     expect(announceWithOptions).not.toHaveBeenCalled();
 
-    rerender(content(true));
+    await rerender(content(true));
 
     expect(announceWithOptions).toHaveBeenCalledTimes(1);
     expect(announceWithOptions).toHaveBeenCalledWith("Search failed", {
@@ -181,10 +181,10 @@ describe("AccessibleStatus", () => {
     });
   });
 
-  it("uses imperative Android announcements without a focus-stealing live region", () => {
+  it("uses imperative Android announcements without a focus-stealing live region", async () => {
     usePlatform("android");
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
-    const { rerender } = render(
+    const { rerender } = await render(
       imperativeStatus({
         accessible: true,
         announceOnReveal: false,
@@ -192,7 +192,7 @@ describe("AccessibleStatus", () => {
       }),
     );
 
-    rerender(
+    await rerender(
       imperativeStatus({
         accessible: true,
         announceOnReveal: false,
@@ -208,10 +208,10 @@ describe("AccessibleStatus", () => {
     expect(announce).toHaveBeenCalledWith("Signing out");
   });
 
-  it("suppresses a routine reveal but can announce an error revealed after return", () => {
+  it("suppresses a routine reveal but can announce an error revealed after return", async () => {
     usePlatform("android");
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
-    const { rerender } = render(
+    const { rerender } = await render(
       imperativeStatus({
         accessible: true,
         announceOnReveal: false,
@@ -219,14 +219,14 @@ describe("AccessibleStatus", () => {
       }),
     );
 
-    rerender(
+    await rerender(
       imperativeStatus({
         accessible: false,
         announceOnReveal: false,
         message: "Opening secure sign-in.",
       }),
     );
-    rerender(
+    await rerender(
       imperativeStatus({
         accessible: true,
         announceOnReveal: false,
@@ -235,14 +235,14 @@ describe("AccessibleStatus", () => {
     );
     expect(announce).not.toHaveBeenCalled();
 
-    rerender(
+    await rerender(
       imperativeStatus({
         accessible: false,
         announceOnReveal: false,
         message: "Opening secure sign-in.",
       }),
     );
-    rerender(
+    await rerender(
       imperativeStatus({
         accessible: true,
         announceOnReveal: true,

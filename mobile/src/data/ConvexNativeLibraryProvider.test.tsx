@@ -171,8 +171,8 @@ beforeEach(() => {
 });
 
 describe("ConvexNativeLibraryProvider", () => {
-  it("keeps account entries absent and skips the private query while signed out", () => {
-    const { result } = renderHook(() => useNativeLibrary(), {
+  it("keeps account entries absent and skips the private query while signed out", async () => {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
 
@@ -188,7 +188,7 @@ describe("ConvexNativeLibraryProvider", () => {
   });
 
   it("supersedes account mutations while signed out", async () => {
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
 
@@ -205,7 +205,7 @@ describe("ConvexNativeLibraryProvider", () => {
     expect(removeBookmarkMutation).not.toHaveBeenCalled();
   });
 
-  it("keeps entries empty while the signed-in account bridge connects", () => {
+  it("keeps entries empty while the signed-in account bridge connects", async () => {
     clerkAuth = signedInAuth();
     clerkUser = signedInUser();
     convexAuth = {
@@ -214,7 +214,7 @@ describe("ConvexNativeLibraryProvider", () => {
       isRefreshing: false,
     };
 
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
 
@@ -229,7 +229,7 @@ describe("ConvexNativeLibraryProvider", () => {
     ).toBe(false);
   });
 
-  it("binds the private query to the validated subject and opaque epoch", () => {
+  it("binds the private query to the validated subject and opaque epoch", async () => {
     clerkAuth = signedInAuth();
     clerkUser = signedInUser();
     convexAuth = {
@@ -243,7 +243,7 @@ describe("ConvexNativeLibraryProvider", () => {
       subject: "user-a",
     };
 
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     const libraryQuery = useQueriesMock.mock.calls
@@ -261,7 +261,7 @@ describe("ConvexNativeLibraryProvider", () => {
     expect(JSON.stringify(libraryQuery?.[1].args)).not.toContain("session-a");
   });
 
-  it("reveals only entries echoed for the current account epoch", () => {
+  it("reveals only entries echoed for the current account epoch", async () => {
     clerkAuth = signedInAuth();
     clerkUser = signedInUser();
     convexAuth = {
@@ -288,7 +288,7 @@ describe("ConvexNativeLibraryProvider", () => {
       sessionEpochKey,
     });
 
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
 
@@ -311,7 +311,7 @@ describe("ConvexNativeLibraryProvider", () => {
     libraryQueryResult = new Error(
       "tokenIdentifier=https://issuer.example|user-a database unavailable",
     );
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     const firstQuery = useQueriesMock.mock.calls
@@ -361,7 +361,7 @@ describe("ConvexNativeLibraryProvider", () => {
     expect(result.current.state).toEqual({ entries, status: "ready" });
   });
 
-  it("clears entries synchronously and ignores a stale query across accounts", () => {
+  it("clears entries synchronously and ignores a stale query across accounts", async () => {
     clerkAuth = signedInAuth();
     clerkUser = signedInUser();
     convexAuth = {
@@ -387,7 +387,7 @@ describe("ConvexNativeLibraryProvider", () => {
       entries: adaEntries,
       sessionEpochKey,
     });
-    const { result, rerender } = renderHook(() => useNativeLibrary(), {
+    const { result, rerender } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     const firstQuery = useQueriesMock.mock.calls
@@ -412,7 +412,7 @@ describe("ConvexNativeLibraryProvider", () => {
       entries: adaEntries,
       sessionEpochKey: firstEpochKey,
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state).toEqual({ entries: [], status: "loading" });
     expect(JSON.stringify(result.current.state)).not.toContain("Ada_Lovelace");
@@ -434,7 +434,7 @@ describe("ConvexNativeLibraryProvider", () => {
       entries: samEntries,
       sessionEpochKey,
     });
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state).toEqual({
       entries: samEntries,
@@ -442,7 +442,7 @@ describe("ConvexNativeLibraryProvider", () => {
     });
   });
 
-  it("preserves its child tree when the account epoch changes", () => {
+  it("preserves its child tree when the account epoch changes", async () => {
     clerkAuth = signedInAuth();
     clerkUser = signedInUser();
     convexAuth = {
@@ -463,7 +463,7 @@ describe("ConvexNativeLibraryProvider", () => {
     });
     const mounted = jest.fn();
     const unmounted = jest.fn();
-    const { rerender } = renderHook(
+    const { rerender } = await renderHook(
       () => {
         useEffect(() => {
           mounted();
@@ -481,7 +481,7 @@ describe("ConvexNativeLibraryProvider", () => {
       name: "Samwise Gamgee",
       subject: "user-b",
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(mounted).toHaveBeenCalledTimes(1);
     expect(unmounted).not.toHaveBeenCalled();
@@ -513,7 +513,7 @@ describe("ConvexNativeLibraryProvider", () => {
           resolveSave = resolve;
         }),
     );
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let operation: ReturnType<typeof result.current.saveBookmark> | undefined;
@@ -583,7 +583,7 @@ describe("ConvexNativeLibraryProvider", () => {
         sessionEpochKey: args.sessionEpochKey,
       }),
     );
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let mutationResult: unknown;
@@ -629,7 +629,7 @@ describe("ConvexNativeLibraryProvider", () => {
           resolveSave = resolve;
         }),
     );
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let firstOperation:
@@ -703,7 +703,7 @@ describe("ConvexNativeLibraryProvider", () => {
         "tokenIdentifier=https://issuer.example|user-a database unavailable",
       ),
     );
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let mutationResult: unknown;
@@ -747,7 +747,7 @@ describe("ConvexNativeLibraryProvider", () => {
     saveBookmarkMutation.mockImplementation(() => {
       throw new Error("private synchronous transport failure");
     });
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let mutationResult: unknown;
@@ -795,7 +795,7 @@ describe("ConvexNativeLibraryProvider", () => {
     removeBookmarkMutation.mockRejectedValue(
       new Error("viewerTokenIdentifier=private database unavailable"),
     );
-    const { result } = renderHook(() => useNativeLibrary(), {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let mutationResult: unknown;
@@ -836,7 +836,7 @@ describe("ConvexNativeLibraryProvider", () => {
       ],
       sessionEpochKey,
     });
-    const { result, rerender } = renderHook(() => useNativeLibrary(), {
+    const { result, rerender } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     const staleRemove = result.current.removeBookmark;
@@ -846,7 +846,7 @@ describe("ConvexNativeLibraryProvider", () => {
       isLoading: false,
       isRefreshing: true,
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state).toEqual({
       entries: [],
@@ -884,7 +884,7 @@ describe("ConvexNativeLibraryProvider", () => {
           resolveSaves.push(resolve);
         }),
     );
-    const { result, rerender } = renderHook(() => useNativeLibrary(), {
+    const { result, rerender } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
     let oldAccountOperation:
@@ -905,7 +905,7 @@ describe("ConvexNativeLibraryProvider", () => {
       name: "Samwise Gamgee",
       subject: "user-b",
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state).toEqual({ entries: [], status: "ready" });
     expect(result.current.isMutating("The_Ring")).toBe(false);

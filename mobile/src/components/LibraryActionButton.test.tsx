@@ -4,7 +4,7 @@ import { StyleSheet } from "react-native";
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { LibraryActionButton } from "./LibraryActionButton";
 
-function renderButton(
+async function renderButton(
   args: {
     busy?: boolean;
     onPress?: jest.Mock;
@@ -13,7 +13,7 @@ function renderButton(
   } = {},
 ) {
   const onPress = args.onPress ?? jest.fn();
-  render(
+  await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -32,8 +32,8 @@ function renderButton(
 }
 
 describe("LibraryActionButton", () => {
-  it("names and visibly labels an unsaved article without relying on color", () => {
-    const { button } = renderButton();
+  it("names and visibly labels an unsaved article without relying on color", async () => {
+    const { button } = await renderButton();
 
     expect(screen.getByText("Save to Library")).toBeOnTheScreen();
     expect(button).toHaveAccessibleName(
@@ -46,8 +46,8 @@ describe("LibraryActionButton", () => {
     });
   });
 
-  it("exposes the saved state in words and accessibility state", () => {
-    const { button } = renderButton({ saved: true });
+  it("exposes the saved state in words and accessibility state", async () => {
+    const { button } = await renderButton({ saved: true });
 
     expect(screen.getByText("Saved to Library")).toBeOnTheScreen();
     expect(button).toHaveAccessibleName(
@@ -60,8 +60,8 @@ describe("LibraryActionButton", () => {
     });
   });
 
-  it("keeps a 48-point unclamped target and exposes an in-progress state", () => {
-    const { button, onPress } = renderButton({ busy: true });
+  it("keeps a 48-point unclamped target and exposes an in-progress state", async () => {
+    const { button, onPress } = await renderButton({ busy: true });
     const label = screen.getByText("Save to Library — in progress");
 
     expect(StyleSheet.flatten(button.props.style)).toMatchObject({
@@ -79,12 +79,12 @@ describe("LibraryActionButton", () => {
       selected: false,
     });
     expect(button).toHaveProp("focusable", true);
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(onPress).not.toHaveBeenCalled();
   });
 
-  it("keeps the saved state explicit while a removal is in progress", () => {
-    const { button, onPress } = renderButton({ busy: true, saved: true });
+  it("keeps the saved state explicit while a removal is in progress", async () => {
+    const { button, onPress } = await renderButton({ busy: true, saved: true });
 
     expect(
       screen.getByText("Saved to Library — in progress"),
@@ -98,17 +98,17 @@ describe("LibraryActionButton", () => {
       selected: true,
     });
     expect(button).toHaveProp("focusable", true);
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(onPress).not.toHaveBeenCalled();
   });
 
-  it("activates on release and adds a non-color pressed cue", () => {
-    const { button, onPress } = renderButton({ testOnlyPressed: true });
+  it("activates on release and adds a non-color pressed cue", async () => {
+    const { button, onPress } = await renderButton({ testOnlyPressed: true });
 
-    fireEvent(button, "pressIn");
-    fireEvent(button, "pressOut");
+    await fireEvent(button, "pressIn");
+    await fireEvent(button, "pressOut");
     expect(onPress).not.toHaveBeenCalled();
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(StyleSheet.flatten(button.props.style)).toMatchObject({
       transform: [{ translateY: 1 }],

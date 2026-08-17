@@ -8,13 +8,15 @@ import {
 } from "./NativeAuthTransportBindingContext";
 
 describe("NativeAuthTransportBindingProvider", () => {
-  it("fails clearly when the private hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativeAuthTransportBinding())).toThrow(
+  it("fails clearly when the private hook escapes its provider", async () => {
+    await expect(
+      renderHook(() => useNativeAuthTransportBinding()),
+    ).rejects.toThrow(
       "useNativeAuthTransportBinding() must be used within NativeAuthProvider",
     );
   });
 
-  it("exposes only the audited transport capability", () => {
+  it("exposes only the audited transport capability", async () => {
     const accountEpoch = Symbol("test-account-epoch");
     const binding: NativeAuthTransportBinding = {
       accountEpoch,
@@ -34,7 +36,7 @@ describe("NativeAuthTransportBindingProvider", () => {
       );
     }
 
-    const { result } = renderHook(() => useNativeAuthTransportBinding(), {
+    const { result } = await renderHook(() => useNativeAuthTransportBinding(), {
       wrapper: Wrapper,
     });
 

@@ -121,7 +121,7 @@ function harness() {
   };
 }
 
-function renderPlayer(
+async function renderPlayer(
   setup: ReturnType<typeof harness>,
   overrides: Partial<
     React.ComponentProps<typeof NativeArticleSummaryAudioPlayer>
@@ -154,24 +154,24 @@ function renderPlayer(
       </NativePlaybackRateProvider>
     </GardenThemeProvider>
   );
-  const view = render(
+  const view = await render(
     strict ? <StrictMode>{tree(setup.access)}</StrictMode> : tree(setup.access),
   );
 
   return {
     ...view,
     props,
-    rerenderAccess: (access: NativeArticleAudioAccess) =>
-      view.rerender(
+    rerenderAccess: async (access: NativeArticleAudioAccess) =>
+      await view.rerender(
         strict ? <StrictMode>{tree(access)}</StrictMode> : tree(access),
       ),
-    rerenderProps: (
+    rerenderProps: async (
       next: Partial<
         React.ComponentProps<typeof NativeArticleSummaryAudioPlayer>
       >,
     ) => {
       const nextProps = { ...props, ...next };
-      view.rerender(
+      await view.rerender(
         strict ? (
           <StrictMode>{tree(setup.access, nextProps)}</StrictMode>
         ) : (
@@ -239,7 +239,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
         Awaited<ReturnType<NativeArticleAudioAccess["requestSection"]>>
       >();
     setup.requestSection.mockReturnValue(responseRequest.promise);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     expect(setup.requestSection).not.toHaveBeenCalled();
     expect(setup.loadRuntime).not.toHaveBeenCalled();
@@ -273,7 +273,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       borderWidth: 2,
     });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
 
@@ -336,7 +336,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
   it("restores playback speed before first play and updates active summary audio", async () => {
     const setup = harness();
     setup.playbackRateStore.load.mockResolvedValue(1.5);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     const speedControl = await screen.findByRole("button", {
       name: "Playback speed 1.5x",
@@ -350,7 +350,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       (setup.player.play as jest.Mock).mock.invocationCallOrder[0] ?? 0,
     );
 
-    fireEvent.press(speedControl);
+    await fireEvent.press(speedControl);
 
     expect(screen.getByRole("button", { name: "Playback speed 1.75x" })).toBe(
       speedControl,
@@ -367,7 +367,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
   it("keeps the saved speed when active summary audio rejects a rate change", async () => {
     const setup = harness();
     setup.playbackRateStore.load.mockResolvedValue(1.5);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     const speedControl = await screen.findByRole("button", {
       name: "Playback speed 1.5x",
@@ -377,7 +377,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       throw new Error("native rate failure");
     });
 
-    fireEvent.press(speedControl);
+    await fireEvent.press(speedControl);
 
     expect(screen.getByRole("button", { name: "Playback speed 1.5x" })).toBe(
       speedControl,
@@ -392,10 +392,10 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
   it("keeps one operable control through pause, resume, finish, and replay", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
     await beginPlayback(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Pause full summary audio" }),
     );
     expect(setup.player.pause).toHaveBeenCalledTimes(1);
@@ -403,12 +403,12 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       screen.getByRole("button", { name: "Resume full summary audio" }),
     ).toBeOnTheScreen();
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Resume full summary audio" }),
     );
     expect(setup.player.play).toHaveBeenCalledTimes(2);
 
-    act(() => setup.emitStatus({ currentTime: 90, didJustFinish: true }));
+    await act(() => setup.emitStatus({ currentTime: 90, didJustFinish: true }));
     expect(
       screen.getByRole("button", { name: "Replay full summary audio" }),
     ).toBeOnTheScreen();
@@ -424,7 +424,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       "polite",
     );
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Replay full summary audio" }),
     );
     await waitFor(() => {
@@ -436,18 +436,18 @@ describe("NativeArticleSummaryAudioPlayer", () => {
   it("preserves status progress received while resume activation is pending", async () => {
     const resumed = deferred<void>();
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
     await beginPlayback(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Pause full summary audio" }),
     );
     (setup.player.play as jest.Mock).mockReturnValueOnce(resumed.promise);
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Resume full summary audio" }),
     );
 
-    act(() => setup.emitStatus({ currentTime: 42, playing: true }));
+    await act(() => setup.emitStatus({ currentTime: 42, playing: true }));
     expect(screen.getByTestId("summary-audio-time")).toHaveTextContent(
       "0:42 of 1:30",
     );
@@ -469,15 +469,15 @@ describe("NativeArticleSummaryAudioPlayer", () => {
         Awaited<ReturnType<NativeArticleAudioAccess["requestSection"]>>
       >();
     setup.requestSection.mockReturnValue(request.promise);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() => expect(setup.requestSection).toHaveBeenCalled());
     const signal = setup.requestSection.mock.calls[0]?.[0].signal;
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Cancel preparing summary audio",
       }),
@@ -503,7 +503,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
   it("survives StrictMode effect replay and still reports playback", async () => {
     const setup = harness();
-    renderPlayer(setup, {}, { strict: true });
+    await renderPlayer(setup, {}, { strict: true });
 
     await beginPlayback(setup);
 
@@ -526,12 +526,12 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     });
     try {
       const setup = harness();
-      renderPlayer(setup);
+      await renderPlayer(setup);
 
       expect(screen.getByTestId("summary-audio-control")).toBeDisabled();
       expect(setup.requestSection).not.toHaveBeenCalled();
 
-      act(() => appStateListener?.("active"));
+      await act(() => appStateListener?.("active"));
       expect(
         screen.getByRole("button", { name: "Play full summary audio" }),
       ).toBeEnabled();
@@ -545,7 +545,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     }
   });
 
-  it("reconciles AppState after subscribing when the first active event was missed", () => {
+  it("reconciles AppState after subscribing when the first active event was missed", async () => {
     Object.defineProperty(AppState, "currentState", {
       configurable: true,
       value: null,
@@ -562,7 +562,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     );
     const setup = harness();
 
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     expect(
       screen.getByRole("button", { name: "Play full summary audio" }),
@@ -570,11 +570,11 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     expect(setup.requestSection).not.toHaveBeenCalled();
   });
 
-  it("keeps honest idle copy when an untouched article backgrounds", () => {
+  it("keeps honest idle copy when an untouched article backgrounds", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
 
     expect(screen.getByTestId("summary-audio-speed")).toBeDisabled();
     expect(screen.getByTestId("summary-audio-speed")).not.toHaveProp(
@@ -599,9 +599,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    const view = renderPlayer(setup);
+    const view = await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() => expect(setup.store.stage).toHaveBeenCalled());
@@ -609,7 +609,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       | AbortSignal
       | undefined;
 
-    view.rerenderAccess({
+    await view.rerenderAccess({
       ...setup.access,
       accountEpoch: Symbol("account-b"),
     });
@@ -636,9 +636,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() => expect(setup.store.stage).toHaveBeenCalled());
@@ -669,17 +669,17 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     });
     try {
       const setup = harness();
-      renderPlayer(setup);
+      await renderPlayer(setup);
       await beginPlayback(setup);
-      act(() => setup.emitStatus({ currentTime: 12, playing: true }));
+      await act(() => setup.emitStatus({ currentTime: 12, playing: true }));
 
       expect(screen.getByTestId("summary-audio-status")).toHaveProp(
         "accessibilityLiveRegion",
         "polite",
       );
 
-      act(() => appStateListener?.("inactive"));
-      act(() => appStateListener?.("background"));
+      await act(() => appStateListener?.("inactive"));
+      await act(() => appStateListener?.("background"));
 
       expect(setup.player.release).not.toHaveBeenCalled();
       expect(setup.lease.release).not.toHaveBeenCalled();
@@ -694,7 +694,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       );
 
       setup.setStatusSnapshot({ currentTime: 42, playing: false });
-      act(() => appStateListener?.("active"));
+      await act(() => appStateListener?.("active"));
 
       expect(setup.player.getStatus).toHaveBeenCalledTimes(1);
       expect(screen.getByTestId("summary-audio-speed")).toBeEnabled();
@@ -728,22 +728,22 @@ describe("NativeArticleSummaryAudioPlayer", () => {
         Awaited<ReturnType<NativeArticleAudioAccess["requestSection"]>>
       >();
     setup.requestSection.mockReturnValue(request.promise);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() => expect(setup.requestSection).toHaveBeenCalledTimes(1));
     const signal = setup.requestSection.mock.calls[0]?.[0].signal;
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
 
     expect(signal?.aborted).toBe(true);
     expect(setup.loadRuntime).not.toHaveBeenCalled();
     expect(setup.player.play).not.toHaveBeenCalled();
     expect(screen.getByTestId("summary-audio-control")).toBeDisabled();
 
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("active"));
     expect(
       screen.getByRole("button", { name: "Play full summary audio" }),
     ).toBeEnabled();
@@ -772,22 +772,22 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() => expect(setup.player.play).toHaveBeenCalledTimes(1));
 
-    act(() => appStateListener?.("inactive"));
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("inactive"));
+    await act(() => appStateListener?.("active"));
 
     expect(setup.player.getStatus).not.toHaveBeenCalled();
     expect(
       screen.getByRole("button", { name: "Cancel preparing summary audio" }),
     ).toBeEnabled();
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
 
     await waitFor(() => expect(setup.player.release).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(setup.lease.release).toHaveBeenCalledTimes(1));
@@ -805,7 +805,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       activation.resolve();
       await activation.promise;
     });
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("active"));
 
     expect(
       screen.getByRole("button", { name: "Play full summary audio" }),
@@ -825,17 +825,17 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
   it("reconciles a finished iOS snapshot whose one-shot completion flag was lost in the background", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
     await beginPlayback(setup);
-    act(() => setup.emitStatus({ currentTime: 89, playing: true }));
+    await act(() => setup.emitStatus({ currentTime: 89, playing: true }));
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
     setup.setStatusSnapshot({
       currentTime: 90,
       didJustFinish: false,
       playing: false,
     });
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("active"));
 
     expect(
       screen.getByRole("button", { name: "Replay full summary audio" }),
@@ -848,11 +848,11 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
   it("tears down ready playback when the route deactivates without late resume", async () => {
     const setup = harness();
-    const view = renderPlayer(setup);
+    const view = await renderPlayer(setup);
     await beginPlayback(setup);
     expect(setup.responseRelease).toHaveBeenCalledTimes(1);
 
-    view.rerenderProps({ active: false });
+    await view.rerenderProps({ active: false });
 
     await waitFor(() => expect(setup.lease.release).toHaveBeenCalledTimes(1));
     expect(setup.player.release).toHaveBeenCalledTimes(1);
@@ -863,13 +863,13 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     );
     expect(setup.responseRelease).toHaveBeenCalledTimes(1);
 
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         error: "late native decoder /private/cache/path",
         playing: true,
       }),
     );
-    view.rerenderProps({ active: true });
+    await view.rerenderProps({ active: true });
 
     expect(setup.player.play).toHaveBeenCalledTimes(1);
     expect(setup.requestSection).toHaveBeenCalledTimes(1);
@@ -882,10 +882,10 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     const sessionRelease = deferred<void>();
     const setup = harness();
     (setup.player.release as jest.Mock).mockReturnValue(sessionRelease.promise);
-    const view = renderPlayer(setup);
+    const view = await renderPlayer(setup);
     await beginPlayback(setup);
 
-    view.rerenderProps({ active: false });
+    await view.rerenderProps({ active: false });
 
     await waitFor(() => expect(setup.player.release).toHaveBeenCalledTimes(1));
     expect(setup.lease.release).not.toHaveBeenCalled();
@@ -910,16 +910,16 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    const view = renderPlayer(setup);
+    const view = await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() =>
       expect(setup.runtime.configureBackgroundMode).toHaveBeenCalledTimes(1),
     );
 
-    view.rerenderProps({ revisionId: "5678", slug: "Winter_squash" });
+    await view.rerenderProps({ revisionId: "5678", slug: "Winter_squash" });
     await waitFor(() => expect(setup.lease.release).toHaveBeenCalledTimes(1));
 
     await act(async () => {
@@ -937,9 +937,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
   it("turns an ephemeral store preparation failure into safe retry copy without requesting audio", async () => {
     const setup = harness();
     setup.store.prepare = jest.fn().mockResolvedValue({ status: "failed" });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
 
@@ -966,9 +966,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
 
@@ -991,9 +991,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       retryable: true,
       status: "failed",
     });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
 
@@ -1010,10 +1010,10 @@ describe("NativeArticleSummaryAudioPlayer", () => {
 
   it("sanitizes a native playback error and releases player before audio", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
     await beginPlayback(setup);
 
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         error: "secret decoder failure at /private/cache/random-id.mp3",
       }),
@@ -1056,9 +1056,9 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() =>
@@ -1072,7 +1072,7 @@ describe("NativeArticleSummaryAudioPlayer", () => {
     ).toBeOnTheScreen();
     expect(setup.lease.release).toHaveBeenCalledTimes(1);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Try summary audio again" }),
     );
     await waitFor(() => {
@@ -1107,16 +1107,16 @@ describe("NativeArticleSummaryAudioPlayer", () => {
       response: readyResponse(),
       status: "ready",
     });
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play full summary audio" }),
     );
     await waitFor(() =>
       expect(setup.runtime.configureBackgroundMode).toHaveBeenCalledTimes(1),
     );
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Cancel preparing summary audio",
       }),

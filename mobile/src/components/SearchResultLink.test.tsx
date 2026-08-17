@@ -12,8 +12,8 @@ const result = {
   url: "https://en.wikipedia.org/wiki/Ada_Lovelace",
 };
 
-function renderResult(onPress = jest.fn(), testOnlyPressed = false) {
-  render(
+async function renderResult(onPress = jest.fn(), testOnlyPressed = false) {
+  await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -31,8 +31,8 @@ function renderResult(onPress = jest.fn(), testOnlyPressed = false) {
 }
 
 describe("SearchResultLink", () => {
-  it("is one named link whose name contains all visible text", () => {
-    const { link } = renderResult();
+  it("is one named link whose name contains all visible text", async () => {
+    const { link } = await renderResult();
 
     expect(link).toHaveAccessibleName(
       `2. ${result.title}: ${result.description}`,
@@ -48,8 +48,8 @@ describe("SearchResultLink", () => {
     ).toHaveProp("accessible", false);
   });
 
-  it("preserves a 48-point target and never clamps long text", () => {
-    const { link } = renderResult();
+  it("preserves a 48-point target and never clamps long text", async () => {
+    const { link } = await renderResult();
     const title = screen.getByText(result.title, {
       includeHiddenElements: true,
     });
@@ -67,14 +67,14 @@ describe("SearchResultLink", () => {
     }
   });
 
-  it("activates on release and adds a non-color pressed cue", () => {
+  it("activates on release and adds a non-color pressed cue", async () => {
     const onPress = jest.fn();
-    const { link } = renderResult(onPress, true);
+    const { link } = await renderResult(onPress, true);
 
-    fireEvent(link, "pressIn");
-    fireEvent(link, "pressOut");
+    await fireEvent(link, "pressIn");
+    await fireEvent(link, "pressOut");
     expect(onPress).not.toHaveBeenCalled();
-    fireEvent.press(link);
+    await fireEvent.press(link);
     expect(onPress).toHaveBeenCalledTimes(1);
 
     expect(StyleSheet.flatten(link.props.style)).toMatchObject({

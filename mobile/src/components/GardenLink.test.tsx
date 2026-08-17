@@ -5,11 +5,26 @@ import {
   waitFor,
 } from "@testing-library/react-native";
 import { Linking, StyleSheet } from "react-native";
+import type { TestInstance } from "test-renderer";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { GardenLink, normalizeSafeExternalUrl } from "./GardenLink";
 
 const validUrl = "https://example.org/long/path?topic=garden#history";
+
+function startPendingPress(element: TestInstance): Promise<void> {
+  let target: TestInstance | null = element;
+
+  while (target && typeof target.props.onClick !== "function") {
+    target = target.parent;
+  }
+
+  if (!target) {
+    throw new Error("Could not find the native press handler");
+  }
+
+  return target.props.onClick();
+}
 const validExternalUrls = [
   "https://example.org",
   "HTTPS://example.org/a?b=c#d",
@@ -68,7 +83,7 @@ function withReactNativeLightweightUrl<Result>(run: () => Result): Result {
   }
 }
 
-function renderLink(
+async function renderLink(
   overrides: Partial<React.ComponentProps<typeof GardenLink>> = {},
 ) {
   const props = {
@@ -82,7 +97,7 @@ function renderLink(
     ...overrides,
   };
 
-  const view = render(
+  const view = await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -177,10 +192,7 @@ describe("normalizeSafeExternalUrl", () => {
     },
   );
 
-  it.each([
-    "https://-example.org/source",
-    "https://example-.org/source",
-  ])(
+  it.each(["https://-example.org/source", "https://example-.org/source"])(
     "rejects a misplaced DNS-label hyphen with React Native's lightweight URL implementation: %p",
     (url) => {
       withReactNativeLightweightUrl(() => {
@@ -243,8 +255,8 @@ describe("GardenLink", () => {
     jest.restoreAllMocks();
   });
 
-  it("uses the full visible label as its accessible link name", () => {
-    renderLink();
+  it("uses the full visible label as its accessible link name", async () => {
+    await renderLink();
 
     const link = screen.getByRole("link", {
       name: "Read the original source",
@@ -263,19 +275,19 @@ describe("GardenLink", () => {
 
   it("opens on release and reports launch lifecycle without raw errors", async () => {
     const rawError = new Error("private operating-system detail");
-    const props = renderLink({
+    const props = await renderLink({
       openUrl: jest.fn().mockRejectedValue(rawError),
     });
     const link = screen.getByRole("link", {
       name: "Read the original source",
     });
 
-    fireEvent(link, "pressIn");
-    fireEvent(link, "pressOut");
+    await fireEvent(link, "pressIn");
+    await fireEvent(link, "pressOut");
     expect(props.onOpenStart).not.toHaveBeenCalled();
     expect(props.openUrl).not.toHaveBeenCalled();
 
-    fireEvent.press(link);
+    await fireEvent.press(link);
     expect(props.onOpenStart).toHaveBeenCalledTimes(1);
     expect(props.openUrl).toHaveBeenCalledWith(validUrl);
     const attempt = jest.mocked(props.onOpenStart).mock.calls[0]?.[0];
@@ -289,9 +301,9 @@ describe("GardenLink", () => {
     const openUrl = jest
       .spyOn(Linking, "openURL")
       .mockResolvedValue(undefined as never);
-    const props = renderLink({ openUrl: undefined });
+    const props = await renderLink({ openUrl: undefined });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("link", { name: "Read the original source" }),
     );
 
@@ -302,26 +314,26 @@ describe("GardenLink", () => {
 
   it("ignores a rejected launch after unmount", async () => {
     const request = deferred<unknown>();
-    const props = renderLink({
+    const props = await renderLink({
       openUrl: jest.fn().mockReturnValue(request.promise),
     });
 
-    fireEvent.press(
-      screen.getByRole("link", { name: "Read the original source" }),
-    );
-    props.unmount();
+    const link = screen.getByRole("link", { name: "Read the original source" });
+    const launch = startPendingPress(link);
+    await props.unmount();
     request.reject(new Error("late operating-system detail"));
 
     await expect(request.promise).rejects.toThrow(
       "late operating-system detail",
     );
+    await launch;
     expect(props.onOpenError).not.toHaveBeenCalled();
   });
 
   it("ignores an older failure after a newer launch starts", async () => {
     const first = deferred<unknown>();
     const second = deferred<unknown>();
-    const props = renderLink({
+    const props = await renderLink({
       openUrl: jest
         .fn()
         .mockReturnValueOnce(first.promise)
@@ -331,18 +343,20 @@ describe("GardenLink", () => {
       name: "Read the original source",
     });
 
-    fireEvent.press(link);
-    fireEvent.press(link);
+    const firstLaunch = startPendingPress(link);
+    const secondLaunch = startPendingPress(link);
     first.reject(new Error("stale operating-system detail"));
     await expect(first.promise).rejects.toThrow(
       "stale operating-system detail",
     );
+    await firstLaunch;
     expect(props.onOpenError).not.toHaveBeenCalled();
 
     second.reject(new Error("current operating-system detail"));
     await expect(second.promise).rejects.toThrow(
       "current operating-system detail",
     );
+    await secondLaunch;
     await waitFor(() => expect(props.onOpenError).toHaveBeenCalledTimes(1));
   });
 
@@ -350,7 +364,7 @@ describe("GardenLink", () => {
     const request = deferred<unknown>();
     const onOpenError = jest.fn();
     const openUrl = jest.fn().mockReturnValue(request.promise);
-    const view = render(
+    const view = await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -364,10 +378,9 @@ describe("GardenLink", () => {
       </GardenThemeProvider>,
     );
 
-    fireEvent.press(
-      screen.getByRole("link", { name: "Read the original source" }),
-    );
-    view.rerender(
+    const link = screen.getByRole("link", { name: "Read the original source" });
+    const launch = startPendingPress(link);
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -385,11 +398,12 @@ describe("GardenLink", () => {
     await expect(request.promise).rejects.toThrow(
       "obsolete destination failure",
     );
+    await launch;
     expect(onOpenError).not.toHaveBeenCalled();
   });
 
-  it("has a 48-point target plus non-color pressed and focus cues", () => {
-    renderLink({ testOnly_pressed: true });
+  it("has a 48-point target plus non-color pressed and focus cues", async () => {
+    await renderLink({ testOnly_pressed: true });
     const link = screen.getByRole("link", {
       name: "Read the original source",
     });
@@ -405,7 +419,7 @@ describe("GardenLink", () => {
       textDecorationStyle: "dashed",
     });
 
-    fireEvent(link, "focus");
+    await fireEvent(link, "focus");
     expect(StyleSheet.flatten(link.props.style)).toMatchObject({
       outlineOffset: 2,
       outlineStyle: "solid",
@@ -413,8 +427,8 @@ describe("GardenLink", () => {
     });
   });
 
-  it("renders unsafe destinations as honest noninteractive text", () => {
-    const props = renderLink({ url: "javascript:alert('nope')" });
+  it("renders unsafe destinations as honest noninteractive text", async () => {
+    const props = await renderLink({ url: "javascript:alert('nope')" });
     const fallback = screen.getByTestId("source-link");
 
     expect(screen.queryByRole("link")).not.toBeOnTheScreen();
@@ -427,7 +441,7 @@ describe("GardenLink", () => {
     expect(fallback.props.onPress).toBeUndefined();
     expect(fallback.props.focusable).toBeUndefined();
 
-    fireEvent.press(fallback);
+    await fireEvent.press(fallback);
     expect(props.onOpenStart).not.toHaveBeenCalled();
     expect(props.openUrl).not.toHaveBeenCalled();
     expect(props.onOpenError).not.toHaveBeenCalled();

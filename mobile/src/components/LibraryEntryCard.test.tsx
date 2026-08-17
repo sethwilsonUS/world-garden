@@ -10,7 +10,7 @@ const entry = {
   title: "The Fellowship of the Ring and a deliberately long title",
 };
 
-function renderCard(
+async function renderCard(
   args: {
     blockedByRemoval?: boolean;
     busy?: boolean;
@@ -20,7 +20,7 @@ function renderCard(
 ) {
   const onOpen = args.onOpen ?? jest.fn();
   const onRequestRemove = args.onRequestRemove ?? jest.fn();
-  render(
+  await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -44,8 +44,8 @@ function renderCard(
 }
 
 describe("LibraryEntryCard", () => {
-  it("keeps the article link and Remove control as named sibling targets", () => {
-    const { link, remove } = renderCard();
+  it("keeps the article link and Remove control as named sibling targets", async () => {
+    const { link, remove } = await renderCard();
 
     expect(screen.getAllByRole("link")).toHaveLength(1);
     expect(screen.getAllByRole("button")).toHaveLength(1);
@@ -59,20 +59,20 @@ describe("LibraryEntryCard", () => {
     );
   });
 
-  it("opens and requests removal only from their respective controls", () => {
-    const { link, onOpen, onRequestRemove, remove } = renderCard();
+  it("opens and requests removal only from their respective controls", async () => {
+    const { link, onOpen, onRequestRemove, remove } = await renderCard();
 
-    fireEvent.press(link);
+    await fireEvent.press(link);
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onRequestRemove).not.toHaveBeenCalled();
 
-    fireEvent.press(remove);
+    await fireEvent.press(remove);
     expect(onRequestRemove).toHaveBeenCalledTimes(1);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it("uses 48-point targets and never clamps long title, date, or control text", () => {
-    const { link, remove } = renderCard();
+  it("uses 48-point targets and never clamps long title, date, or control text", async () => {
+    const { link, remove } = await renderCard();
     const title = screen.getByText(entry.title, {
       includeHiddenElements: true,
     });
@@ -95,8 +95,8 @@ describe("LibraryEntryCard", () => {
     }
   });
 
-  it("keeps the busy Remove target present, named, and unavailable", () => {
-    const { onRequestRemove, remove } = renderCard({ busy: true });
+  it("keeps the busy Remove target present, named, and unavailable", async () => {
+    const { onRequestRemove, remove } = await renderCard({ busy: true });
 
     expect(remove).toHaveAccessibleName(
       `Remove — in progress: ${entry.title} from your Library`,
@@ -107,12 +107,12 @@ describe("LibraryEntryCard", () => {
     });
     expect(remove).toHaveProp("focusable", true);
     expect(screen.getByText("Remove — in progress")).toBeOnTheScreen();
-    fireEvent.press(remove);
+    await fireEvent.press(remove);
     expect(onRequestRemove).not.toHaveBeenCalled();
   });
 
-  it("keeps a sibling focusable but unavailable during another removal", () => {
-    const { onRequestRemove, remove } = renderCard({
+  it("keeps a sibling focusable but unavailable during another removal", async () => {
+    const { onRequestRemove, remove } = await renderCard({
       blockedByRemoval: true,
     });
 
@@ -125,7 +125,7 @@ describe("LibraryEntryCard", () => {
       disabled: true,
     });
     expect(remove).toHaveProp("focusable", true);
-    fireEvent.press(remove);
+    await fireEvent.press(remove);
     expect(onRequestRemove).not.toHaveBeenCalled();
   });
 });

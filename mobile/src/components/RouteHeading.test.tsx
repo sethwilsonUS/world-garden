@@ -36,7 +36,7 @@ describe("RouteHeading", () => {
       .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
       .mockResolvedValue(true);
     const focus = jest.fn();
-    const view = render(heading("Results for Moria", "Moria", focus));
+    const view = await render(heading("Results for Moria", "Moria", focus));
 
     expect(
       screen.getAllByRole("header", { name: "Results for Moria" }),
@@ -47,10 +47,10 @@ describe("RouteHeading", () => {
     ).toHaveProp("accessible", false);
     await waitFor(() => expect(focus).toHaveBeenCalledTimes(1));
 
-    view.rerender(heading("Results for Moria", "Moria", focus));
+    await view.rerender(heading("Results for Moria", "Moria", focus));
     expect(focus).toHaveBeenCalledTimes(1);
 
-    view.rerender(heading("Results for the Shire", "The Shire", focus));
+    await view.rerender(heading("Results for the Shire", "The Shire", focus));
     await waitFor(() => expect(focus).toHaveBeenCalledTimes(2));
   });
 
@@ -60,7 +60,7 @@ describe("RouteHeading", () => {
       .mockResolvedValue(false);
     const focus = jest.fn();
 
-    render(heading("Ada Lovelace", "Ada Lovelace", focus));
+    await render(heading("Ada Lovelace", "Ada Lovelace", focus));
 
     await waitFor(() =>
       expect(AccessibilityInfo.isScreenReaderEnabled).toHaveBeenCalled(),
@@ -77,7 +77,7 @@ describe("RouteHeading", () => {
       "sendAccessibilityEvent",
     );
 
-    render(heading("Account & data", "account"));
+    await render(heading("Account & data", "account"));
 
     await waitFor(() =>
       expect(sendAccessibilityEvent).toHaveBeenCalledWith(
@@ -99,10 +99,10 @@ describe("RouteHeading", () => {
       );
     screenReaderEnabled.mockClear();
     const focus = jest.fn();
-    const view = render(heading("Library", "library", focus));
+    const view = await render(heading("Library", "library", focus));
 
-    view.rerender(heading("Library", "library", focus, false));
-    view.rerender(heading("Library", "library", focus, true));
+    await view.rerender(heading("Library", "library", focus, false));
+    await view.rerender(heading("Library", "library", focus, true));
     await act(async () => {
       resolveScreenReaderEnabled(true);
       await Promise.resolve();

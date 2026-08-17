@@ -12,8 +12,8 @@ describe("GardenScreen", () => {
     expect(getScreenHorizontalPadding(360)).toBe(24);
   });
 
-  it("uses every safe-area edge and a vertical scroll container", () => {
-    render(
+  it("uses every safe-area edge and a vertical scroll container", async () => {
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -37,8 +37,8 @@ describe("GardenScreen", () => {
     expect(screen.getByText("Scrollable content")).toBeOnTheScreen();
   });
 
-  it("preserves flexible padding and bottom clearance", () => {
-    render(
+  it("preserves flexible padding and bottom clearance", async () => {
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"

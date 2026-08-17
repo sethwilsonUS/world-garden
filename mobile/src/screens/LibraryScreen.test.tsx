@@ -58,7 +58,7 @@ function setLibrary(
   };
 }
 
-function renderLibrary(
+async function renderLibrary(
   overrides: Partial<React.ComponentProps<typeof LibraryScreen>> = {},
 ) {
   const props = {
@@ -81,7 +81,7 @@ function renderLibrary(
     </GardenThemeProvider>
   );
 
-  return { ...render(createUi()), createUi, props };
+  return { ...(await render(createUi())), createUi, props };
 }
 
 describe("LibraryScreen", () => {
@@ -136,9 +136,9 @@ describe("LibraryScreen", () => {
     expect(sendAccessibilityEvent).toHaveBeenCalledWith(target, "focus");
   });
 
-  it("keeps one route heading and one status node through loading and empty states", () => {
+  it("keeps one route heading and one status node through loading and empty states", async () => {
     setLibrary({ entries: [], status: "loading" });
-    const view = renderLibrary();
+    const view = await renderLibrary();
     const heading = screen.getByTestId("library-screen-heading");
     const status = screen.getByTestId("library-status");
 
@@ -147,7 +147,7 @@ describe("LibraryScreen", () => {
     expect(status).toHaveAccessibleName("Loading your Library.");
 
     setLibrary({ entries: [], status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
 
     expect(screen.getByTestId("library-screen-heading")).toBe(heading);
     expect(screen.getByTestId("library-status")).toBe(status);
@@ -157,9 +157,9 @@ describe("LibraryScreen", () => {
     ).toBeOnTheScreen();
   });
 
-  it("keeps signed-out reading public and sends account work to Account", () => {
+  it("keeps signed-out reading public and sends account work to Account", async () => {
     setLibrary({ entries: [], status: "signedOut" });
-    const { props } = renderLibrary();
+    const { props } = await renderLibrary();
 
     expect(
       screen.getByText("Sign in to see your saved articles"),
@@ -171,19 +171,23 @@ describe("LibraryScreen", () => {
     ).toBeOnTheScreen();
     expect(screen.queryByText(/saved on this device/i)).not.toBeOnTheScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Go to Account" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Go to Account" }),
+    );
     expect(props.onOpenAccount).toHaveBeenCalledTimes(1);
-    fireEvent.press(screen.getByRole("button", { name: "Start exploring" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Start exploring" }),
+    );
     expect(props.onStartExploring).toHaveBeenCalledTimes(1);
   });
 
-  it("shows sanitized recovery copy and retries without replacing the heading or status", () => {
+  it("shows sanitized recovery copy and retries without replacing the heading or status", async () => {
     setLibrary({
       entries: [],
       message: "We couldn’t load your Library. Please try again.",
       status: "error",
     });
-    renderLibrary();
+    await renderLibrary();
 
     expect(
       screen.getByRole("alert", {
@@ -191,20 +195,20 @@ describe("LibraryScreen", () => {
       }),
     ).toBeOnTheScreen();
     expect(screen.queryByText(/token|issuer|stack/i)).not.toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     expect(mockRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("opens exact slugs and keeps list links before their sibling Remove controls", () => {
+  it("opens exact slugs and keeps list links before their sibling Remove controls", async () => {
     setLibrary({ entries, status: "ready" });
-    const { props } = renderLibrary();
+    const { props } = await renderLibrary();
 
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "2 saved articles.",
     );
     expect(screen.getAllByRole("link")).toHaveLength(2);
     expect(screen.getAllByRole("button")).toHaveLength(3);
-    fireEvent.press(screen.getAllByRole("link")[1]!);
+    await fireEvent.press(screen.getAllByRole("link")[1]!);
     expect(props.onOpenArticle).toHaveBeenCalledWith("The_Shire");
   });
 
@@ -212,9 +216,9 @@ describe("LibraryScreen", () => {
     setLibrary({ entries, status: "ready" });
     const focusAfterRemoval = jest.fn();
     const confirmRemoval = jest.fn(async () => true);
-    renderLibrary({ confirmRemoval, focusAfterRemoval });
+    await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -243,15 +247,15 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    renderLibrary({ focusAfterRemoval });
+    await renderLibrary({ focusAfterRemoval });
     const removeMoria = screen.getByRole("button", {
       name: "Remove Moria from your Library",
     });
 
-    fireEvent(removeMoria, "focus");
-    fireEvent.press(removeMoria);
+    await fireEvent(removeMoria, "focus");
+    await fireEvent.press(removeMoria);
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
-    fireEvent(removeMoria, "focus");
+    await fireEvent(removeMoria, "focus");
 
     await act(async () => {
       resolveRemoval?.({ status: "committed" });
@@ -273,15 +277,15 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    renderLibrary({ focusAfterRemoval });
+    await renderLibrary({ focusAfterRemoval });
     const removeMoria = screen.getByRole("button", {
       name: "Remove Moria from your Library",
     });
 
-    fireEvent(removeMoria, "focus");
-    fireEvent.press(removeMoria);
+    await fireEvent(removeMoria, "focus");
+    await fireEvent.press(removeMoria);
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
-    fireEvent(screen.getByRole("header", { name: "Library" }), "focus");
+    await fireEvent(screen.getByRole("header", { name: "Library" }), "focus");
 
     await act(async () => {
       resolveRemoval?.({ status: "committed" });
@@ -297,9 +301,9 @@ describe("LibraryScreen", () => {
     setLibrary({ entries, status: "ready" });
     const focusAfterRemoval = jest.fn();
     const confirmRemoval = jest.fn(async () => false);
-    renderLibrary({ confirmRemoval, focusAfterRemoval });
+    await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -324,9 +328,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval, focusAfterRemoval });
+    const view = await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -334,12 +338,12 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(confirmRemoval).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     await act(async () => {
       resolveConfirmation?.(false);
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(mockRemoveBookmark).not.toHaveBeenCalled();
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
@@ -357,9 +361,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval, focusAfterRemoval });
+    const view = await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -367,12 +371,12 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(confirmRemoval).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     await act(async () => {
       rejectConfirmation?.(new Error("private confirmation failure"));
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(mockRemoveBookmark).not.toHaveBeenCalled();
     expect(
@@ -397,9 +401,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval, focusAfterRemoval });
+    const view = await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -407,7 +411,7 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(confirmRemoval).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" }, [], Symbol("account-b"));
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     await act(async () => {
       resolveConfirmation?.(true);
       await Promise.resolve();
@@ -431,9 +435,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval, focusAfterRemoval });
+    const view = await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -441,12 +445,12 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(confirmRemoval).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     await act(async () => {
       resolveConfirmation?.(true);
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(mockRemoveBookmark).not.toHaveBeenCalled();
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
@@ -467,9 +471,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval, focusAfterRemoval });
+    const view = await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -477,14 +481,14 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(confirmRemoval).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     setLibrary({ entries, status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     await act(async () => {
       resolveConfirmation?.(false);
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(mockRemoveBookmark).not.toHaveBeenCalled();
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
@@ -507,9 +511,9 @@ describe("LibraryScreen", () => {
         }),
     );
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval });
+    const view = await renderLibrary({ confirmRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -522,7 +526,7 @@ describe("LibraryScreen", () => {
       message: "We couldn’t load your Library. Please try again.",
       status: "error",
     });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveProp(
       "accessible",
       false,
@@ -552,9 +556,9 @@ describe("LibraryScreen", () => {
     );
     const confirmRemoval = jest.fn(async () => true);
     setLibrary({ entries, status: "ready" });
-    renderLibrary({ confirmRemoval });
+    await renderLibrary({ confirmRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -562,7 +566,7 @@ describe("LibraryScreen", () => {
     const blockedSecondRemoval = await screen.findByRole("button", {
       name: "Remove — wait: The Shire. Another Library removal is in progress.",
     });
-    fireEvent.press(blockedSecondRemoval);
+    await fireEvent.press(blockedSecondRemoval);
 
     expect(confirmRemoval).toHaveBeenCalledTimes(1);
     expect(mockRemoveBookmark).toHaveBeenCalledTimes(1);
@@ -600,9 +604,9 @@ describe("LibraryScreen", () => {
       );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ confirmRemoval, focusAfterRemoval });
+    const view = await renderLibrary({ confirmRemoval, focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -610,10 +614,10 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
-    fireEvent.press(
+    await view.rerender(view.createUi());
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove The Shire from your Library",
       }),
@@ -640,16 +644,16 @@ describe("LibraryScreen", () => {
       resolveSecondConfirmation?.(false);
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
     expect(focusAfterRemoval).not.toHaveBeenCalled();
   });
 
   it("focuses the heading after removing the only article", async () => {
     setLibrary({ entries: [entries[0]], status: "ready" });
     const focusAfterRemoval = jest.fn();
-    renderLibrary({ focusAfterRemoval });
+    await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -662,9 +666,9 @@ describe("LibraryScreen", () => {
   it("focuses the previous article when the removed entry has no next sibling", async () => {
     setLibrary({ entries, status: "ready" });
     const focusAfterRemoval = jest.fn();
-    renderLibrary({ focusAfterRemoval });
+    await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove The Shire from your Library",
       }),
@@ -687,9 +691,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ focusAfterRemoval });
+    const view = await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -697,7 +701,7 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     await act(async () => {
       resolveRemoval?.({
         message: "We couldn’t remove this article. Please try again.",
@@ -705,7 +709,7 @@ describe("LibraryScreen", () => {
       });
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(
       screen.getByRole("alert", {
@@ -729,9 +733,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries: [entries[0]], status: "ready" });
-    const view = renderLibrary({ focusAfterRemoval });
+    const view = await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -739,8 +743,8 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(view.createUi());
-    act(() => jest.runOnlyPendingTimers());
+    await view.rerender(view.createUi());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
     expect(focusAfterRemoval.mock.calls[0]?.[1]).toBeNull();
@@ -749,7 +753,7 @@ describe("LibraryScreen", () => {
       resolveRemoval?.({ status: "committed" });
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
   });
 
@@ -766,9 +770,9 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries: [entries[0]], status: "ready" });
-    const view = renderLibrary({ focusAfterRemoval });
+    const view = await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -776,10 +780,10 @@ describe("LibraryScreen", () => {
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     setLibrary({ entries: [entries[0]], status: "ready" });
-    view.rerender(view.createUi());
-    act(() => jest.runOnlyPendingTimers());
+    await view.rerender(view.createUi());
+    await act(() => jest.runOnlyPendingTimers());
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
     expect(focusAfterRemoval.mock.calls[0]?.[1]).toBeNull();
 
@@ -787,7 +791,7 @@ describe("LibraryScreen", () => {
       resolveRemoval?.({ status: "committed" });
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
   });
 
@@ -811,25 +815,25 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ focusAfterRemoval });
+    const view = await renderLibrary({ focusAfterRemoval });
 
     const removeMoria = screen.getByRole("button", {
       name: "Remove Moria from your Library",
     });
-    fireEvent(removeMoria, "focus");
-    fireEvent.press(removeMoria);
+    await fireEvent(removeMoria, "focus");
+    await fireEvent.press(removeMoria);
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
-    fireEvent(screen.getAllByRole("link")[0]!, "focus");
+    await fireEvent(screen.getAllByRole("link")[0]!, "focus");
 
-    view.rerender(view.createUi({ isRouteActive: false }));
+    await view.rerender(view.createUi({ isRouteActive: false }));
     announce.mockClear();
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi({ isRouteActive: false }));
+    await view.rerender(view.createUi({ isRouteActive: false }));
     await act(async () => {
       resolveRemoval?.({ status: "committed" });
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(announce).not.toHaveBeenCalled();
     expect(focusAfterRemoval).not.toHaveBeenCalled();
@@ -837,7 +841,7 @@ describe("LibraryScreen", () => {
       "1 saved article.",
     );
 
-    view.rerender(view.createUi({ isRouteActive: true }));
+    await view.rerender(view.createUi({ isRouteActive: true }));
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
     expect(focusAfterRemoval.mock.calls[0]?.[1]).toBe("The_Shire");
   });
@@ -851,9 +855,9 @@ describe("LibraryScreen", () => {
       })
       .mockResolvedValueOnce({ status: "superseded" });
     const focusAfterRemoval = jest.fn();
-    renderLibrary({ focusAfterRemoval });
+    await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -866,7 +870,7 @@ describe("LibraryScreen", () => {
     expect(screen.queryByText(/token|issuer|stack/i)).not.toBeOnTheScreen();
     expect(focusAfterRemoval).not.toHaveBeenCalled();
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove The Shire from your Library",
       }),
@@ -880,10 +884,10 @@ describe("LibraryScreen", () => {
 
   it("does not carry an operation announcement into a later account state", async () => {
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary();
+    const view = await renderLibrary();
     const nextAccountEpoch = Symbol("account-b");
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -895,7 +899,7 @@ describe("LibraryScreen", () => {
     );
 
     setLibrary({ entries: [], status: "loading" }, [], nextAccountEpoch);
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "Loading your Library.",
     );
@@ -905,7 +909,7 @@ describe("LibraryScreen", () => {
       [],
       nextAccountEpoch,
     );
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "1 saved article.",
     );
@@ -913,9 +917,9 @@ describe("LibraryScreen", () => {
 
   it("does not replay an operation announcement after same-account reconnect", async () => {
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary();
+    const view = await renderLibrary();
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -927,13 +931,13 @@ describe("LibraryScreen", () => {
     );
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "Loading your Library.",
     );
 
     setLibrary({ entries, status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "2 saved articles.",
     );
@@ -941,9 +945,9 @@ describe("LibraryScreen", () => {
 
   it("keeps one removal success through its query echo, then reports newer sync", async () => {
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary();
+    const view = await renderLibrary();
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -955,7 +959,7 @@ describe("LibraryScreen", () => {
     );
 
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "Moria removed from your Library.",
     );
@@ -967,7 +971,7 @@ describe("LibraryScreen", () => {
       ],
       status: "ready",
     });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "2 saved articles.",
     );
@@ -979,9 +983,9 @@ describe("LibraryScreen", () => {
       status: "failed",
     });
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary();
+    const view = await renderLibrary();
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
@@ -993,23 +997,23 @@ describe("LibraryScreen", () => {
     ).toBeOnTheScreen();
 
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(screen.getByTestId("library-status")).toHaveAccessibleName(
       "1 saved article.",
     );
     expect(screen.queryByRole("alert")).not.toBeOnTheScreen();
   });
 
-  it("recovers tracked input focus after another client removes its row", () => {
+  it("recovers tracked input focus after another client removes its row", async () => {
     jest.useFakeTimers();
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ focusAfterRemoval });
+    const view = await renderLibrary({ focusAfterRemoval });
 
-    fireEvent(screen.getAllByRole("link")[0]!, "focus");
+    await fireEvent(screen.getAllByRole("link")[0]!, "focus");
     setLibrary({ entries: [entries[1]], status: "ready" });
-    view.rerender(view.createUi());
-    act(() => jest.runOnlyPendingTimers());
+    await view.rerender(view.createUi());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
     expect(focusAfterRemoval.mock.calls[0]?.[1]).toBe("The_Shire");
@@ -1028,19 +1032,19 @@ describe("LibraryScreen", () => {
     );
     const focusAfterRemoval = jest.fn();
     setLibrary({ entries, status: "ready" });
-    const view = renderLibrary({ focusAfterRemoval });
+    const view = await renderLibrary({ focusAfterRemoval });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Remove Moria from your Library",
       }),
     );
     await waitFor(() => expect(mockRemoveBookmark).toHaveBeenCalledTimes(1));
-    fireEvent(screen.getAllByRole("link")[1]!, "focus");
+    await fireEvent(screen.getAllByRole("link")[1]!, "focus");
 
     setLibrary({ entries: [entries[0]], status: "ready" });
-    view.rerender(view.createUi());
-    act(() => jest.runOnlyPendingTimers());
+    await view.rerender(view.createUi());
+    await act(() => jest.runOnlyPendingTimers());
 
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
     expect(focusAfterRemoval.mock.calls[0]?.[1]).toBeNull();
@@ -1049,7 +1053,7 @@ describe("LibraryScreen", () => {
       resolveRemoval?.({ status: "committed" });
       await Promise.resolve();
     });
-    act(() => jest.runOnlyPendingTimers());
+    await act(() => jest.runOnlyPendingTimers());
     expect(focusAfterRemoval).toHaveBeenCalledTimes(1);
   });
 
@@ -1059,11 +1063,11 @@ describe("LibraryScreen", () => {
       .mockResolvedValue(true);
     const focusHeading = jest.fn();
     setLibrary({ entries: [], status: "loading" });
-    const view = renderLibrary({ focusHeading });
+    const view = await renderLibrary({ focusHeading });
 
     await waitFor(() => expect(focusHeading).toHaveBeenCalledTimes(1));
     setLibrary({ entries, status: "ready" });
-    view.rerender(view.createUi());
+    await view.rerender(view.createUi());
     expect(focusHeading).toHaveBeenCalledTimes(1);
   });
 });

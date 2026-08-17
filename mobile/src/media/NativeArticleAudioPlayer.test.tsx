@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react-native";
 import type { ReactNode } from "react";
-import { AppState, StyleSheet, View } from "react-native";
+import { AppState, StyleSheet, Text, View } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import type {
@@ -196,7 +196,7 @@ function harness({ leaseByteLength = 1 }: { leaseByteLength?: number } = {}) {
   };
 }
 
-function renderPlayer(
+async function renderPlayer(
   setup: ReturnType<typeof harness>,
   articleOverride: WikipediaArticle = article(),
   summaryDisclosure?: ReactNode,
@@ -224,13 +224,13 @@ function renderPlayer(
       </GardenThemeProvider>
     </NativePlaybackRateProvider>
   );
-  const view = render(tree(setup.access));
+  const view = await render(tree(setup.access));
   return {
     ...view,
-    rerenderAccess: (access: NativeArticleAudioAccess) =>
-      view.rerender(tree(access)),
-    rerenderProps: (next: Partial<typeof props>) =>
-      view.rerender(tree(setup.access, { ...props, ...next })),
+    rerenderAccess: async (access: NativeArticleAudioAccess) =>
+      await view.rerender(tree(access)),
+    rerenderProps: async (next: Partial<typeof props>) =>
+      await view.rerender(tree(setup.access, { ...props, ...next })),
   };
 }
 
@@ -267,9 +267,9 @@ describe("NativeArticleAudioPlayer", () => {
     }
   });
 
-  it("mirrors the current article-audio hierarchy with operable and honest section rows", () => {
+  it("mirrors the current article-audio hierarchy with operable and honest section rows", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     expect(
       screen.getByRole("header", { name: "Explore this article" }),
@@ -298,7 +298,7 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("gives duplicate section titles stable, distinct screen-reader names", async () => {
     const setup = harness();
-    renderPlayer(setup, {
+    await renderPlayer(setup, {
       ...article(),
       sections: [
         {
@@ -326,14 +326,14 @@ describe("NativeArticleAudioPlayer", () => {
       }),
     ).toBeEnabled();
 
-    fireEvent.press(first);
+    await fireEvent.press(first);
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
     expect(
       screen.getByRole("button", {
         name: "Playing History in Pumpkin. Audio item 1 of 2. Pause audio",
       }),
     ).toBeEnabled();
-    act(() =>
+    await act(() =>
       setup.emitStatus({ didJustFinish: true, ended: true, playing: false }),
     );
     expect(
@@ -343,12 +343,14 @@ describe("NativeArticleAudioPlayer", () => {
     ).toBeEnabled();
   });
 
-  it("places the mobile summary disclosure before the audio item rows", () => {
+  it("places the mobile summary disclosure before the audio item rows", async () => {
     const setup = harness();
-    const view = renderPlayer(
+    const view = await renderPlayer(
       setup,
       article(),
-      <View testID="test-summary-disclosure">Full text summary</View>,
+      <View testID="test-summary-disclosure">
+        <Text>Full text summary</Text>
+      </View>,
     );
 
     const player = screen.getByTestId("article-audio-player");
@@ -361,12 +363,14 @@ describe("NativeArticleAudioPlayer", () => {
     expect(rowsIndex).toBeGreaterThan(disclosureIndex);
   });
 
-  it("routes summary-only revisions to the lightweight player before disclosure", () => {
+  it("routes summary-only revisions to the lightweight player before disclosure", async () => {
     const setup = harness();
-    const view = renderPlayer(
+    const view = await renderPlayer(
       setup,
       { ...article(), sections: [] },
-      <View testID="test-summary-disclosure">Full text summary</View>,
+      <View testID="test-summary-disclosure">
+        <Text>Full text summary</Text>
+      </View>,
     );
     const testIds = collectTestIds(view.toJSON());
 
@@ -379,12 +383,14 @@ describe("NativeArticleAudioPlayer", () => {
     );
   });
 
-  it("renders no audio surface for revisions without narration source text", () => {
+  it("renders no audio surface for revisions without narration source text", async () => {
     const setup = harness();
-    renderPlayer(
+    await renderPlayer(
       setup,
       { ...article(), sections: [], summary: " " },
-      <View testID="test-summary-disclosure">Full text summary</View>,
+      <View testID="test-summary-disclosure">
+        <Text>Full text summary</Text>
+      </View>,
     );
 
     expect(screen.queryByTestId("article-audio-player")).toBeNull();
@@ -395,12 +401,12 @@ describe("NativeArticleAudioPlayer", () => {
   it("restores playback speed, applies it before Play All, and updates the active queue", async () => {
     const setup = harness();
     setup.playbackRateStore.load.mockResolvedValue(1.5);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     const speedControl = await screen.findByRole("button", {
       name: "Playback speed 1.5x",
     });
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
 
@@ -412,7 +418,7 @@ describe("NativeArticleAudioPlayer", () => {
       (setup.playlist.play as jest.Mock).mock.invocationCallOrder[0] ?? 0,
     );
 
-    fireEvent.press(speedControl);
+    await fireEvent.press(speedControl);
 
     expect(screen.getByRole("button", { name: "Playback speed 1.75x" })).toBe(
       speedControl,
@@ -433,13 +439,15 @@ describe("NativeArticleAudioPlayer", () => {
       >();
     const setup = harness();
     setup.store.prepare = jest.fn().mockReturnValue(preparation.promise);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.store.prepare).toHaveBeenCalledTimes(1));
-    fireEvent.press(screen.getByRole("button", { name: "Playback speed 1x" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Playback speed 1x" }),
+    );
     expect(
       screen.getByRole("button", { name: "Playback speed 1.25x" }),
     ).toBeEnabled();
@@ -462,12 +470,12 @@ describe("NativeArticleAudioPlayer", () => {
   it("keeps the saved speed when an active queue rejects a rate change", async () => {
     const setup = harness();
     setup.playbackRateStore.load.mockResolvedValue(1.5);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     const speedControl = await screen.findByRole("button", {
       name: "Playback speed 1.5x",
     });
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
@@ -475,7 +483,7 @@ describe("NativeArticleAudioPlayer", () => {
       throw new Error("native rate failure");
     });
 
-    fireEvent.press(speedControl);
+    await fireEvent.press(speedControl);
 
     expect(screen.getByRole("button", { name: "Playback speed 1.5x" })).toBe(
       speedControl,
@@ -494,9 +502,9 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("prepares the fixed local queue in canonical order and starts Play All", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
 
@@ -552,7 +560,7 @@ describe("NativeArticleAudioPlayer", () => {
         Awaited<ReturnType<NativeArticleAudioAccess["requestSection"]>>
       >();
     setup.requestSection.mockReturnValueOnce(pending.promise);
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
     expect(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
@@ -560,7 +568,7 @@ describe("NativeArticleAudioPlayer", () => {
       "accessibilityHint",
       "Starts the complete article audio queue. Playback can continue in the background with lock-screen controls for Pumpkin.",
     );
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.requestSection).toHaveBeenCalledTimes(1));
@@ -587,7 +595,7 @@ describe("NativeArticleAudioPlayer", () => {
       "Pauses the complete article audio queue.",
     );
 
-    fireEvent.press(pause);
+    await fireEvent.press(pause);
     const resume = screen.getByRole("button", {
       name: "Resume playing all audio",
     });
@@ -596,9 +604,9 @@ describe("NativeArticleAudioPlayer", () => {
       "Resumes the complete article audio queue. Playback can continue in the background with lock-screen controls for Pumpkin.",
     );
 
-    fireEvent.press(resume);
+    await fireEvent.press(resume);
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(2));
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         currentIndex: 3,
         didJustFinish: false,
@@ -614,8 +622,8 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("exposes bounded previous and next actions and announces the current item", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
@@ -627,7 +635,7 @@ describe("NativeArticleAudioPlayer", () => {
       screen.getByRole("button", { name: "Next audio item" }),
     ).toBeEnabled();
 
-    act(() => setup.emitTrack({ currentIndex: 1, previousIndex: 0 }));
+    await act(() => setup.emitTrack({ currentIndex: 1, previousIndex: 0 }));
 
     expect(screen.getByTestId("article-audio-status")).toHaveTextContent(
       "Playing Origins. Audio item 2 of 4.",
@@ -635,16 +643,16 @@ describe("NativeArticleAudioPlayer", () => {
     expect(
       screen.getByRole("button", { name: "Previous audio item" }),
     ).toBeEnabled();
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Previous audio item" }),
     );
     expect(setup.playlist.previous).toHaveBeenCalledTimes(1);
     const next = screen.getByRole("button", { name: "Next audio item" });
-    fireEvent.press(next);
+    await fireEvent.press(next);
     expect(setup.playlist.next).toHaveBeenCalledTimes(1);
-    fireEvent(next, "focus");
+    await fireEvent(next, "focus");
 
-    act(() => setup.emitTrack({ currentIndex: 3, previousIndex: 1 }));
+    await act(() => setup.emitTrack({ currentIndex: 3, previousIndex: 1 }));
     const unavailableNext = screen.getByRole("button", {
       name: "Next audio item — unavailable",
     });
@@ -656,21 +664,21 @@ describe("NativeArticleAudioPlayer", () => {
       outlineWidth: 3,
     });
 
-    act(() =>
+    await act(() =>
       setup.emitStatus({ didJustFinish: true, ended: true, playing: false }),
     );
     expect(
       screen.getByRole("button", { name: "Previous audio item" }),
     ).toBeEnabled();
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Previous audio item" }),
     );
     expect(setup.playlist.previous).toHaveBeenCalledTimes(2);
-    act(() => setup.emitTrack({ currentIndex: 2, previousIndex: 3 }));
+    await act(() => setup.emitTrack({ currentIndex: 2, previousIndex: 3 }));
     expect(screen.getByTestId("article-audio-status")).toHaveTextContent(
       "Paused Cultivation. Audio item 3 of 4.",
     );
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         currentIndex: 2,
         didJustFinish: false,
@@ -686,9 +694,9 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("plays one requested section without staging the rest of the article", async () => {
     const setup = harness();
-    renderPlayer(setup);
+    await renderPlayer(setup);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Listen to Origins in Pumpkin" }),
     );
 
@@ -721,12 +729,12 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("replays only the selected final item after Play All finishes", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         currentIndex: 3,
         didJustFinish: true,
@@ -735,7 +743,7 @@ describe("NativeArticleAudioPlayer", () => {
       }),
     );
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Replay Planting in Pumpkin" }),
     );
 
@@ -754,12 +762,12 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("fails safely when native Replay All cannot return to the first item", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         currentIndex: 3,
         didJustFinish: true,
@@ -771,7 +779,9 @@ describe("NativeArticleAudioPlayer", () => {
       throw new Error("private bridge failure");
     });
 
-    fireEvent.press(screen.getByRole("button", { name: "Replay all audio" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Replay all audio" }),
+    );
 
     await waitFor(() =>
       expect(setup.playlist.release).toHaveBeenCalledTimes(1),
@@ -785,13 +795,15 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("releases the native queue before every temporary file when stopped", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    fireEvent.press(screen.getByRole("button", { name: "Stop article audio" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Stop article audio" }),
+    );
 
     await waitFor(() =>
       expect(setup.playlist.release).toHaveBeenCalledTimes(1),
@@ -824,9 +836,9 @@ describe("NativeArticleAudioPlayer", () => {
       })),
       summary: undefined,
     };
-    renderPlayer(setup, oversized);
+    await renderPlayer(setup, oversized);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 17 audio items" }),
     );
 
@@ -857,7 +869,7 @@ describe("NativeArticleAudioPlayer", () => {
       response: readyResponse(1),
       status: "ready",
     }));
-    renderPlayer(setup, {
+    await renderPlayer(setup, {
       ...article(),
       sections: Array.from({ length: overBudgetTrackCount }, (_, index) => ({
         content: `Readable section ${index + 1}`,
@@ -868,7 +880,7 @@ describe("NativeArticleAudioPlayer", () => {
       summary: undefined,
     });
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: `Play all ${overBudgetTrackCount} audio items`,
       }),
@@ -894,7 +906,7 @@ describe("NativeArticleAudioPlayer", () => {
     expect(setup.loadRuntime).not.toHaveBeenCalled();
   });
 
-  it("disables only Play All when an article exceeds the fixed track cap", () => {
+  it("disables only Play All when an article exceeds the fixed track cap", async () => {
     const setup = harness();
     const manySections: WikipediaArticle = {
       ...article(),
@@ -909,7 +921,7 @@ describe("NativeArticleAudioPlayer", () => {
       ),
       summary: undefined,
     };
-    renderPlayer(setup, manySections);
+    await renderPlayer(setup, manySections);
 
     const playAll = screen.getByRole("button", {
       name: `Play all ${MAX_NATIVE_ARTICLE_PLAYLIST_TRACKS + 1} audio items — unavailable`,
@@ -927,9 +939,9 @@ describe("NativeArticleAudioPlayer", () => {
     );
   });
 
-  it("labels a revision with only empty headings as unavailable instead of ready", () => {
+  it("labels a revision with only empty headings as unavailable instead of ready", async () => {
     const setup = harness();
-    renderPlayer(setup, {
+    await renderPlayer(setup, {
       ...article(),
       sections: [
         {
@@ -960,14 +972,14 @@ describe("NativeArticleAudioPlayer", () => {
       >();
     const lateRelease = jest.fn();
     setup.requestSection.mockReturnValueOnce(pending.promise);
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.requestSection).toHaveBeenCalledTimes(1));
     const signal = setup.requestSection.mock.calls[0]?.[0].signal;
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
 
     expect(signal?.aborted).toBe(true);
     expect(setup.loadRuntime).not.toHaveBeenCalled();
@@ -1007,14 +1019,14 @@ describe("NativeArticleAudioPlayer", () => {
         status: "ready",
       })
       .mockReturnValueOnce(pending.promise);
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.requestSection).toHaveBeenCalledTimes(2));
     const signal = setup.requestSection.mock.calls[1]?.[0].signal;
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", {
         name: "Cancel preparing Origins in Pumpkin",
       }),
@@ -1032,13 +1044,13 @@ describe("NativeArticleAudioPlayer", () => {
     const setup = harness();
     const pendingPlay = deferred<void>();
     (setup.playlist.play as jest.Mock).mockReturnValueOnce(pendingPlay.promise);
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
 
     await waitFor(() =>
       expect(setup.playlist.release).toHaveBeenCalledTimes(1),
@@ -1066,13 +1078,13 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("keeps ready playback alive in the background and reconciles missed native status", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
     expect(setup.playlist.release).not.toHaveBeenCalled();
     expect(screen.getByTestId("article-audio-speed")).toBeDisabled();
     expect(screen.getByTestId("article-audio-speed")).not.toHaveProp(
@@ -1088,7 +1100,7 @@ describe("NativeArticleAudioPlayer", () => {
       duration: 40,
       playing: false,
     });
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("active"));
 
     expect(setup.playlist.getStatus).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("article-audio-speed")).toBeEnabled();
@@ -1106,16 +1118,16 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("reconciles a paused track change from the foreground snapshot", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Pause playing all audio" }),
     );
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
     setup.setStatus({
       currentIndex: 1,
       currentTime: 8,
@@ -1124,7 +1136,7 @@ describe("NativeArticleAudioPlayer", () => {
       isLoaded: true,
       playing: false,
     });
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("active"));
 
     expect(screen.getByTestId("article-audio-status")).toHaveTextContent(
       "Paused Origins. Audio item 2 of 4.",
@@ -1138,13 +1150,13 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("uses only the durable native terminal state to finish the queue", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         currentIndex: 1,
         didJustFinish: true,
@@ -1159,7 +1171,7 @@ describe("NativeArticleAudioPlayer", () => {
       "Playing Origins. Audio item 2 of 4.",
     );
 
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         currentIndex: 3,
         currentTime: 29.8,
@@ -1169,12 +1181,12 @@ describe("NativeArticleAudioPlayer", () => {
         playing: false,
       }),
     );
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("button", { name: "Resume playing all audio" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(2));
 
-    act(() => appStateListener?.("background"));
+    await act(() => appStateListener?.("background"));
     setup.setStatus({
       currentIndex: 3,
       currentTime: 0,
@@ -1184,7 +1196,7 @@ describe("NativeArticleAudioPlayer", () => {
       isLoaded: false,
       playing: false,
     });
-    act(() => appStateListener?.("active"));
+    await act(() => appStateListener?.("active"));
 
     expect(setup.playlist.getStatus).toHaveBeenCalledTimes(1);
     expect(
@@ -1197,13 +1209,13 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("tears down the queue on account change before deleting its leased files", async () => {
     const setup = harness();
-    const view = renderPlayer(setup);
-    fireEvent.press(
+    const view = await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    view.rerenderAccess({
+    await view.rerenderAccess({
       accountEpoch: Symbol("account-b"),
       requestSection: setup.requestSection,
     });
@@ -1228,13 +1240,13 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("releases ready route audio before its leases when the route deactivates", async () => {
     const setup = harness();
-    const view = renderPlayer(setup);
-    fireEvent.press(
+    const view = await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    view.rerenderProps({ active: false });
+    await view.rerenderProps({ active: false });
 
     await waitFor(() =>
       expect(setup.playlist.release).toHaveBeenCalledTimes(1),
@@ -1249,7 +1261,7 @@ describe("NativeArticleAudioPlayer", () => {
     ).toBeLessThan(
       (setup.leases[0]?.release as jest.Mock).mock.invocationCallOrder[0] ?? 0,
     );
-    act(() =>
+    await act(() =>
       setup.emitStatus({ currentIndex: 2, ended: false, playing: true }),
     );
     expect(
@@ -1261,8 +1273,8 @@ describe("NativeArticleAudioPlayer", () => {
     jest.useFakeTimers();
     const setup = harness();
     setup.requestSection.mockImplementation(() => new Promise(() => undefined));
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.requestSection).toHaveBeenCalledTimes(1));
@@ -1281,13 +1293,13 @@ describe("NativeArticleAudioPlayer", () => {
 
   it("sanitizes native playlist errors and releases the queue before its files", async () => {
     const setup = harness();
-    renderPlayer(setup);
-    fireEvent.press(
+    await renderPlayer(setup);
+    await fireEvent.press(
       screen.getByRole("button", { name: "Play all 4 audio items" }),
     );
     await waitFor(() => expect(setup.playlist.play).toHaveBeenCalledTimes(1));
 
-    act(() =>
+    await act(() =>
       setup.emitStatus({
         error: "decoder failed at /private/cache/secret-audio.mp3",
         playing: false,

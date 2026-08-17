@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 import { AccessibilityInfo, Platform, StyleSheet } from "react-native";
 
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
@@ -63,8 +63,8 @@ afterEach(() => {
 });
 
 describe("NativePlaybackSpeedControl", () => {
-  it("exposes one compact, reflow-safe button with the current and next rates", () => {
-    render(control());
+  it("exposes one compact, reflow-safe button with the current and next rates", async () => {
+    await render(control());
 
     const button = screen.getByRole("button", {
       name: "Playback speed 1x",
@@ -98,10 +98,10 @@ describe("NativePlaybackSpeedControl", () => {
     });
   });
 
-  it("retains visible focus while disabled and ignores activation", () => {
+  it("retains visible focus while disabled and ignores activation", async () => {
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
-    render(control({ disabled: true, onChange }));
+    await render(control({ disabled: true, onChange }));
     const button = screen.getByRole("button", {
       disabled: true,
       name: "Playback speed 1x",
@@ -110,7 +110,7 @@ describe("NativePlaybackSpeedControl", () => {
 
     expect(button).toHaveProp("focusable", true);
     expect(button).not.toHaveProp("accessibilityHint");
-    fireEvent(button, "focus");
+    await fireEvent(button, "focus");
     const buttonStyle = StyleSheet.flatten(button.props.style);
     expect(buttonStyle).toMatchObject({
       outlineColor: "#036b4a",
@@ -123,30 +123,28 @@ describe("NativePlaybackSpeedControl", () => {
       opacity: 0.55,
     });
 
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(onChange).not.toHaveBeenCalled();
     expect(announce).not.toHaveBeenCalled();
   });
 
-  it("cycles rapid accepted presses from the latest requested rate and keeps focus", () => {
+  it("cycles rapid accepted presses from the latest requested rate and keeps focus", async () => {
     setPlatformOS("ios");
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announceWithOptions = jest.spyOn(
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const view = render(control({ onChange }));
+    const view = await render(control({ onChange }));
     const button = screen.getByTestId("playback-speed");
-    fireEvent(button, "focus");
+    await fireEvent(button, "focus");
 
-    act(() => {
-      fireEvent.press(button);
-      fireEvent.press(button);
-    });
+    await fireEvent.press(button);
+    await fireEvent.press(button);
 
     expect(onChange.mock.calls.map(([rate]) => rate)).toEqual([1.25, 1.5]);
     expect(announceWithOptions).not.toHaveBeenCalled();
-    view.rerender(control({ onChange, rate: 1.5 }));
+    await view.rerender(control({ onChange, rate: 1.5 }));
     expect(screen.getByRole("button", { name: "Playback speed 1.5x" })).toBe(
       button,
     );
@@ -172,7 +170,7 @@ describe("NativePlaybackSpeedControl", () => {
     });
   });
 
-  it("announces an accepted iOS change only after its controlled prop commits", () => {
+  it("announces an accepted iOS change only after its controlled prop commits", async () => {
     setPlatformOS("ios");
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
@@ -180,15 +178,15 @@ describe("NativePlaybackSpeedControl", () => {
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const view = render(control({ onChange }));
+    const view = await render(control({ onChange }));
 
     expect(announce).not.toHaveBeenCalled();
     expect(announceWithOptions).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByTestId("playback-speed"));
+    await fireEvent.press(screen.getByTestId("playback-speed"));
     expect(onChange).toHaveBeenCalledWith(1.25);
     expect(announceWithOptions).not.toHaveBeenCalled();
 
-    view.rerender(control({ onChange, rate: 1.25 }));
+    await view.rerender(control({ onChange, rate: 1.25 }));
     expect(announceWithOptions).toHaveBeenCalledTimes(1);
     expect(announceWithOptions).toHaveBeenCalledWith("Playback speed 1.25x.", {
       priority: "low",
@@ -196,11 +194,11 @@ describe("NativePlaybackSpeedControl", () => {
     });
     expect(announce).not.toHaveBeenCalled();
 
-    view.rerender(control({ onChange, rate: 1.5 }));
+    await view.rerender(control({ onChange, rate: 1.5 }));
     expect(announceWithOptions).toHaveBeenCalledTimes(1);
   });
 
-  it("uses one imperative Android announcement and wraps 2x to 0.5x", () => {
+  it("uses one imperative Android announcement and wraps 2x to 0.5x", async () => {
     setPlatformOS("android");
     const onChange = jest.fn((_next: NativePlaybackRate) => true);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
@@ -208,23 +206,23 @@ describe("NativePlaybackSpeedControl", () => {
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const view = render(control({ onChange, rate: 2 }));
+    const view = await render(control({ onChange, rate: 2 }));
     const button = screen.getByRole("button", {
       name: "Playback speed 2x",
     });
 
     expect(button).toHaveProp("accessibilityHint", "Changes to 0.5x.");
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(onChange).toHaveBeenCalledWith(0.5);
     expect(announce).not.toHaveBeenCalled();
 
-    view.rerender(control({ onChange, rate: 0.5 }));
+    await view.rerender(control({ onChange, rate: 0.5 }));
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith("Playback speed 0.5x.");
     expect(announceWithOptions).not.toHaveBeenCalled();
   });
 
-  it("keeps the prior rate silent when the requested change is rejected", () => {
+  it("keeps the prior rate silent when the requested change is rejected", async () => {
     setPlatformOS("ios");
     const onChange = jest.fn((_next: NativePlaybackRate) => false);
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
@@ -232,9 +230,9 @@ describe("NativePlaybackSpeedControl", () => {
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const view = render(control({ onChange }));
+    const view = await render(control({ onChange }));
 
-    fireEvent.press(screen.getByTestId("playback-speed"));
+    await fireEvent.press(screen.getByTestId("playback-speed"));
     expect(onChange).toHaveBeenCalledWith(1.25);
     expect(
       screen.getByRole("button", { name: "Playback speed 1x" }),
@@ -242,7 +240,7 @@ describe("NativePlaybackSpeedControl", () => {
     expect(announce).not.toHaveBeenCalled();
     expect(announceWithOptions).not.toHaveBeenCalled();
 
-    view.rerender(control({ onChange, rate: 1.25 }));
+    await view.rerender(control({ onChange, rate: 1.25 }));
     expect(announce).not.toHaveBeenCalled();
     expect(announceWithOptions).not.toHaveBeenCalled();
   });

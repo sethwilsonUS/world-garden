@@ -4,10 +4,10 @@ import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { InvalidArticleLinkScreen } from "./InvalidArticleLinkScreen";
 
 describe("InvalidArticleLinkScreen", () => {
-  it("explains the invalid route and offers a full-size return control", () => {
+  it("explains the invalid route and offers a full-size return control", async () => {
     const onBack = jest.fn();
 
-    render(
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -25,14 +25,16 @@ describe("InvalidArticleLinkScreen", () => {
       ),
     ).toBeOnTheScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Back to search" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Back to search" }),
+    );
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it("names the honest Library return path for an invalid saved link", () => {
+  it("names the honest Library return path for an invalid saved link", async () => {
     const onBack = jest.fn();
 
-    render(
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -51,7 +53,7 @@ describe("InvalidArticleLinkScreen", () => {
       "accessibilityHint",
       "Returns to your saved articles.",
     );
-    fireEvent.press(back);
+    await fireEvent.press(back);
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 });

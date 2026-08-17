@@ -9,8 +9,8 @@ jest.mock("expo-router", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
-function renderScreen() {
-  return render(
+async function renderScreen() {
+  return await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -25,8 +25,8 @@ describe("HomeScreen", () => {
     mockPush.mockClear();
   });
 
-  it("mirrors the current web search workbench without placeholder features", () => {
-    renderScreen();
+  it("mirrors the current web search workbench without placeholder features", async () => {
+    await renderScreen();
 
     expect(
       screen.getByRole("header", { name: "Curio Garden" }),
@@ -51,12 +51,12 @@ describe("HomeScreen", () => {
     expect(screen.queryByText(/foundation ready/i)).not.toBeOnTheScreen();
   });
 
-  it("navigates an explicit search using the canonical search route", () => {
-    renderScreen();
+  it("navigates an explicit search using the canonical search route", async () => {
+    await renderScreen();
     const input = screen.getByLabelText("Search topic");
 
-    fireEvent.changeText(input, "  Bossa   nova ");
-    fireEvent.press(screen.getByRole("button", { name: "Search" }));
+    await fireEvent.changeText(input, "  Bossa   nova ");
+    await fireEvent.press(screen.getByRole("button", { name: "Search" }));
 
     expect(mockPush).toHaveBeenCalledWith({
       pathname: "/search",
@@ -64,19 +64,19 @@ describe("HomeScreen", () => {
     });
   });
 
-  it("opens account access without displacing the public search task", () => {
-    renderScreen();
+  it("opens account access without displacing the public search task", async () => {
+    await renderScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Account" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Account" }));
 
     expect(mockPush).toHaveBeenCalledWith("/account");
     expect(screen.getByLabelText("Search topic")).toBeOnTheScreen();
   });
 
-  it("opens the account Library without displacing the public search task", () => {
-    renderScreen();
+  it("opens the account Library without displacing the public search task", async () => {
+    await renderScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Library" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Library" }));
 
     expect(mockPush).toHaveBeenCalledWith("/library");
     expect(screen.getByLabelText("Search topic")).toBeOnTheScreen();

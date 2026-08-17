@@ -103,8 +103,8 @@ describe("HostedAuthProvider", () => {
     }
   });
 
-  it("fails clearly when the hook escapes its provider", () => {
-    expect(() => renderHook(() => useHostedAuthFlow())).toThrow(
+  it("fails clearly when the hook escapes its provider", async () => {
+    await expect(renderHook(() => useHostedAuthFlow())).rejects.toThrow(
       "useHostedAuthFlow() must be used within HostedAuthProvider",
     );
   });
@@ -113,13 +113,13 @@ describe("HostedAuthProvider", () => {
     usePlatform("android");
     const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
     mockStartHostedAuth.mockReturnValue(new Promise(() => undefined));
-    render(
+    await render(
       <HostedAuthProvider>
         <Launcher restoreFocus={jest.fn()} />
       </HostedAuthProvider>,
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
 
     await flushStateCommits();
 
@@ -159,12 +159,12 @@ describe("HostedAuthProvider", () => {
           .props.children as string;
       });
       mockStartHostedAuth.mockReturnValue(request.promise);
-      render(
+      await render(
         <HostedAuthProvider>
           <Launcher restoreFocus={restoreFocus} />
         </HostedAuthProvider>,
       );
-      fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+      await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
 
       await flushStateCommits();
 
@@ -181,7 +181,7 @@ describe("HostedAuthProvider", () => {
         "isolated",
       );
 
-      act(() => jest.advanceTimersByTime(delay - 1));
+      await act(() => jest.advanceTimersByTime(delay - 1));
       expect(restoreFocus).not.toHaveBeenCalled();
 
       await act(async () => {
@@ -210,13 +210,13 @@ describe("HostedAuthProvider", () => {
       },
       createdSessionId: "sess_private",
     });
-    render(
+    await render(
       <HostedAuthProvider>
         <Launcher restoreFocus={restoreFocus} />
       </HostedAuthProvider>,
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     await flushStateCommits();
     await act(async () => {
       jest.runOnlyPendingTimers();
@@ -234,13 +234,13 @@ describe("HostedAuthProvider", () => {
     mockStartHostedAuth.mockRejectedValue(
       new Error("token=private callback=https://evil.example"),
     );
-    render(
+    await render(
       <HostedAuthProvider>
         <Launcher restoreFocus={restoreFocus} />
       </HostedAuthProvider>,
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     await flushStateCommits();
 
     expect(screen.getByTestId("hosted-auth-error")).toHaveTextContent(
@@ -270,13 +270,13 @@ describe("HostedAuthProvider", () => {
       authSessionResult: null,
       createdSessionId: null,
     });
-    render(
+    await render(
       <HostedAuthProvider>
         <Launcher restoreFocus={restoreFocus} />
       </HostedAuthProvider>,
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     await flushStateCommits();
     await act(async () => {
       jest.runOnlyPendingTimers();
@@ -296,13 +296,13 @@ describe("HostedAuthProvider", () => {
       authSessionResult: { type: "locked" },
       createdSessionId: null,
     });
-    render(
+    await render(
       <HostedAuthProvider>
         <Launcher restoreFocus={restoreFocus} />
       </HostedAuthProvider>,
     );
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     await flushStateCommits();
     await act(async () => {
       jest.runOnlyPendingTimers();
@@ -322,7 +322,7 @@ describe("HostedAuthProvider", () => {
       createdSessionId: null;
     }>();
     mockStartHostedAuth.mockReturnValue(request.promise);
-    const { result } = renderHook(() => useHostedAuthFlow(), {
+    const { result } = await renderHook(() => useHostedAuthFlow(), {
       wrapper: Wrapper,
     });
     const firstRestore = jest.fn();
@@ -330,7 +330,7 @@ describe("HostedAuthProvider", () => {
     let first!: Promise<HostedAuthOutcome>;
     let second!: Promise<HostedAuthOutcome>;
 
-    act(() => {
+    await act(() => {
       first = result.current.openAuth({ restoreFocus: firstRestore });
       second = result.current.openAuth({ restoreFocus: secondRestore });
     });
@@ -364,14 +364,14 @@ describe("HostedAuthProvider", () => {
     }>();
     const restoreFocus = jest.fn();
     mockStartHostedAuth.mockReturnValue(request.promise);
-    const view = render(
+    const view = await render(
       <HostedAuthProvider>
         <Launcher restoreFocus={restoreFocus} />
       </HostedAuthProvider>,
     );
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
 
-    view.unmount();
+    await view.unmount();
     await act(async () => {
       request.resolve({
         authSessionResult: { type: "cancel" },

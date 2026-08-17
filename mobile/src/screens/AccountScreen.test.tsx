@@ -63,7 +63,7 @@ function readyState(
   };
 }
 
-function renderAccount({
+async function renderAccount({
   focusAuthOpener,
   focusHeading,
   isRouteActive = true,
@@ -76,7 +76,7 @@ function renderAccount({
   isProductionEnvironment?: boolean;
   onBack?: () => void;
 } = {}) {
-  return render(
+  return await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -152,38 +152,41 @@ describe("AccountScreen", () => {
       "We couldn't connect your account. Please try again.",
     ],
     [readyState(), "Welcome back", "Your account is connected."],
-  ])("renders a persistent, text-distinct %s state", (state, title, status) => {
-    authState = state;
+  ])(
+    "renders a persistent, text-distinct %s state",
+    async (state, title, status) => {
+      authState = state;
 
-    renderAccount();
+      await renderAccount();
 
-    expect(
-      screen.getByRole("header", { name: "Account & data" }),
-    ).toBeOnTheScreen();
-    expect(screen.getByText(title)).toBeOnTheScreen();
-    expect(screen.getByTestId("account-status")).toHaveTextContent(status);
-    expect(screen.getAllByTestId("account-status")).toHaveLength(1);
-    expect(
-      screen.getByText(
-        "The app will not open web account controls until it can verify that the browser and this device use the same account.",
-      ),
-    ).toBeOnTheScreen();
+      expect(
+        screen.getByRole("header", { name: "Account & data" }),
+      ).toBeOnTheScreen();
+      expect(screen.getByText(title)).toBeOnTheScreen();
+      expect(screen.getByTestId("account-status")).toHaveTextContent(status);
+      expect(screen.getAllByTestId("account-status")).toHaveLength(1);
+      expect(
+        screen.getByText(
+          "The app will not open web account controls until it can verify that the browser and this device use the same account.",
+        ),
+      ).toBeOnTheScreen();
 
-    if (state.status === "bridgeError") {
-      expect(screen.getByTestId("account-status")).toHaveProp(
-        "accessibilityRole",
-        "alert",
+      if (state.status === "bridgeError") {
+        expect(screen.getByTestId("account-status")).toHaveProp(
+          "accessibilityRole",
+          "alert",
+        );
+      }
+
+      expect(JSON.stringify(screen.toJSON())).not.toMatch(
+        /Library|Personal Playlist|listening progress/u,
       );
-    }
+    },
+  );
 
-    expect(JSON.stringify(screen.toJSON())).not.toMatch(
-      /Library|Personal Playlist|listening progress/u,
-    );
-  });
-
-  it("opens sign-in-or-up with an opener-specific focus callback", () => {
+  it("opens sign-in-or-up with an opener-specific focus callback", async () => {
     const focusAuthOpener = jest.fn();
-    renderAccount({ focusAuthOpener });
+    await renderAccount({ focusAuthOpener });
     const signIn = screen.getByRole("button", { name: "Sign in" });
 
     expect(StyleSheet.flatten(signIn.props.style)).toMatchObject({
@@ -195,18 +198,18 @@ describe("AccountScreen", () => {
       "Opens secure browser sign-in or account creation.",
     );
 
-    fireEvent.press(signIn);
+    await fireEvent.press(signIn);
 
     expect(mockOpenAuth).toHaveBeenCalledTimes(1);
     const restoreFocus = mockOpenAuth.mock.calls[0]?.[0]?.restoreFocus;
     expect(restoreFocus).toEqual(expect.any(Function));
 
-    act(() => restoreFocus("cancelled"));
+    await act(() => restoreFocus("cancelled"));
     expect(focusAuthOpener).toHaveBeenCalledTimes(1);
     expect(focusAuthOpener).toHaveBeenCalledWith(expect.anything());
   });
 
-  it("uses the renderer-aware focus event when hosted auth returns", () => {
+  it("uses the renderer-aware focus event when hosted auth returns", async () => {
     jest
       .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
       .mockResolvedValue(false);
@@ -214,12 +217,12 @@ describe("AccountScreen", () => {
       AccessibilityInfo,
       "sendAccessibilityEvent",
     );
-    renderAccount();
+    await renderAccount();
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     const restoreFocus = mockOpenAuth.mock.calls[0]?.[0]?.restoreFocus;
 
-    act(() => restoreFocus("cancelled"));
+    await act(() => restoreFocus("cancelled"));
 
     expect(sendAccessibilityEvent).toHaveBeenCalledTimes(1);
     expect(sendAccessibilityEvent).toHaveBeenCalledWith(
@@ -228,18 +231,18 @@ describe("AccountScreen", () => {
     );
   });
 
-  it("returns focus to the Account heading when successful auth removes the opener", () => {
+  it("returns focus to the Account heading when successful auth removes the opener", async () => {
     const focusAuthOpener = jest.fn();
     const focusHeading = jest.fn();
     jest
       .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
       .mockResolvedValue(false);
-    const view = renderAccount({ focusAuthOpener, focusHeading });
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    const view = await renderAccount({ focusAuthOpener, focusHeading });
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     const restoreFocus = mockOpenAuth.mock.calls[0]?.[0]?.restoreFocus;
 
     authState = readyState();
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -260,28 +263,28 @@ describe("AccountScreen", () => {
       screen.getByRole("header", { name: "Account & data" }),
     ).toBeOnTheScreen();
 
-    act(() => restoreFocus("completed"));
+    await act(() => restoreFocus("completed"));
 
     expect(focusAuthOpener).not.toHaveBeenCalled();
     expect(focusHeading).toHaveBeenCalledTimes(1);
   });
 
-  it("shows only normalized name and email", () => {
+  it("shows only normalized name and email", async () => {
     authState = readyState({
       email: "  ada@example.com\n ",
       name: "  Ada\tLovelace  ",
     });
 
-    renderAccount();
+    await renderAccount();
 
     expect(screen.getByLabelText("Name, Ada Lovelace")).toBeOnTheScreen();
     expect(screen.getByLabelText("Email, ada@example.com")).toBeOnTheScreen();
   });
 
-  it("uses honest profile fallbacks without deriving identity from an ID", () => {
+  it("uses honest profile fallbacks without deriving identity from an ID", async () => {
     authState = readyState({ email: null, name: "   " });
 
-    renderAccount();
+    await renderAccount();
 
     expect(screen.getByLabelText("Name, Not provided")).toBeOnTheScreen();
     expect(screen.getByLabelText("Email, Not provided")).toBeOnTheScreen();
@@ -291,9 +294,9 @@ describe("AccountScreen", () => {
     authState = readyState();
     const request = deferred<TestSignOutResult>();
     mockSignOut.mockReturnValue(request.promise);
-    renderAccount();
+    await renderAccount();
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     const busyButton = screen.getByRole("button", {
       disabled: true,
@@ -306,7 +309,7 @@ describe("AccountScreen", () => {
     expect(screen.getByTestId("account-status")).toHaveTextContent(
       "Signing out.",
     );
-    fireEvent.press(busyButton);
+    await fireEvent.press(busyButton);
     expect(mockSignOut).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -320,9 +323,9 @@ describe("AccountScreen", () => {
     mockAuthErrorMessage = "We couldn't open secure sign-in. Please try again.";
     const request = deferred<TestSignOutResult>();
     mockSignOut.mockReturnValue(request.promise);
-    renderAccount();
+    await renderAccount();
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     const status = screen.getByTestId("account-status");
     expect(status).toHaveTextContent("Signing out.");
@@ -342,12 +345,12 @@ describe("AccountScreen", () => {
     authState = readyState();
     const request = deferred<TestSignOutResult>();
     mockSignOut.mockReturnValue(request.promise);
-    const view = renderAccount();
+    const view = await renderAccount();
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     authState = { profile: null, status: "signedOut" };
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -386,12 +389,12 @@ describe("AccountScreen", () => {
     const request = deferred<TestSignOutResult>();
     const focusAuthOpener = jest.fn();
     mockSignOut.mockReturnValue(request.promise);
-    const view = renderAccount({ focusAuthOpener });
+    const view = await renderAccount({ focusAuthOpener });
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     authState = { profile: null, status: "signedOut" };
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -420,11 +423,11 @@ describe("AccountScreen", () => {
     const request = deferred<TestSignOutResult>();
     const focusAuthOpener = jest.fn();
     mockSignOut.mockReturnValue(request.promise);
-    const view = renderAccount({ focusAuthOpener });
+    const view = await renderAccount({ focusAuthOpener });
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
     authState = { profile: null, status: "signedOut" };
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -444,7 +447,7 @@ describe("AccountScreen", () => {
     });
     expect(focusAuthOpener).not.toHaveBeenCalled();
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -460,14 +463,14 @@ describe("AccountScreen", () => {
     expect(focusAuthOpener).toHaveBeenCalledTimes(1);
   });
 
-  it("defers hosted-auth focus recovery while Account is hidden", () => {
+  it("defers hosted-auth focus recovery while Account is hidden", async () => {
     const focusAuthOpener = jest.fn();
     const focusHeading = jest.fn();
-    const view = renderAccount({ focusAuthOpener, focusHeading });
-    fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
+    const view = await renderAccount({ focusAuthOpener, focusHeading });
+    await fireEvent.press(screen.getByRole("button", { name: "Sign in" }));
     const restoreFocus = mockOpenAuth.mock.calls[0]?.[0]?.restoreFocus;
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -481,11 +484,11 @@ describe("AccountScreen", () => {
         />
       </GardenThemeProvider>,
     );
-    act(() => restoreFocus("cancelled"));
+    await act(() => restoreFocus("cancelled"));
     expect(focusAuthOpener).not.toHaveBeenCalled();
     expect(focusHeading).not.toHaveBeenCalled();
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -509,9 +512,9 @@ describe("AccountScreen", () => {
       message: "token=user_secret_123 issuer=https://private.example",
       ok: false,
     });
-    renderAccount();
+    await renderAccount();
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     expect(
       await screen.findByRole("alert", {
@@ -522,7 +525,7 @@ describe("AccountScreen", () => {
     expect(screen.queryByText(/private\.example/)).not.toBeOnTheScreen();
 
     await act(async () => {
-      fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+      await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
       await Promise.resolve();
     });
     expect(mockSignOut).toHaveBeenCalledTimes(2);
@@ -536,12 +539,12 @@ describe("AccountScreen", () => {
     };
     const request = deferred<TestSignOutResult>();
     mockSignOut.mockReturnValue(request.promise);
-    const view = renderAccount();
+    const view = await renderAccount();
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     authState = readyState();
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -563,10 +566,10 @@ describe("AccountScreen", () => {
     expect(screen.queryByText(/private bridge detail/u)).not.toBeOnTheScreen();
   });
 
-  it("keeps sign out available while the private account bridge is connecting", () => {
+  it("keeps sign out available while the private account bridge is connecting", async () => {
     authState = { profile: null, status: "connecting" };
 
-    renderAccount();
+    await renderAccount();
 
     expect(screen.getByRole("button", { name: "Sign out" })).toBeOnTheScreen();
   });
@@ -580,16 +583,16 @@ describe("AccountScreen", () => {
     const request = deferred<TestSignOutResult>();
     const focusAuthOpener = jest.fn();
     mockSignOut.mockReturnValue(request.promise);
-    const view = renderAccount({ focusAuthOpener });
+    const view = await renderAccount({ focusAuthOpener });
 
-    fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Sign out" }));
 
     mockAuthSessionEpoch = Symbol("session-b");
     authState = readyState({
       email: "sam@example.com",
       name: "Samwise Gamgee",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -620,15 +623,15 @@ describe("AccountScreen", () => {
     expect(focusAuthOpener).not.toHaveBeenCalled();
   });
 
-  it("suppresses background and routine return announcements without stealing restored focus", () => {
+  it("suppresses background and routine return announcements without stealing restored focus", async () => {
     const announce = jest
       .spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions")
       .mockImplementation(() => undefined);
     mockAuthAccessibilityActive = true;
-    const view = renderAccount();
+    const view = await renderAccount();
 
     authState = { profile: null, status: "connecting" };
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -644,7 +647,7 @@ describe("AccountScreen", () => {
     expect(announce).not.toHaveBeenCalled();
 
     mockAuthAccessibilityActive = false;
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -658,7 +661,7 @@ describe("AccountScreen", () => {
 
     mockAuthAccessibilityActive = true;
     mockAuthErrorMessage = "We couldn't open secure sign-in. Please try again.";
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -667,7 +670,7 @@ describe("AccountScreen", () => {
       </GardenThemeProvider>,
     );
     mockAuthAccessibilityActive = false;
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -682,10 +685,10 @@ describe("AccountScreen", () => {
     );
   });
 
-  it("keeps the hosted-auth opener focusable while busy and delegates repeat activation", () => {
+  it("keeps the hosted-auth opener focusable while busy and delegates repeat activation", async () => {
     mockAuthBusy = true;
 
-    renderAccount();
+    await renderAccount();
 
     const busyButton = screen.getByRole("button", {
       disabled: false,
@@ -698,15 +701,15 @@ describe("AccountScreen", () => {
     expect(screen.getByTestId("account-status")).toHaveTextContent(
       "Opening secure sign-in.",
     );
-    fireEvent.press(busyButton);
+    await fireEvent.press(busyButton);
     expect(mockOpenAuth).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a stale hosted-auth error from turning browser progress into an alert", () => {
+  it("keeps a stale hosted-auth error from turning browser progress into an alert", async () => {
     mockAuthBusy = true;
     mockAuthErrorMessage = "We couldn't open secure sign-in. Please try again.";
 
-    renderAccount();
+    await renderAccount();
 
     const status = screen.getByTestId("account-status");
     expect(status).toHaveTextContent("Opening secure sign-in.");
@@ -717,10 +720,10 @@ describe("AccountScreen", () => {
     });
   });
 
-  it("shows only a sanitized hosted-auth error after the browser returns", () => {
+  it("shows only a sanitized hosted-auth error after the browser returns", async () => {
     mockAuthErrorMessage = "We couldn't open secure sign-in. Please try again.";
 
-    renderAccount();
+    await renderAccount();
 
     expect(
       screen.getByRole("alert", {
@@ -729,8 +732,8 @@ describe("AccountScreen", () => {
     ).toBeOnTheScreen();
   });
 
-  it("does not hand production identities to an unverified browser session", () => {
-    renderAccount();
+  it("does not hand production identities to an unverified browser session", async () => {
+    await renderAccount();
 
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     expect(
@@ -743,8 +746,8 @@ describe("AccountScreen", () => {
     ).toBeOnTheScreen();
   });
 
-  it("does not send non-production test identities to web account management", () => {
-    renderAccount({ isProductionEnvironment: false });
+  it("does not send non-production test identities to web account management", async () => {
+    await renderAccount({ isProductionEnvironment: false });
 
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     expect(
@@ -768,12 +771,12 @@ describe("AccountScreen", () => {
       .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
       .mockResolvedValue(true);
     const focusHeading = jest.fn();
-    const view = renderAccount({ focusHeading });
+    const view = await renderAccount({ focusHeading });
 
     await waitFor(() => expect(focusHeading).toHaveBeenCalledTimes(1));
 
     authState = readyState();
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -790,11 +793,13 @@ describe("AccountScreen", () => {
     expect(focusHeading).toHaveBeenCalledTimes(1);
   });
 
-  it("returns through the route-owned safe back action and keeps task text unclamped", () => {
+  it("returns through the route-owned safe back action and keeps task text unclamped", async () => {
     const onBack = jest.fn();
-    renderAccount({ onBack });
+    await renderAccount({ onBack });
 
-    fireEvent.press(screen.getByRole("button", { name: "Back to garden" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Back to garden" }),
+    );
     expect(onBack).toHaveBeenCalledTimes(1);
 
     expect(
