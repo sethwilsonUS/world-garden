@@ -178,14 +178,14 @@ beforeEach(() => {
 });
 
 describe("NativeAuthProvider", () => {
-  it("fails clearly when the hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativeAuth())).toThrow(
+  it("fails clearly when the hook escapes its provider", async () => {
+    await expect(renderHook(() => useNativeAuth())).rejects.toThrow(
       "useNativeAuth() must be used within NativeAuthProvider",
     );
   });
 
   it("keeps Clerk session credentials inside the private transport binding", async () => {
-    const { result } = renderHook(() => useAuthAndTransport(), {
+    const { result } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const accountEpoch = result.current.auth.sessionEpoch;
@@ -214,7 +214,7 @@ describe("NativeAuthProvider", () => {
   });
 
   it("requests exactly one forced Clerk refresh when the caller asks", async () => {
-    const { result } = renderHook(() => useAuthAndTransport(), {
+    const { result } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
 
@@ -240,7 +240,7 @@ describe("NativeAuthProvider", () => {
       subject: "user-b",
     };
     clerkGetToken.mockResolvedValue(cachedToken);
-    const { result } = renderHook(() => useAuthAndTransport(), {
+    const { result } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
 
@@ -255,7 +255,7 @@ describe("NativeAuthProvider", () => {
   it("supersedes a binding when Clerk replaces the exact session resource", async () => {
     const firstSession = sessionForAuth(clerkAuth);
     clerkSessionOverride = firstSession;
-    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+    const { result, rerender } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const firstBinding = result.current.transport;
@@ -269,7 +269,7 @@ describe("NativeAuthProvider", () => {
         user: { id: "user-a" },
       },
     } as unknown as ClerkSession;
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     await expect(firstBinding.resolveRequestCredentials()).resolves.toEqual({
       status: "superseded",
@@ -284,7 +284,7 @@ describe("NativeAuthProvider", () => {
       isSignedIn: false,
       user: null,
     } as ClerkUser;
-    const { result } = renderHook(() => useAuthAndTransport(), {
+    const { result } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const accountEpoch = result.current.auth.sessionEpoch;
@@ -302,14 +302,14 @@ describe("NativeAuthProvider", () => {
       isSignedIn: false,
       user: null,
     } as ClerkUser;
-    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+    const { result, rerender } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const signedOutBinding = result.current.transport;
 
     clerkAuth = signedInAuth();
     clerkUser = signedInUser();
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     await expect(signedOutBinding.resolveRequestCredentials()).resolves.toEqual(
       { status: "superseded" },
@@ -332,7 +332,7 @@ describe("NativeAuthProvider", () => {
           isRefreshing: false,
         };
       }
-      const { result } = renderHook(() => useAuthAndTransport(), {
+      const { result } = await renderHook(() => useAuthAndTransport(), {
         wrapper: AuthWrapper,
       });
 
@@ -352,7 +352,7 @@ describe("NativeAuthProvider", () => {
           resolveToken = resolve;
         }),
     );
-    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+    const { result, rerender } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const firstBinding = result.current.transport;
@@ -366,7 +366,7 @@ describe("NativeAuthProvider", () => {
       name: "Samwise Gamgee",
       subject: "user-b",
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     await act(async () => {
       resolveToken?.("token-for-user-a");
@@ -390,13 +390,13 @@ describe("NativeAuthProvider", () => {
           resolveToken = resolve;
         }),
     );
-    const { result, unmount } = renderHook(() => useAuthAndTransport(), {
+    const { result, unmount } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const binding = result.current.transport;
     const pendingCredentials = binding.resolveRequestCredentials();
 
-    act(() => unmount());
+    await unmount();
 
     expect(binding.isCurrentAccountEpoch(binding.accountEpoch)).toBe(false);
     await act(async () => {
@@ -419,7 +419,7 @@ describe("NativeAuthProvider", () => {
           resolveToken = resolve;
         }),
     );
-    const { result, rerender } = renderHook(() => useAuthAndTransport(), {
+    const { result, rerender } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
     const firstBinding = result.current.transport;
@@ -432,7 +432,7 @@ describe("NativeAuthProvider", () => {
       name: "Samwise Gamgee",
       subject: "user-b",
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.transport.accountEpoch).not.toBe(
       firstBinding.accountEpoch,
@@ -457,7 +457,7 @@ describe("NativeAuthProvider", () => {
     } else {
       clerkGetToken.mockResolvedValue(tokenOrError);
     }
-    const { result } = renderHook(() => useAuthAndTransport(), {
+    const { result } = await renderHook(() => useAuthAndTransport(), {
       wrapper: AuthWrapper,
     });
 
@@ -479,7 +479,7 @@ describe("NativeAuthProvider", () => {
         clerkGetToken.mockImplementation(
           () => new Promise<string | null>(() => undefined),
         );
-        const { result } = renderHook(() => useAuthAndTransport(), {
+        const { result } = await renderHook(() => useAuthAndTransport(), {
           wrapper: AuthWrapper,
         });
 
@@ -509,9 +509,12 @@ describe("NativeAuthProvider", () => {
       clerkGetToken.mockImplementation(
         () => new Promise<string | null>(() => undefined),
       );
-      const { result, rerender } = renderHook(() => useAuthAndTransport(), {
-        wrapper: AuthWrapper,
-      });
+      const { result, rerender } = await renderHook(
+        () => useAuthAndTransport(),
+        {
+          wrapper: AuthWrapper,
+        },
+      );
       const pendingCredentials =
         result.current.transport.resolveRequestCredentials();
 
@@ -522,7 +525,7 @@ describe("NativeAuthProvider", () => {
         name: "Samwise Gamgee",
         subject: "user-b",
       };
-      act(() => rerender(undefined));
+      await rerender(undefined);
       await act(async () => {
         await jest.advanceTimersByTimeAsync(15_000);
       });
@@ -535,26 +538,26 @@ describe("NativeAuthProvider", () => {
     }
   });
 
-  it("keeps Convex query-map identities stable across unrelated renders", () => {
-    const { rerender } = renderHook(() => useNativeAuth(), {
+  it("keeps Convex query-map identities stable across unrelated renders", async () => {
+    const { rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     const readyQueries = useQueriesMock.mock.calls.at(-1)?.[0];
 
-    act(() => rerender(undefined));
+    await rerender(undefined);
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toBe(readyQueries);
 
     clerkAuth = signedOutAuth();
-    act(() => rerender(undefined));
+    await rerender(undefined);
     const skippedQueries = useQueriesMock.mock.calls.at(-1)?.[0];
 
     expect(skippedQueries).not.toBe(readyQueries);
-    act(() => rerender(undefined));
+    await rerender(undefined);
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toBe(skippedQueries);
   });
 
-  it("keeps one opaque epoch per Clerk session despite fresh hook wrappers", () => {
-    const { result, rerender } = renderHook(() => useNativeAuth(), {
+  it("keeps one opaque epoch per Clerk session despite fresh hook wrappers", async () => {
+    const { result, rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     const firstEpoch = result.current.sessionEpoch;
@@ -563,32 +566,32 @@ describe("NativeAuthProvider", () => {
 
     clerkAuth = signedInAuth("user-a", "session-a");
     clerkUser = signedInUser("user-a");
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.sessionEpoch).toBe(firstEpoch);
 
     clerkAuth = signedInAuth("user-b", "session-b");
     clerkUser = signedInUser("user-b");
-    act(() => rerender(undefined));
+    await rerender(undefined);
     const secondEpoch = result.current.sessionEpoch;
 
     expect(secondEpoch).not.toBe(firstEpoch);
 
     clerkAuth = signedOutAuth();
     clerkUser = signedInUser("user-b");
-    act(() => rerender(undefined));
+    await rerender(undefined);
     const signedOutEpoch = result.current.sessionEpoch;
 
     expect(signedOutEpoch).not.toBe(secondEpoch);
 
     clerkAuth = signedOutAuth();
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.sessionEpoch).toBe(signedOutEpoch);
   });
 
-  it("pairs each session epoch with a stable opaque serializable key", () => {
-    const { result, rerender } = renderHook(() => useNativeAuth(), {
+  it("pairs each session epoch with a stable opaque serializable key", async () => {
+    const { result, rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     const firstEpoch = result.current.sessionEpoch;
@@ -601,14 +604,14 @@ describe("NativeAuthProvider", () => {
 
     clerkAuth = signedInAuth("user-a", "session-a");
     clerkUser = signedInUser("user-a");
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.sessionEpoch).toBe(firstEpoch);
     expect(result.current.sessionEpochKey).toBe(firstEpochKey);
 
     clerkAuth = signedInAuth("user-b", "session-b");
     clerkUser = signedInUser("user-b");
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.sessionEpoch).not.toBe(firstEpoch);
     expect(result.current.sessionEpochKey).not.toBe(firstEpochKey);
@@ -619,13 +622,13 @@ describe("NativeAuthProvider", () => {
     );
   });
 
-  it("keeps the session epoch stable when React discards memoized values", () => {
+  it("keeps the session epoch stable when React discards memoized values", async () => {
     const useMemoSpy = jest
       .spyOn(React, "useMemo")
       .mockImplementation((factory) => factory());
 
     try {
-      const { result, rerender } = renderHook(() => useNativeAuth(), {
+      const { result, rerender } = await renderHook(() => useNativeAuth(), {
         wrapper: AuthWrapper,
       });
       const firstEpoch = result.current.sessionEpoch;
@@ -633,7 +636,7 @@ describe("NativeAuthProvider", () => {
 
       clerkAuth = signedInAuth("user-a", "session-a");
       clerkUser = signedInUser("user-a");
-      act(() => rerender(undefined));
+      await rerender(undefined);
 
       expect(result.current.sessionEpoch).toBe(firstEpoch);
       expect(result.current.sessionEpochKey).toBe(firstEpochKey);
@@ -642,10 +645,10 @@ describe("NativeAuthProvider", () => {
     }
   });
 
-  it("keeps pending Clerk sessions loading and skips the private viewer query", () => {
+  it("keeps pending Clerk sessions loading and skips the private viewer query", async () => {
     clerkAuth = loadingAuth();
 
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
 
@@ -660,7 +663,7 @@ describe("NativeAuthProvider", () => {
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
   });
 
-  it("preserves a signed-out public client while hiding stale private identity", () => {
+  it("preserves a signed-out public client while hiding stale private identity", async () => {
     clerkAuth = signedOutAuth();
     clerkUser = signedInUser("user-a");
     viewer = {
@@ -670,7 +673,7 @@ describe("NativeAuthProvider", () => {
       tokenIdentifier: "https://issuer.example|user-a",
     };
 
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
 
@@ -691,10 +694,10 @@ describe("NativeAuthProvider", () => {
       "Convex refreshes a rejected token",
       { isAuthenticated: true, isLoading: false, isRefreshing: true },
     ],
-  ] as const)("stays connecting while %s", (_label, nextConvexAuth) => {
+  ] as const)("stays connecting while %s", async (_label, nextConvexAuth) => {
     convexAuth = nextConvexAuth;
 
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
 
@@ -706,10 +709,10 @@ describe("NativeAuthProvider", () => {
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
   });
 
-  it("stays connecting until the authenticated viewer query resolves", () => {
+  it("stays connecting until the authenticated viewer query resolves", async () => {
     viewer = undefined;
 
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
 
@@ -736,7 +739,7 @@ describe("NativeAuthProvider", () => {
     ],
   ] as const)(
     "fails closed with a generic bridge error when %s",
-    (_label, nextViewer, isAuthenticated) => {
+    async (_label, nextViewer, isAuthenticated) => {
       convexAuth = {
         isAuthenticated,
         isLoading: false,
@@ -744,7 +747,7 @@ describe("NativeAuthProvider", () => {
       };
       viewer = nextViewer;
 
-      const { result } = renderHook(() => useNativeAuth(), {
+      const { result } = await renderHook(() => useNativeAuth(), {
         wrapper: AuthWrapper,
       });
 
@@ -758,12 +761,12 @@ describe("NativeAuthProvider", () => {
     },
   );
 
-  it("fails closed with a generic bridge error when the viewer query fails", () => {
+  it("fails closed with a generic bridge error when the viewer query fails", async () => {
     viewer = new Error(
       "tokenIdentifier=https://issuer.example|user-a backend unavailable",
     );
 
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
 
@@ -780,7 +783,7 @@ describe("NativeAuthProvider", () => {
     );
   });
 
-  it("keeps the viewer subject internal after exact account matching", () => {
+  it("keeps the viewer subject internal after exact account matching", async () => {
     viewer = {
       email: "ada@example.com",
       issuer: "https://issuer.example",
@@ -789,7 +792,7 @@ describe("NativeAuthProvider", () => {
       tokenIdentifier: "https://issuer.example|user-a",
     };
 
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
 
@@ -806,15 +809,15 @@ describe("NativeAuthProvider", () => {
     expect(result.current).not.toHaveProperty("validatedAccountSubject");
   });
 
-  it("removes the previous profile synchronously across an account switch", () => {
-    const { result, rerender } = renderHook(() => useNativeAuth(), {
+  it("removes the previous profile synchronously across an account switch", async () => {
+    const { result, rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     expect(result.current.state.status).toBe("ready");
 
     clerkAuth = signedInAuth("user-b", "session-b");
     clerkUser = signedInUser("user-b");
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state.status).toBe("bridgeError");
     expect(result.current.state.profile).toBeNull();
@@ -827,7 +830,7 @@ describe("NativeAuthProvider", () => {
       name: "Samwise Gamgee",
       subject: "user-b",
     };
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state).toEqual({
       profile: {
@@ -839,14 +842,14 @@ describe("NativeAuthProvider", () => {
     expect(result.current.state.profile).not.toHaveProperty("subject");
   });
 
-  it("removes the previous profile synchronously when Clerk signs out", () => {
-    const { result, rerender } = renderHook(() => useNativeAuth(), {
+  it("removes the previous profile synchronously when Clerk signs out", async () => {
+    const { result, rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     expect(result.current.state.status).toBe("ready");
 
     clerkAuth = signedOutAuth();
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state).toEqual({
       profile: null,
@@ -862,13 +865,13 @@ describe("NativeAuthProvider", () => {
           resolveSignOut = resolve;
         }),
     );
-    const { result, rerender } = renderHook(() => useNativeAuth(), {
+    const { result, rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     const signedInEpoch = result.current.sessionEpoch;
     let operation: Promise<NativeSignOutResult> | undefined;
 
-    act(() => {
+    await act(() => {
       operation = result.current.signOut();
     });
 
@@ -881,7 +884,7 @@ describe("NativeAuthProvider", () => {
     expect(suppressedEpoch).not.toBe(signedInEpoch);
 
     clerkAuth = signedOutAuth();
-    act(() => rerender(undefined));
+    await rerender(undefined);
     expect(result.current.sessionEpoch).toBe(suppressedEpoch);
 
     await act(async () => {
@@ -905,16 +908,16 @@ describe("NativeAuthProvider", () => {
           resolveSignOut = resolve;
         }),
     );
-    const { result, rerender } = renderHook(() => useNativeAuth(), {
+    const { result, rerender } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     let operation: Promise<NativeSignOutResult> | undefined;
 
-    act(() => {
+    await act(() => {
       operation = result.current.signOut();
     });
     clerkAuth = signedOutAuth();
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     await act(async () => {
       resolveSignOut?.();
@@ -923,7 +926,7 @@ describe("NativeAuthProvider", () => {
 
     clerkAuth = signedInAuth("user-a", "session-a");
     clerkUser = signedInUser("user-a");
-    act(() => rerender(undefined));
+    await rerender(undefined);
 
     expect(result.current.state.status).toBe("ready");
     expect(result.current.canSignOut).toBe(true);
@@ -940,13 +943,13 @@ describe("NativeAuthProvider", () => {
           rejectSignOuts.push(reject);
         }),
     );
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     let firstOperation: Promise<NativeSignOutResult> | undefined;
     let secondOperation: Promise<NativeSignOutResult> | undefined;
 
-    act(() => {
+    await act(() => {
       firstOperation = result.current.signOut();
       secondOperation = result.current.signOut();
     });
@@ -984,7 +987,7 @@ describe("NativeAuthProvider", () => {
         "tokenIdentifier=https://issuer.example|user-a issuer=https://issuer.example",
       ),
     );
-    const { result } = renderHook(() => useNativeAuth(), {
+    const { result } = await renderHook(() => useNativeAuth(), {
       wrapper: AuthWrapper,
     });
     let signOutResult: NativeSignOutResult | undefined;

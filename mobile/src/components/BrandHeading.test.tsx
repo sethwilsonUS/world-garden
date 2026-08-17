@@ -4,8 +4,8 @@ import { StyleSheet } from "react-native";
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { BrandHeading } from "./BrandHeading";
 
-function renderHeading() {
-  return render(
+async function renderHeading() {
+  return await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -16,8 +16,8 @@ function renderHeading() {
 }
 
 describe("BrandHeading", () => {
-  it("exposes one heading named Curio Garden without duplicate word stops", () => {
-    renderHeading();
+  it("exposes one heading named Curio Garden without duplicate word stops", async () => {
+    await renderHeading();
 
     expect(
       screen.getAllByRole("header", { name: "Curio Garden" }),
@@ -32,8 +32,8 @@ describe("BrandHeading", () => {
     ).toHaveProp("accessible", false);
   });
 
-  it("wraps only between two nonshrinking word units", () => {
-    renderHeading();
+  it("wraps only between two nonshrinking word units", async () => {
+    await renderHeading();
 
     const wordsStyle = StyleSheet.flatten(
       screen.getByTestId("brand-heading-words", {

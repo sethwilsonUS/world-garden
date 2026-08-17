@@ -4,8 +4,8 @@ import { StyleSheet } from "react-native";
 import { GardenText, type GardenTextVariant } from "./GardenText";
 import { GardenThemeProvider } from "./GardenThemeProvider";
 
-function renderText(variant: GardenTextVariant, boldText = false) {
-  render(
+async function renderText(variant: GardenTextVariant, boldText = false) {
+  await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{ boldText }}
       colorSchemeOverride="light"
@@ -29,8 +29,8 @@ describe("GardenText", () => {
     ["eyebrow", "JetBrainsMono-SemiBold", undefined],
   ] as const)(
     "uses the real font file and intended scaling policy for %s",
-    (variant, fontFamily, maxFontSizeMultiplier) => {
-      const text = renderText(variant);
+    async (variant, fontFamily, maxFontSizeMultiplier) => {
+      const text = await renderText(variant);
       const style = StyleSheet.flatten(text.props.style);
 
       expect(style.fontFamily).toBe(fontFamily);
@@ -45,8 +45,8 @@ describe("GardenText", () => {
     },
   );
 
-  it("uses semantic theme colors without weakening caller semantics", () => {
-    render(
+  it("uses semantic theme colors without weakening caller semantics", async () => {
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="dark"
@@ -74,13 +74,13 @@ describe("GardenText", () => {
     ["body", "DMSans-SemiBold"],
     ["metadata", "JetBrainsMono-SemiBold"],
     ["eyebrow", "JetBrainsMono-SemiBold"],
-  ] as const)("honors Bold Text for %s", (variant, fontFamily) => {
-    const text = renderText(variant, true);
+  ] as const)("honors Bold Text for %s", async (variant, fontFamily) => {
+    const text = await renderText(variant, true);
 
     expect(StyleSheet.flatten(text.props.style).fontFamily).toBe(fontFamily);
   });
 
-  it("promotes an explicitly semibold body style only when Bold Text is on", () => {
+  it("promotes an explicitly semibold body style only when Bold Text is on", async () => {
     const content = (boldText: boolean) => (
       <GardenThemeProvider
         accessibilityPreferencesOverride={{ boldText }}
@@ -91,14 +91,14 @@ describe("GardenText", () => {
         </GardenText>
       </GardenThemeProvider>
     );
-    const { rerender } = render(content(false));
+    const { rerender } = await render(content(false));
 
     expect(
       StyleSheet.flatten(screen.getByText("Button label").props.style)
         .fontFamily,
     ).toBe("DMSans-SemiBold");
 
-    rerender(content(true));
+    await rerender(content(true));
 
     expect(
       StyleSheet.flatten(screen.getByText("Button label").props.style)

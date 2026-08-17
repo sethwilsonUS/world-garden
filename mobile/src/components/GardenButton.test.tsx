@@ -12,10 +12,10 @@ const buttonProps = {
   onPress: jest.fn(),
 };
 
-function renderButton(
+async function renderButton(
   props: Partial<ComponentProps<typeof GardenButton>> = {},
 ) {
-  return render(
+  return await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -30,8 +30,8 @@ describe("GardenButton", () => {
     buttonProps.onPress.mockClear();
   });
 
-  it("uses its visible label as the accessible button name", () => {
-    renderButton();
+  it("uses its visible label as the accessible button name", async () => {
+    await renderButton();
 
     const button = screen.getByRole("button", { name: "Explore a topic" });
 
@@ -46,8 +46,8 @@ describe("GardenButton", () => {
     );
   });
 
-  it("supports a contextual accessible name without lengthening visible task copy", () => {
-    renderButton({
+  it("supports a contextual accessible name without lengthening visible task copy", async () => {
+    await renderButton({
       accessibilityLabel: "Listen to Origins in Pumpkin",
       disabled: true,
       label: "Listen",
@@ -61,22 +61,22 @@ describe("GardenButton", () => {
     expect(screen.getByText("Listen — unavailable")).toBeOnTheScreen();
   });
 
-  it("activates only from the release-semantic press event", () => {
-    renderButton();
+  it("activates only from the release-semantic press event", async () => {
+    await renderButton();
     const button = screen.getByRole("button", { name: "Explore a topic" });
 
-    fireEvent(button, "pressIn");
-    fireEvent(button, "pressOut");
+    await fireEvent(button, "pressIn");
+    await fireEvent(button, "pressOut");
     expect(buttonProps.onPress).not.toHaveBeenCalled();
 
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(buttonProps.onPress).toHaveBeenCalledTimes(1);
   });
 
   it.each([false, true])(
     "exposes disclosure state without changing its visible name (%s)",
-    (expanded) => {
-      renderButton({ expanded });
+    async (expanded) => {
+      await renderButton({ expanded });
 
       const button = screen.getByRole("button", { name: "Explore a topic" });
       expect(button).toHaveProp("accessibilityState", {
@@ -91,8 +91,8 @@ describe("GardenButton", () => {
   it.each([
     { busy: false, disabled: true },
     { busy: true, disabled: false },
-  ])("does not activate while unavailable (%o)", ({ busy, disabled }) => {
-    renderButton({ busy, disabled });
+  ])("does not activate while unavailable (%o)", async ({ busy, disabled }) => {
+    await renderButton({ busy, disabled });
     const visibleLabel = busy
       ? "Explore a topic — in progress"
       : "Explore a topic — unavailable";
@@ -109,31 +109,31 @@ describe("GardenButton", () => {
     expect(button.props.accessibilityValue?.text).toBeUndefined();
     expect(screen.getByText(visibleLabel)).toBeOnTheScreen();
 
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(buttonProps.onPress).not.toHaveBeenCalled();
   });
 
-  it("can retain focus when it becomes unavailable without activating", () => {
-    renderButton({ disabled: true, retainFocusWhenUnavailable: true });
+  it("can retain focus when it becomes unavailable without activating", async () => {
+    await renderButton({ disabled: true, retainFocusWhenUnavailable: true });
     const button = screen.getByRole("button", {
       disabled: true,
       name: "Explore a topic — unavailable",
     });
 
     expect(button).toHaveProp("focusable", true);
-    fireEvent(button, "focus");
+    await fireEvent(button, "focus");
     expect(StyleSheet.flatten(button.props.style)).toMatchObject({
       outlineOffset: 2,
       outlineStyle: "solid",
       outlineWidth: 3,
     });
 
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(buttonProps.onPress).not.toHaveBeenCalled();
   });
 
-  it("keeps a real 48-by-48 target and adds non-color press feedback", () => {
-    renderButton({ testOnly_pressed: true });
+  it("keeps a real 48-by-48 target and adds non-color press feedback", async () => {
+    await renderButton({ testOnly_pressed: true });
 
     const button = screen.getByRole("button", { name: "Explore a topic" });
     const buttonStyle = StyleSheet.flatten(button.props.style);
@@ -150,11 +150,11 @@ describe("GardenButton", () => {
     expect(labelStyle).toMatchObject({ textDecorationLine: "underline" });
   });
 
-  it("adds a shape-based focus outline", () => {
-    renderButton({ style: { outlineWidth: 0 } });
+  it("adds a shape-based focus outline", async () => {
+    await renderButton({ style: { outlineWidth: 0 } });
     const button = screen.getByRole("button", { name: "Explore a topic" });
 
-    fireEvent(button, "focus");
+    await fireEvent(button, "focus");
 
     expect(StyleSheet.flatten(button.props.style)).toMatchObject({
       outlineOffset: 2,
@@ -166,8 +166,8 @@ describe("GardenButton", () => {
     ).toMatchObject({ textDecorationLine: "underline" });
   });
 
-  it("allows base appearance overrides without weakening the target floor", () => {
-    renderButton({
+  it("allows base appearance overrides without weakening the target floor", async () => {
+    await renderButton({
       style: {
         backgroundColor: "#123456",
         borderRadius: 24,

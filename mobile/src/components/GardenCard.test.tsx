@@ -5,8 +5,8 @@ import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { GardenCard } from "./GardenCard";
 
 describe("GardenCard", () => {
-  it("keeps static card content as separate accessibility stops", () => {
-    render(
+  it("keeps static card content as separate accessibility stops", async () => {
+    await render(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"

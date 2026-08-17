@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react-native";
 import { AccessibilityInfo } from "react-native";
+import type { TestInstance } from "test-renderer";
 import type { WikipediaArticle } from "@curio-garden/domain";
 import type {
   NativeLibraryMutationResult,
@@ -34,6 +35,20 @@ const mockArticleAudioPlayer = jest.fn<null, [NativeArticleAudioPlayerProps]>(
 );
 let mockLibraryValue: NativeLibraryValue;
 const defaultAccountEpoch = Symbol("account-a");
+
+function startPendingPress(element: TestInstance): Promise<void> {
+  let target: TestInstance | null = element;
+
+  while (target && typeof target.props.onClick !== "function") {
+    target = target.parent;
+  }
+
+  if (!target) {
+    throw new Error("Could not find the native press handler");
+  }
+
+  return target.props.onClick();
+}
 
 jest.mock("../data/WikipediaReaderContext", () => ({
   useWikipediaReader: () => ({ fetchArticle: mockFetchArticle }),
@@ -96,7 +111,7 @@ function article(
   };
 }
 
-function renderArticle(
+async function renderArticle(
   slug: string,
   overrides: Partial<React.ComponentProps<typeof ArticleScreen>> = {},
 ) {
@@ -107,7 +122,7 @@ function renderArticle(
     ...overrides,
   };
 
-  const view = render(
+  const view = await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -135,7 +150,7 @@ describe("ArticleScreen", () => {
   it("fetches the exact decoded slug and keeps one status node through ready", async () => {
     const request = deferred<WikipediaArticle>();
     mockFetchArticle.mockReturnValue(request.promise);
-    renderArticle("AC/DC");
+    await renderArticle("AC/DC");
 
     await waitFor(() => {
       expect(mockFetchArticle).toHaveBeenCalledWith({ slug: "AC/DC" });
@@ -159,7 +174,7 @@ describe("ArticleScreen", () => {
   it("gives ready article audio the exact route and immutable article identity", async () => {
     const request = deferred<WikipediaArticle>();
     mockFetchArticle.mockReturnValue(request.promise);
-    renderArticle("AC/DC");
+    await renderArticle("AC/DC");
 
     await waitFor(() => expect(mockFetchArticle).toHaveBeenCalledTimes(1));
     expect(mockArticleAudioPlayer).not.toHaveBeenCalled();
@@ -193,7 +208,7 @@ describe("ArticleScreen", () => {
         revisionId: "456789",
       }),
     );
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
 
     await screen.findByText("Moria summary");
     expect(mockArticleAudioPlayer.mock.calls.at(-1)?.[0]).toEqual({
@@ -206,7 +221,7 @@ describe("ArticleScreen", () => {
       summaryDisclosure: null,
     });
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -239,7 +254,7 @@ describe("ArticleScreen", () => {
         ],
       }),
     );
-    renderArticle("The_Shire");
+    await renderArticle("The_Shire");
 
     expect(
       await screen.findByText("Article loaded. 1 section available."),
@@ -252,7 +267,7 @@ describe("ArticleScreen", () => {
     mockFetchArticle.mockRejectedValueOnce(
       new Error("Convex token=secret internal stack"),
     );
-    renderArticle("the_silmaril");
+    await renderArticle("the_silmaril");
 
     expect(
       await screen.findByRole("alert", {
@@ -265,7 +280,7 @@ describe("ArticleScreen", () => {
     expect(heading).toHaveAccessibleName("the silmaril");
 
     mockFetchArticle.mockReturnValueOnce(retry.promise);
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     await screen.findByText("Loading the silmaril.");
     expect(screen.getByTestId("article-screen-heading")).toBe(heading);
     expect(screen.getByTestId("article-status")).toBe(status);
@@ -288,7 +303,7 @@ describe("ArticleScreen", () => {
     mockFetchArticle
       .mockReturnValueOnce(stalled.promise)
       .mockResolvedValueOnce(article("The Silmaril"));
-    renderArticle("the_silmaril");
+    await renderArticle("the_silmaril");
 
     await act(async () => {
       await Promise.resolve();
@@ -306,7 +321,7 @@ describe("ArticleScreen", () => {
       }),
     ).toBeOnTheScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -324,12 +339,12 @@ describe("ArticleScreen", () => {
         ? stalled.promise
         : Promise.resolve(article("The Shire")),
     );
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
 
     await act(async () => {
       await Promise.resolve();
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -362,10 +377,10 @@ describe("ArticleScreen", () => {
     mockFetchArticle.mockImplementation(({ slug }) =>
       slug === "Moria" ? first.promise : second.promise,
     );
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
 
     await waitFor(() => expect(mockFetchArticle).toHaveBeenCalledTimes(1));
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -398,10 +413,10 @@ describe("ArticleScreen", () => {
     const consoleError = jest
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const view = renderArticle("Entwives");
+    const view = await renderArticle("Entwives");
 
     await waitFor(() => expect(mockFetchArticle).toHaveBeenCalledTimes(1));
-    view.unmount();
+    await view.unmount();
     await act(async () => {
       request.resolve(article("Entwives"));
       await request.promise;
@@ -417,17 +432,17 @@ describe("ArticleScreen", () => {
     const focusHeading = jest.fn();
     const openUrl = jest.fn().mockRejectedValue(new Error("browser secret"));
     mockFetchArticle.mockRejectedValueOnce(new Error("offline"));
-    renderArticle("Moria", { focusHeading, openUrl });
+    await renderArticle("Moria", { focusHeading, openUrl });
 
     await screen.findByRole("alert", { name: /Could not load/i });
     await waitFor(() => expect(focusHeading).toHaveBeenCalledTimes(1));
 
     mockFetchArticle.mockResolvedValueOnce(article("Moria"));
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     await screen.findByText("Moria summary");
     expect(focusHeading).toHaveBeenCalledTimes(1);
 
-    fireEvent.press(
+    await fireEvent.press(
       screen.getByRole("link", {
         name: "Open richer article features on Curio Garden web",
       }),
@@ -447,17 +462,17 @@ describe("ArticleScreen", () => {
       .mockRejectedValueOnce(new Error("browser failed"))
       .mockResolvedValueOnce(undefined);
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria", { openUrl });
+    await renderArticle("Moria", { openUrl });
     const link = await screen.findByRole("link", {
       name: "Open richer article features on Curio Garden web",
     });
 
-    fireEvent.press(link);
+    await fireEvent.press(link);
     expect(
       await screen.findByText("Could not open this link. Please try again."),
     ).toBeOnTheScreen();
 
-    fireEvent.press(link);
+    await fireEvent.press(link);
     await waitFor(() => {
       expect(
         screen.queryByText("Could not open this link. Please try again."),
@@ -475,9 +490,9 @@ describe("ArticleScreen", () => {
       .fn()
       .mockRejectedValue(new Error("private browser failure"));
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria", { openUrl });
+    await renderArticle("Moria", { openUrl });
 
-    fireEvent.press(
+    await fireEvent.press(
       await screen.findByRole("link", {
         name: "Open richer article features on Curio Garden web",
       }),
@@ -504,9 +519,9 @@ describe("ArticleScreen", () => {
       .fn()
       .mockRejectedValue(new Error("private browser failure"));
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria", { openUrl });
+    const view = await renderArticle("Moria", { openUrl });
 
-    fireEvent.press(
+    await fireEvent.press(
       await screen.findByRole("link", {
         name: "Open richer article features on Curio Garden web",
       }),
@@ -517,11 +532,13 @@ describe("ArticleScreen", () => {
       }),
     ).toBeOnTheScreen();
 
-    fireEvent.press(screen.getByRole("button", { name: "Try Library again" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Try Library again" }),
+    );
     expect(mockLibraryRetry).toHaveBeenCalledTimes(1);
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -534,7 +551,7 @@ describe("ArticleScreen", () => {
     );
 
     setLibrary(libraryError);
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -558,14 +575,16 @@ describe("ArticleScreen", () => {
         : Promise.resolve(),
     );
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria", { openUrl });
+    await renderArticle("Moria", { openUrl });
 
-    fireEvent.press(
-      await screen.findByRole("link", {
-        name: "Open richer article features on Curio Garden web",
-      }),
-    );
-    fireEvent.press(
+    const richerArticleLink = await screen.findByRole("link", {
+      name: "Open richer article features on Curio Garden web",
+    });
+    let olderPress: Promise<void> | undefined;
+    await act(() => {
+      olderPress = startPendingPress(richerArticleLink);
+    });
+    await fireEvent.press(
       screen.getByRole("link", { name: "View Wikipedia revision 1234" }),
     );
     await waitFor(() => expect(openUrl).toHaveBeenCalledTimes(2));
@@ -574,6 +593,7 @@ describe("ArticleScreen", () => {
     await expect(olderLaunch.promise).rejects.toThrow(
       "obsolete browser failure",
     );
+    await olderPress;
 
     expect(
       screen.queryByText("Could not open this link. Please try again."),
@@ -584,19 +604,21 @@ describe("ArticleScreen", () => {
     mockFetchArticle
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(article("Moria"));
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
 
     await screen.findByRole("button", { name: "Try again" });
-    fireEvent.press(screen.getByRole("button", { name: "Back to search" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Back to search" }),
+    );
     expect(view.props.onBack).toHaveBeenCalledTimes(1);
 
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Moria summary")).toBeOnTheScreen();
   });
 
   it("names an article return path honestly when opened from Library", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria", { backLabel: "Back to Library" });
+    const view = await renderArticle("Moria", { backLabel: "Back to Library" });
 
     const back = await screen.findByRole("button", {
       name: "Back to Library",
@@ -605,13 +627,13 @@ describe("ArticleScreen", () => {
       "accessibilityHint",
       "Returns to your saved articles.",
     );
-    fireEvent.press(back);
+    await fireEvent.press(back);
     expect(view.props.onBack).toHaveBeenCalledTimes(1);
   });
 
   it("saves a ready article to the signed-in Library through the persistent status", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria");
+    await renderArticle("Moria");
 
     await screen.findByText("Moria summary");
     const status = screen.getByTestId("article-status");
@@ -620,7 +642,7 @@ describe("ArticleScreen", () => {
     });
     expect(screen.getByText("Save to Library")).toBeOnTheScreen();
 
-    fireEvent.press(save);
+    await fireEvent.press(save);
 
     await waitFor(() =>
       expect(mockSaveBookmark).toHaveBeenCalledWith({
@@ -638,7 +660,7 @@ describe("ArticleScreen", () => {
       status: "ready",
     });
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria");
+    await renderArticle("Moria");
 
     const remove = await screen.findByRole("button", {
       name: "Saved to Library: remove Moria",
@@ -650,7 +672,7 @@ describe("ArticleScreen", () => {
       selected: true,
     });
 
-    fireEvent.press(remove);
+    await fireEvent.press(remove);
 
     await waitFor(() =>
       expect(mockRemoveBookmark).toHaveBeenCalledWith({ slug: "Moria" }),
@@ -663,7 +685,7 @@ describe("ArticleScreen", () => {
   it("keeps public reading available while signed out and routes saving to Account", async () => {
     setLibrary({ entries: [], status: "signedOut" }, [], Symbol("signed-out"));
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
 
     expect(await screen.findByText("Moria summary")).toBeOnTheScreen();
     expect(screen.queryByText("Save to Library")).not.toBeOnTheScreen();
@@ -673,14 +695,16 @@ describe("ArticleScreen", () => {
     expect(
       screen.getByText("Sign in to save articles to your Library."),
     ).toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "Go to Account" }));
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Go to Account" }),
+    );
     expect(view.props.onOpenAccount).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a mutating article action present and unavailable", async () => {
     setLibrary({ entries: [], status: "ready" }, ["Moria"]);
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria");
+    await renderArticle("Moria");
 
     const button = await screen.findByRole("button", {
       name: "Save to Library — in progress: Moria",
@@ -690,7 +714,7 @@ describe("ArticleScreen", () => {
       disabled: true,
       selected: false,
     });
-    fireEvent.press(button);
+    await fireEvent.press(button);
     expect(mockSaveBookmark).not.toHaveBeenCalled();
   });
 
@@ -702,12 +726,12 @@ describe("ArticleScreen", () => {
       })
       .mockResolvedValueOnce({ status: "superseded" });
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria");
+    await renderArticle("Moria");
     const save = await screen.findByRole("button", {
       name: "Save to Library: Moria",
     });
 
-    fireEvent.press(save);
+    await fireEvent.press(save);
     expect(
       await screen.findByRole("alert", {
         name: "We couldn’t update your Library. Please try again.",
@@ -715,7 +739,7 @@ describe("ArticleScreen", () => {
     ).toBeOnTheScreen();
     expect(screen.queryByText(/token|issuer|stack/i)).not.toBeOnTheScreen();
 
-    fireEvent.press(save);
+    await fireEvent.press(save);
     await waitFor(() => expect(mockSaveBookmark).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId("article-status")).toHaveAccessibleName(
       "Library action stopped. Check the current saved state before trying again.",
@@ -724,12 +748,12 @@ describe("ArticleScreen", () => {
 
   it("clears an account action announcement when the Library leaves ready", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
     const save = await screen.findByRole("button", {
       name: "Save to Library: Moria",
     });
 
-    fireEvent.press(save);
+    await fireEvent.press(save);
     await waitFor(() =>
       expect(screen.getByTestId("article-status")).toHaveAccessibleName(
         "Moria saved to your Library.",
@@ -737,7 +761,7 @@ describe("ArticleScreen", () => {
     );
 
     setLibrary({ entries: [], status: "signedOut" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -754,7 +778,7 @@ describe("ArticleScreen", () => {
     ).toBeOnTheScreen();
 
     setLibrary({ entries: [], status: "ready" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -771,16 +795,16 @@ describe("ArticleScreen", () => {
     const saveRequest = deferred<NativeLibraryMutationResult>();
     mockSaveBookmark.mockReturnValue(saveRequest.promise);
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
     const save = await screen.findByRole("button", {
       name: "Save to Library: Moria",
     });
 
-    fireEvent.press(save);
+    await fireEvent.press(save);
     await waitFor(() => expect(mockSaveBookmark).toHaveBeenCalledTimes(1));
 
     setLibrary({ entries: [], status: "loading" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -794,7 +818,7 @@ describe("ArticleScreen", () => {
     });
 
     setLibrary({ entries: [], status: "ready" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -809,7 +833,7 @@ describe("ArticleScreen", () => {
 
   it("reports Library recovery without replaying the old article-loaded event", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
+    const view = await renderArticle("Moria");
     await screen.findByText("Moria summary");
     expect(screen.getByTestId("article-status")).toHaveAccessibleName(
       "Article loaded. 1 section available.",
@@ -820,7 +844,7 @@ describe("ArticleScreen", () => {
       message: "We couldn’t load your Library. Please try again.",
       status: "error",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -833,7 +857,7 @@ describe("ArticleScreen", () => {
     );
 
     setLibrary({ entries: [], status: "ready" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -848,8 +872,8 @@ describe("ArticleScreen", () => {
 
   it("keeps a save success through its query echo, then reports newer membership", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
-    fireEvent.press(
+    const view = await renderArticle("Moria");
+    await fireEvent.press(
       await screen.findByRole("button", {
         name: "Save to Library: Moria",
       }),
@@ -864,7 +888,7 @@ describe("ArticleScreen", () => {
       entries: [{ savedAt: 1, slug: "Moria", title: "Moria" }],
       status: "ready",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -877,7 +901,7 @@ describe("ArticleScreen", () => {
     );
 
     setLibrary({ entries: [], status: "ready" });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -895,8 +919,8 @@ describe("ArticleScreen", () => {
 
   it("settles from the first post-commit snapshot and follows later membership", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
-    fireEvent.press(
+    const view = await renderArticle("Moria");
+    await fireEvent.press(
       await screen.findByRole("button", {
         name: "Save to Library: Moria",
       }),
@@ -911,7 +935,7 @@ describe("ArticleScreen", () => {
       entries: [{ savedAt: 2, slug: "Rivendell", title: "Rivendell" }],
       status: "ready",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -939,7 +963,7 @@ describe("ArticleScreen", () => {
       ],
       status: "ready",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -959,13 +983,13 @@ describe("ArticleScreen", () => {
 
   it("releases a committed action when no reactive echo arrives", async () => {
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    renderArticle("Moria");
+    await renderArticle("Moria");
     const save = await screen.findByRole("button", {
       name: "Save to Library: Moria",
     });
     jest.useFakeTimers();
 
-    fireEvent.press(save);
+    await fireEvent.press(save);
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -980,7 +1004,7 @@ describe("ArticleScreen", () => {
       selected: true,
     });
 
-    act(() => jest.advanceTimersByTime(2_000));
+    await act(() => jest.advanceTimersByTime(2_000));
     expect(
       screen.getByRole("button", { name: "Save to Library: Moria" }),
     ).toHaveProp("accessibilityState", {
@@ -999,8 +1023,8 @@ describe("ArticleScreen", () => {
       status: "failed",
     });
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
-    fireEvent.press(
+    const view = await renderArticle("Moria");
+    await fireEvent.press(
       await screen.findByRole("button", {
         name: "Save to Library: Moria",
       }),
@@ -1015,7 +1039,7 @@ describe("ArticleScreen", () => {
       entries: [{ savedAt: 1, slug: "Moria", title: "Moria" }],
       status: "ready",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -1040,8 +1064,8 @@ describe("ArticleScreen", () => {
       status: "failed",
     });
     mockFetchArticle.mockResolvedValue(article("Moria"));
-    const view = renderArticle("Moria");
-    fireEvent.press(
+    const view = await renderArticle("Moria");
+    await fireEvent.press(
       await screen.findByRole("button", {
         name: "Save to Library: Moria",
       }),
@@ -1053,7 +1077,7 @@ describe("ArticleScreen", () => {
       entries: [{ savedAt: 1, slug: "Moria", title: "Moria" }],
       status: "ready",
     });
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -1066,7 +1090,7 @@ describe("ArticleScreen", () => {
     );
 
     setLibrary({ entries: [], status: "ready" }, [], Symbol("account-b"));
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"

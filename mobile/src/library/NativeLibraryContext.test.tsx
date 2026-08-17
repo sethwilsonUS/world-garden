@@ -32,14 +32,14 @@ function LibraryWrapper({ children }: PropsWithChildren) {
 }
 
 describe("NativeLibraryContext", () => {
-  it("fails clearly when the hook escapes its provider", () => {
-    expect(() => renderHook(() => useNativeLibrary())).toThrow(
+  it("fails clearly when the hook escapes its provider", async () => {
+    await expect(renderHook(() => useNativeLibrary())).rejects.toThrow(
       "useNativeLibrary() must be used within NativeLibraryProvider",
     );
   });
 
-  it("exposes the provider's account-library contract", () => {
-    const { result } = renderHook(() => useNativeLibrary(), {
+  it("exposes the provider's account-library contract", async () => {
+    const { result } = await renderHook(() => useNativeLibrary(), {
       wrapper: LibraryWrapper,
     });
 

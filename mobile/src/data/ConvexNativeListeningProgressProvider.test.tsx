@@ -88,7 +88,7 @@ beforeEach(() => {
 
 describe("ConvexNativeListeningProgressProvider", () => {
   it("keeps account progress unavailable and performs no private query while signed out", async () => {
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -114,7 +114,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       signOut: jest.fn(),
       state: { profile: null, status: "connecting" },
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -134,7 +134,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       signOut: jest.fn(),
       state: { profile: null, status: "loading" },
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -153,7 +153,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       cursorVersion: 3,
       sessionEpochKey: "native-epoch-a",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -192,7 +192,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       cursorVersion: 0,
       sessionEpochKey: "native-epoch-a",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -241,7 +241,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
     useNativeAuthMock.mockReturnValue(readyAuth());
     useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
     query.mockResolvedValue(response);
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -254,7 +254,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
   it("sanitizes malformed targets and private query failures", async () => {
     useNativeAuthMock.mockReturnValue(readyAuth());
     useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -289,7 +289,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       cursorVersion: 0,
       sessionEpochKey: "native-epoch-b",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
 
@@ -301,7 +301,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
   it("supersedes a callback retained across an account switch without querying the new account", async () => {
     useNativeAuthMock.mockReturnValue(readyAuth());
     useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -311,7 +311,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       readyAuth(accountBEpoch, "native-epoch-b"),
     );
     useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
-    rerender({});
+    await rerender({});
 
     await expect(staleOpenArticle(target)).resolves.toEqual({
       status: "superseded",
@@ -322,7 +322,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
   it("opens the new account after superseding a retained old-account callback", async () => {
     useNativeAuthMock.mockReturnValue(readyAuth());
     useNativeAccountSubjectBindingMock.mockReturnValue("user-a");
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -337,7 +337,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       cursorVersion: 0,
       sessionEpochKey: "native-epoch-b",
     });
-    rerender({});
+    await rerender({});
 
     await expect(staleOpenArticle(target)).resolves.toEqual({
       status: "superseded",
@@ -365,7 +365,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         resolveQuery = resolve;
       }),
     );
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -375,7 +375,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       readyAuth(accountBEpoch, "native-epoch-b"),
     );
     useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
-    rerender({});
+    await rerender({});
     await act(async () => {
       resolveQuery?.({
         cursor: { ...cursor, cursorVersion: 3, updatedAt: 1_786_000_000_000 },
@@ -397,12 +397,15 @@ describe("ConvexNativeListeningProgressProvider", () => {
         resolveQuery = resolve;
       }),
     );
-    const { result, unmount } = renderHook(() => useNativeListeningProgress(), {
-      wrapper: Wrapper,
-    });
+    const { result, unmount } = await renderHook(
+      () => useNativeListeningProgress(),
+      {
+        wrapper: Wrapper,
+      },
+    );
     const pendingOpen = result.current.openArticle(target);
 
-    unmount();
+    await unmount();
     resolveQuery?.({
       cursor: { ...cursor, cursorVersion: 3, updatedAt: 1_786_000_000_000 },
       cursorVersion: 3,
@@ -431,7 +434,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       disposition: "applied",
       sessionEpochKey: "native-epoch-a",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -471,7 +474,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -556,7 +559,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -619,7 +622,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
           sessionEpochKey: "native-epoch-a",
         }),
       );
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -656,7 +659,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       sessionEpochKey: "native-epoch-a",
     });
     writeMutation.mockReturnValue(new Promise(() => undefined));
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -671,7 +674,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       readyAuth(accountBEpoch, "native-epoch-b"),
     );
     useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
-    rerender({});
+    await rerender({});
 
     await expect(opened.session.clear()).resolves.toEqual({
       status: "superseded",
@@ -699,7 +702,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -735,7 +738,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -769,7 +772,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       disposition: "stale",
       sessionEpochKey: "native-epoch-a",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -815,7 +818,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       disposition: "stale",
       sessionEpochKey: "native-epoch-a",
     });
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -830,7 +833,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       readyAuth(accountBEpoch, "native-epoch-b"),
     );
     useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
-    rerender({});
+    await rerender({});
 
     await expect(opened.session.clear()).resolves.toEqual({
       status: "superseded",
@@ -851,7 +854,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       disposition: "applied",
       sessionEpochKey: "native-epoch-a",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -879,7 +882,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         resolveWrite = resolve;
       }),
     );
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -893,7 +896,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       readyAuth(accountBEpoch, "native-epoch-b"),
     );
     useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
-    rerender({});
+    await rerender({});
     resolveWrite?.({
       cursor: { ...cursor, cursorVersion: 4, updatedAt: 1_786_000_000_001 },
       cursorVersion: 4,
@@ -920,16 +923,19 @@ describe("ConvexNativeListeningProgressProvider", () => {
         resolveWrite = resolve;
       }),
     );
-    const { result, unmount } = renderHook(() => useNativeListeningProgress(), {
-      wrapper: Wrapper,
-    });
+    const { result, unmount } = await renderHook(
+      () => useNativeListeningProgress(),
+      {
+        wrapper: Wrapper,
+      },
+    );
     const opened = await result.current.openArticle(target);
     if (opened.status !== "opened") throw new Error("Expected opened session");
     const save = opened.session.save(cursor);
     const clear = opened.session.clear();
     await waitFor(() => expect(writeMutation).toHaveBeenCalledTimes(1));
 
-    unmount();
+    await unmount();
     resolveWrite?.({
       cursor: { ...cursor, cursorVersion: 4, updatedAt: 1_786_000_000_001 },
       cursorVersion: 4,
@@ -958,7 +964,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -984,7 +990,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       cursorVersion: 3,
       sessionEpochKey: "native-epoch-a",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -1007,7 +1013,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       cursorVersion: 3,
       sessionEpochKey: "native-epoch-a",
     });
-    const { result, rerender } = renderHook(
+    const { result, rerender } = await renderHook(
       () => useNativeListeningProgress(),
       { wrapper: Wrapper },
     );
@@ -1018,7 +1024,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       readyAuth(accountBEpoch, "native-epoch-b"),
     );
     useNativeAccountSubjectBindingMock.mockReturnValue("user-b");
-    rerender({});
+    await rerender({});
 
     await expect(
       opened.session.save({ ...cursor, revisionId: "9999" }),
@@ -1047,7 +1053,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -1091,7 +1097,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
         disposition: "applied",
         sessionEpochKey: "native-epoch-a",
       });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);
@@ -1123,7 +1129,7 @@ describe("ConvexNativeListeningProgressProvider", () => {
       disposition: "applied",
       sessionEpochKey: "native-epoch-b",
     });
-    const { result } = renderHook(() => useNativeListeningProgress(), {
+    const { result } = await renderHook(() => useNativeListeningProgress(), {
       wrapper: Wrapper,
     });
     const opened = await result.current.openArticle(target);

@@ -65,8 +65,8 @@ function deferred<Value>() {
   return { promise, reject, resolve };
 }
 
-function renderSearch(term: string, focusHeading?: jest.Mock) {
-  return render(
+async function renderSearch(term: string, focusHeading?: jest.Mock) {
+  return await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -89,8 +89,8 @@ describe("SearchScreen", () => {
     }
   });
 
-  it("renders the empty search state without starting a request", () => {
-    renderSearch("   ");
+  it("renders the empty search state without starting a request", async () => {
+    await renderSearch("   ");
 
     expect(
       screen.getByRole("header", { name: "Search Wikipedia" }),
@@ -105,7 +105,7 @@ describe("SearchScreen", () => {
   it("keeps one polite status node while moving from searching to results", async () => {
     const request = deferred<WikipediaSearchResult[]>();
     mockSearch.mockReturnValue(request.promise);
-    renderSearch("Moria");
+    await renderSearch("Moria");
 
     await waitFor(() => {
       expect(mockSearch).toHaveBeenCalledWith({ term: "Moria" });
@@ -138,7 +138,7 @@ describe("SearchScreen", () => {
     mockSearch.mockRejectedValueOnce(
       new Error("upstream token=secret infrastructure details"),
     );
-    renderSearch("Silmarils");
+    await renderSearch("Silmarils");
 
     expect(
       await screen.findByRole("alert", { name: /Search failed/i }),
@@ -154,7 +154,7 @@ describe("SearchScreen", () => {
     ).toHaveLength(1);
 
     mockSearch.mockResolvedValueOnce([result("3", "Silmaril")]);
-    fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Try again" }));
 
     await waitFor(() => {
       expect(mockSearch).toHaveBeenCalledTimes(2);
@@ -173,7 +173,7 @@ describe("SearchScreen", () => {
     );
     mockSearch.mockRejectedValueOnce(new Error("offline"));
 
-    renderSearch("Silmarils");
+    await renderSearch("Silmarils");
 
     expect(
       await screen.findByRole("alert", { name: /Search failed/i }),
@@ -195,7 +195,7 @@ describe("SearchScreen", () => {
 
   it("renders the current empty-result copy and announcement", async () => {
     mockSearch.mockResolvedValueOnce([]);
-    renderSearch("Entwives");
+    await renderSearch("Entwives");
 
     expect(await screen.findByText("No seeds found")).toBeOnTheScreen();
     expect(
@@ -216,10 +216,10 @@ describe("SearchScreen", () => {
     mockSearch.mockImplementation(({ term }) =>
       term === "Moria" ? first.promise : second.promise,
     );
-    const view = renderSearch("Moria");
+    const view = await renderSearch("Moria");
 
     await waitFor(() => expect(mockSearch).toHaveBeenCalledTimes(1));
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -262,10 +262,10 @@ describe("SearchScreen", () => {
 
   it("opens a result with a decoded typed Expo Router slug", async () => {
     mockSearch.mockResolvedValueOnce([result("1", "Beyoncé / discography")]);
-    renderSearch("Beyoncé");
+    await renderSearch("Beyoncé");
 
     const link = await screen.findByRole("link", { name: /Beyoncé/ });
-    fireEvent.press(link);
+    await fireEvent.press(link);
 
     expect(mockPush).toHaveBeenCalledWith({
       pathname: "/article/[slug]",
@@ -283,7 +283,7 @@ describe("SearchScreen", () => {
       .spyOn(AccessibilityInfo, "isScreenReaderEnabled")
       .mockResolvedValue(true);
     const focus = jest.fn();
-    const view = renderSearch("Moria", focus);
+    const view = await renderSearch("Moria", focus);
 
     await waitFor(() => expect(focus).toHaveBeenCalledTimes(1));
 
@@ -294,7 +294,7 @@ describe("SearchScreen", () => {
     await screen.findByRole("link", { name: /Moria/ });
     expect(focus).toHaveBeenCalledTimes(1);
 
-    view.rerender(
+    await view.rerender(
       <GardenThemeProvider
         accessibilityPreferencesOverride={{}}
         colorSchemeOverride="light"
@@ -314,12 +314,12 @@ describe("SearchScreen", () => {
 
   it("refines through the canonical route from keyboard submit", async () => {
     mockSearch.mockResolvedValueOnce([result("1", "Moria")]);
-    renderSearch("Moria");
+    await renderSearch("Moria");
     await screen.findByRole("link", { name: /Moria/ });
 
     const input = screen.getByLabelText("Search topic");
-    fireEvent.changeText(input, "The Shire");
-    fireEvent(input, "submitEditing");
+    await fireEvent.changeText(input, "The Shire");
+    await fireEvent(input, "submitEditing");
 
     expect(mockReplace).toHaveBeenCalledWith({
       pathname: "/search",

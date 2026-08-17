@@ -169,13 +169,13 @@ beforeEach(() => {
 });
 
 describe("NativeDataAuthProvider", () => {
-  it("composes one stable client through Clerk, Convex, public data, and auth", () => {
+  it("composes one stable client through Clerk, Convex, public data, and auth", async () => {
     const props = {
       clerkPublishableKey: "pk_test_public-example",
       convexUrl: "https://standing-finch-735.convex.cloud",
       webOrigin: "https://curiogarden.org",
     };
-    const { rerender } = render(
+    const { rerender } = await render(
       <NativeDataAuthProvider {...props}>
         <PublicSignedOutConsumer />
       </NativeDataAuthProvider>,
@@ -203,7 +203,7 @@ describe("NativeDataAuthProvider", () => {
       screen.getByTestId("public-reader-consumer"),
     );
 
-    rerender(
+    await rerender(
       <NativeDataAuthProvider {...props}>
         <PublicSignedOutConsumer />
       </NativeDataAuthProvider>,
@@ -216,7 +216,7 @@ describe("NativeDataAuthProvider", () => {
   });
 
   it("keeps public Wikipedia search available while private identity is skipped", async () => {
-    render(
+    await render(
       <NativeDataAuthProvider
         clerkPublishableKey="pk_test_public-example"
         convexUrl="https://standing-finch-735.convex.cloud"
@@ -238,7 +238,7 @@ describe("NativeDataAuthProvider", () => {
     );
     expect(useQueriesMock.mock.calls.at(-1)?.[0]).toEqual({});
 
-    fireEvent.press(screen.getByTestId("public-reader-consumer"));
+    await fireEvent.press(screen.getByTestId("public-reader-consumer"));
 
     await waitFor(() =>
       expect(publicSearch).toHaveBeenCalledWith({ term: "Ada" }),
@@ -278,7 +278,7 @@ describe("NativeDataAuthProvider", () => {
       ),
     });
 
-    render(
+    await render(
       <NativeDataAuthProvider
         clerkPublishableKey="pk_test_public-example"
         convexUrl="https://standing-finch-735.convex.cloud"
@@ -291,7 +291,7 @@ describe("NativeDataAuthProvider", () => {
     expect(screen.getByText("bridgeError")).toBeOnTheScreen();
     expect(screen.queryByText(/tokenIdentifier|issuer\.example/)).toBeNull();
 
-    fireEvent.press(screen.getByTestId("public-reader-consumer"));
+    await fireEvent.press(screen.getByTestId("public-reader-consumer"));
 
     await waitFor(() =>
       expect(publicSearch).toHaveBeenCalledWith({ term: "Ada" }),
@@ -340,7 +340,7 @@ describe("NativeDataAuthProvider", () => {
       }),
     );
 
-    render(
+    await render(
       <NativeDataAuthProvider
         clerkPublishableKey="pk_test_public-example"
         convexUrl="https://standing-finch-735.convex.cloud"
@@ -352,7 +352,7 @@ describe("NativeDataAuthProvider", () => {
 
     expect(screen.getByText("progress:ready")).toBeOnTheScreen();
     expect(progressQuery).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByTestId("ready-progress-consumer"));
+    await fireEvent.press(screen.getByTestId("ready-progress-consumer"));
 
     await waitFor(() => expect(progressQuery).toHaveBeenCalledTimes(1));
     expect(progressQuery).toHaveBeenCalledWith(

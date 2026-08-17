@@ -4,8 +4,8 @@ import { AccessibilityInfo, StyleSheet } from "react-native";
 import { GardenThemeProvider } from "../theme/GardenThemeProvider";
 import { WikipediaSearchForm } from "./WikipediaSearchForm";
 
-function renderForm(onSubmit = jest.fn(), initialValue = "") {
-  render(
+async function renderForm(onSubmit = jest.fn(), initialValue = "") {
+  await render(
     <GardenThemeProvider
       accessibilityPreferencesOverride={{}}
       colorSchemeOverride="light"
@@ -18,8 +18,8 @@ function renderForm(onSubmit = jest.fn(), initialValue = "") {
 }
 
 describe("WikipediaSearchForm", () => {
-  it("has a persistent visible label and an uncapped, reflow-safe input", () => {
-    const { input } = renderForm();
+  it("has a persistent visible label and an uncapped, reflow-safe input", async () => {
+    const { input } = await renderForm();
 
     expect(screen.getByText("Search topic")).toHaveProp("accessible", false);
     expect(input).toHaveProp(
@@ -43,15 +43,15 @@ describe("WikipediaSearchForm", () => {
 
   it.each(["press", "submitEditing"] as const)(
     "submits a normalized term from %s",
-    (eventName) => {
+    async (eventName) => {
       const onSubmit = jest.fn();
-      const { input } = renderForm(onSubmit);
-      fireEvent.changeText(input, "  Ada   Lovelace  ");
+      const { input } = await renderForm(onSubmit);
+      await fireEvent.changeText(input, "  Ada   Lovelace  ");
 
       if (eventName === "press") {
-        fireEvent.press(screen.getByRole("button", { name: "Search" }));
+        await fireEvent.press(screen.getByRole("button", { name: "Search" }));
       } else {
-        fireEvent(input, "submitEditing");
+        await fireEvent(input, "submitEditing");
       }
 
       expect(onSubmit).toHaveBeenCalledWith("Ada Lovelace");
@@ -59,16 +59,16 @@ describe("WikipediaSearchForm", () => {
     },
   );
 
-  it("announces one non-color error instead of submitting an empty topic", () => {
+  it("announces one non-color error instead of submitting an empty topic", async () => {
     const onSubmit = jest.fn();
     const announce = jest.spyOn(
       AccessibilityInfo,
       "announceForAccessibilityWithOptions",
     );
-    const { input } = renderForm(onSubmit);
+    const { input } = await renderForm(onSubmit);
 
-    fireEvent.changeText(input, "   ");
-    fireEvent(input, "submitEditing");
+    await fireEvent.changeText(input, "   ");
+    await fireEvent(input, "submitEditing");
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(
