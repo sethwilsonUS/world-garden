@@ -70,7 +70,7 @@ const ARTICLE_AUDIO_OPERATION_ABORTED = Symbol(
   "article-audio-operation-aborted",
 );
 
-function isRequestValid(
+export function isNativeArticleAudioSectionRequest(
   request: unknown,
 ): request is NativeArticleAudioSectionRequest {
   try {
@@ -145,7 +145,7 @@ export function NativeArticleAudioAccessProvider({
     async (
       request: NativeArticleAudioSectionRequest,
     ): Promise<NativeArticleAudioSectionResult> => {
-      if (!isRequestValid(request)) return INVALID_REQUEST;
+      if (!isNativeArticleAudioSectionRequest(request)) return INVALID_REQUEST;
       if (request.signal?.aborted) return CANCELLED;
 
       const operationEpoch = binding.accountEpoch;

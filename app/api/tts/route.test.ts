@@ -8,7 +8,9 @@ import type { AiCostProviderAttempt } from "@/lib/ai-cost-ledger-contract";
 import { TTS_AI_COST_SOURCE_HEADER } from "@/lib/tts-source-attestation";
 
 const fetchMutation = vi.hoisted(() => vi.fn());
-const track = vi.hoisted(() => vi.fn(async () => {}));
+const track = vi.hoisted(() =>
+  vi.fn<typeof import("@vercel/analytics/server").track>(async () => {}),
+);
 const after = vi.hoisted(() => vi.fn((task: () => void) => task()));
 const auth = vi.hoisted(() => vi.fn());
 const recordProviderAttempt = vi.hoisted(() =>
@@ -471,11 +473,8 @@ describe("POST /api/tts", () => {
 
     expect(response.status).toBe(200);
     expect(track).toHaveBeenCalledOnce();
-    const trackCalls = track.mock.calls as unknown as Array<
-      [string, Record<string, unknown>, unknown?]
-    >;
-    expect(trackCalls[0]?.[0]).toBe("TTS Route");
-    expect(trackCalls[0]?.[2]).toBeUndefined();
+    expect(track.mock.calls[0]?.[0]).toBe("TTS Route");
+    expect(track.mock.calls[0]?.[2]).toBeUndefined();
   });
 
   it("falls back to Edge when OpenAI speech generation fails", async () => {

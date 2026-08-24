@@ -13,7 +13,6 @@ import { AuthAwareTtsProfileProvider } from "@/lib/tts-audience";
 import {
   DataContext,
   type DataContextValue,
-  type Article,
 } from "./data-context";
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
@@ -65,7 +64,7 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
 
       fetchArticle: async ({ slug }) => {
         const result = await fetchAndCacheBySlug({ slug });
-        return result as unknown as Article;
+        return result;
       },
 
       getSectionLinkCounts: ({ identity, signal }) =>

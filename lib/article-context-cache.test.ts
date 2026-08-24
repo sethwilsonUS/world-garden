@@ -112,7 +112,7 @@ describe("article context enhanced-memory cache", () => {
     const legacyManifest = {
       ...deterministicManifest,
       schemaVersion: 1,
-    } as unknown as ContextManifest;
+    };
     (
       globalThis as typeof globalThis & {
         __curioGardenArticleContextCacheV1?: unknown;

@@ -30,9 +30,8 @@ afterEach(() => {
 
 describe("enrichDidYouKnowThumbnails", () => {
   it("adds page ids and thumbnails to linked Did You Know articles", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
         query: {
           pages: {
             "123": {
@@ -48,8 +47,8 @@ describe("enrichDidYouKnowThumbnails", () => {
           },
         },
       }),
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
+    );
+    global.fetch = fetchMock;
 
     const items: WikipediaDidYouKnowItem[] = [
       {
@@ -98,9 +97,8 @@ describe("enrichDidYouKnowThumbnails", () => {
   });
 
   it("uses the slug when a Did You Know link has no title", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
         query: {
           pages: {
             "123": {
@@ -116,8 +114,8 @@ describe("enrichDidYouKnowThumbnails", () => {
           },
         },
       }),
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
+    );
+    global.fetch = fetchMock;
 
     const slugOnlyLink = {
       slug: "Lenox_Lyceum",
@@ -159,9 +157,8 @@ describe("enrichDidYouKnowThumbnails", () => {
   });
 
   it("leaves missing thumbnails and items without links untouched", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
         query: {
           pages: {
             "-1": {
@@ -171,8 +168,8 @@ describe("enrichDidYouKnowThumbnails", () => {
           },
         },
       }),
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
+    );
+    global.fetch = fetchMock;
 
     const items: WikipediaDidYouKnowItem[] = [
       {
@@ -205,8 +202,10 @@ describe("enrichDidYouKnowThumbnails", () => {
   });
 
   it("keeps Did You Know items when thumbnail enrichment fails", async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error("Wikimedia timeout"));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new Error("Wikimedia timeout"));
+    global.fetch = fetchMock;
 
     const items: WikipediaDidYouKnowItem[] = [
       {

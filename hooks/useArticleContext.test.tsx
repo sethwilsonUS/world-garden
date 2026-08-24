@@ -40,7 +40,7 @@ const waitForExpectation = async (assertion: () => void) => {
 };
 
 const response = (body: unknown, ok = true): Response =>
-  ({ ok, json: async () => body }) as Response;
+  Response.json(body, { status: ok ? 200 : 500 });
 
 const request = (
   id: string,
@@ -334,14 +334,15 @@ describe("useArticleContext", () => {
       )
       .mockResolvedValueOnce(
         response({
-          context: manifest("malformed-block", {
+          context: {
+            ...manifest("malformed-block"),
             blocks: [
               {
                 ...block("broken", "Broken", 1),
                 diagram: { image: null },
-              } as unknown as ContextBlock,
+              },
             ],
-          }),
+          },
           cacheStatus: "miss",
         }),
       )

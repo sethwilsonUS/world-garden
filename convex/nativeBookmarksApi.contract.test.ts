@@ -5,6 +5,7 @@ import {
   removeNativeViewerBookmark,
   saveNativeViewerBookmark,
 } from "./bookmarks";
+import { validatorContractOf } from "./testing/registeredFunctions";
 
 const requiredField = (fieldType: unknown) => ({
   fieldType,
@@ -13,18 +14,11 @@ const requiredField = (fieldType: unknown) => ({
 // Convex does not expose these helpers on the public registered-function type.
 // These upgrade-sensitive assertions mirror its internal { type, value }
 // validator JSON representation so the native transport contract stays exact.
-const registeredQuery = listNativeViewerBookmarks as unknown as {
-  exportArgs(): string;
-  exportReturns(): string;
-};
-const registeredSaveMutation = saveNativeViewerBookmark as unknown as {
-  exportArgs(): string;
-  exportReturns(): string;
-};
-const registeredRemoveMutation = removeNativeViewerBookmark as unknown as {
-  exportArgs(): string;
-  exportReturns(): string;
-};
+const registeredQuery = validatorContractOf(listNativeViewerBookmarks);
+const registeredSaveMutation = validatorContractOf(saveNativeViewerBookmark);
+const registeredRemoveMutation = validatorContractOf(
+  removeNativeViewerBookmark,
+);
 const bookmarkEntry = {
   type: "object",
   value: {

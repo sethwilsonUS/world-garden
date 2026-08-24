@@ -1,17 +1,14 @@
-import { cronJobs, type FunctionReference } from "convex/server";
+import {
+  anyApi,
+  cronJobs,
+} from "convex/server";
 import { internal } from "./_generated/api";
+import type { FunctionReferenceFromExport } from "./lib/functionReferenceFromExport";
 
 const crons = cronJobs();
-const aiCostLedgerInternal = internal as unknown as {
-  aiCostLedger: {
-    maintainAiCostLedgerInternal: FunctionReference<
-      "mutation",
-      "internal",
-      Record<string, never>,
-      unknown
-    >;
-  };
-};
+const maintainAiCostLedgerInternal: FunctionReferenceFromExport<
+  typeof import("./aiCostLedger").maintainAiCostLedgerInternal
+> = anyApi.aiCostLedger.maintainAiCostLedgerInternal;
 
 crons.hourly(
   "scrub expired product feedback contacts",
@@ -35,7 +32,7 @@ crons.hourly(
 crons.hourly(
   "maintain AI cost ledger retention and cohorts",
   { minuteUTC: 47 },
-  aiCostLedgerInternal.aiCostLedger.maintainAiCostLedgerInternal,
+  maintainAiCostLedgerInternal,
 );
 
 crons.hourly(

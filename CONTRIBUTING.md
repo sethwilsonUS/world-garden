@@ -82,7 +82,10 @@ git commit -m "Add voice selection dropdown to TTS player"
 ## Code Style
 
 - **TypeScript** everywhere — no `any` unless absolutely necessary and documented.
-- **ESLint** config is in `eslint.config.mjs`. Run `npm run lint` before committing.
+- **Linting** uses ESLint for the established Next.js and TypeScript policy,
+  plus Oxlint for the selected vendored anti-slop rules. Run `npm run lint`
+  before committing; its canary also verifies that the JavaScript plugin
+  loaded through the repository's Node 24 runtime.
 - **Tailwind CSS 4** for styling. Use the existing design tokens in `app/globals.css` rather than hardcoded values.
 - **Semantic HTML** over ARIA when possible (`<button>` not `<div role="button">`).
 - Keep components focused. If a file grows past ~300 lines, consider splitting it.
@@ -109,7 +112,7 @@ zoom, and magnifier results.
 ## Testing
 
 `npm run check` is the baseline before every pull request. It validates the
-Node toolchain, runs ESLint and both supported TypeScript compiler paths, and
+Node toolchain, runs ESLint plus anti-slop and both supported TypeScript compiler paths, and
 executes the complete [Vitest](https://vitest.dev/) unit suite:
 
 ```bash

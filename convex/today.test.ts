@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { saveTodaySnapshot } from "./today";
 import { createPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+import { registeredInvoker } from "./testing/registeredFunctions";
 
 afterEach(() => {
   delete process.env.TTS_QUOTA_BYPASS_SECRET;
@@ -21,11 +22,7 @@ describe("today snapshot publication", () => {
       args: writeArgs,
     });
     const insert = vi.fn(async () => "snapshot-1");
-    const handler = (
-      saveTodaySnapshot as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveTodaySnapshot);
 
     await expect(
       handler(
@@ -59,11 +56,7 @@ describe("today snapshot publication", () => {
       args: writeArgs,
     });
     const query = vi.fn();
-    const handler = (
-      saveTodaySnapshot as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveTodaySnapshot);
 
     await expect(
       handler(

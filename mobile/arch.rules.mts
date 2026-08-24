@@ -9,7 +9,6 @@ import {
 } from "@nielspeter/ts-archunit";
 import { recommended } from "@nielspeter/ts-archunit/presets";
 import { join } from "node:path";
-import ts from "typescript";
 
 const mobileProject = project("mobile/tsconfig.arch.json");
 const webImplementationImports = ["app", "components", "hooks", "lib"].map(
@@ -40,6 +39,12 @@ const nativeAuthContextImport = join(
   "auth",
   "NativeAuthContext.tsx",
 ).replaceAll("\\", "/");
+const nativeClerkBoundaryFile = "src/auth/NativeClerkBoundary.ts";
+const hostedAuthFlowFile = "src/auth/HostedAuthFlow.tsx";
+const nativeClerkBoundaryImport = join(
+  import.meta.dirname,
+  nativeClerkBoundaryFile,
+).replaceAll("\\", "/");
 const nativeListeningProgressContextImport = join(
   import.meta.dirname,
   "src",
@@ -63,6 +68,12 @@ const convexNativeListeningProgressProviderImport = join(
   "src",
   "data",
   "ConvexNativeListeningProgressProvider.tsx",
+).replaceAll("\\", "/");
+const nativeListeningProgressQueryBoundaryFile =
+  "src/data/NativeListeningProgressQueryBoundary.ts";
+const nativeListeningProgressQueryBoundaryImport = join(
+  import.meta.dirname,
+  nativeListeningProgressQueryBoundaryFile,
 ).replaceAll("\\", "/");
 const nativeArticleAudioEphemeralStoreFile =
   "src/media/NativeArticleAudioEphemeralStore.ts";
@@ -135,14 +146,8 @@ const useOnlyPublicDomainPackageImports =
             ) {
               return false;
             }
-            const argument = call.getArguments()[0];
-            const compilerNode = argument?.compilerNode as unknown as
-              | ts.Node
-              | undefined;
-            return (
-              compilerNode !== undefined &&
-              ts.isStringLiteralLike(compilerNode) &&
-              /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(compilerNode.text)
+            return /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
+              call.getName({ withArgument: 0 }) ?? "",
             );
           })
           .map((call) => call.getNode());
@@ -277,6 +282,8 @@ const convexClientApiMustStayPrivate = modules(mobileProject)
     not(resideInFile("src/data/ConvexNativeListeningProgressProvider.tsx")),
   )
   .and()
+  .satisfy(not(resideInFile(nativeListeningProgressQueryBoundaryFile)))
+  .and()
   .satisfy(not(resideInFile("src/data/convexClientApi.test.ts")))
   .and()
   .satisfy(not(resideInFile("src/data/ConvexNativeLibraryProvider.test.tsx")))
@@ -297,6 +304,124 @@ const convexClientApiMustStayPrivate = modules(mobileProject)
       "Consume feature contexts from routes and screens; add exact function references only through a reviewed data adapter",
     imperative:
       "Do NOT import the native Convex client API seam outside audited auth, reader, Library, and listening-progress adapters",
+  })
+  .asSeverity("error");
+
+const nativeListeningProgressQueryBoundaryMustStayNarrow = modules(
+  mobileProject,
+)
+  .that()
+  .resideInFile(nativeListeningProgressQueryBoundaryFile)
+  .expectNonEmpty()
+  .should()
+  .onlyImportFrom("convex/react", "react", convexClientApiImport)
+  .rule({
+    id: "curio/privacy/native-listening-progress-query-boundary-narrow",
+    because:
+      "the imperative progress lookup needs one owned client port without exposing the full Convex client or raw function references to feature code",
+    suggestion:
+      "Keep this adapter limited to the exact listening-progress query and return unknown data for the account adapter to validate",
+    imperative:
+      "Only import React, Convex client hooks, and the audited native client API from the listening-progress query boundary",
+  })
+  .asSeverity("error");
+
+const nativeListeningProgressQueryBoundaryMustStayPrivate = modules(
+  mobileProject,
+)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(
+    not(resideInFile("src/data/ConvexNativeListeningProgressProvider.tsx")),
+  )
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(nativeListeningProgressQueryBoundaryImport)
+  .rule({
+    id: "curio/privacy/native-listening-progress-query-boundary-private",
+    because:
+      "the imperative query hook exposes an account-bound Convex client operation that belongs only to the audited listening-progress adapter",
+    suggestion:
+      "Consume NativeListeningProgressContext from feature code and keep imperative queries inside ConvexNativeListeningProgressProvider",
+    imperative:
+      "Do NOT import the listening-progress query boundary outside ConvexNativeListeningProgressProvider",
+  })
+  .asSeverity("error");
+
+const nativeClerkBoundaryMustStayNarrow = modules(mobileProject)
+  .that()
+  .resideInFile(nativeClerkBoundaryFile)
+  .expectNonEmpty()
+  .should()
+  .onlyImportFrom("@clerk/expo", "react")
+  .rule({
+    id: "curio/privacy/native-clerk-boundary-narrow",
+    because:
+      "the Clerk hook boundary should translate only the exact identity and session capabilities consumed by native auth",
+    suggestion:
+      "Keep Clerk provider composition in NativeDataAuthProvider and expose additional identity data only through an explicitly reviewed native contract",
+    imperative:
+      "Only import Clerk's root Expo hook interface and React's memo hook from NativeClerkBoundary",
+  })
+  .asSeverity("error");
+
+const nativeClerkBoundaryMustStayPrivate = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile("src/auth/NativeAuthContext.tsx")))
+  .expectNonEmpty()
+  .should()
+  .notImportFrom(nativeClerkBoundaryImport)
+  .rule({
+    id: "curio/privacy/native-clerk-boundary-private",
+    because:
+      "Clerk's token-bearing session resource is private input to the audited native auth bridge, not a feature-facing identity API",
+    suggestion:
+      "Consume NativeAuthContext or another tokenless feature context outside the auth bridge",
+    imperative:
+      "Do NOT import NativeClerkBoundary outside NativeAuthContext",
+  })
+  .asSeverity("error");
+
+const directClerkExpoImportsMustStayIsolated = modules(mobileProject)
+  .that()
+  .resideInFolder("{app,src}/**")
+  .and()
+  .satisfy(not(resideInFile(nativeClerkBoundaryFile)))
+  .and()
+  .satisfy(not(resideInFile(hostedAuthFlowFile)))
+  .and()
+  .satisfy(not(resideInFile("src/providers/NativeDataAuthProvider.tsx")))
+  .expectNonEmpty()
+  .should()
+  .notImportFrom("@clerk/expo", "@clerk/expo/**")
+  .rule({
+    id: "curio/privacy/native-clerk-sdk-isolated",
+    because:
+      "direct Clerk hooks and provider resources can expose credentials and broad SDK state beyond the audited native identity, hosted-auth, and provider seams",
+    suggestion:
+      "Use NativeAuthContext for feature identity, HostedAuthFlow for browser sign-in, NativeClerkBoundary for hook translation, and NativeDataAuthProvider for provider composition",
+    imperative:
+      "Do NOT import Clerk's Expo SDK outside NativeClerkBoundary, HostedAuthFlow, or NativeDataAuthProvider",
+  })
+  .asSeverity("error");
+
+const hostedAuthFlowMustStayNarrow = modules(mobileProject)
+  .that()
+  .resideInFile(hostedAuthFlowFile)
+  .expectNonEmpty()
+  .should()
+  .onlyImportFrom("@clerk/expo/hosted-auth", "react", "react-native")
+  .rule({
+    id: "curio/privacy/native-hosted-auth-flow-narrow",
+    because:
+      "browser sign-in needs one dedicated accessibility-aware Clerk adapter without exposing the rest of the SDK to native features",
+    suggestion:
+      "Keep hosted browser orchestration, accessibility isolation, and focus restoration in HostedAuthFlow",
+    imperative:
+      "Only import Clerk hosted auth, React, and React Native from HostedAuthFlow",
   })
   .asSeverity("error");
 
@@ -499,6 +624,7 @@ const convexNativeListeningProgressProviderMustStayNarrow = modules(
     nativeAccountSubjectBindingImport,
     nativeListeningProgressContextImport,
     convexClientApiImport,
+    nativeListeningProgressQueryBoundaryImport,
   )
   .rule({
     id: "curio/privacy/native-listening-progress-provider-narrow",
@@ -539,6 +665,12 @@ export default [
   mobileProductionModulesMustAvoidCommonJsRequire,
   convexClientApiMustStayNarrow,
   convexClientApiMustStayPrivate,
+  nativeListeningProgressQueryBoundaryMustStayNarrow,
+  nativeListeningProgressQueryBoundaryMustStayPrivate,
+  nativeClerkBoundaryMustStayNarrow,
+  nativeClerkBoundaryMustStayPrivate,
+  directClerkExpoImportsMustStayIsolated,
+  hostedAuthFlowMustStayNarrow,
   nativeOfflinePersistenceMustStayDeferred,
   nativeArticleAudioEphemeralStoreMustStayNarrow,
   nativePlaybackRatePreferenceStoreMustStayNarrow,

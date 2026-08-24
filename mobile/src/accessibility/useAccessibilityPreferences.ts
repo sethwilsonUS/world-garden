@@ -18,7 +18,7 @@ export interface AccessibilityPreferences {
 
 type PreferenceKey = Exclude<keyof AccessibilityPreferences, "isReady">;
 
-type ChangeEventName =
+export type AccessibilityPreferenceChangeEventName =
   | "boldTextChanged"
   | "darkerSystemColorsChanged"
   | "grayscaleChanged"
@@ -26,6 +26,19 @@ type ChangeEventName =
   | "invertColorsChanged"
   | "reduceMotionChanged"
   | "reduceTransparencyChanged";
+
+export interface AccessibilityPreferenceSubscription {
+  readonly remove: () => void;
+}
+
+export type SubscribeToAccessibilityPreference = (
+  eventName: AccessibilityPreferenceChangeEventName,
+  handler: (enabled: boolean) => void,
+) => AccessibilityPreferenceSubscription;
+
+const subscribeToNativeAccessibilityPreference: SubscribeToAccessibilityPreference =
+  (eventName, handler) =>
+    AccessibilityInfo.addEventListener(eventName, handler);
 
 export const DEFAULT_ACCESSIBILITY_PREFERENCES: AccessibilityPreferences = {
   reduceMotion: true,
@@ -54,7 +67,10 @@ export function getNonessentialMotionDuration(
  * Keeps the native accessibility display and motion preferences available to
  * components without requiring each component to manage native listeners.
  */
-export function useAccessibilityPreferences(): AccessibilityPreferences {
+export function useAccessibilityPreferences(
+  subscribe: SubscribeToAccessibilityPreference =
+    subscribeToNativeAccessibilityPreference,
+): AccessibilityPreferences {
   const [preferences, setPreferences] = useState<AccessibilityPreferences>(
     DEFAULT_ACCESSIBILITY_PREFERENCES,
   );
@@ -76,7 +92,7 @@ export function useAccessibilityPreferences(): AccessibilityPreferences {
 
     const watchPreference = (
       key: PreferenceKey,
-      eventName: ChangeEventName,
+      eventName: AccessibilityPreferenceChangeEventName,
       query: () => Promise<boolean>,
     ): Promise<void> => {
       const handleChange = (enabled: boolean) => {
@@ -85,7 +101,7 @@ export function useAccessibilityPreferences(): AccessibilityPreferences {
       };
 
       subscriptions.push(
-        AccessibilityInfo.addEventListener(eventName, handleChange),
+        subscribe(eventName, handleChange),
       );
 
       return Promise.resolve()
@@ -149,7 +165,7 @@ export function useAccessibilityPreferences(): AccessibilityPreferences {
       isMounted = false;
       subscriptions.forEach((subscription) => subscription.remove());
     };
-  }, []);
+  }, [subscribe]);
 
   return preferences;
 }

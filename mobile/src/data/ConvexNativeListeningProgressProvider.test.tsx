@@ -1,16 +1,19 @@
 import { act, renderHook, waitFor } from "@testing-library/react-native";
-import { useConvex, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import type { PropsWithChildren } from "react";
 
 import { useNativeAuth } from "../auth/NativeAuthContext";
 import { useNativeAccountSubjectBinding } from "../auth/NativeAccountSubjectBindingContext";
 import { useNativeListeningProgress } from "../listening/NativeListeningProgressContext";
 import { ConvexNativeListeningProgressProvider } from "./ConvexNativeListeningProgressProvider";
-import { convexClientApi } from "./convexClientApi";
+import { useNativeListeningProgressQueryClient } from "./NativeListeningProgressQueryBoundary";
 
 jest.mock("convex/react", () => ({
-  useConvex: jest.fn(),
   useMutation: jest.fn(),
+}));
+
+jest.mock("./NativeListeningProgressQueryBoundary", () => ({
+  useNativeListeningProgressQueryClient: jest.fn(),
 }));
 
 jest.mock("../auth/NativeAuthContext", () => ({
@@ -21,8 +24,10 @@ jest.mock("../auth/NativeAccountSubjectBindingContext", () => ({
   useNativeAccountSubjectBinding: jest.fn(),
 }));
 
-const useConvexMock = jest.mocked(useConvex);
 const useMutationMock = useMutation as jest.Mock;
+const useQueryClientMock = jest.mocked(
+  useNativeListeningProgressQueryClient,
+);
 const useNativeAuthMock = jest.mocked(useNativeAuth);
 const useNativeAccountSubjectBindingMock = jest.mocked(
   useNativeAccountSubjectBinding,
@@ -71,19 +76,16 @@ function readyAuth(
 
 beforeEach(() => {
   jest.clearAllMocks();
-  useConvexMock.mockReturnValue({ query } as unknown as ReturnType<
-    typeof useConvex
-  >);
+  useQueryClientMock.mockReturnValue({ getNative: query });
   useMutationMock.mockReturnValue(writeMutation);
   useNativeAccountSubjectBindingMock.mockReturnValue(null);
   useNativeAuthMock.mockReturnValue({
-    accountEpoch: signedOutEpoch,
     canSignOut: false,
     sessionEpoch: signedOutEpoch,
     sessionEpochKey: "native-epoch-signed-out",
     signOut: jest.fn(),
     state: { profile: null, status: "signedOut" },
-  } as unknown as ReturnType<typeof useNativeAuth>);
+  });
 });
 
 describe("ConvexNativeListeningProgressProvider", () => {
@@ -174,7 +176,6 @@ describe("ConvexNativeListeningProgressProvider", () => {
     expect(result.current.accountEpoch).toBe(accountAEpoch);
     expect(result.current.availability).toBe("ready");
     expect(query).toHaveBeenCalledWith(
-      convexClientApi.listeningProgress.getNative,
       {
         expectedAccountSubject: "user-a",
         sessionEpochKey: "native-epoch-a",
@@ -201,7 +202,6 @@ describe("ConvexNativeListeningProgressProvider", () => {
       status: "opened",
     });
     expect(query).toHaveBeenCalledWith(
-      convexClientApi.listeningProgress.getNative,
       expect.objectContaining({ wikiPageId: "736" }),
     );
   });
@@ -348,7 +348,6 @@ describe("ConvexNativeListeningProgressProvider", () => {
     });
     expect(query).toHaveBeenCalledTimes(1);
     expect(query).toHaveBeenCalledWith(
-      convexClientApi.listeningProgress.getNative,
       expect.objectContaining({
         expectedAccountSubject: "user-b",
         sessionEpochKey: "native-epoch-b",

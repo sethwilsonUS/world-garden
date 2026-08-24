@@ -74,7 +74,10 @@ test-only; the application bundle contains neither renderer.
 ## Architecture and web-safety boundary
 
 The root TypeScript, ESLint, and Vitest configurations exclude `mobile/`.
-Mobile owns independent lint, TypeScript, Jest, Expo, and EAS configurations.
+Mobile owns independent ESLint, TypeScript, Jest, Expo, and EAS configurations.
+The additive anti-slop policy is intentionally shared: mobile invokes the
+root Oxlint config explicitly, so both applications enforce the same selected
+rules without merging their framework-specific ESLint configurations.
 The root development manifest repeats the SDK-tested native peer versions only
 to pin npm's hoisted workspace peer installations; architecture rules prevent
 web production code from importing them, and they remain development-only.

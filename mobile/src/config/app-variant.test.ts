@@ -4,6 +4,7 @@ import {
   compileModsAsync,
   IOSConfig,
 } from "expo/config-plugins";
+import { createRequire } from "node:module";
 
 import createAppConfig, {
   bundledFontFiles,
@@ -434,8 +435,8 @@ describe("native application variants", () => {
       "@expo-google-fonts/jetbrains-mono/600SemiBold/JetBrainsMono_600SemiBold.ttf",
     ]);
     expect(fontPlugin).toEqual(["expo-font", { fonts: bundledFontFiles }]);
-    const resolveModule = (
-      require as unknown as { resolve(moduleId: string): string }
+    const resolveModule = createRequire(
+      `${process.cwd()}/package.json`,
     ).resolve;
     for (const fontFile of bundledFontFiles) {
       expect(() => resolveModule(fontFile)).not.toThrow();

@@ -23,6 +23,7 @@ import {
   ARTICLE_SECTION_NARRATION_VERSION,
   hashNarrationText,
 } from "../lib/section-narration";
+import { registeredInvoker } from "./testing/registeredFunctions";
 
 describe("Wikipedia revision cache identity", () => {
   const identity = {
@@ -287,11 +288,7 @@ describe("Wikipedia revision cache identity", () => {
       };
       return chain;
     });
-    const handler = (
-      getParseCache as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getParseCache);
 
     await expect(handler({ db: { query } }, identity)).resolves.toBeNull();
     await expect(handler({ db: { query } }, identity)).resolves.toBeNull();
@@ -322,11 +319,7 @@ describe("Wikipedia revision cache identity", () => {
       };
       return chain;
     });
-    const handler = (
-      getSectionLinksFromCache as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getSectionLinksFromCache);
     const args = { ...identity, sectionTitle: "index:3" };
 
     await expect(handler({ db: { query } }, args)).resolves.toBeNull();

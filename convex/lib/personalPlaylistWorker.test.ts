@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as ttsClient from "../../lib/tts-client";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import type { ActionCtx } from "../_generated/server";
 import { getFunctionName, type FunctionReference } from "convex/server";
 import { getTtsMetadata, getTtsProfile } from "../../lib/tts-profile";
 import { TTS_AI_COST_SOURCE_HEADER } from "../../lib/tts-source-attestation";
 import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
-import { processViewerPlaylistEpisodeForCtx } from "./personalPlaylistWorker";
+import {
+  processViewerPlaylistEpisodeForCtx,
+  type PersonalPlaylistWorkerCtx,
+} from "./personalPlaylistWorker";
 
 const buildCombinedUploadHarness = ({
   registration,
@@ -53,7 +55,10 @@ const buildCombinedUploadHarness = ({
   };
   let episodeReadCount = 0;
   const runQuery = vi.fn(
-    async (reference: FunctionReference<"query">, args: unknown) => {
+    async (
+      reference: FunctionReference<"query", "public" | "internal">,
+      args?: unknown,
+    ) => {
       void args;
       switch (getFunctionName(reference)) {
         case "personalPlaylist:getPersonalPlaylistEpisodeInternal":
@@ -72,7 +77,10 @@ const buildCombinedUploadHarness = ({
   );
   let uploadUrlCount = 0;
   const runMutation = vi.fn(
-    async (reference: FunctionReference<"mutation">, args: unknown) => {
+    async (
+      reference: FunctionReference<"mutation", "public" | "internal">,
+      args?: unknown,
+    ) => {
       void args;
       switch (getFunctionName(reference)) {
         case "personalPlaylist:markViewerPlaylistEpisodeRunningInternal":
@@ -114,7 +122,7 @@ const buildCombinedUploadHarness = ({
     storage: {
       getUrl: vi.fn().mockResolvedValue("https://cdn.test/section.mp3"),
     },
-  } as unknown as ActionCtx;
+  } satisfies PersonalPlaylistWorkerCtx;
 
   vi.spyOn(crypto, "randomUUID").mockReturnValue(owner);
   vi.spyOn(ttsClient, "generateTtsAudioWithMetadata").mockResolvedValue({
@@ -270,7 +278,7 @@ describe("personal playlist worker orchestration", () => {
       storage: {
         getUrl: vi.fn().mockResolvedValue("https://cdn.test/section.mp3"),
       },
-    } as unknown as ActionCtx;
+    } satisfies PersonalPlaylistWorkerCtx;
     vi.spyOn(crypto, "randomUUID").mockReturnValue(
       "00000000-0000-4000-8000-000000000001",
     );
@@ -409,7 +417,7 @@ describe("personal playlist worker orchestration", () => {
       storage: {
         getUrl: vi.fn().mockResolvedValue("https://cdn.test/section.mp3"),
       },
-    } as unknown as ActionCtx;
+    } satisfies PersonalPlaylistWorkerCtx;
     vi.spyOn(crypto, "randomUUID").mockReturnValue(owner);
     const generate = vi
       .spyOn(ttsClient, "generateTtsAudioWithMetadata")
@@ -578,7 +586,8 @@ describe("personal playlist worker orchestration", () => {
       runQuery,
       runMutation,
       scheduler: { runAfter },
-    } as unknown as ActionCtx;
+      storage: { getUrl: vi.fn().mockResolvedValue(null) },
+    } satisfies PersonalPlaylistWorkerCtx;
     vi.spyOn(crypto, "randomUUID").mockReturnValue(
       "00000000-0000-4000-8000-000000000001",
     );
@@ -623,7 +632,8 @@ describe("personal playlist worker orchestration", () => {
       runQuery,
       runMutation,
       scheduler: { runAfter },
-    } as unknown as ActionCtx;
+      storage: { getUrl: vi.fn().mockResolvedValue(null) },
+    } satisfies PersonalPlaylistWorkerCtx;
 
     await processViewerPlaylistEpisodeForCtx(ctx, {
       episodeId,
@@ -666,7 +676,8 @@ describe("personal playlist worker orchestration", () => {
       runQuery,
       runMutation,
       scheduler: { runAfter },
-    } as unknown as ActionCtx;
+      storage: { getUrl: vi.fn().mockResolvedValue(null) },
+    } satisfies PersonalPlaylistWorkerCtx;
 
     await processViewerPlaylistEpisodeForCtx(ctx, {
       episodeId,

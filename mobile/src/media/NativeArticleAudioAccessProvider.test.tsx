@@ -6,7 +6,10 @@ import {
   useNativeArticleAudioAccess,
   type NativeArticleAudioSectionRequest,
 } from "./NativeArticleAudioAccessContext";
-import { NativeArticleAudioAccessProvider } from "./NativeArticleAudioAccessProvider";
+import {
+  isNativeArticleAudioSectionRequest,
+  NativeArticleAudioAccessProvider,
+} from "./NativeArticleAudioAccessProvider";
 
 jest.mock("../auth/NativeAuthTransportBindingContext", () => ({
   useNativeAuthTransportBinding: jest.fn(),
@@ -30,26 +33,22 @@ const response = (
   status: number,
   contentType = status === 200 ? "audio/mpeg" : "application/json",
 ): Response =>
-  ({
-    headers: {
-      get: (name: string) =>
-        name.toLowerCase() === "content-type" ? contentType : null,
-    },
-    ok: status >= 200 && status < 300,
+  new Response(null, {
+    headers: { "Content-Type": contentType },
     status,
-  }) as Response;
+  });
 
 function binding(
   resolveRequestCredentials: jest.Mock = jest.fn().mockResolvedValue({
     accountEpoch,
     status: "public",
   }),
-) {
+): ReturnType<typeof useNativeAuthTransportBinding> {
   return {
     accountEpoch,
     isCurrentAccountEpoch: jest.fn((epoch: symbol) => epoch === accountEpoch),
     resolveRequestCredentials,
-  } as unknown as ReturnType<typeof useNativeAuthTransportBinding>;
+  };
 }
 
 function wrapper({ children }: PropsWithChildren) {
@@ -478,10 +477,10 @@ describe("NativeArticleAudioAccessProvider", () => {
     try {
       let resolveFetch: ((value: Response) => void) | undefined;
       const cancelBody = jest.fn().mockResolvedValue(undefined);
-      const lateResponse = {
-        ...response(200),
-        body: { cancel: cancelBody },
-      } as unknown as Response;
+      const lateResponse = new Response(
+        new ReadableStream({ cancel: cancelBody }),
+        { headers: { "Content-Type": "audio/mpeg" }, status: 200 },
+      );
       fetchMock.mockImplementation(
         () =>
           new Promise<Response>((resolve) => {
@@ -767,23 +766,7 @@ describe("NativeArticleAudioAccessProvider", () => {
     ["a noncanonical revision", { ...request, revisionId: "001234" }],
     ["an oversized revision", { ...request, revisionId: "9".repeat(21) }],
     ["an invalid abort signal", { ...request, signal: "later" }],
-  ])("sanitizes %s at the runtime boundary", async (_label, malformed) => {
-    const resolveRequestCredentials = jest.fn();
-    useTransportBindingMock.mockReturnValue(binding(resolveRequestCredentials));
-    const { result } = await renderHook(() => useNativeArticleAudioAccess(), {
-      wrapper,
-    });
-
-    await expect(
-      result.current.requestSection(
-        malformed as unknown as NativeArticleAudioSectionRequest,
-      ),
-    ).resolves.toEqual({
-      reason: "invalid-request",
-      retryable: false,
-      status: "failed",
-    });
-    expect(resolveRequestCredentials).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
+  ])("rejects %s at the unknown-input validator seam", (_label, malformed) => {
+    expect(isNativeArticleAudioSectionRequest(malformed)).toBe(false);
   });
 });

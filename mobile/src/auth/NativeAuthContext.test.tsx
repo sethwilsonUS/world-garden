@@ -1,4 +1,3 @@
-import { useAuth, useSession, useUser } from "@clerk/expo";
 import { act, renderHook } from "@testing-library/react-native";
 import { useConvexAuth, useQueries } from "convex/react";
 import * as React from "react";
@@ -9,12 +8,20 @@ import {
   useNativeAuth,
   type NativeSignOutResult,
 } from "./NativeAuthContext";
+import {
+  useNativeClerkAuth,
+  useNativeClerkSession,
+  useNativeClerkUser,
+  type NativeClerkAuth,
+  type NativeClerkSession,
+  type NativeClerkUser,
+} from "./NativeClerkBoundary";
 import { useNativeAuthTransportBinding } from "./NativeAuthTransportBindingContext";
 
-jest.mock("@clerk/expo", () => ({
-  useAuth: jest.fn(),
-  useSession: jest.fn(),
-  useUser: jest.fn(),
+jest.mock("./NativeClerkBoundary", () => ({
+  useNativeClerkAuth: jest.fn(),
+  useNativeClerkSession: jest.fn(),
+  useNativeClerkUser: jest.fn(),
 }));
 
 jest.mock("convex/react", () => ({
@@ -22,9 +29,9 @@ jest.mock("convex/react", () => ({
   useQueries: jest.fn(),
 }));
 
-const useAuthMock = jest.mocked(useAuth);
-const useSessionMock = jest.mocked(useSession);
-const useUserMock = jest.mocked(useUser);
+const useAuthMock = jest.mocked(useNativeClerkAuth);
+const useSessionMock = jest.mocked(useNativeClerkSession);
+const useUserMock = jest.mocked(useNativeClerkUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
 const useQueriesMock = useQueries as jest.Mock;
 const clerkSignOut = jest.fn<Promise<void>, []>();
@@ -32,14 +39,9 @@ const clerkGetToken = jest.fn<
   Promise<string | null>,
   [options?: { readonly skipCache?: boolean }]
 >();
-const clerkAuthGetToken = jest.fn<
-  Promise<string | null>,
-  [options?: { readonly skipCache?: boolean }]
->();
-
-type ClerkAuth = ReturnType<typeof useAuth>;
-type ClerkSession = ReturnType<typeof useSession>;
-type ClerkUser = ReturnType<typeof useUser>;
+type ClerkAuth = NativeClerkAuth;
+type ClerkSession = NativeClerkSession;
+type ClerkUser = NativeClerkUser;
 type ConvexAuth = ReturnType<typeof useConvexAuth>;
 
 let clerkAuth: ClerkAuth;
@@ -75,10 +77,10 @@ function sessionForAuth(auth: ClerkAuth): ClerkSession {
       isLoaded: false,
       isSignedIn: undefined,
       session: undefined,
-    } as ClerkSession;
+    };
   }
   if (!auth.isSignedIn) {
-    return { isLoaded: true, isSignedIn: false, session: null } as ClerkSession;
+    return { isLoaded: true, isSignedIn: false, session: null };
   }
 
   const resourceKey = `${auth.sessionId}:${auth.userId}`;
@@ -88,44 +90,41 @@ function sessionForAuth(auth: ClerkAuth): ClerkSession {
       getToken: clerkGetToken,
       id: auth.sessionId,
       user: { id: auth.userId },
-    } as unknown as NonNullable<ClerkSession["session"]>;
+    };
     clerkSessionResources.set(resourceKey, session);
   }
 
-  return { isLoaded: true, isSignedIn: true, session } as ClerkSession;
+  return { isLoaded: true, isSignedIn: true, session };
 }
 
 function signedInAuth(userId = "user-a", sessionId = "session-a"): ClerkAuth {
   return {
-    getToken: clerkAuthGetToken,
     isLoaded: true,
     isSignedIn: true,
     sessionId,
     signOut: clerkSignOut,
     userId,
-  } as unknown as ClerkAuth;
+  };
 }
 
 function signedOutAuth(): ClerkAuth {
   return {
-    getToken: clerkAuthGetToken,
     isLoaded: true,
     isSignedIn: false,
     sessionId: null,
     signOut: clerkSignOut,
     userId: null,
-  } as unknown as ClerkAuth;
+  };
 }
 
 function loadingAuth(): ClerkAuth {
   return {
-    getToken: clerkAuthGetToken,
     isLoaded: false,
     isSignedIn: undefined,
     sessionId: undefined,
     signOut: clerkSignOut,
     userId: undefined,
-  } as unknown as ClerkAuth;
+  };
 }
 
 function signedInUser(userId = "user-a"): ClerkUser {
@@ -133,7 +132,7 @@ function signedInUser(userId = "user-a"): ClerkUser {
     isLoaded: true,
     isSignedIn: true,
     user: { id: userId },
-  } as ClerkUser;
+  };
 }
 
 function AuthWrapper({ children }: PropsWithChildren) {
@@ -198,7 +197,6 @@ describe("NativeAuthProvider", () => {
       status: "authenticated",
     });
     expect(clerkGetToken).toHaveBeenCalledWith();
-    expect(clerkAuthGetToken).not.toHaveBeenCalled();
     expect(result.current.transport.accountEpoch).toBe(accountEpoch);
     expect(result.current.transport).not.toHaveProperty(
       "expectedAccountSubject",
@@ -248,7 +246,6 @@ describe("NativeAuthProvider", () => {
       result.current.transport.resolveRequestCredentials(),
     ).resolves.toEqual({ status: "unavailable" });
     expect(clerkGetToken).toHaveBeenCalledTimes(1);
-    expect(clerkAuthGetToken).not.toHaveBeenCalled();
     expect(JSON.stringify(result.current.auth)).not.toContain(cachedToken);
   });
 
@@ -268,7 +265,7 @@ describe("NativeAuthProvider", () => {
         id: "session-a",
         user: { id: "user-a" },
       },
-    } as unknown as ClerkSession;
+    };
     await rerender(undefined);
 
     await expect(firstBinding.resolveRequestCredentials()).resolves.toEqual({
@@ -652,9 +649,7 @@ describe("NativeAuthProvider", () => {
       wrapper: AuthWrapper,
     });
 
-    expect(useAuthMock).toHaveBeenCalledWith({
-      treatPendingAsSignedOut: false,
-    });
+    expect(useAuthMock).toHaveBeenCalledWith();
     expect(result.current.state).toEqual({
       profile: null,
       status: "loading",

@@ -29,9 +29,12 @@ type QuotaDoc = {
 };
 
 const matchesFilters = (
-  doc: Record<string, unknown>,
+  doc: object,
   filters: Array<[string, unknown]>,
-): boolean => filters.every(([field, value]) => doc[field] === value);
+): boolean => {
+  const entries = new Map(Object.entries(doc));
+  return filters.every(([field, value]) => entries.get(field) === value);
+};
 
 const createOverviewCtx = (seed?: {
   viewerTokenIdentifier?: string | null;
@@ -79,10 +82,7 @@ const createOverviewCtx = (seed?: {
             apply(builder);
             const docs = tableName === "personalPodcastFeeds" ? feeds : quotas;
             const filtered = docs.filter((doc) =>
-              matchesFilters(
-                doc as unknown as Record<string, unknown>,
-                filters,
-              ),
+              matchesFilters(doc, filters),
             );
             return {
               first: async () => filtered[0] ?? null,

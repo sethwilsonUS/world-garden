@@ -1,4 +1,3 @@
-import { useAuth, useSession, useUser } from "@clerk/expo";
 import { useConvexAuth, useQueries } from "convex/react";
 import {
   createContext,
@@ -13,6 +12,12 @@ import {
 } from "react";
 
 import { convexClientApi } from "../data/convexClientApi";
+import {
+  useNativeClerkAuth,
+  useNativeClerkSession,
+  useNativeClerkUser,
+  type NativeClerkSessionResource,
+} from "./NativeClerkBoundary";
 import { NativeAccountSubjectBindingProvider } from "./NativeAccountSubjectBindingContext";
 import {
   NativeAuthTransportBindingProvider,
@@ -60,9 +65,7 @@ interface NativeAuthTransportIdentity {
   readonly userId: string | null;
 }
 
-type ClerkSessionResource = NonNullable<
-  ReturnType<typeof useSession>["session"]
->;
+type ClerkSessionResource = NativeClerkSessionResource;
 
 export interface NativeAccountProfile {
   readonly email: string | null;
@@ -162,9 +165,9 @@ const NativeAuthContext = createContext<NativeAuthValue | null>(null);
 export function NativeAuthProvider({
   children,
 }: PropsWithChildren): ReactElement {
-  const clerkAuth = useAuth({ treatPendingAsSignedOut: false });
-  const clerkSession = useSession();
-  const clerkUser = useUser();
+  const clerkAuth = useNativeClerkAuth();
+  const clerkSession = useNativeClerkSession();
+  const clerkUser = useNativeClerkUser();
   const convexAuth = useConvexAuth();
   const [suppressedSessionId, setSuppressedSessionId] = useState<string | null>(
     null,

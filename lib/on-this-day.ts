@@ -42,14 +42,11 @@ type FeedPage = {
   thumbnail?: FeedThumbnail;
 };
 
-type FeedEvent = {
-  year?: number;
-  text?: string;
-  pages?: FeedPage[];
-};
+const isFeedRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 export type OnThisDayFeedPayload = Partial<
-  Record<OnThisDayCategory, FeedEvent[]>
+  Record<OnThisDayCategory, unknown[]>
 >;
 
 export type OnThisDayProvider = {
@@ -64,6 +61,16 @@ export type OnThisDayResolvedImage = {
 export type OnThisDayImageResolver = (
   requests: WikimediaMediaRequest[],
 ) => Promise<Map<string, OnThisDayResolvedImage>>;
+
+const parseOnThisDayFeedPayload = (value: unknown): OnThisDayFeedPayload => {
+  if (!isFeedRecord(value)) return {};
+  const payload: OnThisDayFeedPayload = {};
+  for (const category of ON_THIS_DAY_CATEGORIES) {
+    const events = value[category];
+    if (Array.isArray(events)) payload[category] = events;
+  }
+  return payload;
+};
 
 export const wikifeedsOnThisDayProvider: OnThisDayProvider = {
   async fetchAll({ month, day }) {
@@ -82,7 +89,7 @@ export const wikifeedsOnThisDayProvider: OnThisDayProvider = {
           `Wikimedia On This Day returned ${response.status} for ${month}-${day}`,
         );
       }
-      return (await response.json()) as OnThisDayFeedPayload;
+      return parseOnThisDayFeedPayload(await response.json());
     } finally {
       clearTimeout(timeout);
     }
@@ -147,9 +154,6 @@ const normalizePage = (page: FeedPage): OnThisDayArticleRef | null => {
     ...(page.pageid == null ? {} : { wikiPageId: String(page.pageid) }),
   };
 };
-
-const isFeedRecord = (value: unknown): value is Record<string, unknown> =>
-  Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 type ImageCandidate = OnThisDayImage & { sourceTitle: string };
 

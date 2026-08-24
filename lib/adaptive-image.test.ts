@@ -45,10 +45,7 @@ const installImageClass = ({
     }
   }
 
-  Object.defineProperty(window, "Image", {
-    configurable: true,
-    value: TestImage as unknown as typeof window.Image,
-  });
+  vi.stubGlobal("Image", TestImage);
 };
 
 beforeEach(() => resetAdaptiveImageAnalysisCacheForTests());

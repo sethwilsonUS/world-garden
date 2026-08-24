@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import type { FunctionReference } from "convex/server";
+import { anyApi } from "convex/server";
 import { action, internalMutation, internalQuery } from "./_generated/server";
-import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import {
   aiCostDurationMeasurementValidator,
   aiCostOperationValidator,
@@ -13,7 +13,6 @@ import {
   parseAiCostDay,
   parseAiCostStatementInput,
   verifyAiCostProviderAttemptAttestation,
-  type AiCostProviderAttempt,
   type AiCostStatementInput,
 } from "../lib/ai-cost-ledger-contract";
 import {
@@ -25,7 +24,6 @@ import {
   verifyAiCostReportAttestation,
   verifyAiCostCoverageResetAttestation,
   verifyAiCostStatementAttestation,
-  type AiCostCoverageEpochReset,
 } from "../lib/ai-cost-owner-attestation";
 import {
   buildAiCostReport,
@@ -42,13 +40,8 @@ import {
   resetAiCostLedgerCoverageForCtx,
   cleanupExpiredAiCostLedgerEventsForCtx,
   finalizeGenerationUseCohortsForCtx,
-  type ProviderAttemptWriteDisposition,
 } from "./lib/aiCostLedger";
-
-type ProviderAttemptMutationResult = {
-  recorded: boolean;
-  disposition: ProviderAttemptWriteDisposition;
-};
+import type { FunctionReferenceFromExport } from "./lib/functionReferenceFromExport";
 
 type CostStatementMutationResult = {
   recorded: boolean;
@@ -67,61 +60,25 @@ type CoverageResetMutationResult = {
   epochVersion: number;
 };
 
-const aiCostLedgerInternal = internal as unknown as {
-  aiCostLedger: {
-    recordProviderAttemptInternal: FunctionReference<
-      "mutation",
-      "internal",
-      { attempt: AiCostProviderAttempt },
-      ProviderAttemptMutationResult
-    >;
-    readCostReportDataInternal: FunctionReference<
-      "query",
-      "internal",
-      { from: number; to: number },
-      CostReportData
-    >;
-    upsertCostStatementInternal: FunctionReference<
-      "mutation",
-      "internal",
-      { statement: AiCostStatementInput },
-      CostStatementMutationResult
-    >;
-    maintainAiCostLedgerInternal: FunctionReference<
-      "mutation",
-      "internal",
-      Record<string, never>,
-      {
-        finalized: number;
-        deleted: number;
-        continuationScheduled: boolean;
-      }
-    >;
-    resetCoverageEpochInternal: FunctionReference<
-      "mutation",
-      "internal",
-      { reset: AiCostCoverageEpochReset },
-      CoverageResetMutationResult
-    >;
-  };
-};
-
 type CostIndexRange = {
   eq(field: string, value: unknown): CostIndexRange;
   gte(field: string, value: unknown): CostIndexRange;
   lt(field: string, value: unknown): CostIndexRange;
 };
 
-type CostDbRow = Record<string, unknown> & { _id: unknown };
+type CostDbDocumentByTable = {
+  aiCostDailyRollups: Doc<"aiCostDailyRollups">;
+  aiCostStatements: Doc<"aiCostStatements">;
+};
 
 type CostDb = {
-  query(table: string): {
+  query<TableName extends keyof CostDbDocumentByTable>(table: TableName): {
     withIndex(
       index: string,
       callback: (range: CostIndexRange) => CostIndexRange,
     ): {
-      unique(): Promise<CostDbRow | null>;
-      collect(): Promise<CostDbRow[]>;
+      unique(): Promise<CostDbDocumentByTable[TableName] | null>;
+      collect(): Promise<CostDbDocumentByTable[TableName][]>;
     };
   };
   insert(table: string, value: Record<string, unknown>): Promise<unknown>;
@@ -161,6 +118,10 @@ export const recordProviderAttemptInternal = internalMutation({
     await recordProviderAttemptForCtx(ctx, attempt),
 });
 
+const recordProviderAttemptInternalReference: FunctionReferenceFromExport<
+  typeof recordProviderAttemptInternal
+> = anyApi.aiCostLedger.recordProviderAttemptInternal;
+
 export const recordProviderAttempt = action({
   args: {
     attempt: aiCostProviderAttemptValidator,
@@ -184,7 +145,7 @@ export const recordProviderAttempt = action({
       };
     }
     return await ctx.runMutation(
-      aiCostLedgerInternal.aiCostLedger.recordProviderAttemptInternal,
+      recordProviderAttemptInternalReference,
       { attempt },
     );
   },
@@ -211,12 +172,16 @@ export const readCostReportDataInternal = internalQuery({
     const coverageStartedAt =
       await readAiCostLedgerCoverageStartedAtForCtx(ctx);
     return {
-      rollups: rollups as unknown as AiCostDailyRollupInput[],
-      statements: statements as unknown as AiCostStatementRecord[],
+      rollups,
+      statements,
       coverageStartedAt,
     };
   },
 });
+
+const readCostReportDataInternalReference: FunctionReferenceFromExport<
+  typeof readCostReportDataInternal
+> = anyApi.aiCostLedger.readCostReportDataInternal;
 
 export const readCostReport = action({
   args: {
@@ -233,7 +198,7 @@ export const readCostReport = action({
       );
     }
     const data = await ctx.runQuery(
-      aiCostLedgerInternal.aiCostLedger.readCostReportDataInternal,
+      readCostReportDataInternalReference,
       { from, to },
     );
     return buildAiCostReport({ fromDay, toDay, ...data });
@@ -255,7 +220,7 @@ export const upsertCostStatementInternal = internalMutation({
       )
       .unique();
     const existingInput = existing
-      ? getStatementFields(existing as unknown as AiCostStatementInput)
+      ? getStatementFields(existing)
       : null;
     const disposition = getCostStatementDisposition(
       existingInput,
@@ -293,6 +258,10 @@ export const upsertCostStatementInternal = internalMutation({
   },
 });
 
+const upsertCostStatementInternalReference: FunctionReferenceFromExport<
+  typeof upsertCostStatementInternal
+> = anyApi.aiCostLedger.upsertCostStatementInternal;
+
 export const upsertCostStatement = action({
   args: {
     statement: aiCostStatementInputValidator,
@@ -308,7 +277,7 @@ export const upsertCostStatement = action({
       return { recorded: false, disposition: "disabled" as const };
     }
     return await ctx.runMutation(
-      aiCostLedgerInternal.aiCostLedger.upsertCostStatementInternal,
+      upsertCostStatementInternalReference,
       { statement },
     );
   },
@@ -322,6 +291,10 @@ export const resetCoverageEpochInternal = internalMutation({
     }),
 });
 
+const resetCoverageEpochInternalReference: FunctionReferenceFromExport<
+  typeof resetCoverageEpochInternal
+> = anyApi.aiCostLedger.resetCoverageEpochInternal;
+
 export const resetCoverageEpoch = action({
   args: {
     reset: aiCostCoverageEpochResetValidator,
@@ -334,7 +307,7 @@ export const resetCoverageEpoch = action({
       );
     }
     return await ctx.runMutation(
-      aiCostLedgerInternal.aiCostLedger.resetCoverageEpochInternal,
+      resetCoverageEpochInternalReference,
       { reset },
     );
   },
@@ -415,7 +388,7 @@ export const maintainAiCostLedgerInternal = internalMutation({
     if (continuationScheduled) {
       await ctx.scheduler.runAfter(
         0,
-        aiCostLedgerInternal.aiCostLedger.maintainAiCostLedgerInternal,
+        maintainAiCostLedgerInternalReference,
         {},
       );
     }
@@ -426,3 +399,7 @@ export const maintainAiCostLedgerInternal = internalMutation({
     };
   },
 });
+
+const maintainAiCostLedgerInternalReference: FunctionReferenceFromExport<
+  typeof maintainAiCostLedgerInternal
+> = anyApi.aiCostLedger.maintainAiCostLedgerInternal;

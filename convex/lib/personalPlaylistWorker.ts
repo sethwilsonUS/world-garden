@@ -21,8 +21,16 @@ import {
 
 const PERSONAL_PODCAST_ALBUM_TITLE = "Curio Garden Personal Playlist";
 
+export type PersonalPlaylistWorkerCtx = Pick<
+  ActionCtx,
+  "runMutation" | "runQuery"
+> & {
+  scheduler: Pick<ActionCtx["scheduler"], "runAfter">;
+  storage: Pick<ActionCtx["storage"], "getUrl">;
+};
+
 export const processViewerPlaylistEpisodeForCtx = async (
-  ctx: ActionCtx,
+  ctx: PersonalPlaylistWorkerCtx,
   args: {
     episodeId: Id<"personalPlaylistEpisodes">;
     /** Ignored legacy field retained for direct orchestration compatibility. */

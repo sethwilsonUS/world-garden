@@ -263,7 +263,7 @@ describe("NativeArticleAudioPlayer", () => {
         appStateCurrentStateDescriptor,
       );
     } else {
-      delete (AppState as unknown as { currentState?: unknown }).currentState;
+      Reflect.deleteProperty(AppState, "currentState");
     }
   });
 

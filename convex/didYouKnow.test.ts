@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Id } from "./_generated/dataModel";
 import {
   claimDidYouKnowAudioJob,
   MAX_DID_YOU_KNOW_AUDIO_JOB_LEASE_MS,
@@ -6,6 +7,7 @@ import {
 } from "./didYouKnow";
 import { createPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
 import { getTtsMetadata, getTtsProfile } from "../lib/tts-profile";
+import { registeredInvoker } from "./testing/registeredFunctions";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -28,11 +30,7 @@ describe("Did You Know audio publication writes", () => {
       args: signedArgs,
     });
     const query = vi.fn();
-    const handler = (
-      saveDidYouKnowAudio as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveDidYouKnowAudio);
 
     await expect(
       handler(
@@ -53,7 +51,7 @@ describe("Did You Know audio publication writes", () => {
       owner: "stale-worker",
       status: "ready" as const,
       title: "Did You Know",
-      storageId: "storage-1",
+      storageId: "storage-1" as Id<"_storage">,
       ...metadata,
     };
     const attestation = await createPublicAudioWriteAttestation({
@@ -72,11 +70,7 @@ describe("Did You Know audio publication writes", () => {
         })),
       })),
     }));
-    const handler = (
-      saveDidYouKnowAudio as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveDidYouKnowAudio);
 
     await expect(
       handler(
@@ -103,11 +97,7 @@ describe("Did You Know audio publication writes", () => {
       args: writeArgs,
     });
     const insert = vi.fn(async () => "job-1");
-    const handler = (
-      claimDidYouKnowAudioJob as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(claimDidYouKnowAudioJob);
 
     await expect(
       handler(

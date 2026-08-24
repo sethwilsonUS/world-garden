@@ -1,17 +1,24 @@
-import { useAuth, useSession, useUser } from "@clerk/expo";
 import { act, renderHook } from "@testing-library/react-native";
 import { useConvexAuth, useMutation, useQueries } from "convex/react";
 import { useEffect, type PropsWithChildren } from "react";
 
 import { NativeAuthProvider } from "../auth/NativeAuthContext";
+import {
+  useNativeClerkAuth,
+  useNativeClerkSession,
+  useNativeClerkUser,
+  type NativeClerkAuth,
+  type NativeClerkSession,
+  type NativeClerkUser,
+} from "../auth/NativeClerkBoundary";
 import { useNativeLibrary } from "../library/NativeLibraryContext";
 import { ConvexNativeLibraryProvider } from "./ConvexNativeLibraryProvider";
 import { convexClientApi } from "./convexClientApi";
 
-jest.mock("@clerk/expo", () => ({
-  useAuth: jest.fn(),
-  useSession: jest.fn(),
-  useUser: jest.fn(),
+jest.mock("../auth/NativeClerkBoundary", () => ({
+  useNativeClerkAuth: jest.fn(),
+  useNativeClerkSession: jest.fn(),
+  useNativeClerkUser: jest.fn(),
 }));
 
 jest.mock("convex/react", () => ({
@@ -20,9 +27,9 @@ jest.mock("convex/react", () => ({
   useQueries: jest.fn(),
 }));
 
-const useAuthMock = jest.mocked(useAuth);
-const useSessionMock = jest.mocked(useSession);
-const useUserMock = jest.mocked(useUser);
+const useAuthMock = jest.mocked(useNativeClerkAuth);
+const useSessionMock = jest.mocked(useNativeClerkSession);
+const useUserMock = jest.mocked(useNativeClerkUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
 const useMutationMock = useMutation as jest.Mock;
 const useQueriesMock = useQueries as jest.Mock;
@@ -30,9 +37,9 @@ const clerkSignOut = jest.fn();
 const saveBookmarkMutation = jest.fn();
 const removeBookmarkMutation = jest.fn();
 
-type ClerkAuth = ReturnType<typeof useAuth>;
-type ClerkSession = ReturnType<typeof useSession>;
-type ClerkUser = ReturnType<typeof useUser>;
+type ClerkAuth = NativeClerkAuth;
+type ClerkSession = NativeClerkSession;
+type ClerkUser = NativeClerkUser;
 type ConvexAuth = ReturnType<typeof useConvexAuth>;
 
 let clerkAuth: ClerkAuth;
@@ -53,10 +60,10 @@ function sessionForAuth(auth: ClerkAuth): ClerkSession {
       isLoaded: false,
       isSignedIn: undefined,
       session: undefined,
-    } as ClerkSession;
+    };
   }
   if (!auth.isSignedIn) {
-    return { isLoaded: true, isSignedIn: false, session: null } as ClerkSession;
+    return { isLoaded: true, isSignedIn: false, session: null };
   }
 
   const resourceKey = `${auth.sessionId}:${auth.userId}`;
@@ -66,11 +73,11 @@ function sessionForAuth(auth: ClerkAuth): ClerkSession {
       getToken: jest.fn(),
       id: auth.sessionId,
       user: { id: auth.userId },
-    } as unknown as NonNullable<ClerkSession["session"]>;
+    };
     clerkSessionResources.set(resourceKey, session);
   }
 
-  return { isLoaded: true, isSignedIn: true, session } as ClerkSession;
+  return { isLoaded: true, isSignedIn: true, session };
 }
 
 function signedOutAuth(): ClerkAuth {
@@ -80,7 +87,7 @@ function signedOutAuth(): ClerkAuth {
     sessionId: null,
     signOut: clerkSignOut,
     userId: null,
-  } as unknown as ClerkAuth;
+  };
 }
 
 function signedInAuth(userId = "user-a", sessionId = "session-a"): ClerkAuth {
@@ -90,7 +97,7 @@ function signedInAuth(userId = "user-a", sessionId = "session-a"): ClerkAuth {
     sessionId,
     signOut: clerkSignOut,
     userId,
-  } as unknown as ClerkAuth;
+  };
 }
 
 function signedOutUser(): ClerkUser {
@@ -106,7 +113,7 @@ function signedInUser(userId = "user-a"): ClerkUser {
     isLoaded: true,
     isSignedIn: true,
     user: { id: userId },
-  } as ClerkUser;
+  };
 }
 
 function LibraryWrapper({ children }: PropsWithChildren) {

@@ -552,13 +552,13 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run eval:trending-podcast`        | Run the nonpublishing eight-profile evaluation against three frozen fixtures                              |
 | `npm run render:trending-podcast-eval` | Render one evaluation profile locally through strict Mini/Marin without publishing                        |
 | `npm run build`                        | Production build (handles Vercel environments)                                                            |
-| `npm run check`                        | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
+| `npm run check`                        | Canonical baseline: toolchain alignment, ESLint plus anti-slop, both TypeScript compilers, and the complete Vitest suite |
 | `npm run toolchain:check`              | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |
 | `npm run typecheck`                    | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files             |
 | `npm run test`                         | Run all Vitest tests once                                                                                 |
 | `npm run test:watch`                   | Watch mode tests                                                                                          |
 | `npm run test:e2e`                     | Run Chromium journeys and axe accessibility checks in local mode                                          |
-| `npm run lint`                         | ESLint                                                                                                    |
+| `npm run lint`                         | ESLint plus the selected vendored anti-slop rules through Oxlint                                          |
 | `npm run docs:check`                   | Validate repository-local Markdown links and heading anchors                                              |
 
 `npm run analytics:costs` and `npm run feedback` remain available as

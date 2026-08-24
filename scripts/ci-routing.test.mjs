@@ -44,6 +44,21 @@ const workflowJob = (name) => {
 
 describe("classifyPaths", () => {
   it.each([
+    ".oxlintrc.json",
+    "scripts/verify-anti-slop.mjs",
+    "tools/oxlint/anti-slop/src/index.ts",
+    "tools/oxlint/canary.ts",
+  ])("routes shared anti-slop input %s to web and mobile lint", (path) => {
+    expect(classifyPaths([path])).toEqual(routes(["web", "mobile", "docs"]));
+  });
+
+  it("routes vendored anti-slop Markdown to web and mobile lint", () => {
+    expect(classifyPaths(["tools/oxlint/anti-slop/UPSTREAM.md"])).toEqual(
+      routes(["web", "mobile", "docs"]),
+    );
+  });
+
+  it.each([
     ["mobile/app/index.tsx", ["mobile", "docs", "architecture"]],
     ["app/(app)/page.tsx", ["web", "docs", "architecture"]],
     ["components/SearchForm.tsx", ["web", "docs", "architecture"]],
@@ -66,11 +81,14 @@ describe("classifyPaths", () => {
     "package.json",
     "package-lock.json",
     ".nvmrc",
-  ])("routes shared input %s to web, mobile, docs, and architecture", (path) => {
-    expect(classifyPaths([path])).toEqual(
-      routes(["web", "mobile", "docs", "architecture"]),
-    );
-  });
+  ])(
+    "routes shared input %s to web, mobile, docs, and architecture",
+    (path) => {
+      expect(classifyPaths([path])).toEqual(
+        routes(["web", "mobile", "docs", "architecture"]),
+      );
+    },
+  );
 
   it("always validates docs because Markdown can target arbitrary files", () => {
     expect(classifyPaths(["app/layout.tsx"]).docs).toBe("true");
