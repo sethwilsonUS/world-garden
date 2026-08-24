@@ -46,6 +46,7 @@ describe("classifyPaths", () => {
   it.each([
     ".oxlintrc.json",
     "scripts/verify-anti-slop.mjs",
+    "scripts/verify-anti-slop.test.mjs",
     "tools/oxlint/anti-slop/src/index.ts",
     "tools/oxlint/canary.ts",
   ])("routes shared anti-slop input %s to web and mobile lint", (path) => {

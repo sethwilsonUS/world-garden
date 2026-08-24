@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 
+const verifierPath = fileURLToPath(import.meta.url);
 const EXPECTED_VERSION = "1.79.0";
 const EXPECTED_CODES = new Set([
   "anti-slop(no-chained-type-assertions)",
@@ -16,9 +17,7 @@ const EXPECTED_CODES = new Set([
 const MAX_ANTI_SLOP_SUPPRESSIONS = 0;
 const allowedSuppressionFiles = new Set();
 
-const rootDirectory = path.dirname(
-  path.dirname(fileURLToPath(import.meta.url)),
-);
+const rootDirectory = path.dirname(path.dirname(verifierPath));
 const oxlintLauncher = path.join(
   rootDirectory,
   "node_modules",
@@ -118,10 +117,7 @@ const ignoredDirectoryPaths = () => {
   return directoryPaths;
 };
 
-const sourceFiles = (
-  directory = rootDirectory,
-  skippedDirectoryPaths = ignoredDirectoryPaths(),
-) => {
+const sourceFiles = (directory, skippedDirectoryPaths, scanRootDirectory) => {
   const files = [];
   const entries = readdirSync(directory, { withFileTypes: true }).sort(
     (left, right) => left.name.localeCompare(right.name),
@@ -130,12 +126,19 @@ const sourceFiles = (
   for (const entry of entries) {
     const absolutePath = path.join(directory, entry.name);
     const relativePath = path
-      .relative(rootDirectory, absolutePath)
+      .relative(scanRootDirectory, absolutePath)
       .replaceAll(path.sep, "/");
 
     if (entry.isDirectory()) {
-      if (skippedDirectoryPaths.has(relativePath)) continue;
-      files.push(...sourceFiles(absolutePath, skippedDirectoryPaths));
+      if (
+        entry.name === "node_modules" ||
+        skippedDirectoryPaths.has(relativePath)
+      ) {
+        continue;
+      }
+      files.push(
+        ...sourceFiles(absolutePath, skippedDirectoryPaths, scanRootDirectory),
+      );
       continue;
     }
 
@@ -173,13 +176,20 @@ const commentRanges = (sourceText, relativePath) => {
   };
 };
 
-const assertSuppressionPolicy = () => {
+export const assertSuppressionPolicy = ({
+  scanRootDirectory = rootDirectory,
+  skippedDirectoryPaths = ignoredDirectoryPaths(),
+} = {}) => {
   const directiveCommentPattern =
     /^(?:\/\/|\/\*)\s*oxlint-(?:disable|enable)(?:-(?:line|next-line))?\b/u;
   const suppressions = [];
   const forbidden = [];
 
-  for (const { absolutePath, relativePath } of sourceFiles()) {
+  for (const { absolutePath, relativePath } of sourceFiles(
+    scanRootDirectory,
+    skippedDirectoryPaths,
+    scanRootDirectory,
+  )) {
     const sourceText = readFileSync(absolutePath, "utf8");
     const { ranges, sourceFile } = commentRanges(sourceText, relativePath);
     for (const range of ranges) {
@@ -287,17 +297,19 @@ const assertCanary = () => {
   }
 };
 
-try {
-  assertNodeRuntime();
-  assertPinnedPackages();
-  assertSuppressionPolicy();
-  assertCanary();
-  console.log(
-    `Anti-slop canary passed: all ${EXPECTED_CODES.size} selected rules loaded through the pinned Node launcher.`,
-  );
-} catch (error) {
-  console.error(
-    `Anti-slop verification failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  process.exitCode = 1;
+if (import.meta.main) {
+  try {
+    assertNodeRuntime();
+    assertPinnedPackages();
+    assertSuppressionPolicy();
+    assertCanary();
+    console.log(
+      `Anti-slop canary passed: all ${EXPECTED_CODES.size} selected rules loaded through the pinned Node launcher.`,
+    );
+  } catch (error) {
+    console.error(
+      `Anti-slop verification failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+  }
 }

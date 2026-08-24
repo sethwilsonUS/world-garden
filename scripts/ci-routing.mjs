@@ -83,6 +83,7 @@ const webConfigurationFiles = new Set([
 const sharedLintFiles = new Set([
   ".oxlintrc.json",
   "scripts/verify-anti-slop.mjs",
+  "scripts/verify-anti-slop.test.mjs",
 ]);
 
 const routeKnownPath = (filePath, routes) => {
