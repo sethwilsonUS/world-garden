@@ -17,7 +17,7 @@ const expoAudioRoot = path.dirname(require.resolve("expo-audio/package.json"));
 const playlistPatchSource = fs.readFileSync(
   path.resolve(
     __dirname,
-    "../../patches/expo-audio-57.0.3-playlist-media-session.patch",
+    "../../patches/expo-audio-57.0.4-playlist-media-session.patch",
   ),
   "utf8",
 );
@@ -77,7 +77,7 @@ const fixtureRoots: string[] = [];
 
 const createInstalledFixture = (
   sources: ExpoAudioPlaylistMediaSessionSources,
-  version = "57.0.3",
+  version = "57.0.4",
 ): string => {
   const projectRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "curio-expo-audio-safety-"),
@@ -655,9 +655,9 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
 
   it("does not write any target when version or source preflight fails", () => {
     const original = readInstalledSources();
-    const wrongVersionRoot = createInstalledFixture(original, "57.0.4");
+    const wrongVersionRoot = createInstalledFixture(original, "57.0.3");
     expect(() => patchInstalledExpoAudio(wrongVersionRoot, "apply")).toThrow(
-      /Expected expo-audio 57\.0\.3/,
+      /Expected expo-audio 57\.0\.4/,
     );
     expect(readFixtureSources(wrongVersionRoot)).toEqual(original);
 
@@ -688,7 +688,7 @@ describe("the pinned Expo Audio background-playback safety backport", () => {
     };
 
     expect(() => applyExpoAudioBackgroundSafety(changed)).toThrow(
-      /Expo Audio 57\.0\.3 Android controls source changed/,
+      /Expo Audio 57\.0\.4 Android controls source changed/,
     );
   });
 });

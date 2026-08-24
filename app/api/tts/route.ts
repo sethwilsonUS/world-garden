@@ -3,10 +3,12 @@ import { randomUUID } from "node:crypto";
 import { auth } from "@clerk/nextjs/server";
 import { track } from "@vercel/analytics/server";
 import {
+  DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
   TTS_MIN_TEXT_LENGTH,
   getServerTtsMaxWordsPerRequest,
   type TtsRequest,
 } from "@/lib/tts-contract";
+import { getTrendingTtsProfile } from "@/lib/trending-audio-profile";
 import {
   buildTtsMetadataHeaders,
   getTtsMetadata,
@@ -701,6 +703,15 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
+    if (text.length > DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST) {
+      return NextResponse.json(
+        {
+          error: `Text exceeds ${DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST} characters; split it into smaller chunks before requesting TTS`,
+        },
+        { status: 400 },
+      );
+    }
+
     if (expectedTtsCacheKey.length > 500) {
       return NextResponse.json(
         { error: "Expected TTS profile key is invalid" },
@@ -712,6 +723,8 @@ export const POST = async (req: NextRequest) => {
     const localMode = isLocalMode();
     const isTrustedRequest =
       !localMode && (await isTtsQuotaBypassRequest(req.headers));
+    const fallbackIsForbidden =
+      isTrustedRequest && body.fallbackPolicy === "forbid";
     const userId =
       localMode || isTrustedRequest ? null : await getAuthenticatedUserId();
     const providerAccess = resolveTtsProviderAccess({
@@ -729,7 +742,12 @@ export const POST = async (req: NextRequest) => {
       );
     }
 
-    const requestedProfile = getTtsProfile(provider, voiceId);
+    const requestedProfile =
+      fallbackIsForbidden &&
+      aiCostSource === "trending_podcast" &&
+      provider === "openai"
+        ? getTrendingTtsProfile()
+        : getTtsProfile(provider, voiceId);
     if (
       expectedTtsCacheKey &&
       requestedProfile.ttsCacheKey !== expectedTtsCacheKey
@@ -753,6 +771,12 @@ export const POST = async (req: NextRequest) => {
       effectiveProvider === provider
         ? requestedProfile
         : getTtsProfile(effectiveProvider);
+    if (fallbackIsForbidden && primaryProfile.provider !== "openai") {
+      return NextResponse.json(
+        { error: "OpenAI TTS is unavailable and Edge fallback is forbidden" },
+        { status: 503 },
+      );
+    }
     quotaDecision = await resolveOpenAiTtsQuota({
       headers: req.headers,
       provider: primaryProfile.provider,
@@ -798,6 +822,15 @@ export const POST = async (req: NextRequest) => {
       return response;
     }
 
+    if (quotaDecision.exceeded && fallbackIsForbidden) {
+      return NextResponse.json(
+        {
+          error: "OpenAI TTS quota is exceeded and Edge fallback is forbidden",
+        },
+        { status: 503 },
+      );
+    }
+
     if (quotaDecision.exceeded) {
       const edgeProfile = getTtsProfile("edge", voiceId);
       effectiveProvider = "edge";
@@ -831,10 +864,9 @@ export const POST = async (req: NextRequest) => {
     }
 
     try {
-      const openAiTimeoutMs = Math.min(
-        getOpenAiInteractiveFallbackMs(),
-        getTtsUpstreamTimeoutMs(),
-      );
+      const openAiTimeoutMs = fallbackIsForbidden
+        ? getTtsUpstreamTimeoutMs()
+        : Math.min(getOpenAiInteractiveFallbackMs(), getTtsUpstreamTimeoutMs());
       const audioBuffer = await generateOpenAiSpeech(text, primaryProfile, {
         timeoutMs: openAiTimeoutMs,
         attempt: {
@@ -865,7 +897,7 @@ export const POST = async (req: NextRequest) => {
       });
       return response;
     } catch (error) {
-      if (!isTtsFallbackEnabled()) {
+      if (fallbackIsForbidden || !isTtsFallbackEnabled()) {
         throw error;
       }
 

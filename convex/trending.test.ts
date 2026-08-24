@@ -4,11 +4,17 @@ import {
   claimTrendingBriefJob,
   finalizeTrendingBriefJob,
   generateUploadUrl,
+  getTrendingBriefByDate,
   MAX_TRENDING_BRIEF_JOB_LEASE_MS,
   saveTrendingBrief,
+  saveTrendingBriefDraft,
+  saveTrendingBriefResearchDraft,
 } from "./trending";
 import { createPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
-import { getTrendingAudioCacheKey } from "../lib/trending-audio-profile";
+import {
+  getTrendingAudioCacheKey,
+  getTrendingTtsMetadata,
+} from "../lib/trending-audio-profile";
 import { getTtsMetadata, getTtsProfile } from "../lib/tts-profile";
 
 const getHandler = (registeredFunction: unknown) =>
@@ -24,6 +30,42 @@ afterEach(() => {
 });
 
 describe("Trending publication write attestations", () => {
+  it("keeps historical Edge episodes readable", async () => {
+    const edge = getTtsMetadata(getTtsProfile("edge"));
+    const record = {
+      _id: "brief-edge",
+      trendingDate: "2026-07-25",
+      status: "ready",
+      storageId: "edge-storage",
+      provider: edge.provider,
+      ttsModel: edge.model,
+      voiceId: edge.voiceId,
+      promptVersion: edge.promptVersion,
+      ttsNormVersion: edge.ttsNormVersion,
+      ttsCacheKey: `${edge.ttsCacheKey}:trending-script:ai-disclosure-v1`,
+    };
+    const chain = {
+      withIndex: vi.fn(() => chain),
+      first: vi.fn(async () => record),
+    };
+
+    await expect(
+      getHandler(getTrendingBriefByDate)(
+        {
+          db: { query: vi.fn(() => chain) },
+          storage: {
+            getUrl: vi.fn(async () => "https://cdn.example/edge.mp3"),
+          },
+        },
+        { trendingDate: record.trendingDate },
+      ),
+    ).resolves.toMatchObject({
+      _id: "brief-edge",
+      provider: "edge",
+      audioUrl: "https://cdn.example/edge.mp3",
+    });
+  });
+
   it("verifies an upload attestation before generating a storage URL", async () => {
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
     const validAttestation = await createPublicAudioWriteAttestation({
@@ -105,6 +147,7 @@ describe("Trending publication write attestations", () => {
       owner: "worker-1",
       status: "pending" as const,
       articleTitles: ["Example Trend"],
+      briefPromptVersion: "trending-deep-context-v1",
     };
     const validAttestation = await createPublicAudioWriteAttestation({
       pipeline: "trending",
@@ -151,20 +194,187 @@ describe("Trending publication write attestations", () => {
     );
   });
 
-  it("rejects stale owners and non-Edge ready publication metadata before writing", async () => {
+  it("patches only a replacement draft under the active publication lease", async () => {
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
-    const edge = getTtsMetadata(getTtsProfile("edge"));
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const draftBrief = {
+      headline: "Replacement headline",
+      summary: "Replacement summary",
+      podcastDescription: "Replacement description",
+      spokenSummary: "Replacement spoken summary",
+      keyPoints: ["One", "Two", "Three"],
+      sources: [{ title: "News", url: "https://news.example/story" }],
+      model: "gpt-5.6-luna",
+      briefPromptVersion: "trending-brief-deep-research-v1",
+    };
+    const draftArgs = {
+      trendingDate: "2026-08-24",
+      owner: "worker-1",
+      draftBrief,
+    };
+    const validAttestation = await createPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: draftArgs,
+    });
+    const tamperedAttestation = await createPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: {
+        ...draftArgs,
+        draftBrief: { ...draftBrief, model: "gpt-5.6-sol" },
+      },
+    });
+    const query = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: 60_000,
+              }
+            : { _id: "brief-1", status: "ready", storageId: "storage-1" },
+        ),
+      };
+      return chain;
+    });
+    const patch = vi.fn();
+    const handler = getHandler(saveTrendingBriefDraft);
+
+    await expect(
+      handler(
+        { db: { query, patch } },
+        { ...draftArgs, attestation: tamperedAttestation },
+      ),
+    ).rejects.toThrow("A valid server attestation is required");
+    expect(query).not.toHaveBeenCalled();
+
+    const lostLeaseQuery = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "another-worker",
+                leaseExpiresAt: 60_000,
+              }
+            : { _id: "brief-1", status: "ready", storageId: "storage-1" },
+        ),
+      };
+      return chain;
+    });
+    await expect(
+      handler(
+        { db: { query: lostLeaseQuery, patch } },
+        { ...draftArgs, attestation: validAttestation },
+      ),
+    ).rejects.toThrow("publication lease was lost");
+    expect(patch).not.toHaveBeenCalled();
+
+    const notReadyQuery = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: 60_000,
+              }
+            : { _id: "brief-1", status: "failed" },
+        ),
+      };
+      return chain;
+    });
+    await expect(
+      handler(
+        { db: { query: notReadyQuery, patch } },
+        { ...draftArgs, attestation: validAttestation },
+      ),
+    ).rejects.toThrow("A ready Trending brief is required to cache a draft.");
+    expect(patch).not.toHaveBeenCalled();
+
+    await expect(
+      handler(
+        { db: { query, patch } },
+        { ...draftArgs, attestation: validAttestation },
+      ),
+    ).resolves.toBe("brief-1");
+    expect(patch).toHaveBeenCalledWith("brief-1", {
+      draftBrief,
+      updatedAt: 1_000,
+    });
+  });
+
+  it("caches repair research only under the active publication lease", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const draftResearch = {
+      text: "Topic 1: Example\nTrigger: supported.",
+      sources: [{ title: "News", url: "https://news.example/story" }],
+      model: "gpt-5.6-luna",
+      briefPromptVersion: "trending-brief-deep-research-v1",
+      articleTitles: ["Example"],
+    };
+    const draftArgs = {
+      trendingDate: "2026-08-24",
+      owner: "worker-1",
+      draftResearch,
+    };
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: draftArgs,
+    });
+    const query = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: 60_000,
+              }
+            : { _id: "brief-1", status: "failed" },
+        ),
+      };
+      return chain;
+    });
+    const patch = vi.fn();
+
+    await expect(
+      getHandler(saveTrendingBriefResearchDraft)(
+        { db: { query, patch } },
+        { ...draftArgs, attestation },
+      ),
+    ).resolves.toBe("brief-1");
+    expect(patch).toHaveBeenCalledWith("brief-1", {
+      draftResearch,
+      updatedAt: 1_000,
+    });
+  });
+
+  it("accepts exact Trending Mini metadata and rejects Edge for new ready publication", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const mini = {
+      ...getTrendingTtsMetadata(),
+      ttsCacheKey: getTrendingAudioCacheKey(),
+    };
     const saveArgs = {
       trendingDate: "2026-07-26",
       owner: "worker-1",
       status: "ready" as const,
       storageId: "storage-1",
-      provider: edge.provider,
-      ttsModel: edge.model,
-      voiceId: edge.voiceId,
-      promptVersion: edge.promptVersion,
-      ttsNormVersion: edge.ttsNormVersion,
-      ttsCacheKey: getTrendingAudioCacheKey(),
+      provider: mini.provider,
+      ttsModel: mini.model,
+      voiceId: mini.voiceId,
+      promptVersion: mini.promptVersion,
+      ttsNormVersion: mini.ttsNormVersion,
+      ttsCacheKey: mini.ttsCacheKey,
     };
     const handler = getHandler(saveTrendingBrief);
     const insert = vi.fn();
@@ -193,37 +403,62 @@ describe("Trending publication write attestations", () => {
       ),
     ).rejects.toThrow("publication lease was lost");
 
-    const spoofedArgs = { ...saveArgs, provider: "openai" };
-    const spoofedAttestation = await createPublicAudioWriteAttestation({
+    const edge = getTtsMetadata(getTtsProfile("edge"));
+    const edgeArgs = {
+      ...saveArgs,
+      provider: edge.provider,
+      ttsModel: edge.model,
+      voiceId: edge.voiceId,
+      promptVersion: edge.promptVersion,
+      ttsNormVersion: edge.ttsNormVersion,
+      ttsCacheKey: `${edge.ttsCacheKey}:trending-script:ai-disclosure-v1`,
+    };
+    const edgeAttestation = await createPublicAudioWriteAttestation({
       pipeline: "trending",
       operation: "save-record",
-      args: spoofedArgs,
+      args: edgeArgs,
     });
-    const matchingQuery = vi.fn(() => {
+    const matchingQuery = vi.fn((table: string) => {
       const chain = {
         withIndex: vi.fn(() => chain),
-        first: vi.fn(async () => ({
-          status: "running",
-          leaseOwner: "worker-1",
-          leaseExpiresAt: Date.now() + 60_000,
-        })),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: Date.now() + 60_000,
+              }
+            : null,
+        ),
       };
       return chain;
     });
+
     await expect(
       handler(
         { db: { query: matchingQuery, insert, patch } },
-        { ...spoofedArgs, attestation: spoofedAttestation },
+        { ...saveArgs, attestation: staleAttestation },
       ),
-    ).rejects.toThrow("current Edge TTS profile");
+    ).resolves.toBeUndefined();
+    expect(insert).toHaveBeenCalledOnce();
+
+    insert.mockClear();
+    await expect(
+      handler(
+        { db: { query: matchingQuery, insert, patch } },
+        { ...edgeArgs, attestation: edgeAttestation },
+      ),
+    ).rejects.toThrow("current Trending OpenAI TTS profile");
     expect(insert).not.toHaveBeenCalled();
-    expect(patch).not.toHaveBeenCalled();
   });
 
   it("schedules an external generation cohort after a generated asset is saved", async () => {
     vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
-    const edge = getTtsMetadata(getTtsProfile("edge"));
+    const mini = {
+      ...getTrendingTtsMetadata(),
+      ttsCacheKey: getTrendingAudioCacheKey(),
+    };
     const saveArgs = {
       trendingDate: "2026-07-26",
       owner: "worker-1",
@@ -231,11 +466,11 @@ describe("Trending publication write attestations", () => {
       storageId: "storage-1",
       durationSeconds: 12,
       byteLength: 2_048,
-      provider: edge.provider,
-      ttsModel: edge.model,
-      voiceId: edge.voiceId,
-      promptVersion: edge.promptVersion,
-      ttsNormVersion: edge.ttsNormVersion,
+      provider: mini.provider,
+      ttsModel: mini.model,
+      voiceId: mini.voiceId,
+      promptVersion: mini.promptVersion,
+      ttsNormVersion: mini.ttsNormVersion,
       ttsCacheKey: getTrendingAudioCacheKey(),
       ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
       ledgerGeneratedAt: 1_700_000_000_000,
@@ -279,13 +514,114 @@ describe("Trending publication write attestations", () => {
     expect(runAfter.mock.calls[0]?.[2]).toMatchObject({
       eventKey: saveArgs.ledgerAssetKey,
       source: "trending_podcast",
-      provider: "edge",
-      model: edge.model,
+      provider: "openai",
+      model: mini.model,
       byteLength: 2_048,
       durationMs: 12_000,
       externalConsumptionUnknown: true,
       generatedAt: saveArgs.ledgerGeneratedAt,
     });
+  });
+
+  it("preserves a historical Edge variant and clears the committed replacement draft", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    const mini = {
+      ...getTrendingTtsMetadata(),
+      ttsCacheKey: getTrendingAudioCacheKey(),
+    };
+    const edge = getTtsMetadata(getTtsProfile("edge"));
+    const edgeCacheKey = `${edge.ttsCacheKey}:trending-script:ai-disclosure-v1`;
+    const saveArgs = {
+      trendingDate: "2026-07-26",
+      owner: "worker-1",
+      status: "ready" as const,
+      storageId: "mini-storage",
+      durationSeconds: 120,
+      byteLength: 4_096,
+      provider: mini.provider,
+      ttsModel: mini.model,
+      voiceId: mini.voiceId,
+      promptVersion: mini.promptVersion,
+      ttsNormVersion: mini.ttsNormVersion,
+      ttsCacheKey: mini.ttsCacheKey,
+    };
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: saveArgs,
+    });
+    const query = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: Date.now() + 60_000,
+              }
+            : {
+                _id: "brief-1",
+                draftBrief: {
+                  headline: "Replacement headline",
+                  summary: "Replacement summary",
+                  podcastDescription: "Replacement description",
+                  spokenSummary: "Replacement spoken summary",
+                  keyPoints: ["One", "Two", "Three"],
+                  sources: [],
+                  model: "gpt-5.6-luna",
+                  briefPromptVersion: "trending-brief-deep-research-v1",
+                },
+                audioVariants: [
+                  {
+                    storageId: "edge-storage",
+                    ttsCacheKey: edgeCacheKey,
+                    provider: edge.provider,
+                    model: edge.model,
+                    voiceId: edge.voiceId,
+                    promptVersion: edge.promptVersion,
+                    ttsNormVersion: edge.ttsNormVersion,
+                    createdAt: 1_700_000_000_000,
+                  },
+                ],
+              },
+        ),
+      };
+      return chain;
+    });
+    const patch = vi.fn();
+
+    await expect(
+      getHandler(saveTrendingBrief)(
+        { db: { query, insert: vi.fn(), patch } },
+        { ...saveArgs, attestation },
+      ),
+    ).resolves.toBe("brief-1");
+    expect(patch).toHaveBeenCalledWith(
+      "brief-1",
+      expect.objectContaining({
+        audioVariants: [
+          expect.objectContaining({
+            storageId: "edge-storage",
+            provider: "edge",
+            ttsCacheKey: edgeCacheKey,
+          }),
+          expect.objectContaining({
+            storageId: "mini-storage",
+            provider: "openai",
+            ttsCacheKey: mini.ttsCacheKey,
+          }),
+        ],
+      }),
+    );
+    const [, patchedFields] = patch.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(Object.hasOwn(patchedFields, "draftBrief")).toBe(true);
+    expect(patchedFields.draftBrief).toBeUndefined();
+    expect(Object.hasOwn(patchedFields, "draftResearch")).toBe(true);
+    expect(patchedFields.draftResearch).toBeUndefined();
   });
 
   it("verifies finalization arguments before releasing the worker lease", async () => {

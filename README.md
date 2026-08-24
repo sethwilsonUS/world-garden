@@ -14,13 +14,13 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Audio playback** — Listen to any Wikipedia article section by section. Play a single section, or hit Play All for the full lean-back experience with automatic progression. Adjustable speed from 0.5× to 3×, with your preference saved between sessions. Resume from where you left off when you return to an article. Download full articles as MP3 for offline listening.
 
-**Audio** — Public and signed-out listening uses Microsoft Edge TTS, while signed-in article listening and personal playlists use OpenAI `gpt-4o-mini-tts` with Edge fallback. Generated synthetic speech is cached in Convex by provider, model, voice, prompt version, and normalization version so narration changes can regenerate cleanly without breaking existing audio.
+**Audio** — Public and signed-out article listening uses Microsoft Edge TTS, while signed-in article listening and personal playlists use OpenAI `gpt-4o-mini-tts` with Edge fallback. The daily Trending podcast is a pinned public exception: Mini/Marin narration must succeed or the job retries without publishing. Generated synthetic speech is cached in Convex by provider, model, voice, prompt version, and normalization version so narration changes can regenerate cleanly without breaking existing audio.
 
 **Podcasts** — Curio Garden publishes multiple RSS podcast feeds. The featured-article feed turns Wikipedia's featured article into a full listening session, the trending-brief feed turns the daily AI-generated trend briefing into a podcast episode with episode-specific collage artwork, and signed-in users get a private-by-token personal playlist feed that mirrors their dashboard queue.
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, three On This Day highlights, and a compact Trending teaser. The dedicated On This Day page expands the daily edition into accessible timelines for highlights, events, births, deaths, and holidays. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
-**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. The brief text is generated once per trending date through the OpenAI Responses API with web search, narrated publicly with Edge TTS, and cached in Convex.
+**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. Luna performs bounded high-context research for each of ten topics, then writes a 300–420-word sourced script with explicit uncertainty. The brief is generated once per trending date, narrated with OpenAI Mini/Marin, and cached in Convex with model and prompt-version provenance.
 
 **Accessible article context** — Articles can add revision-matched maps, timelines, charts, and diagrams when Wikipedia's structured source supports them. Every visual has a useful text equivalent, descriptive caption, keyboard-operable controls, and downloadable source data where appropriate. Visual context stays out of article narration and the Play All queue.
 
@@ -41,7 +41,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **Framework:** Next.js (App Router) with TypeScript
 - **Backend/Data:** Convex (queries, mutations, actions, file storage) — optional, runs without it in local mode
 - **Auth:** Clerk for sign-in and account sessions, bridged into Convex auth for viewer-scoped data
-- **TTS:** Edge TTS for public audio; authenticated OpenAI `gpt-4o-mini-tts` with Edge fallback and Convex-backed variant caching
+- **TTS:** Edge TTS for general public audio; authenticated OpenAI `gpt-4o-mini-tts` with Edge fallback; strict Mini/Marin for the daily Trending podcast; Convex-backed variant caching
 - **AI:** Direct OpenAI Responses API for daily trend brief generation, web search, and optional context-description enhancement
 - **Rich context:** MapLibre GL and Apache ECharts as progressive visual enhancements over semantic HTML views
 - **Styling:** Tailwind CSS 4 + CSS custom properties
@@ -61,7 +61,7 @@ The live product stays focused on listening. The [/about](https://curiogarden.or
 1. Wikipedia Action and REST APIs provide revisioned article text, section structure, citations, daily discovery data, and per-file media metadata.
 2. The app builds revision-matched narration tracks from prose, lists, and tables while preserving revision links, contributor history, and Wikimedia media licensing.
 3. Convex caches articles, parsed page data, generated audio variants, account libraries, personal queues, and podcast publication state. Local mode swaps this layer for browser storage and direct Wikipedia requests.
-4. Edge TTS narrates public and signed-out audio. Signed-in article listening and personal playlists use OpenAI speech with Edge fallback. Section audio is cached by provider, model, voice, prompt, and normalization version.
+4. Edge TTS narrates general public and signed-out audio. Signed-in article listening and personal playlists use OpenAI speech with Edge fallback. The Trending podcast uses strict Mini/Marin narration and fails cleanly instead of publishing an Edge fallback; the next cron can reuse already-researched prose. Section audio is cached by provider, model, voice, prompt, and normalization version.
 5. The same article/audio model powers accessible browser playback, downloads, public featured-article podcasts, AI-labeled trending briefings, and private playlist feeds.
 
 This design deliberately keeps the app useful without an account, distinguishes Wikipedia text from Curio Garden-generated material, and makes source revision and media provenance part of the data model rather than footer-only copy.
@@ -70,13 +70,13 @@ This design deliberately keeps the app useful without an account, distinguishes 
 
 Text is normalized before synthesis — stripping citation markers and expanding abbreviations (St. → Saint, Dr. → Doctor, etc.) for cleaner pronunciation.
 
-**Edge TTS** is the default public provider for `/api/tts`, using Microsoft neural voices through the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. The default voice is `en-US-AriaNeural`. Newly generated Featured, Trending, Picture of the Day, homepage-warmed audio, signed-out playback, and local mode all request Edge explicitly.
+**Edge TTS** is the default public provider for `/api/tts`, using Microsoft neural voices through the Python [`edge-tts`](https://pypi.org/project/edge-tts/) package. The default voice is `en-US-AriaNeural`. Newly generated Featured, Picture of the Day, homepage-warmed audio, signed-out playback, and local mode request Edge explicitly. Historical Trending episodes already narrated with Edge remain unchanged.
 
-**OpenAI TTS** is available only to authenticated readers and trusted background work such as Personal Playlist generation. It uses direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. Interactive playback falls back per request and announces the voice change; assembled article exports and Personal Playlist episodes restart the whole pass with Edge so a single MP3 never mixes voices. The daily Trending brief still uses OpenAI text generation before its public script is narrated with Edge.
+**OpenAI TTS** is available to authenticated readers and trusted background work. It uses direct `POST https://api.openai.com/v1/audio/speech`, model `gpt-4o-mini-tts`, voice `marin`, and prompt version `curio-warm-narrator-v1`. Interactive playback falls back per request and announces the voice change; assembled article exports and Personal Playlist episodes restart the whole pass with Edge so a single MP3 never mixes voices. Trending is the strict public exception: a signed background request bypasses the interactive quota, uses the full upstream timeout, and forbids Edge fallback so the second daily cron can retry cleanly.
 
 Generated audio is cached per-section in Convex file storage by `tts:${provider}:${model}:${voice}:${promptVersion}:${TTS_NORM_VERSION}`. Changing normalization or narration prompt versions changes the cache key and regenerates audio on demand. Cache rows from before the signed cache contract are quarantined and rebuilt rather than trusted.
 
-Featured podcast episodes use Edge, while authenticated Personal Playlist episodes use OpenAI first and fall back as a whole to Edge. Both reuse the same provider-qualified section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes are written once per trending date with OpenAI, narrated with Edge, tagged with embedded collage artwork, and stored as podcast-ready MP3s. Picture of the Day descriptions are generated once per featured-feed date with Edge and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
+Featured podcast episodes use Edge, while authenticated Personal Playlist episodes use OpenAI first and fall back as a whole to Edge. Both reuse the same provider-qualified section cache where possible, then run through the shared full-article assembly pipeline used by Download All before storing a podcast-ready MP3. Trending brief episodes use Luna plus per-topic web research, carry `briefPromptVersion` provenance, are narrated strictly with Mini/Marin, and are tagged with embedded collage artwork before storage. Picture of the Day descriptions are generated once per featured-feed date with Edge and cached in Convex storage so the first listener gets ready audio. Vercel cron routes can generate the public feeds on a schedule.
 
 > **Note:** ElevenLabs integration was previously available but has been removed. It may return in a future update.
 
@@ -249,11 +249,11 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `LOCAL_MODE`                                   | No                      | Server-only flag used by `npm run local` to bypass Clerk middleware outside production                                                                                                                          |
 | `NEXT_PUBLIC_LOCAL_MODE`                       | No                      | Public client/server-render flag used by `npm run local` to run without Convex or account UI                                                                                                                    |
 | `OPENAI_API_KEY`                               | Yes for OpenAI features | Direct OpenAI API key for speech, Trending generation, and optional context-description enhancement                                                                                                             |
-| `OPENAI_TTS_MODEL`                             | No                      | OpenAI speech model; defaults to `gpt-4o-mini-tts`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_MODEL`                                                                                           |
-| `OPENAI_TTS_VOICE`                             | No                      | OpenAI voice; defaults to `marin`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_VOICE`                                                                                                            |
-| `OPENAI_TTS_PROMPT_VERSION`                    | No                      | Cache-busting narration prompt version; defaults to `curio-warm-narrator-v1`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_PROMPT_VERSION`                                                        |
-| `OPENAI_TTS_INSTRUCTIONS`                      | No                      | Optional narration instructions sent with OpenAI speech requests                                                                                                                                                |
-| `TTS_EDGE_FALLBACK`                            | No                      | Set to `"false"` to disable automatic Edge fallback after OpenAI failures                                                                                                                                       |
+| `OPENAI_TTS_MODEL`                             | No                      | General OpenAI speech model; defaults to `gpt-4o-mini-tts`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_MODEL`; Trending remains pinned to Mini                                                  |
+| `OPENAI_TTS_VOICE`                             | No                      | General OpenAI voice; defaults to `marin`; mirror custom values in Convex and `NEXT_PUBLIC_OPENAI_TTS_VOICE`; Trending remains pinned to Marin                                                                  |
+| `OPENAI_TTS_PROMPT_VERSION`                    | No                      | General cache-busting narration prompt version; defaults to `curio-warm-narrator-v1`; mirror in Convex and `NEXT_PUBLIC_OPENAI_TTS_PROMPT_VERSION`; Trending uses the pinned current default                    |
+| `OPENAI_TTS_INSTRUCTIONS`                      | No                      | Optional instructions for general OpenAI speech requests; the Trending publication profile is pinned in code                                                                                                    |
+| `TTS_EDGE_FALLBACK`                            | No                      | Set to `"false"` to disable normal OpenAI-to-Edge fallback; trusted Trending narration always forbids fallback regardless of this value                                                                         |
 | `EDGE_TTS_VOICE_ID`                            | No                      | Public/default Edge voice; defaults to `en-US-AriaNeural`; mirror custom values in Convex and `NEXT_PUBLIC_EDGE_TTS_VOICE_ID`                                                                                   |
 | `TTS_UPSTREAM_TIMEOUT_MS`                      | No                      | Per-provider TTS request timeout; defaults to `45000` ms                                                                                                                                                        |
 | `TTS_OPENAI_INTERACTIVE_FALLBACK_MS`           | No                      | Interactive OpenAI request budget before the route stops waiting and falls back sequentially to Edge; defaults to `25000` ms                                                                                    |
@@ -263,7 +263,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `TTS_PUBLIC_OPENAI_BURST_WINDOW_MS`            | No                      | Authenticated OpenAI TTS burst window (legacy variable name); defaults to `600000` ms                                                                                                                           |
 | `TTS_PUBLIC_OPENAI_DAILY_LIMIT`                | No                      | Authenticated OpenAI TTS daily quota per IP (legacy variable name); defaults to `800` requests                                                                                                                  |
 | `TTS_PUBLIC_OPENAI_DAILY_WINDOW_MS`            | No                      | Authenticated OpenAI TTS daily window (legacy variable name); defaults to `86400000` ms                                                                                                                         |
-| `TTS_QUOTA_BYPASS_SECRET`                      | Audio/account deletion  | Shared Vercel/Convex root secret used to sign short-lived, domain-scoped quota/cache, private-feed, trusted OpenAI, and account-deletion attestations; the raw value is never sent as a bearer header           |
+| `TTS_QUOTA_BYPASS_SECRET`                      | Audio/account deletion  | Shared root secret for signed quota/cache, private-feed, strict Trending TTS, trusted OpenAI, and account-deletion attestations; never sent as a bearer header                                                  |
 | `AUDIO_GENERATION_BASE_URL`                    | Convex audio workers    | Trusted HTTPS app origin used by Convex audio workers; Vercel Preview builds set the exact isolated Preview origin automatically, while other worker deployments default to production                          |
 | `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_LIMIT`      | No                      | New signed-in OpenAI article exports allowed per account window; defaults to `5` (reused exports do not count)                                                                                                  |
 | `ARTICLE_AUDIO_EXPORT_OPENAI_DAILY_WINDOW_MS`  | No                      | Rolling account allowance window for new OpenAI article exports; defaults to `86400000` ms                                                                                                                      |
@@ -291,7 +291,7 @@ EDGE_TTS_PYTHON_PATH=/path/to/your/python3 npm run local
 | `AI_COST_LEDGER_MODE`                          | No                      | Server-only `off` or `observe` switch for best-effort provider/cache/listening accounting; missing or invalid values act as `off`, and the value must match in Vercel and Convex                                |
 | `VERCEL_PROJECT`                               | No                      | Optional Vercel project name or ID for `npm run analytics:site` in unlinked worktrees                                                                                                                           |
 | `VERCEL_ANALYTICS_CLI`                         | No                      | Optional command override for the Vercel CLI used by `npm run analytics:site`                                                                                                                                   |
-| `TRENDING_BRIEF_MODEL`                         | No                      | Direct OpenAI model for the daily trending brief; defaults to `gpt-5.6-luna`                                                                                                                                    |
+| `TRENDING_BRIEF_MODEL`                         | No                      | Direct OpenAI model override for the daily trending brief; evaluated default is `gpt-5.6-luna` with per-topic deep research and prompt provenance `trending-brief-deep-research-v1`                             |
 | `CONTEXT_DESCRIPTION_MODEL`                    | No                      | Direct OpenAI model for optional article-context accessibility copy; defaults to `gpt-5.6-luna`                                                                                                                 |
 | `ARTICLE_CONTEXT_AI_ENABLED`                   | No                      | Explicitly set `true` to enable OpenAI copy editing; otherwise context descriptions stay deterministic                                                                                                          |
 | `ARTICLE_CONTEXT_AI_DAILY_LIMIT`               | No                      | Cross-instance OpenAI context-copy allowance per window (default `250`)                                                                                                                                         |
@@ -303,13 +303,13 @@ See [`.env.example`](.env.example) for a copy-paste template with descriptions.
 
 ## Traffic Spike Runbook
 
-Curio Garden keeps public browsing cheap and cacheable by using Edge TTS for guests and newly generated public-feed narration. Historical episode files remain untouched. OpenAI speech is limited to authenticated article listening, authenticated exports, and trusted Personal Playlist generation; interactive requests retain per-IP quotas and fall back to Edge when exhausted.
+Curio Garden keeps public browsing cheap and cacheable by using Edge TTS for guests and most newly generated public-feed narration. Trending is the narrow public exception: its once-daily episode uses strict Mini/Marin and never publishes an Edge fallback. Historical episode files remain untouched. Interactive requests retain per-IP quotas and fall back to Edge when exhausted.
 
 Before a boost or public post:
 
 1. Top up OpenAI credits and confirm project budget alerts.
 2. Confirm `OPENAI_API_KEY`, `TTS_EDGE_FALLBACK=true`, and `EDGE_TTS_VOICE_ID` are set in Vercel.
-3. Confirm `TTS_QUOTA_BYPASS_SECRET` is set to the same value in Vercel and Convex so trusted Personal Playlist and export jobs can request OpenAI speech.
+3. Confirm `TTS_QUOTA_BYPASS_SECRET` is set to the same value in Vercel and Convex so strict Trending narration and trusted Personal Playlist/export jobs can request OpenAI speech.
 4. Confirm the quota defaults are acceptable: `120` interactive requests per `10` minutes and `800` per `24` hours per IP, plus `5` new OpenAI article exports and `10` metered Personal Playlist attempts per signed-in account per `24` hours. A new Personal Playlist episode counts once, its first retry is free, and later retries normally count again. Personal Playlist also caps queued/running episodes at `5` per account.
 
 During the spike:
@@ -322,8 +322,8 @@ During the spike:
 Emergency OpenAI speech cutoff:
 
 1. Keep `TTS_EDGE_FALLBACK=true` so authenticated speech remains available.
-2. Remove `OPENAI_API_KEY` from the serving environment and redeploy; authenticated speech will fall back to Edge.
-3. Restore the key after spend and rate pressure settle. Trending text generation and other OpenAI features also require this key, so monitor their scheduled jobs during the cutoff.
+2. Remove `OPENAI_API_KEY` from the serving environment and redeploy; authenticated speech will fall back to Edge, while Trending generation will fail closed and preserve the previous ready episode.
+3. Restore the key after spend and rate pressure settle. Trending text generation and strict Mini narration both require this key, so monitor both scheduled attempts during the cutoff.
 
 ## Accessible Analytics Reports
 
@@ -482,8 +482,12 @@ Featured Articles:
 
 Trending Brief:
 
+- The selected text and speech configuration is documented in the [Trending Podcast Quality Evaluation](docs/trending-podcast-quality-evaluation.md).
 - Each episode points at a stable enclosure URL under `/api/podcast/media/trending/[briefId]`, which redirects to the stored MP3 in Convex.
 - Each episode also gets local collage artwork generated from up to four trending-article thumbnails, with the trending date rendered into the image and embedded into the MP3 metadata.
+- The evaluated default uses `gpt-5.6-luna`, one bounded high-context research pass per topic, and prompt version `trending-brief-deep-research-v1`. Scripts outside 300–420 words get one writing-only repair and otherwise fail before publication. Research is cached under the active job lease before that repair, so a failed length repair can retry writing without repeating the paid search fan-out.
+- Narration is pinned to OpenAI `gpt-4o-mini-tts` with the `marin` voice. Trusted requests forbid Edge fallback; provider or timeout failures leave the job failed with validated prose preserved for the second cron attempt.
+- Model and brief-prompt versions participate in content reuse. Changing either invalidates old prose and audio eligibility without rewriting historical ready episodes.
 - `POST /api/podcast/trending/sync` is a manual trigger for generating the latest trending brief episode and is protected by `CRON_SECRET`.
 - `GET /api/podcast/trending/cron` is the scheduled trigger used by Vercel cron and is protected by `CRON_SECRET`.
 
@@ -499,7 +503,7 @@ To enable scheduled generation in production:
 
 1. Set `CRON_SECRET` in Vercel project environment variables.
 2. Deploy the app.
-3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and production Convex so signed quota checks, shared Edge cache writes, and trusted Personal Playlist/export generation work. The Preview build securely copies the Vercel value into only its named Convex Preview.
+3. Set `TTS_QUOTA_BYPASS_SECRET` to the same value in Vercel and production Convex so signed quota checks, shared cache writes, strict Trending Mini narration, and trusted Personal Playlist/export generation work. The Preview build securely copies the Vercel value into only its named Convex Preview.
 4. For a protected Preview, enable Vercel's **Protection Bypass for Automation**. Vercel automatically injects the `VERCEL_AUTOMATION_BYPASS_SECRET` system environment variable; do not create a separate ordinary variable with that name. The Preview build copies it into the named Convex Preview and sets that worker deployment's `AUDIO_GENERATION_BASE_URL` to the exact generated Vercel hostname.
 5. Vercel will call `/api/featured/cron`, `/api/on-this-day/cron`, `/api/podcast/featured/cron`, `/api/picture-of-day/audio/cron`, `/api/featured/audio-warm/cron`, `/api/podcast/trending/cron`, and `/api/account/delete/cron` using the schedules in `vercel.json`.
 
@@ -537,23 +541,25 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 
 ## Development Scripts
 
-| Command                   | Description                                                                                               |
-| ------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `npm run dev`             | Start Next.js + Convex backend                                                                            |
-| `npm run dev:python`      | Start Next.js + Convex + Python TTS server                                                                |
-| `npm run local`           | Local mode — no Convex, with Edge speech through the canonical TTS route                                  |
-| `npm run analytics:site`  | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
-| `npm run report:costs`    | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
-| `npm run report:feedback` | View production feedback in Terminal or export a private, spreadsheet-safe CSV                            |
-| `npm run build`           | Production build (handles Vercel environments)                                                            |
-| `npm run check`           | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
-| `npm run toolchain:check` | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |
-| `npm run typecheck`       | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files             |
-| `npm run test`            | Run all Vitest tests once                                                                                 |
-| `npm run test:watch`      | Watch mode tests                                                                                          |
-| `npm run test:e2e`        | Run Chromium journeys and axe accessibility checks in local mode                                          |
-| `npm run lint`            | ESLint                                                                                                    |
-| `npm run docs:check`      | Validate repository-local Markdown links and heading anchors                                              |
+| Command                                | Description                                                                                               |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                          | Start Next.js + Convex backend                                                                            |
+| `npm run dev:python`                   | Start Next.js + Convex + Python TTS server                                                                |
+| `npm run local`                        | Local mode — no Convex, with Edge speech through the canonical TTS route                                  |
+| `npm run analytics:site`               | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
+| `npm run report:costs`                 | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
+| `npm run report:feedback`              | View production feedback in Terminal or export a private, spreadsheet-safe CSV                            |
+| `npm run eval:trending-podcast`        | Run the nonpublishing eight-profile evaluation against three frozen fixtures                              |
+| `npm run render:trending-podcast-eval` | Render one evaluation profile locally through strict Mini/Marin without publishing                        |
+| `npm run build`                        | Production build (handles Vercel environments)                                                            |
+| `npm run check`                        | Canonical baseline: toolchain alignment, ESLint, both TypeScript compilers, and the complete Vitest suite |
+| `npm run toolchain:check`              | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |
+| `npm run typecheck`                    | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files             |
+| `npm run test`                         | Run all Vitest tests once                                                                                 |
+| `npm run test:watch`                   | Watch mode tests                                                                                          |
+| `npm run test:e2e`                     | Run Chromium journeys and axe accessibility checks in local mode                                          |
+| `npm run lint`                         | ESLint                                                                                                    |
+| `npm run docs:check`                   | Validate repository-local Markdown links and heading anchors                                              |
 
 `npm run analytics:costs` and `npm run feedback` remain available as
 compatibility aliases for existing workflows.

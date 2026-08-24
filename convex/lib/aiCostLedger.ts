@@ -16,6 +16,7 @@ import {
 } from "../../lib/ai-cost-ledger-contract";
 import {
   estimateDirectAiCost,
+  getGpt56ModelFamily,
   type AiCostEstimate,
 } from "../../lib/ai-cost-pricing";
 
@@ -678,9 +679,14 @@ const nullableMeasurementIsMonotonic = (
 const modelIdentityIsCompatible = (
   existing: string | null,
   incoming: string | null,
-): boolean =>
-  existing === incoming ||
-  (existing === "gpt-5.6-luna" && incoming === "gpt-5.6-luna-2026-07-01");
+): boolean => {
+  if (existing === incoming) return true;
+  const existingFamily = getGpt56ModelFamily(existing);
+  return (
+    existingFamily !== null &&
+    existingFamily === getGpt56ModelFamily(incoming)
+  );
+};
 
 const isMonotonicUnknownAttemptUpdate = (
   existing: AiCostProviderAttempt,

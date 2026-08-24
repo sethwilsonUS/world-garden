@@ -1,5 +1,9 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  trendingBriefDraftValidator,
+  trendingBriefResearchDraftValidator,
+} from "./lib/trendingBriefDraft";
 
 const featuredPodcastEpisodeStatus = v.union(
   v.literal("pending"),
@@ -588,6 +592,9 @@ export default defineSchema({
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     model: v.optional(v.string()),
+    briefPromptVersion: v.optional(v.string()),
+    draftBrief: v.optional(trendingBriefDraftValidator),
+    draftResearch: v.optional(trendingBriefResearchDraftValidator),
     ttsModel: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),

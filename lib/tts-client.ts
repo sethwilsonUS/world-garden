@@ -1,6 +1,7 @@
 import { normalizeTtsText } from "./tts-normalize";
 import { concatenateMp3Blobs } from "./audio-metadata";
 import {
+  DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
   TTS_API_ROUTE,
   TTS_MIN_TEXT_LENGTH,
   getClientTtsMaxWordsPerRequest,
@@ -85,13 +86,44 @@ const splitIntoSentences = (text: string): string[] => {
 const splitIntoWordChunks = (
   text: string,
   maxWords = getClientTtsMaxWordsPerRequest(),
+  maxCharacters = DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
 ): string[] => {
   const words = text.split(/\s+/).filter(Boolean);
   const chunks: string[] = [];
+  let current = "";
+  let currentWords = 0;
 
-  for (let i = 0; i < words.length; i += maxWords) {
-    chunks.push(words.slice(i, i + maxWords).join(" "));
+  const flushCurrent = () => {
+    if (!current) return;
+    chunks.push(current);
+    current = "";
+    currentWords = 0;
+  };
+
+  for (const word of words) {
+    if (word.length > maxCharacters) {
+      flushCurrent();
+      for (let index = 0; index < word.length; index += maxCharacters) {
+        chunks.push(word.slice(index, index + maxCharacters));
+      }
+      continue;
+    }
+
+    const combinedLength = current
+      ? current.length + 1 + word.length
+      : word.length;
+    if (
+      current &&
+      (currentWords + 1 > maxWords || combinedLength > maxCharacters)
+    ) {
+      flushCurrent();
+    }
+
+    current = current ? `${current} ${word}` : word;
+    currentWords += 1;
   }
+
+  flushCurrent();
 
   return chunks;
 };
@@ -113,7 +145,14 @@ const packSegments = (
       throw new Error("Segment exceeded TTS chunk limit during packing");
     }
 
-    if (currentWords > 0 && currentWords + words > maxWords) {
+    const combinedLength = current
+      ? current.length + 1 + trimmed.length
+      : trimmed.length;
+    if (
+      currentWords > 0 &&
+      (currentWords + words > maxWords ||
+        combinedLength > DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST)
+    ) {
       chunks.push(current);
       current = trimmed;
       currentWords = words;
@@ -133,13 +172,19 @@ const splitLongParagraph = (
   paragraph: string,
   maxWords = getClientTtsMaxWordsPerRequest(),
 ): string[] => {
-  if (countWords(paragraph) <= maxWords) return [paragraph];
+  if (
+    countWords(paragraph) <= maxWords &&
+    paragraph.length <= DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST
+  ) {
+    return [paragraph];
+  }
 
   const sentences = splitIntoSentences(paragraph);
   if (sentences.length > 1) {
     return packSegments(
       sentences.flatMap((sentence) =>
-        countWords(sentence) <= maxWords
+        countWords(sentence) <= maxWords &&
+        sentence.length <= DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST
           ? [sentence]
           : splitIntoWordChunks(sentence, maxWords),
       ),
@@ -171,7 +216,13 @@ export const splitTtsTextIntoChunks = (
 };
 
 const fetchSingleTtsAudioWithMetadata = async (
-  { text, voiceId, provider, expectedTtsCacheKey }: TtsGenerationRequest,
+  {
+    text,
+    voiceId,
+    provider,
+    fallbackPolicy,
+    expectedTtsCacheKey,
+  }: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<SingleTtsAudioResult> => {
   const requestHeaders = new Headers(options?.headers);
@@ -189,6 +240,7 @@ const fetchSingleTtsAudioWithMetadata = async (
       text,
       ...(voiceId ? { voiceId } : {}),
       ...(provider ? { provider } : {}),
+      ...(fallbackPolicy ? { fallbackPolicy } : {}),
       ...(expectedTtsCacheKey ? { expectedTtsCacheKey } : {}),
     }),
     ...(controller ? { signal: controller.signal } : {}),
@@ -266,6 +318,7 @@ const generateTtsAudioForChunks = async ({
   chunks,
   voiceId,
   provider,
+  fallbackPolicy,
   expectedTtsCacheKey,
   options,
   fallbackReason,
@@ -273,6 +326,7 @@ const generateTtsAudioForChunks = async ({
   chunks: string[];
   voiceId?: string;
   provider: TtsProvider;
+  fallbackPolicy?: TtsGenerationRequest["fallbackPolicy"];
   expectedTtsCacheKey?: string;
   options?: TtsClientOptions;
   fallbackReason?: TtsFallbackReason;
@@ -291,7 +345,13 @@ const generateTtsAudioForChunks = async ({
 
         try {
           results[index] = await fetchSingleTtsAudioWithMetadata(
-            { text: chunk, voiceId, provider, expectedTtsCacheKey },
+            {
+              text: chunk,
+              voiceId,
+              provider,
+              fallbackPolicy,
+              expectedTtsCacheKey,
+            },
             options,
           );
         } catch (error) {
@@ -323,6 +383,7 @@ const generateTtsAudioForChunks = async ({
         chunks,
         voiceId: result.metadata.voiceId,
         provider: result.metadata.provider,
+        fallbackPolicy,
         expectedTtsCacheKey: result.metadata.ttsCacheKey,
         options,
         fallbackReason: activeFallbackReason,
@@ -356,18 +417,30 @@ const generateTtsAudioForChunks = async ({
 };
 
 export const generateTtsAudio = async (
-  { text, voiceId, provider, expectedTtsCacheKey }: TtsGenerationRequest,
+  {
+    text,
+    voiceId,
+    provider,
+    fallbackPolicy,
+    expectedTtsCacheKey,
+  }: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<Blob> => {
   const result = await generateTtsAudioWithMetadata(
-    { text, voiceId, provider, expectedTtsCacheKey },
+    { text, voiceId, provider, fallbackPolicy, expectedTtsCacheKey },
     options,
   );
   return result.blob;
 };
 
 export const generateTtsAudioWithMetadata = async (
-  { text, voiceId, provider, expectedTtsCacheKey }: TtsGenerationRequest,
+  {
+    text,
+    voiceId,
+    provider,
+    fallbackPolicy,
+    expectedTtsCacheKey,
+  }: TtsGenerationRequest,
   options?: TtsClientOptions,
 ): Promise<TtsAudioResult> => {
   const chunks = splitTtsTextIntoChunks(text);
@@ -383,6 +456,7 @@ export const generateTtsAudioWithMetadata = async (
     chunks,
     voiceId,
     provider,
+    fallbackPolicy,
     expectedTtsCacheKey: resolvedExpectedTtsCacheKey,
     options,
   });
