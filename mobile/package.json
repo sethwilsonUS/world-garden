@@ -26,7 +26,7 @@
     "check": "npm-run-all native:patch:check lint typecheck test:ci bundle:check dependencies:check runtime:check doctor"
   },
   "dependencies": {
-    "@clerk/expo": "^4.2.8",
+    "@clerk/expo": "^4.5.2",
     "@curio-garden/domain": "*",
     "@expo-google-fonts/dm-sans": "^0.4.2",
     "@expo-google-fonts/fraunces": "^0.4.1",
@@ -49,12 +49,12 @@
     "expo-system-ui": "~57.0.2",
     "expo-web-browser": "~57.0.2",
     "react": "19.2.8",
-    "react-native": "0.86.2",
+    "react-native": "0.87.0",
     "react-native-gesture-handler": "2.32.0",
-    "react-native-reanimated": "4.5.1",
-    "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0",
-    "react-native-worklets": "0.10.1"
+    "react-native-reanimated": "4.5.3",
+    "react-native-safe-area-context": "~5.9.1",
+    "react-native-screens": "~4.27.0",
+    "react-native-worklets": "0.12.1"
   },
   "devDependencies": {
     "@eslint/compat": "^2.1.0",
