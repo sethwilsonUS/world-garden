@@ -4,7 +4,7 @@
   "private": true,
   "main": "expo-router/entry",
   "engines": {
-    "node": "24.x"
+    "node": "^24.3.0"
   },
   "scripts": {
     "start": "APP_VARIANT=development expo start --dev-client",
@@ -58,7 +58,7 @@
   },
   "devDependencies": {
     "@eslint/compat": "^2.1.0",
-    "@react-native/jest-preset": "0.87.0",
+    "@react-native/jest-preset": "0.86.2",
     "@testing-library/react-native": "14.0.1",
     "@types/jest": "^29.5.14",
     "@types/react": "~19.2.2",
