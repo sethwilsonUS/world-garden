@@ -771,6 +771,12 @@ export const POST = async (req: NextRequest) => {
       effectiveProvider === provider
         ? requestedProfile
         : getTtsProfile(effectiveProvider);
+    if (fallbackIsForbidden && primaryProfile.provider !== "openai") {
+      return NextResponse.json(
+        { error: "OpenAI TTS is unavailable and Edge fallback is forbidden" },
+        { status: 503 },
+      );
+    }
     quotaDecision = await resolveOpenAiTtsQuota({
       headers: req.headers,
       provider: primaryProfile.provider,
@@ -814,6 +820,15 @@ export const POST = async (req: NextRequest) => {
         wordCount,
       });
       return response;
+    }
+
+    if (quotaDecision.exceeded && fallbackIsForbidden) {
+      return NextResponse.json(
+        {
+          error: "OpenAI TTS quota is exceeded and Edge fallback is forbidden",
+        },
+        { status: 503 },
+      );
     }
 
     if (quotaDecision.exceeded) {

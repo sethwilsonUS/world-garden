@@ -654,7 +654,16 @@ export const runTrendingEvaluationMatrix = async ({
           message: toEvaluationFailureMessage(error),
         });
       }
-      await onProgress?.(toRun());
+      try {
+        await onProgress?.(toRun());
+      } catch (error) {
+        failures.push({
+          blindLabel: profile.blindLabel,
+          fixtureDate: fixture.fixtureDate,
+          profileId: profile.id,
+          message: `Checkpoint failed: ${toEvaluationFailureMessage(error)}`,
+        });
+      }
     }
   }
 

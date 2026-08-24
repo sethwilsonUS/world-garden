@@ -66,7 +66,7 @@ type NativeAudioPlaybackStatus = ReturnType<
 >["currentStatus"];
 type NativeAudioPlaylistStatus = InstalledAudioPlaylist["currentStatus"] &
   Readonly<{
-    // Expo Audio 57.0.3 omits these from its playlist status type. The pinned
+    // Expo Audio 57.0.4 omits these from its playlist status type. The pinned
     // native patch emits them while this optional seam keeps pristine installs
     // typecheckable before the native build hook runs.
     ended?: boolean;

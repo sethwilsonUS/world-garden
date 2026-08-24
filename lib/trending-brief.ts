@@ -155,6 +155,14 @@ export type TrendingBriefDraft = GeneratedTrendingBrief & {
   briefPromptVersion: string;
 };
 
+export type TrendingBriefResearchDraft = {
+  text: string;
+  sources: TrendingBriefSource[];
+  model: string;
+  briefPromptVersion: string;
+  articleTitles: string[];
+};
+
 const TrimmedNonEmptyTextSchema = z.string().trim().min(1);
 
 const TrendingBriefOutputSchema = z.object({
@@ -188,6 +196,7 @@ export type TrendingBriefRecord = {
   model?: string;
   briefPromptVersion?: string;
   draftBrief?: TrendingBriefDraft;
+  draftResearch?: TrendingBriefResearchDraft;
   ttsModel?: string;
   ttsCacheKey?: string;
   provider?: string;
@@ -286,6 +295,33 @@ const getCachedTrendingBriefDraftContent = (
     keyPoints: draft.keyPoints,
     sources: draft.sources,
   };
+};
+
+const getCachedTrendingBriefResearch = (
+  record: TrendingBriefRecord | null,
+  identity: {
+    model: string;
+    briefPromptVersion: string;
+    articleTitles: string[];
+  },
+): ResearchPassResult | null => {
+  const draft = record?.draftResearch;
+  if (
+    !draft ||
+    draft.model !== identity.model ||
+    draft.briefPromptVersion !== identity.briefPromptVersion ||
+    draft.articleTitles.length !== identity.articleTitles.length ||
+    !draft.articleTitles.every(
+      (title, index) => title === identity.articleTitles[index],
+    ) ||
+    !isNonEmptyString(draft.text) ||
+    !Array.isArray(draft.sources) ||
+    draft.sources.length === 0
+  ) {
+    return null;
+  }
+
+  return { text: draft.text, sources: draft.sources };
 };
 
 export const hasCurrentTrendingArtworkVersion = (
@@ -646,7 +682,7 @@ export type TrendingBriefGenerationEvent =
       rawResponse?: unknown;
     };
 
-type ResearchPassResult = {
+export type ResearchPassResult = {
   text: string;
   sources: TrendingBriefSource[];
 };
@@ -989,6 +1025,10 @@ type GenerateTrendingBriefContentOptions = {
   articles: TrendingArticle[];
   profile?: TrendingBriefGenerationProfile;
   onEvent?: (event: TrendingBriefGenerationEvent) => void;
+  research?: ResearchPassResult;
+  onWordBandRepairRequired?: (
+    research: ResearchPassResult,
+  ) => void | Promise<void>;
   /** An injectable deadline seam for tests and callers with tighter budgets. */
   deadlineMs?: number;
 };
@@ -1000,6 +1040,8 @@ const generateTrendingBriefContentWithinDeadline = async ({
   articles,
   profile = "control",
   onEvent,
+  research: cachedResearch,
+  onWordBandRepairRequired,
   runtime,
 }: {
   runtime: TrendingGenerationRuntime;
@@ -1008,54 +1050,62 @@ const generateTrendingBriefContentWithinDeadline = async ({
   "deadlineMs"
 >): Promise<GeneratedTrendingBrief> => {
   const includedArticles = articles.slice(0, MAX_ARTICLES_IN_PROMPT);
-  const researchPasses =
-    profile === "deep-research"
-      ? await mapWithConcurrency(
-          includedArticles,
-          4,
-          async (article, topicIndex) =>
-            await runTrendingResearchPass({
-              client,
-              model,
-              profile,
-              prompt: buildTrendingTopicResearchPrompt({
-                trendingDate,
-                article,
+  const research =
+    cachedResearch ??
+    (await (async (): Promise<ResearchPassResult> => {
+      const researchPasses =
+        profile === "deep-research"
+          ? await mapWithConcurrency(
+              includedArticles,
+              4,
+              async (article, topicIndex) =>
+                await runTrendingResearchPass({
+                  client,
+                  model,
+                  profile,
+                  prompt: buildTrendingTopicResearchPrompt({
+                    trendingDate,
+                    article,
+                  }),
+                  topicIndex,
+                  topicTitle: article.title,
+                  runtime,
+                  onEvent,
+                }),
+              runtime.abort,
+              runtime.signal,
+            )
+          : [
+              await runTrendingResearchPass({
+                client,
+                model,
+                profile,
+                prompt: buildTrendingResearchPrompt({
+                  trendingDate,
+                  articles: includedArticles,
+                }),
+                topicIndex: null,
+                topicTitle: null,
+                runtime,
+                onEvent,
               }),
-              topicIndex,
-              topicTitle: article.title,
-              runtime,
-              onEvent,
-            }),
-          runtime.abort,
-          runtime.signal,
-        )
-      : [
-          await runTrendingResearchPass({
-            client,
-            model,
-            profile,
-            prompt: buildTrendingResearchPrompt({
-              trendingDate,
-              articles: includedArticles,
-            }),
-            topicIndex: null,
-            topicTitle: null,
-            runtime,
-            onEvent,
-          }),
-        ];
-  const researchText = researchPasses
-    .map((pass, index) =>
-      profile === "deep-research"
-        ? `Topic ${index + 1}: ${includedArticles[index]?.title ?? "Unknown"}\n${pass.text}`
-        : pass.text,
-    )
-    .join("\n\n");
-  const sources = mergeTrendingBriefSourceGroups(
-    researchPasses.map((pass) => pass.sources),
-    profile === "deep-research" ? MAX_SOURCES : MAX_CONTROL_SOURCES,
-  );
+            ];
+      return {
+        text: researchPasses
+          .map((pass, index) =>
+            profile === "deep-research"
+              ? `Topic ${index + 1}: ${includedArticles[index]?.title ?? "Unknown"}\n${pass.text}`
+              : pass.text,
+          )
+          .join("\n\n"),
+        sources: mergeTrendingBriefSourceGroups(
+          researchPasses.map((pass) => pass.sources),
+          profile === "deep-research" ? MAX_SOURCES : MAX_CONTROL_SOURCES,
+        ),
+      };
+    })());
+  const researchText = research.text;
+  const sources = research.sources;
 
   const sharedWritingInput = [
     buildTrendingBriefPrompt({
@@ -1090,6 +1140,18 @@ const generateTrendingBriefContentWithinDeadline = async ({
   ) {
     return initialBrief;
   }
+
+  if (onWordBandRepairRequired) {
+    try {
+      await onWordBandRepairRequired(research);
+    } catch (error) {
+      console.warn(
+        "[podcast:trending] caching research before repair failed; continuing with the repair",
+        error,
+      );
+    }
+  }
+  throwIfAborted(runtime.signal);
 
   const repairedBrief = await runTrendingWritingPass({
     client,
@@ -1335,6 +1397,10 @@ const generateTrendingBriefRecord = async ({
   const cachedBriefContent =
     getCachedTrendingBriefContent(existing, currentContentIdentity) ??
     getCachedTrendingBriefDraftContent(existing, currentContentIdentity);
+  const cachedBriefResearch = getCachedTrendingBriefResearch(existing, {
+    ...currentContentIdentity,
+    articleTitles,
+  });
 
   if (!previousReadyBrief) {
     await fetchMutation(
@@ -1363,12 +1429,14 @@ const generateTrendingBriefRecord = async ({
 
   try {
     console.info(
-      `[podcast:trending ${trendingDateIso} run=${runId}] start force=${force} regenArt=${regenArt} existingStatus=${existing?.status ?? "missing"} cachedBrief=${Boolean(cachedBriefContent)}`,
+      `[podcast:trending ${trendingDateIso} run=${runId}] start force=${force} regenArt=${regenArt} existingStatus=${existing?.status ?? "missing"} cachedBrief=${Boolean(cachedBriefContent)} cachedResearch=${Boolean(cachedBriefResearch)}`,
     );
 
     stage = cachedBriefContent
       ? "reusing_cached_brief"
-      : "generating_brief_content";
+      : cachedBriefResearch
+        ? "writing_cached_research"
+        : "generating_brief_content";
     const brief = cachedBriefContent
       ? normalizeTrendingBrief(cachedBriefContent)
       : await generateTrendingBriefContent({
@@ -1377,6 +1445,27 @@ const generateTrendingBriefRecord = async ({
           trendingDate: trendingDateIso,
           articles,
           profile,
+          research: cachedBriefResearch ?? undefined,
+          onWordBandRepairRequired: async (research) => {
+            stage = "caching_research_for_repair";
+            try {
+              await fetchMutation(
+                anyApi.trending.saveTrendingBriefResearchDraft,
+                await withTrendingWriteAttestation("save-record", {
+                  trendingDate: trendingDateIso,
+                  owner,
+                  draftResearch: {
+                    ...research,
+                    model,
+                    briefPromptVersion,
+                    articleTitles,
+                  },
+                }),
+              );
+            } finally {
+              stage = "repairing_brief_content";
+            }
+          },
         });
     briefContentForRetry = brief;
 

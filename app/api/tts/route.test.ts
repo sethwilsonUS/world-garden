@@ -635,6 +635,100 @@ describe("POST /api/tts", () => {
     consoleError.mockRestore();
   });
 
+  it("fails before Edge synthesis when provider access downgrades a trusted strict OpenAI request", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    vi.doMock("@/lib/tts-access-policy", async (importOriginal) => {
+      const actual =
+        await importOriginal<typeof import("@/lib/tts-access-policy")>();
+      return {
+        ...actual,
+        resolveTtsProviderAccess: () => ({
+          requestedProvider: "openai" as const,
+          provider: "edge" as const,
+          fallbackReason: "openai_auth" as const,
+        }),
+      };
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const headers = await getTrustedTtsGenerationHeaders(
+        "https://curiogarden.org",
+        "trending_podcast",
+        { bypassOpenAiQuota: true },
+      );
+      const { POST } = await import("./route");
+      const response = await POST(
+        new NextRequest("https://curiogarden.org/api/tts", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            text: "This trusted podcast narration must never use Edge.",
+            provider: "openai",
+            fallbackPolicy: "forbid",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: "OpenAI TTS is unavailable and Edge fallback is forbidden",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fetchMutation).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("@/lib/tts-access-policy");
+    }
+  });
+
+  it("fails before Edge synthesis when quota is exceeded for a trusted strict OpenAI request", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    vi.doMock("@/lib/tts-quota", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/tts-quota")>();
+      return {
+        ...actual,
+        isTtsQuotaBypassRequest: vi.fn(async () => true),
+        resolveOpenAiTtsQuota: vi.fn(async () => ({
+          mode: "public" as const,
+          exceeded: true,
+          exceededWindow: "daily" as const,
+          fallbackReason: "openai_quota" as const,
+        })),
+      };
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const headers = await getTrustedTtsGenerationHeaders(
+        "https://curiogarden.org",
+        "trending_podcast",
+        { bypassOpenAiQuota: true },
+      );
+      const { POST } = await import("./route");
+      const response = await POST(
+        new NextRequest("https://curiogarden.org/api/tts", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            text: "This trusted podcast narration must never use Edge.",
+            provider: "openai",
+            fallbackPolicy: "forbid",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: "OpenAI TTS quota is exceeded and Edge fallback is forbidden",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("@/lib/tts-quota");
+    }
+  });
+
   it("gives a trusted strict OpenAI request the full upstream timeout", async () => {
     vi.useFakeTimers();
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");

@@ -485,7 +485,7 @@ Trending Brief:
 - The selected text and speech configuration is documented in the [Trending Podcast Quality Evaluation](docs/trending-podcast-quality-evaluation.md).
 - Each episode points at a stable enclosure URL under `/api/podcast/media/trending/[briefId]`, which redirects to the stored MP3 in Convex.
 - Each episode also gets local collage artwork generated from up to four trending-article thumbnails, with the trending date rendered into the image and embedded into the MP3 metadata.
-- The evaluated default uses `gpt-5.6-luna`, one bounded high-context research pass per topic, and prompt version `trending-brief-deep-research-v1`. Scripts outside 300–420 words get one writing-only repair and otherwise fail before publication.
+- The evaluated default uses `gpt-5.6-luna`, one bounded high-context research pass per topic, and prompt version `trending-brief-deep-research-v1`. Scripts outside 300–420 words get one writing-only repair and otherwise fail before publication. Research is cached under the active job lease before that repair, so a failed length repair can retry writing without repeating the paid search fan-out.
 - Narration is pinned to OpenAI `gpt-4o-mini-tts` with the `marin` voice. Trusted requests forbid Edge fallback; provider or timeout failures leave the job failed with validated prose preserved for the second cron attempt.
 - Model and brief-prompt versions participate in content reuse. Changing either invalidates old prose and audio eligibility without rewriting historical ready episodes.
 - `POST /api/podcast/trending/sync` is a manual trigger for generating the latest trending brief episode and is protected by `CRON_SECRET`.

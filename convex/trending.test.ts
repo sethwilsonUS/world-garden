@@ -8,6 +8,7 @@ import {
   MAX_TRENDING_BRIEF_JOB_LEASE_MS,
   saveTrendingBrief,
   saveTrendingBriefDraft,
+  saveTrendingBriefResearchDraft,
 } from "./trending";
 import { createPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
 import {
@@ -273,6 +274,29 @@ describe("Trending publication write attestations", () => {
     ).rejects.toThrow("publication lease was lost");
     expect(patch).not.toHaveBeenCalled();
 
+    const notReadyQuery = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: 60_000,
+              }
+            : { _id: "brief-1", status: "failed" },
+        ),
+      };
+      return chain;
+    });
+    await expect(
+      handler(
+        { db: { query: notReadyQuery, patch } },
+        { ...draftArgs, attestation: validAttestation },
+      ),
+    ).rejects.toThrow("A ready Trending brief is required to cache a draft.");
+    expect(patch).not.toHaveBeenCalled();
+
     await expect(
       handler(
         { db: { query, patch } },
@@ -281,6 +305,55 @@ describe("Trending publication write attestations", () => {
     ).resolves.toBe("brief-1");
     expect(patch).toHaveBeenCalledWith("brief-1", {
       draftBrief,
+      updatedAt: 1_000,
+    });
+  });
+
+  it("caches repair research only under the active publication lease", async () => {
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const draftResearch = {
+      text: "Topic 1: Example\nTrigger: supported.",
+      sources: [{ title: "News", url: "https://news.example/story" }],
+      model: "gpt-5.6-luna",
+      briefPromptVersion: "trending-brief-deep-research-v1",
+      articleTitles: ["Example"],
+    };
+    const draftArgs = {
+      trendingDate: "2026-08-24",
+      owner: "worker-1",
+      draftResearch,
+    };
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: draftArgs,
+    });
+    const query = vi.fn((table: string) => {
+      const chain = {
+        withIndex: vi.fn(() => chain),
+        first: vi.fn(async () =>
+          table === "trendingBriefJobs"
+            ? {
+                status: "running",
+                leaseOwner: "worker-1",
+                leaseExpiresAt: 60_000,
+              }
+            : { _id: "brief-1", status: "failed" },
+        ),
+      };
+      return chain;
+    });
+    const patch = vi.fn();
+
+    await expect(
+      getHandler(saveTrendingBriefResearchDraft)(
+        { db: { query, patch } },
+        { ...draftArgs, attestation },
+      ),
+    ).resolves.toBe("brief-1");
+    expect(patch).toHaveBeenCalledWith("brief-1", {
+      draftResearch,
       updatedAt: 1_000,
     });
   });
@@ -527,7 +600,6 @@ describe("Trending publication write attestations", () => {
     expect(patch).toHaveBeenCalledWith(
       "brief-1",
       expect.objectContaining({
-        draftBrief: undefined,
         audioVariants: [
           expect.objectContaining({
             storageId: "edge-storage",
@@ -542,6 +614,14 @@ describe("Trending publication write attestations", () => {
         ],
       }),
     );
+    const [, patchedFields] = patch.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(Object.hasOwn(patchedFields, "draftBrief")).toBe(true);
+    expect(patchedFields.draftBrief).toBeUndefined();
+    expect(Object.hasOwn(patchedFields, "draftResearch")).toBe(true);
+    expect(patchedFields.draftResearch).toBeUndefined();
   });
 
   it("verifies finalization arguments before releasing the worker lease", async () => {

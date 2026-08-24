@@ -115,15 +115,11 @@ describe("Trending evaluation audio rendering", () => {
     });
 
     expect(requests).toHaveLength(3);
-    expect(requests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          input: expect.stringContaining(TRENDING_AI_AUDIO_DISCLOSURE),
-          model: "gpt-4o-mini-tts",
-          voice: "marin",
-        }),
-      ]),
-    );
+    for (const request of requests) {
+      expect(request.input).toContain(TRENDING_AI_AUDIO_DISCLOSURE);
+      expect(request.model).toBe("gpt-4o-mini-tts");
+      expect(request.voice).toBe("marin");
+    }
     expect(result.manifest.files).toHaveLength(3);
     expect(
       result.manifest.files.every(

@@ -723,6 +723,113 @@ describe("cached trending brief reuse", () => {
     expect(validity).toEqual([true, true, true, true, true, true]);
   });
 
+  it("persists research after a failed word-band repair and reuses it on retry", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.mocked(renderTrendingPodcastArtworkPng).mockRejectedValue(
+      new Error("artwork unavailable"),
+    );
+
+    const research = vi.fn(async () => ({
+      model: "gpt-5.6-luna",
+      output_text: "Trigger: supported. Uncertainty: labelled.",
+      output: [
+        {
+          type: "web_search_call",
+          action: { sources: [{ url: "https://news.example.com/story" }] },
+        },
+      ],
+      usage: null,
+    }));
+    let writingAttempt = 0;
+    const writing = vi.fn(async () => {
+      writingAttempt += 1;
+      return {
+        model: "gpt-5.6-luna",
+        output_parsed: {
+          headline: "Researched headline",
+          summary: "Researched summary.",
+          podcastDescription: "Researched description.",
+          spokenSummary: Array.from(
+            { length: writingAttempt <= 2 ? 120 : 320 },
+            (_, index) => `word${index + 1}`,
+          ).join(" "),
+          keyPoints: ["One", "Two", "Three"],
+        },
+        usage: null,
+      };
+    });
+    vi.mocked(getOpenAIClient).mockReturnValue({
+      responses: { create: research, parse: writing },
+    } as unknown as ReturnType<typeof getOpenAIClient>);
+
+    type PersistedBrief = Record<string, unknown> & {
+      status: string;
+      audioUrl: string | null;
+      draftResearch?: Record<string, unknown>;
+    };
+    let persisted: PersistedBrief | null = null;
+    const researchDraftSaves: Array<Record<string, unknown>> = [];
+    const { fetchMutation, fetchQuery } = await import("convex/nextjs");
+    vi.mocked(fetchQuery).mockImplementation(async () => persisted as never);
+    vi.mocked(fetchMutation).mockImplementation(async (...callArgs) => {
+      const [reference, rawArgs] = callArgs;
+      const functionName = getFunctionName(reference);
+      const args = (rawArgs ?? {}) as Record<string, unknown>;
+      if (functionName === "trending:claimTrendingBriefJob") {
+        return { claimed: true } as never;
+      }
+      if (functionName === "trending:saveTrendingBriefResearchDraft") {
+        researchDraftSaves.push(args);
+        persisted = {
+          ...(persisted ?? {}),
+          draftResearch: args.draftResearch as Record<string, unknown>,
+        } as PersistedBrief;
+        return "brief-1" as never;
+      }
+      if (functionName === "trending:saveTrendingBrief") {
+        persisted = {
+          ...(persisted ?? {}),
+          ...args,
+          _id: "brief-1",
+          audioUrl: null,
+          updatedAt: Date.now(),
+        } as PersistedBrief;
+        return "brief-1" as never;
+      }
+      if (functionName === "trending:finalizeTrendingBriefJob") {
+        return { updated: true } as never;
+      }
+      throw new Error(`Unexpected mutation: ${functionName}`);
+    });
+
+    await expect(
+      syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
+    ).rejects.toThrow("outside 300-420 words after one repair");
+
+    expect(researchDraftSaves).toHaveLength(1);
+    expect(persisted).toMatchObject({
+      status: "failed",
+      draftResearch: {
+        text: "Topic 1: Example Trend\nTrigger: supported. Uncertainty: labelled.",
+        model: "gpt-5.6-luna",
+        briefPromptVersion: "trending-brief-deep-research-v1",
+        articleTitles: ["Example Trend"],
+      },
+    });
+
+    await expect(
+      syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
+    ).rejects.toThrow("artwork unavailable");
+
+    expect(getOpenAIClient).toHaveBeenCalledTimes(2);
+    expect(research).toHaveBeenCalledOnce();
+    expect(writing).toHaveBeenCalledTimes(3);
+    expect(renderTrendingPodcastArtworkPng).toHaveBeenCalledOnce();
+  });
+
   it("persists freshly generated prose after TTS failure and reuses it on retry", async () => {
     vi.stubEnv("OPENAI_API_KEY", "openai-key");
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
@@ -1538,6 +1645,7 @@ describe("direct OpenAI trending generation", () => {
 
   it("repairs an out-of-band depth script once using the same research", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const create = vi.fn(async () => ({
       model: "gpt-5.6-terra",
       output_text: "Trigger: A supported event. Uncertainty: none material.",
@@ -1571,6 +1679,9 @@ describe("direct OpenAI trending generation", () => {
       };
     });
     const events: Array<{ type: string; attempt?: string }> = [];
+    const cacheResearch = vi.fn(async () => {
+      throw new Error("cache temporarily unavailable");
+    });
     const client = {
       responses: { create, parse },
     } as unknown as Parameters<
@@ -1584,6 +1695,7 @@ describe("direct OpenAI trending generation", () => {
       trendingDate: "2026-08-24",
       articles: [{ title: "Topic", extract: "Context.", views: 1_000 }],
       onEvent: (event) => events.push(event),
+      onWordBandRepairRequired: cacheResearch,
     });
 
     expect(create).toHaveBeenCalledTimes(1);
@@ -1597,13 +1709,18 @@ describe("direct OpenAI trending generation", () => {
       }),
     );
     expect(brief.spokenSummary.split(/\s+/)).toHaveLength(320);
+    expect(cacheResearch).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("continuing with the repair"),
+      expect.any(Error),
+    );
     expect(events.filter((event) => event.type === "writing")).toEqual([
       expect.objectContaining({ attempt: "initial" }),
       expect.objectContaining({ attempt: "repair" }),
     ]);
   });
 
-  it("fails depth generation when the single repair still misses the word band", async () => {
+  it("reuses captured research after a single repair still misses the word band", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const create = vi.fn(async () => ({
       model: "gpt-5.6-terra",
@@ -1616,26 +1733,33 @@ describe("direct OpenAI trending generation", () => {
       ],
       usage: null,
     }));
-    const parse = vi.fn(async () => ({
-      model: "gpt-5.6-terra",
-      output_parsed: {
-        headline: "Headline",
-        summary: "Summary",
-        podcastDescription: "Description",
-        spokenSummary: Array.from(
-          { length: 120 },
-          (_, index) => `word${index + 1}`,
-        ).join(" "),
-        keyPoints: ["One", "Two", "Three"],
-      },
-      usage: null,
-    }));
+    let writingAttempt = 0;
+    const parse = vi.fn(async () => {
+      writingAttempt += 1;
+      return {
+        model: "gpt-5.6-terra",
+        output_parsed: {
+          headline: "Headline",
+          summary: "Summary",
+          podcastDescription: "Description",
+          spokenSummary: Array.from(
+            { length: writingAttempt <= 2 ? 120 : 320 },
+            (_, index) => `word${index + 1}`,
+          ).join(" "),
+          keyPoints: ["One", "Two", "Three"],
+        },
+        usage: null,
+      };
+    });
     const client = {
       responses: { create, parse },
     } as unknown as Parameters<
       typeof generateTrendingBriefContent
     >[0]["client"];
 
+    let capturedResearch:
+      | { text: string; sources: Array<{ title: string; url: string }> }
+      | undefined;
     await expect(
       generateTrendingBriefContent({
         client,
@@ -1643,9 +1767,31 @@ describe("direct OpenAI trending generation", () => {
         profile: "depth-writing",
         trendingDate: "2026-08-24",
         articles: [{ title: "Topic", extract: "Context.", views: 1_000 }],
+        onWordBandRepairRequired: (research) => {
+          capturedResearch = research;
+        },
       }),
     ).rejects.toThrow("outside 300-420 words after one repair");
     expect(parse).toHaveBeenCalledTimes(2);
+    expect(capturedResearch).toEqual({
+      text: "Trigger: supported. Uncertainty: labelled.",
+      sources: [
+        { title: "news.example.com", url: "https://news.example.com/story" },
+      ],
+    });
+
+    const retry = await generateTrendingBriefContent({
+      client,
+      model: "gpt-5.6-terra",
+      profile: "depth-writing",
+      trendingDate: "2026-08-24",
+      articles: [{ title: "Topic", extract: "Context.", views: 1_000 }],
+      research: capturedResearch,
+    });
+
+    expect(retry.spokenSummary.split(/\s+/u)).toHaveLength(320);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(parse).toHaveBeenCalledTimes(3);
   });
 
   it("rejects normalized output that loses required non-empty key points", async () => {

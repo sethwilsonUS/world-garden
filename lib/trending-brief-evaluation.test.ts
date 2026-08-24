@@ -571,4 +571,65 @@ describe("Trending brief evaluation matrix", () => {
       }),
     ]);
   });
+
+  it("records a checkpoint failure and continues the remaining matrix", async () => {
+    const [fixture] = await loadTrendingEvaluationFixtures();
+    const profiles = selectTrendingEvaluationProfiles([
+      "luna-control",
+      "sol-deep-research",
+    ]);
+    if (!fixture) throw new Error("Expected matrix fixture");
+    let checkpointAttempts = 0;
+
+    const run = await runTrendingEvaluationMatrix({
+      fixtures: [fixture],
+      profiles,
+      generatedAt: "2026-08-24T12:00:00.000Z",
+      now: () => 100,
+      generate: async (request) => ({
+        brief: {
+          headline: "Headline",
+          summary: "Summary",
+          podcastDescription: "Description",
+          spokenSummary: `A complete result from ${request.model}.`,
+          keyPoints: ["One", "Two", "Three"],
+          sources: [{ title: "News", url: "https://example.com/news" }],
+        },
+        raw: { model: request.model },
+        research: {
+          text: "Research",
+          sources: [{ title: "News", url: "https://example.com/news" }],
+          webSearchCalls: 1,
+          latencyMs: 1,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        },
+        writing: {
+          latencyMs: 1,
+          repairAttempts: 0,
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        },
+        estimatedCostMicros: null,
+      }),
+      onProgress: () => {
+        checkpointAttempts += 1;
+        if (checkpointAttempts === 1) {
+          throw new Error("temporary disk failure");
+        }
+      },
+    });
+
+    expect(checkpointAttempts).toBe(2);
+    expect(run.candidates.map(({ profileId }) => profileId)).toEqual([
+      "luna-control",
+      "sol-deep-research",
+    ]);
+    expect(run.failures).toEqual([
+      {
+        blindLabel: "A",
+        fixtureDate: "2026-08-24",
+        profileId: "luna-control",
+        message: "Checkpoint failed: temporary disk failure",
+      },
+    ]);
+  });
 });

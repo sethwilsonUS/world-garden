@@ -251,7 +251,7 @@ implementation scope.
 
 ### Pinned Expo Audio background-safety backport
 
-The installed `expo-audio` 57.0.3 native source has two background-control
+The installed `expo-audio` 57.0.4 native source has two background-control
 defects that this slice cannot safely ship around at the JavaScript boundary:
 
 - Android media-session play commands can call ExoPlayer directly and bypass
@@ -261,12 +261,12 @@ defects that this slice cannot safely ship around at the JavaScript boundary:
   delayed-play and interruption-resume intent, and a late gain with no remaining
   play intent is immediately abandoned.
 - iOS block-based `MPRemoteCommand` registrations return opaque target tokens.
-  Expo Audio 57.0.3 discards those tokens and therefore cannot remove the
+  Expo Audio 57.0.4 discards those tokens and therefore cannot remove the
   handlers it registered. Curio Garden retains and removes every exact token so
   repeated player activation does not accumulate duplicate commands.
 
 `scripts/expo-audio-background-safety.js` is a mobile-owned, fail-closed source
-backport for exactly `expo-audio` 57.0.3. It preflights thirteen reviewed source
+backport for exactly `expo-audio` 57.0.4. It preflights thirteen reviewed source
 files across coherent pristine, prior background-only, and final playlist
 states before writing any file. Exact one-occurrence background transforms feed
 a SHA-256-pinned unified patch that modifies twelve files; every final source

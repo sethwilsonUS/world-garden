@@ -9,6 +9,10 @@ import {
   getTrendingAudioCacheKey,
 } from "../lib/trending-audio-profile";
 import { scheduleGenerationAssetBestEffort } from "./lib/aiCostPipelineInstrumentation";
+import {
+  trendingBriefDraftValidator,
+  trendingBriefResearchDraftValidator,
+} from "./lib/trendingBriefDraft";
 
 const serverAttestationValidator = v.object({
   issuedAt: v.number(),
@@ -192,22 +196,6 @@ export const claimTrendingBriefJob = mutation({
   },
 });
 
-const trendingBriefDraftValidator = v.object({
-  headline: v.string(),
-  summary: v.string(),
-  podcastDescription: v.string(),
-  spokenSummary: v.string(),
-  keyPoints: v.array(v.string()),
-  sources: v.array(
-    v.object({
-      title: v.string(),
-      url: v.string(),
-    }),
-  ),
-  model: v.string(),
-  briefPromptVersion: v.string(),
-});
-
 export const saveTrendingBriefDraft = mutation({
   args: {
     trendingDate: v.string(),
@@ -250,6 +238,54 @@ export const saveTrendingBriefDraft = mutation({
 
     await ctx.db.patch(existing._id, {
       draftBrief: args.draftBrief,
+      updatedAt: now,
+    });
+    return existing._id;
+  },
+});
+
+export const saveTrendingBriefResearchDraft = mutation({
+  args: {
+    trendingDate: v.string(),
+    owner: v.string(),
+    draftResearch: trendingBriefResearchDraftValidator,
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
+    const now = Date.now();
+    const job = await ctx.db
+      .query("trendingBriefJobs")
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
+      .first();
+    if (
+      !job ||
+      job.status !== "running" ||
+      job.leaseOwner !== args.owner ||
+      (job.leaseExpiresAt ?? 0) <= now
+    ) {
+      throw new Error("The Trending audio publication lease was lost.");
+    }
+    const existing = await ctx.db
+      .query("trendingBriefs")
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
+      .first();
+    if (!existing) {
+      throw new Error("A Trending brief is required to cache research.");
+    }
+
+    await ctx.db.patch(existing._id, {
+      draftResearch: args.draftResearch,
       updatedAt: now,
     });
     return existing._id;
@@ -389,7 +425,9 @@ export const saveTrendingBrief = mutation({
         byteLength: args.byteLength,
         model: args.model,
         briefPromptVersion: args.briefPromptVersion,
-        ...(args.status === "ready" ? { draftBrief: undefined } : {}),
+        ...(args.status === "ready"
+          ? { draftBrief: undefined, draftResearch: undefined }
+          : {}),
         ttsModel: args.ttsModel,
         ttsCacheKey: args.ttsCacheKey,
         provider: args.provider,

@@ -2,11 +2,11 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const EXPO_AUDIO_VERSION = "57.0.3";
+const EXPO_AUDIO_VERSION = "57.0.4";
 const EXPO_AUDIO_BACKGROUND_SAFETY_MARKER =
   "CurioGardenExpoAudioBackgroundSafetyBackport";
 const EXPO_AUDIO_PLAYLIST_PATCH_PATH =
-  require.resolve("../patches/expo-audio-57.0.3-playlist-media-session.patch");
+  require.resolve("../patches/expo-audio-57.0.4-playlist-media-session.patch");
 const EXPO_AUDIO_PLAYLIST_PATCH_SHA256 =
   "c43fff525fd95b6ba16f865ade97e10bbe8ce78037606afb3613c12480e28964";
 

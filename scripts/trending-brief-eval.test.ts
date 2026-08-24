@@ -393,7 +393,7 @@ describe("Trending brief production content adapter", () => {
           sources: brief.sources,
           webSearchCalls: 1,
           latencyMs: 10,
-          model: "gpt-5.6-terra",
+          model: "gpt-5.6-terra-2026-08-01",
           usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
           rawResponse: { id: "resp_research_1", status: "completed" },
         });
@@ -406,7 +406,7 @@ describe("Trending brief production content adapter", () => {
           sources: brief.sources,
           webSearchCalls: 2,
           latencyMs: 20,
-          model: "gpt-5.6-terra",
+          model: "gpt-5.6-terra-2026-08-01",
           usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
         });
         request.onEvent?.({
@@ -415,7 +415,7 @@ describe("Trending brief production content adapter", () => {
           attempt: "initial",
           brief,
           latencyMs: 30,
-          model: "gpt-5.6-terra",
+          model: "gpt-5.6-terra-2026-08-01",
           usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
         });
         request.onEvent?.({
@@ -424,7 +424,7 @@ describe("Trending brief production content adapter", () => {
           attempt: "repair",
           brief,
           latencyMs: 40,
-          model: "gpt-5.6-terra",
+          model: "gpt-5.6-terra-2026-08-01",
           usage: { inputTokens: 40, outputTokens: 20, totalTokens: 60 },
           rawResponse: { id: "resp_writing_repair", status: "completed" },
         });
@@ -456,8 +456,8 @@ describe("Trending brief production content adapter", () => {
     expect(result).toMatchObject({
       brief,
       estimatedCostMicros: 30_800,
-      costEstimateBasis: expect.stringContaining(
-        "all input tokens treated as uncached",
+      costEstimateBasis: expect.stringMatching(
+        /requested model gpt-5\.6-terra.*provider echoed gpt-5\.6-terra-2026-08-01.*all input tokens treated as uncached/,
       ),
       research: {
         text: "Topic One\nFirst research note.\n\nTopic Two\nSecond research note.",
@@ -474,6 +474,7 @@ describe("Trending brief production content adapter", () => {
         events: expect.arrayContaining([
           expect.objectContaining({
             type: "research",
+            model: "gpt-5.6-terra-2026-08-01",
             rawResponse: {
               id: "resp_research_1",
               status: "completed",

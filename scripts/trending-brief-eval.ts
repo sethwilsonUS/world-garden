@@ -230,6 +230,7 @@ const dedupeEventSources = (
 const toPricingAttempt = (
   event: TrendingBriefGenerationEvent,
   index: number,
+  requestedModel: string,
 ): AiCostProviderAttempt => ({
   eventKey: `trending-eval-${index}`,
   correlationId: "trending-eval",
@@ -241,7 +242,7 @@ const toPricingAttempt = (
   source: "trending_brief",
   requestedProvider: "openai",
   effectiveProvider: "openai",
-  model: event.model,
+  model: requestedModel,
   serviceTier: "auto",
   profile: event.profile,
   state: "succeeded",
@@ -266,14 +267,25 @@ const toPricingAttempt = (
 
 const estimateTraceCostMicros = (
   events: readonly TrendingBriefGenerationEvent[],
-): number | null => {
+  requestedModel: string,
+): Readonly<{
+  amountMicros: number | null;
+  unresolvedReason: string | null;
+}> => {
   let total = 0;
   for (const [index, event] of events.entries()) {
-    const estimate = estimateDirectAiCost(toPricingAttempt(event, index));
-    if (estimate.amountMicros == null) return null;
+    const estimate = estimateDirectAiCost(
+      toPricingAttempt(event, index, requestedModel),
+    );
+    if (estimate.amountMicros == null) {
+      return {
+        amountMicros: null,
+        unresolvedReason: estimate.reason ?? "unknown pricing reason",
+      };
+    }
     total += estimate.amountMicros;
   }
-  return total;
+  return { amountMicros: total, unresolvedReason: null };
 };
 
 export const createProductionTrendingEvaluationGenerator =
@@ -311,7 +323,10 @@ export const createProductionTrendingEvaluationGenerator =
         "Trending evaluation generation completed without a complete trace",
       );
     }
-    const estimatedCostMicros = estimateTraceCostMicros(events);
+    const costEstimate = estimateTraceCostMicros(events, request.model);
+    const echoedModels = [...new Set(events.map(({ model }) => model))].join(
+      ", ",
+    );
 
     return {
       brief,
@@ -345,11 +360,11 @@ export const createProductionTrendingEvaluationGenerator =
         ).length,
         usage: sumEventUsage(writingEvents),
       },
-      estimatedCostMicros,
+      estimatedCostMicros: costEstimate.amountMicros,
       costEstimateBasis:
-        estimatedCostMicros == null
-          ? null
-          : `${AI_COST_PRICING_VERSION}; all input tokens treated as uncached`,
+        costEstimate.amountMicros == null
+          ? `Pricing unresolved for requested model ${request.model}: ${costEstimate.unresolvedReason}; provider echoed ${echoedModels}`
+          : `${AI_COST_PRICING_VERSION}; requested model ${request.model}; provider echoed ${echoedModels}; all input tokens treated as uncached`,
     };
   };
 

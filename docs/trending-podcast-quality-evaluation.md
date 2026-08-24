@@ -176,7 +176,7 @@ The final writer receives all ten research notes and up to 15 representative sou
 
 ## A strict word band prevents another one-minute brief
 
-Depth profiles require a 300–420-word `spokenSummary`. A result outside the band receives one writing-only repair using the existing research. The repair is not allowed to add claims. If the repaired script still misses the band, the job fails before narration or publication.
+Depth profiles require a 300–420-word `spokenSummary`. A result outside the band receives one writing-only repair using the existing research. Before that repair, production persists the completed research under the active job lease; if the repair still misses, the next cron retries writing from that research instead of repeating the paid search fan-out. The repair is not allowed to add claims, and a second miss still fails before narration or publication.
 
 Across the 18 depth-profile outputs, two needed repair and both passed. All control outputs remained far below the target, which validates both the complaint and the need for a production gate.
 
@@ -196,7 +196,7 @@ Trending speech is now pinned to the exact Mini/Marin profile. Trusted Trending 
 
 The winning text profile took at most 52.5 seconds across the three evaluation fixtures. Sol deep research, the slowest deep profile, took at most 108.8 seconds. The slowest candidate of any kind took 120.6 seconds.
 
-The Trending cron and manual sync routes now allow 800 seconds, and the Convex job lease is 15 minutes. Text generation has an 11-minute overall deadline, each OpenAI request is capped at 120 seconds with no SDK retry, and the first failed topic cancels its in-flight peers before the job returns. In the worst deep path, three research waves plus an initial write and one repair fit within ten minutes; the deadline remains a final backstop. That leaves more than two minutes of route time and four minutes of lease time for strict speech, artwork, uploads, and finalization before the second cron 30 minutes later.
+The Trending cron and manual sync routes now allow 800 seconds, and the Convex job lease is 15 minutes. The linked Vercel project was verified as Pro with Fluid Compute enabled; deployments on a different plan or compute configuration must confirm that the 800-second function budget is supported. Text generation has an 11-minute overall deadline, each OpenAI request is capped at 120 seconds with no SDK retry, and the first failed topic cancels its in-flight peers before the job returns. In the worst deep path, three research waves plus an initial write and one repair fit within ten minutes; the deadline remains a final backstop. That leaves more than two minutes of route time and four minutes of lease time for strict speech, artwork, uploads, and finalization before the second cron 30 minutes later.
 
 ## Merge next, then monitor the first scheduled episode
 
