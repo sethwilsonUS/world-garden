@@ -9,7 +9,7 @@ set -euo pipefail
 
 if [ "${VERCEL_ENV:-}" = "production" ]; then
   echo "▸ Production build — deploying Convex functions + Next.js"
-  npx convex deploy --cmd 'next build'
+  npx convex deploy --cmd 'next build --webpack'
 
 elif [ "${VERCEL_ENV:-}" = "preview" ]; then
   BRANCH="${VERCEL_GIT_COMMIT_REF:-preview}"
