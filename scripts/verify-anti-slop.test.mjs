@@ -11,7 +11,10 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { assertSuppressionPolicy } from "./verify-anti-slop.mjs";
+import {
+  assertNodeRuntime,
+  assertSuppressionPolicy,
+} from "./verify-anti-slop.mjs";
 
 const verifierPath = path.join(import.meta.dirname, "verify-anti-slop.mjs");
 let fixtureRoot;
@@ -37,6 +40,22 @@ afterEach(() => {
 });
 
 describe("anti-slop verification", () => {
+  it.each(["24.3.0", "24.15.0"])(
+    "accepts supported Node runtime %s",
+    (version) => {
+      expect(() => assertNodeRuntime(version)).not.toThrow();
+    },
+  );
+
+  it.each(["23.11.0", "24.2.9", "25.0.0"])(
+    "rejects unsupported Node runtime %s",
+    (version) => {
+      expect(() => assertNodeRuntime(version)).toThrow(
+        "Node 24.3.0 or newer within the 24.x release line",
+      );
+    },
+  );
+
   it("runs the verifier when its CLI entrypoint is invoked through a symlink", () => {
     const symlinkPath = path.join(fixtureRoot, "verify-anti-slop.mjs");
     symlinkSync(verifierPath, symlinkPath);

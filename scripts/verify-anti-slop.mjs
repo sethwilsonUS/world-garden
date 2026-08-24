@@ -30,11 +30,17 @@ const canaryPath = path.join(rootDirectory, "tools", "oxlint", "canary.ts");
 
 const readJson = (filePath) => JSON.parse(readFileSync(filePath, "utf8"));
 
-const assertNodeRuntime = () => {
-  const [majorVersion] = process.versions.node.split(".");
-  if (majorVersion !== "24") {
+export const assertNodeRuntime = (version = process.versions.node) => {
+  const [majorVersion, minorVersion] = version
+    .split(".", 2)
+    .map((part) => Number.parseInt(part, 10));
+  if (
+    majorVersion !== 24 ||
+    !Number.isInteger(minorVersion) ||
+    minorVersion < 3
+  ) {
     throw new Error(
-      `Anti-slop requires the repository's Node 24.x runtime; found ${process.version}`,
+      `Anti-slop requires Node 24.3.0 or newer within the 24.x release line; found v${version}`,
     );
   }
 };
