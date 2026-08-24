@@ -88,7 +88,11 @@ export const runPreviewBuild = ({
   const nextCli = path.join(root, "node_modules/next/dist/bin/next");
   const commandOptions = { env, stdio: "inherit" };
 
-  const buildResult = run(process.execPath, [nextCli, "build"], commandOptions);
+  const buildResult = run(
+    process.execPath,
+    [nextCli, "build", "--webpack"],
+    commandOptions,
+  );
   assertCommandSucceeded(buildResult, "Building the Next.js Preview");
 
   const setConvexSecret = (name, value, description) => {

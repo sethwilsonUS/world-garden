@@ -202,7 +202,11 @@ describe("runPreviewBuild", () => {
     expect(run).toHaveBeenNthCalledWith(
       1,
       process.execPath,
-      [path.join(root, "node_modules/next/dist/bin/next"), "build"],
+      [
+        path.join(root, "node_modules/next/dist/bin/next"),
+        "build",
+        "--webpack",
+      ],
       expect.objectContaining({ env: previewEnv, stdio: "inherit" }),
     );
     expect(run).toHaveBeenNthCalledWith(
