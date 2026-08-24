@@ -77,10 +77,20 @@ const maplibreMock = vi.hoisted(() => {
     canvas.tabIndex = 0;
     return instance;
   });
-  return { MapConstructor, canvas, eventHandlers, instance, onceHandlers };
+  return {
+    MapConstructor,
+    canvas,
+    eventHandlers,
+    instance,
+    onceHandlers,
+    setWorkerUrl: vi.fn(),
+  };
 });
 
-vi.mock("maplibre-gl", () => ({ Map: maplibreMock.MapConstructor }));
+vi.mock("maplibre-gl", () => ({
+  Map: maplibreMock.MapConstructor,
+  setWorkerUrl: maplibreMock.setWorkerUrl,
+}));
 
 const chartBlock: ContextChartBlock = {
   id: "population-chart",
@@ -253,6 +263,7 @@ describe("article context rich visual loading", () => {
     maplibreMock.eventHandlers.clear();
     maplibreMock.canvas.remove();
     maplibreMock.MapConstructor.mockClear();
+    maplibreMock.setWorkerUrl.mockClear();
     Object.values(maplibreMock.instance).forEach((value) => {
       if (typeof value === "function" && "mockClear" in value)
         value.mockClear();
@@ -668,6 +679,12 @@ describe("article context rich visual loading", () => {
     });
     await vi.waitFor(() =>
       expect(maplibreMock.MapConstructor).toHaveBeenCalledOnce(),
+    );
+    expect(maplibreMock.setWorkerUrl).toHaveBeenCalledWith(
+      expect.stringContaining("maplibre-gl-worker.mjs"),
+    );
+    expect(maplibreMock.setWorkerUrl.mock.invocationCallOrder[0]).toBeLessThan(
+      maplibreMock.MapConstructor.mock.invocationCallOrder[0]!,
     );
 
     expect(

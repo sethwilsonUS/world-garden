@@ -665,6 +665,9 @@ const InteractiveMap = ({
     import("maplibre-gl")
       .then((maplibre) => {
         if (cancelled || failureReported) return;
+        maplibre.setWorkerUrl(
+          "/_next/static/maplibre/maplibre-gl-worker.mjs",
+        );
         const instance = new maplibre.Map({
           container,
           style: styleUrl,
