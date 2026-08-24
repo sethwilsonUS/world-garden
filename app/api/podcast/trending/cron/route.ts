@@ -5,12 +5,10 @@ import { enforceRouteQuota } from "@/lib/route-rate-limit";
 import { syncDailyTrendingBrief } from "@/lib/trending-brief";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
-export const maxDuration = 300;
+export const maxDuration = 800;
 
 export const GET = async (req: NextRequest) => {
-  const authError = getPodcastAdminAuthError(
-    req.headers.get("authorization"),
-  );
+  const authError = getPodcastAdminAuthError(req.headers.get("authorization"));
   if (authError) {
     return NextResponse.json(
       { error: authError },

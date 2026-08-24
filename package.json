@@ -23,6 +23,8 @@
     "analytics:costs": "node scripts/ai-cost-report.mjs",
     "feedback": "node scripts/product-feedback-report.mjs",
     "audit:mediawiki": "tsx scripts/mediawiki-corpus-audit.ts",
+    "eval:trending-podcast": "tsx scripts/trending-brief-eval.ts",
+    "render:trending-podcast-eval": "tsx scripts/render-trending-brief-eval-audio.ts",
     "arch": "ts-archunit check",
     "arch:baseline": "ts-archunit baseline --output arch-baseline.json",
     "arch:explain": "ts-archunit explain --format agent",

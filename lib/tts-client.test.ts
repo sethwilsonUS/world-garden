@@ -9,6 +9,7 @@ import {
   splitTtsTextIntoChunks,
 } from "./tts-client";
 import {
+  DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
   DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
   TTS_API_ROUTE,
 } from "./tts-contract";
@@ -96,6 +97,33 @@ describe("tts-client", () => {
     });
   });
 
+  it("forwards a strict fallback policy to every TTS chunk", async () => {
+    process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "2";
+    await generateTtsAudio({
+      text: "A trusted background narration request continues.",
+      provider: "openai",
+      fallbackPolicy: "forbid",
+    });
+
+    const requestBodies = vi
+      .mocked(fetch)
+      .mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(requestBodies).toHaveLength(3);
+    expect(requestBodies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "openai",
+          fallbackPolicy: "forbid",
+        }),
+      ]),
+    );
+    expect(
+      requestBodies.every(
+        (body) => body.fallbackPolicy === "forbid",
+      ),
+    ).toBe(true);
+  });
+
   it("returns a single chunk directly without invoking blob concatenation", async () => {
     const sliceSpy = vi
       .spyOn(Blob.prototype, "slice")
@@ -125,7 +153,7 @@ describe("tts-client", () => {
     const blob = await generateTtsAudio({ text, provider: "edge" });
     const calls = vi.mocked(fetch).mock.calls;
 
-    expect(calls).toHaveLength(3);
+    expect(calls.length).toBeGreaterThan(3);
 
     const requestBodies = calls.map(
       ([, init]) => JSON.parse(String(init?.body)) as { text: string },
@@ -134,6 +162,9 @@ describe("tts-client", () => {
     for (const body of requestBodies) {
       expect(countWords(body.text)).toBeLessThanOrEqual(
         DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
+      );
+      expect(body.text.length).toBeLessThanOrEqual(
+        DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
       );
     }
 
@@ -227,16 +258,71 @@ describe("tts-client", () => {
     expect(combinedText).not.toContain("ID3");
   });
 
-  it("splits sentence-free text by words when no softer boundary exists", () => {
-    const chunks = splitTtsTextIntoChunks(makeWords("word", 2505));
+  it("splits sentence-free text without exceeding either request limit", () => {
+    const text = makeWords("word", 2505);
 
-    expect(chunks).toHaveLength(4);
-    expect(chunks.map(countWords)).toEqual([
-      DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
-      DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
-      DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
-      105,
+    const chunks = splitTtsTextIntoChunks(text);
+
+    expect(chunks.every((chunk) => countWords(chunk) <= 800)).toBe(true);
+    expect(chunks.every((chunk) => chunk.length <= 4_096)).toBe(true);
+    expect(chunks.join(" ")).toBe(text);
+  });
+
+  it("hard-splits a single token at the OpenAI character limit", () => {
+    const text = "a".repeat(DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST + 1);
+
+    const chunks = splitTtsTextIntoChunks(text);
+
+    expect(chunks.map((chunk) => chunk.length)).toEqual([
+      DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
+      1,
     ]);
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("prefers sentence boundaries when the combined text exceeds the character limit", () => {
+    const firstSentence = `${"a".repeat(2_200)}.`;
+    const secondSentence = `${"b".repeat(2_200)}.`;
+
+    expect(
+      splitTtsTextIntoChunks(`${firstSentence} ${secondSentence}`),
+    ).toEqual([firstSentence, secondSentence]);
+  });
+
+  it("prefers paragraph boundaries when the combined text exceeds the character limit", () => {
+    const firstParagraph = "a".repeat(3_000);
+    const secondParagraph = "b".repeat(3_000);
+
+    expect(
+      splitTtsTextIntoChunks(`${firstParagraph}\n\n${secondParagraph}`),
+    ).toEqual([firstParagraph, secondParagraph]);
+  });
+
+  it("keeps multi-word chunks within both request limits", () => {
+    const text = Array.from({ length: 600 }, () => "abcdefghij").join(" ");
+
+    const chunks = splitTtsTextIntoChunks(text);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(
+      chunks.every(
+        (chunk) =>
+          chunk.length <= DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST &&
+          countWords(chunk) <= DEFAULT_TTS_MAX_WORDS_PER_REQUEST,
+      ),
+    ).toBe(true);
+    expect(chunks.join(" ")).toBe(text);
+  });
+
+  it("hard-splits an oversized sentence before packing nearby sentences", () => {
+    const longSentence = `${Array.from({ length: 600 }, () => "abcdefghij").join(" ")}.`;
+    const text = `${longSentence} A short closing sentence.`;
+
+    const chunks = splitTtsTextIntoChunks(text);
+
+    expect(chunks.every((chunk) => countWords(chunk) <= 800)).toBe(true);
+    expect(chunks.every((chunk) => chunk.length <= 4_096)).toBe(true);
+    expect(chunks.join(" ")).toBe(text);
   });
 
   it("honors a lower env-configured chunk limit", () => {

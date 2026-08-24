@@ -3,11 +3,11 @@ import { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { upsertTtsAudioVariant } from "./lib/ttsAudioVariants";
 import { assertPublicAudioWriteAttestation } from "../lib/public-audio-write-attestation";
+import { hasPublicAudioMetadata } from "../lib/public-edge-audio-metadata";
 import {
-  assertExactCurrentEdgeAudioMetadata,
-  hasPublicAudioMetadata,
-} from "../lib/public-edge-audio-metadata";
-import { getTrendingAudioCacheKey } from "../lib/trending-audio-profile";
+  assertExactCurrentTrendingAudioMetadata,
+  getTrendingAudioCacheKey,
+} from "../lib/trending-audio-profile";
 import { scheduleGenerationAssetBestEffort } from "./lib/aiCostPipelineInstrumentation";
 
 const serverAttestationValidator = v.object({
@@ -192,6 +192,70 @@ export const claimTrendingBriefJob = mutation({
   },
 });
 
+const trendingBriefDraftValidator = v.object({
+  headline: v.string(),
+  summary: v.string(),
+  podcastDescription: v.string(),
+  spokenSummary: v.string(),
+  keyPoints: v.array(v.string()),
+  sources: v.array(
+    v.object({
+      title: v.string(),
+      url: v.string(),
+    }),
+  ),
+  model: v.string(),
+  briefPromptVersion: v.string(),
+});
+
+export const saveTrendingBriefDraft = mutation({
+  args: {
+    trendingDate: v.string(),
+    owner: v.string(),
+    draftBrief: trendingBriefDraftValidator,
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "trending",
+      operation: "save-record",
+      args: writeArgs,
+      attestation,
+    });
+    const now = Date.now();
+    const job = await ctx.db
+      .query("trendingBriefJobs")
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
+      .first();
+    if (
+      !job ||
+      job.status !== "running" ||
+      job.leaseOwner !== args.owner ||
+      (job.leaseExpiresAt ?? 0) <= now
+    ) {
+      throw new Error("The Trending audio publication lease was lost.");
+    }
+    const existing = await ctx.db
+      .query("trendingBriefs")
+      .withIndex("by_trendingDate", (q) =>
+        q.eq("trendingDate", args.trendingDate),
+      )
+      .first();
+    if (!existing || existing.status !== "ready") {
+      throw new Error("A ready Trending brief is required to cache a draft.");
+    }
+
+    await ctx.db.patch(existing._id, {
+      draftBrief: args.draftBrief,
+      updatedAt: now,
+    });
+    return existing._id;
+  },
+});
+
 export const saveTrendingBrief = mutation({
   args: {
     trendingDate: v.string(),
@@ -226,6 +290,7 @@ export const saveTrendingBrief = mutation({
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     model: v.optional(v.string()),
+    briefPromptVersion: v.optional(v.string()),
     ttsModel: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),
@@ -268,8 +333,12 @@ export const saveTrendingBrief = mutation({
       ttsNormVersion: args.ttsNormVersion,
       ttsCacheKey: args.ttsCacheKey,
     };
+    const actualProvider =
+      args.provider === "openai" || args.provider === "edge"
+        ? args.provider
+        : null;
     if (args.status === "ready" || hasPublicAudioMetadata(audioMetadata)) {
-      assertExactCurrentEdgeAudioMetadata(
+      assertExactCurrentTrendingAudioMetadata(
         audioMetadata,
         getTrendingAudioCacheKey(),
       );
@@ -319,6 +388,8 @@ export const saveTrendingBrief = mutation({
         durationSeconds: args.durationSeconds,
         byteLength: args.byteLength,
         model: args.model,
+        briefPromptVersion: args.briefPromptVersion,
+        ...(args.status === "ready" ? { draftBrief: undefined } : {}),
         ttsModel: args.ttsModel,
         ttsCacheKey: args.ttsCacheKey,
         provider: args.provider,
@@ -349,6 +420,7 @@ export const saveTrendingBrief = mutation({
         durationSeconds: args.durationSeconds,
         byteLength: args.byteLength,
         model: args.model,
+        briefPromptVersion: args.briefPromptVersion,
         ttsModel: args.ttsModel,
         ttsCacheKey: args.ttsCacheKey,
         provider: args.provider,
@@ -369,13 +441,14 @@ export const saveTrendingBrief = mutation({
       args.byteLength != null &&
       args.byteLength > 0 &&
       args.durationSeconds != null &&
-      args.durationSeconds > 0
+      args.durationSeconds > 0 &&
+      actualProvider !== null
     ) {
       await scheduleGenerationAssetBestEffort(ctx, {
         eventKey: args.ledgerAssetKey,
         source: "trending_podcast",
-        provider: "edge",
-        model: args.ttsModel ?? null,
+        provider: actualProvider,
+        model: audioMetadata.model ?? null,
         byteLength: args.byteLength,
         durationMs: Math.round(args.durationSeconds * 1_000),
         durationMeasurement: "estimated",

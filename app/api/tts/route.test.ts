@@ -103,6 +103,27 @@ describe("POST /api/tts", () => {
     ).toEqual(["interactive_article", "interactive_article"]);
   });
 
+  it("rejects direct requests above the speech character limit", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({ text: "x".repeat(4_097) }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "Text exceeds 4096 characters; split it into smaller chunks before requesting TTS",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(auth).not.toHaveBeenCalled();
+  });
+
   it("records a server-attested source on every TTS lifecycle write", async () => {
     auth.mockResolvedValue({ userId: null });
     vi.stubGlobal(
@@ -554,6 +575,329 @@ describe("POST /api/tts", () => {
       new Set(attempts.map(({ correlationId }) => correlationId)).size,
     ).toBe(1);
     expect(new Set(attempts.map(({ eventKey }) => eventKey)).size).toBe(2);
+  });
+
+  it("does not synthesize Edge after a trusted strict OpenAI failure", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://api.openai.com/v1/audio/speech") {
+        return Response.json(
+          { error: { message: "OpenAI unavailable" } },
+          { status: 503 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "trending_podcast",
+      { bypassOpenAiQuota: true },
+    );
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "This trusted podcast narration must keep one voice.",
+          provider: "openai",
+          fallbackPolicy: "forbid",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "OpenAI unavailable",
+    });
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "https://api.openai.com/v1/audio/speech",
+    ]);
+    expect(auth).not.toHaveBeenCalled();
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(track).toHaveBeenCalledWith(
+      "TTS Route",
+      expect.objectContaining({
+        provider: "openai",
+        requestedProvider: "openai",
+        fallback: false,
+        fallbackReason: "none",
+        status: "error",
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("gives a trusted strict OpenAI request the full upstream timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    vi.stubEnv("TTS_UPSTREAM_TIMEOUT_MS", "100");
+    vi.stubEnv("TTS_OPENAI_INTERACTIVE_FALLBACK_MS", "25");
+    let openAiAborted = false;
+    const fetchMock = vi.fn<typeof fetch>(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url !== "https://api.openai.com/v1/audio/speech") {
+          throw new Error(`Unexpected fetch: ${url}`);
+        }
+        const signal = init?.signal as AbortSignal | undefined;
+        return new Promise<Response>((resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            openAiAborted = true;
+            reject(
+              new DOMException("The operation was aborted.", "AbortError"),
+            );
+          });
+          setTimeout(() => {
+            resolve(
+              new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+                status: 200,
+                headers: { "Content-Type": "audio/mpeg" },
+              }),
+            );
+          }, 50);
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "trending_podcast",
+      { bypassOpenAiQuota: true },
+    );
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "This trusted podcast narration may use the full timeout.",
+          provider: "openai",
+          fallbackPolicy: "forbid",
+        }),
+      }),
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(50);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("openai");
+    expect(openAiAborted).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("pins strict Trending speech even when general OpenAI overrides differ", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    vi.stubEnv("OPENAI_TTS_MODEL", "general-override-model");
+    vi.stubEnv("OPENAI_TTS_VOICE", "coral");
+    vi.stubEnv("OPENAI_TTS_PROMPT_VERSION", "general-override-v9");
+    vi.stubEnv("OPENAI_TTS_INSTRUCTIONS", "General override instructions.");
+    const { getTrendingTtsProfile } =
+      await import("@/lib/trending-audio-profile");
+    const trendingProfile = getTrendingTtsProfile();
+    const fetchMock = vi.fn<typeof fetch>(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.openai.com/v1/audio/speech");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          input: "This strict Trending narration uses its pinned profile.",
+          instructions: trendingProfile.instructions,
+          model: "gpt-4o-mini-tts",
+          response_format: "mp3",
+          voice: "marin",
+        });
+        return new Response(new Uint8Array([0xff, 0xfb, 0x90]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "trending_podcast",
+      { bypassOpenAiQuota: true },
+    );
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "This strict Trending narration uses its pinned profile.",
+          provider: "openai",
+          voiceId: "marin",
+          fallbackPolicy: "forbid",
+          expectedTtsCacheKey: trendingProfile.ttsCacheKey,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Model")).toBe("gpt-4o-mini-tts");
+    expect(response.headers.get("X-Curio-TTS-Voice")).toBe("marin");
+    expect(response.headers.get("X-Curio-TTS-Prompt-Version")).toBe(
+      trendingProfile.promptVersion,
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not synthesize Edge when a trusted strict OpenAI request times out", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    vi.stubEnv("TTS_UPSTREAM_TIMEOUT_MS", "25");
+    vi.stubEnv("TTS_OPENAI_INTERACTIVE_FALLBACK_MS", "5");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    let openAiAborted = false;
+    const fetchMock = vi.fn<typeof fetch>(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url !== "https://api.openai.com/v1/audio/speech") {
+          throw new Error(`Unexpected fetch: ${url}`);
+        }
+        const signal = init?.signal as AbortSignal | undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            openAiAborted = true;
+            reject(
+              new DOMException("The operation was aborted.", "AbortError"),
+            );
+          });
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "trending_podcast",
+      { bypassOpenAiQuota: true },
+    );
+    const { POST } = await import("./route");
+    const responsePromise = POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "This trusted podcast narration must not change voices.",
+          provider: "openai",
+          fallbackPolicy: "forbid",
+        }),
+      }),
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(25);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "OpenAI TTS request timed out after 25ms",
+    });
+    expect(openAiAborted).toBe(true);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "https://api.openai.com/v1/audio/speech",
+    ]);
+    consoleError.mockRestore();
+  });
+
+  it("ignores a strict fallback policy from an interactive caller", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://api.openai.com/v1/audio/speech") {
+        return Response.json(
+          { error: { message: "OpenAI unavailable" } },
+          { status: 503 },
+        );
+      }
+      if (url === "https://curiogarden.org/api/tts/edge") {
+        return new Response(new Uint8Array([0xff, 0xfb, 0x91]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        body: JSON.stringify({
+          text: "This interactive narration retains its normal fallback.",
+          provider: "openai",
+          fallbackPolicy: "forbid",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "https://api.openai.com/v1/audio/speech",
+      "https://curiogarden.org/api/tts/edge",
+    ]);
+  });
+
+  it("defaults a trusted OpenAI request to allowing Edge fallback", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "internal-secret");
+    const fetchMock = vi.fn<typeof fetch>(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://api.openai.com/v1/audio/speech") {
+        return Response.json(
+          { error: { message: "OpenAI unavailable" } },
+          { status: 503 },
+        );
+      }
+      if (url === "https://curiogarden.org/api/tts/edge") {
+        return new Response(new Uint8Array([0xff, 0xfb, 0x91]), {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "trending_podcast",
+      { bypassOpenAiQuota: true },
+    );
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("https://curiogarden.org/api/tts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "This trusted narration keeps the default fallback behavior.",
+          provider: "openai",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Curio-TTS-Provider")).toBe("edge");
+    expect(response.headers.get("X-Curio-TTS-Fallback")).toBe("true");
   });
 
   it("never sends the bypass secret to an untrusted request origin", async () => {

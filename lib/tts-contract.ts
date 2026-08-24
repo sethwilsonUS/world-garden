@@ -3,15 +3,21 @@ import type { TtsProvider } from "./tts-profile";
 export const TTS_API_ROUTE = "/api/tts";
 export const TTS_MIN_TEXT_LENGTH = 1;
 export const DEFAULT_TTS_MAX_WORDS_PER_REQUEST = 800;
+/** OpenAI speech input limit, measured with JavaScript `String.length`. */
+export const DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST = 4_096;
 
 // This is the current backend default. Treat it as contract metadata rather
 // than a frontend engine choice.
 export const CURRENT_TTS_DEFAULT_VOICE = "marin";
 
+export type TtsFallbackPolicy = "allow" | "forbid";
+
 export type TtsRequest = {
   text: string;
   voiceId?: string;
   provider?: TtsProvider;
+  /** Defaults to `allow`; `forbid` is honored only for trusted background requests. */
+  fallbackPolicy?: TtsFallbackPolicy;
   /** Reject before generation if the server's active profile has changed. */
   expectedTtsCacheKey?: string;
 };

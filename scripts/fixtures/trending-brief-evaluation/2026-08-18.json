@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "fixtureDate": "2026-08-18",
+  "sourceFeedDate": "2026-08-18",
+  "trendingDate": "2026-08-17",
+  "articles": [
+    {
+      "title": "Wladimir Klitschko",
+      "views": 1581846,
+      "extract": "Wladimir Klitschko is a Ukrainian former professional boxer who competed from 1996 to 2017 and held multiple heavyweight world championships between 2000 and 2015."
+    },
+    {
+      "title": "Jansen Panettiere",
+      "views": 1177515,
+      "extract": "Jansen Panettiere was an American actor known for The Secrets of Jonathan Sperry, The Perfect Game, The Martial Arts Kid, and several animated voice roles."
+    },
+    {
+      "title": "Michelle Trachtenberg",
+      "views": 297488,
+      "extract": "Michelle Trachtenberg was an American actress whose work included Harriet the Spy, The Adventures of Pete & Pete, Buffy the Vampire Slayer, and Gossip Girl."
+    },
+    {
+      "title": "Spider-Man: Brand New Day",
+      "views": 260426,
+      "extract": "Spider-Man: Brand New Day is a 2026 American superhero film based on the Marvel Comics character Spider-Man. It is the fourth film in the MCU Spider-Man series."
+    },
+    {
+      "title": "Lanterns (TV series)",
+      "views": 248699,
+      "extract": "Lanterns is an HBO superhero series based on the DC Comics Green Lantern characters Hal Jordan and John Stewart, who investigate a murder and a wider mystery."
+    },
+    {
+      "title": "Milo Ventimiglia",
+      "views": 234644,
+      "extract": "Milo Ventimiglia is an American actor known for Gilmore Girls, Heroes, This Is Us, and film and television roles dating to the 1990s."
+    },
+    {
+      "title": "Awarapan 2",
+      "views": 224065,
+      "extract": "Awarapan 2 is a 2026 Indian Hindi-language action thriller and a sequel to the 2007 film Awarapan. It stars Emraan Hashmi, Disha Patani, and Shabana Azmi."
+    },
+    {
+      "title": "Jason Arday",
+      "views": 221427,
+      "extract": "Jason Arday was a British academic and author who taught sociology of education at Cambridge and received international attention amid accusations about his research and autobiography."
+    },
+    {
+      "title": "Cardiomegaly",
+      "views": 215888,
+      "extract": "Cardiomegaly is an enlarged heart, usually resulting from an underlying condition that makes the heart work harder, such as hypertension or heart valve disease."
+    },
+    {
+      "title": "Google",
+      "views": 210456,
+      "extract": "Google is a multinational technology company focused on search, online advertising, cloud computing, software, artificial intelligence, and consumer electronics."
+    }
+  ]
+}

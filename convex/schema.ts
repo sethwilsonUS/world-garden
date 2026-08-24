@@ -588,6 +588,24 @@ export default defineSchema({
     durationSeconds: v.optional(v.number()),
     byteLength: v.optional(v.number()),
     model: v.optional(v.string()),
+    briefPromptVersion: v.optional(v.string()),
+    draftBrief: v.optional(
+      v.object({
+        headline: v.string(),
+        summary: v.string(),
+        podcastDescription: v.string(),
+        spokenSummary: v.string(),
+        keyPoints: v.array(v.string()),
+        sources: v.array(
+          v.object({
+            title: v.string(),
+            url: v.string(),
+          }),
+        ),
+        model: v.string(),
+        briefPromptVersion: v.string(),
+      }),
+    ),
     ttsModel: v.optional(v.string()),
     ttsCacheKey: v.optional(v.string()),
     provider: v.optional(v.string()),

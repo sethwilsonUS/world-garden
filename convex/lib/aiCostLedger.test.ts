@@ -782,6 +782,35 @@ describe("AI cost ledger mutation inputs", () => {
     ).toBe("stale");
   });
 
+  it("treats supported aliases and the legacy Luna snapshot as family identities", () => {
+    const legacySnapshot = providerAttempt({
+      model: "gpt-5.6-luna-2026-07-01",
+    });
+    const terminalAlias = providerAttempt({
+      lifecycleVersion: 1,
+      model: "gpt-5.6-luna",
+      state: "succeeded",
+      failureCategory: null,
+      completedAt: 1_800_000_000_100,
+    });
+
+    expect(resolveProviderAttemptWrite(legacySnapshot, terminalAlias)).toBe(
+      "updated",
+    );
+    expect(
+      resolveProviderAttemptWrite(
+        providerAttempt({ model: "gpt-5.6" }),
+        { ...terminalAlias, model: "gpt-5.6-sol" },
+      ),
+    ).toBe("updated");
+    expect(
+      resolveProviderAttemptWrite(
+        providerAttempt({ model: "gpt-5.6-terra" }),
+        { ...terminalAlias, model: "gpt-5.6-sol" },
+      ),
+    ).toBe("stale");
+  });
+
   it("does not seed a missing rollup bucket with a provider-attempt reversal", async () => {
     vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
     const initial = providerAttempt();
@@ -918,7 +947,7 @@ describe("AI cost ledger mutation inputs", () => {
     }).toEqual({
       providerAttempts: 0,
       webSearchCalls: 2,
-      estimatedDirectAiCostMicros: 20_243,
+      estimatedDirectAiCostMicros: 20_049,
       known: 1,
       unknown: -1,
     });
@@ -1012,8 +1041,8 @@ describe("AI cost ledger mutation inputs", () => {
     expect(stored).not.toHaveProperty("eventKey");
     expect(stored).toMatchObject({
       estimatedCostCurrency: "USD",
-      estimatedCostEffectiveFrom: "2026-07-28",
-      estimatedCostPricingVersion: "openai-2026-07-28-v1",
+      estimatedCostEffectiveFrom: "2026-08-24",
+      estimatedCostPricingVersion: "openai-2026-08-24-v2",
     });
     expect(
       getProviderAttemptFromEvent(

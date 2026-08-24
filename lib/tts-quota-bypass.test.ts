@@ -104,6 +104,27 @@ describe("getTtsQuotaBypassHeaders", () => {
     ).resolves.toBe("featured_podcast");
   });
 
+  it("adds quota authority when a trusted OpenAI background job requests it", async () => {
+    process.env.TTS_QUOTA_BYPASS_SECRET = "internal-secret";
+
+    const headers = await getTrustedTtsGenerationHeaders(
+      "https://curiogarden.org",
+      "trending_podcast",
+      { bypassOpenAiQuota: true },
+    );
+
+    await expect(
+      verifyTtsQuotaBypassHeaderValue(headers[TTS_QUOTA_BYPASS_HEADER], {
+        secret: "internal-secret",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      resolveTtsAiCostSource(new Headers(headers), {
+        secret: "internal-secret",
+      }),
+    ).resolves.toBe("trending_podcast");
+  });
+
   it("fails open to an untrusted source claim when source signing is unavailable", async () => {
     const headers = await getTrustedTtsGenerationHeaders(
       "https://curiogarden.org",
