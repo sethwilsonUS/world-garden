@@ -1489,15 +1489,37 @@ test("article section controls and metadata reflow with enlarged text", async ({
     expect(box!.height).toBeGreaterThanOrEqual(44);
   }
 
+  await adaptationInfo.evaluate((button) => {
+    const wrapper = button.parentElement;
+    if (!wrapper) throw new Error("Tooltip trigger wrapper is missing");
+    const triggerBox = button.getBoundingClientRect();
+    wrapper.style.transform = `translateX(${-triggerBox.left}px)`;
+  });
   await adaptationInfo.click();
   const tooltip = page.getByRole("tooltip");
   await expect(tooltip).toBeVisible();
-  const tooltipBox = await tooltip.boundingBox();
+  const hoverBridge = page.locator("[data-info-tooltip-hover-bridge]");
+  const [triggerBox, tooltipBox, hoverBridgeBox] = await Promise.all([
+    adaptationInfo.boundingBox(),
+    tooltip.boundingBox(),
+    hoverBridge.boundingBox(),
+  ]);
+  expect(triggerBox).not.toBeNull();
   expect(tooltipBox).not.toBeNull();
+  expect(hoverBridgeBox).not.toBeNull();
   expect(tooltipBox!.x).toBeGreaterThanOrEqual(0);
   expect(tooltipBox!.x + tooltipBox!.width).toBeLessThanOrEqual(320);
   expect(tooltipBox!.y).toBeGreaterThanOrEqual(0);
   expect(tooltipBox!.y + tooltipBox!.height).toBeLessThanOrEqual(800);
+  expect(hoverBridgeBox!.x).toBeLessThanOrEqual(
+    Math.min(triggerBox!.x, tooltipBox!.x),
+  );
+  expect(hoverBridgeBox!.x + hoverBridgeBox!.width).toBeGreaterThanOrEqual(
+    Math.max(
+      triggerBox!.x + triggerBox!.width,
+      tooltipBox!.x + tooltipBox!.width,
+    ),
+  );
 });
 
 test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and falls back", async ({

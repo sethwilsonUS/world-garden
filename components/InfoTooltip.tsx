@@ -133,8 +133,13 @@ export const InfoTooltip = ({
       tooltip.style.visibility = "visible";
 
       const tooltipBottom = top + tooltipBox.height;
-      hoverBridge.style.left = `${left}px`;
-      hoverBridge.style.width = `${width}px`;
+      const hoverBridgeLeft = Math.max(0, Math.min(left, triggerBox.left));
+      const hoverBridgeRight = Math.min(
+        window.innerWidth,
+        Math.max(left + width, triggerBox.right),
+      );
+      hoverBridge.style.left = `${hoverBridgeLeft}px`;
+      hoverBridge.style.width = `${hoverBridgeRight - hoverBridgeLeft}px`;
       if (top >= triggerBox.bottom) {
         hoverBridge.style.top = `${triggerBox.bottom}px`;
         hoverBridge.style.height = `${top - triggerBox.bottom}px`;
@@ -209,6 +214,7 @@ export const InfoTooltip = ({
             <span
               ref={hoverBridgeRef}
               aria-hidden="true"
+              data-info-tooltip-hover-bridge=""
               onMouseEnter={showTooltip}
               onMouseLeave={scheduleTooltipClose}
               className="fixed z-10 block"
