@@ -7,9 +7,12 @@ const eslintConfig = defineConfig([
   ...fixupConfigRules([...nextVitals, ...nextTs]),
   globalIgnores([
     ".next/**",
+    ".edge-tts-venv/**",
+    ".venv/**",
     "out/**",
     "build/**",
     "mobile/**",
+    "tools/oxlint/**",
     "next-env.d.ts",
     "convex/_generated/**",
   ]),

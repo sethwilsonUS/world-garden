@@ -5,6 +5,7 @@ import {
   DEFAULT_NONESSENTIAL_MOTION_DURATION_MS,
   getNonessentialMotionDuration,
   useAccessibilityPreferences,
+  type SubscribeToAccessibilityPreference,
 } from "./useAccessibilityPreferences";
 
 type ChangeHandler = (enabled: boolean) => void;
@@ -51,21 +52,19 @@ function capturePreferenceListeners() {
   const listeners = new Map<string, ChangeHandler>();
   const removers: jest.Mock[] = [];
 
-  jest.spyOn(AccessibilityInfo, "addEventListener").mockImplementation(((
-    eventName: string,
-    handler: ChangeHandler,
+  const subscribe: SubscribeToAccessibilityPreference = (
+    eventName,
+    handler,
   ) => {
     const remove = jest.fn();
 
     listeners.set(eventName, handler);
     removers.push(remove);
 
-    return { remove } as unknown as ReturnType<
-      typeof AccessibilityInfo.addEventListener
-    >;
-  }) as typeof AccessibilityInfo.addEventListener);
+    return { remove };
+  };
 
-  return { listeners, removers };
+  return { listeners, removers, subscribe };
 }
 
 afterEach(() => {
@@ -92,10 +91,10 @@ describe("useAccessibilityPreferences", () => {
           resolveReduceMotion = resolve;
         }),
     );
-    const { listeners, removers } = capturePreferenceListeners();
+    const { listeners, removers, subscribe } = capturePreferenceListeners();
 
     const { result, unmount } = await renderHook(() =>
-      useAccessibilityPreferences(),
+      useAccessibilityPreferences(subscribe),
     );
 
     expect(result.current.reduceMotion).toBe(true);
@@ -145,10 +144,10 @@ describe("useAccessibilityPreferences", () => {
         }),
     );
     queries.highTextContrast.mockResolvedValue(true);
-    const { listeners, removers } = capturePreferenceListeners();
+    const { listeners, removers, subscribe } = capturePreferenceListeners();
 
     const { result, unmount } = await renderHook(() =>
-      useAccessibilityPreferences(),
+      useAccessibilityPreferences(subscribe),
     );
 
     await act(async () => {
@@ -180,9 +179,11 @@ describe("useAccessibilityPreferences", () => {
     usePlatform("ios");
     const queries = mockPreferenceQueries();
     queries.reduceMotion.mockRejectedValue(new Error("native API unavailable"));
-    capturePreferenceListeners();
+    const { subscribe } = capturePreferenceListeners();
 
-    const { result } = await renderHook(() => useAccessibilityPreferences());
+    const { result } = await renderHook(() =>
+      useAccessibilityPreferences(subscribe),
+    );
 
     await act(async () => {
       await Promise.resolve();

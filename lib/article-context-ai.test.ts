@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type OpenAI from "openai";
 import {
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
+  type ContextAIClient,
 } from "./article-context-ai";
 import { createInstrumentedOpenAiFetch } from "./openai-client";
 import type { AiCostProviderAttempt } from "./ai-cost-ledger-contract";
@@ -88,29 +88,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const clientWith = (outputParsed: unknown) =>
-  ({
-    responses: {
-      parse: vi.fn(async () => ({ output_parsed: outputParsed })),
-    },
-  }) as unknown as Pick<OpenAI, "responses">;
+const clientWith = (output: unknown) => ({
+  parse: vi.fn<ContextAIClient["parse"]>(async () => output),
+});
 
-const schemaValidatingClientWith = (output: unknown) => {
-  const parse = vi.fn(
-    async (request: {
-      text?: {
-        format?: {
-          $parseRaw?: (value: string) => unknown;
-        };
-      };
-    }) => {
-      const parseRaw = request.text?.format?.$parseRaw;
-      if (!parseRaw) throw new Error("Missing structured-output parser");
-      return { output_parsed: parseRaw(JSON.stringify(output)) };
-    },
-  );
+const observedClientWith = (output: unknown) => {
+  const parse = vi.fn<ContextAIClient["parse"]>(async () => output);
   return {
-    client: { responses: { parse } } as unknown as Pick<OpenAI, "responses">,
+    client: { parse },
     parse,
   };
 };
@@ -161,9 +146,12 @@ describe("article context AI descriptions", () => {
       model: "gpt-5.6-luna",
     });
 
-    expect(client.responses.parse).toHaveBeenCalledWith(expect.anything(), {
-      timeout: 20_000,
-    });
+    expect(client.parse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-5.6-luna",
+        timeoutMs: 20_000,
+      }),
+    );
 
     expect(enhanced.blocks[0]?.caption).toContain("1969");
     expect(enhanced.blocks[0]).not.toHaveProperty("spokenSummary");
@@ -191,24 +179,22 @@ describe("article context AI descriptions", () => {
       ),
       record,
     });
-    const parse = vi.fn(async () => {
+    const parse = vi.fn<ContextAIClient["parse"]>(async () => {
       await providerFetch("https://api.openai.com/v1/responses");
       return {
-        output_parsed: {
-          blocks: [
-            {
-              id: "timeline-1",
-              caption: "Two milestones span 1969 to 1972.",
-              longDescription:
-                "The chronology begins with launch in 1969 and ends with return in 1972.",
-            },
-          ],
-        },
+        blocks: [
+          {
+            id: "timeline-1",
+            caption: "Two milestones span 1969 to 1972.",
+            longDescription:
+              "The chronology begins with launch in 1969 and ends with return in 1972.",
+          },
+        ],
       };
     });
 
     await enhanceArticleContextManifest(manifest, {
-      client: { responses: { parse } } as unknown as Pick<OpenAI, "responses">,
+      client: { parse },
       model: "gpt-5.6-luna",
     });
     await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2));
@@ -239,7 +225,7 @@ describe("article context AI descriptions", () => {
           "The chronology records launch in 1969 followed by return in 1972.",
       })),
     };
-    const { client, parse } = schemaValidatingClientWith(response);
+    const { client, parse } = observedClientWith(response);
 
     const enhanced = await enhanceArticleContextManifest(source, { client });
 
@@ -311,7 +297,7 @@ describe("article context AI descriptions", () => {
         : undefined,
     ).toEqual(diagram.diagram.legend);
     expect(
-      JSON.stringify(vi.mocked(client.responses.parse).mock.calls),
+      JSON.stringify(client.parse.mock.calls),
     ).toContain("#FFD700");
   });
 

@@ -9,7 +9,6 @@ import {
   resideInFolder,
 } from "@nielspeter/ts-archunit";
 import { recommended } from "@nielspeter/ts-archunit/presets";
-import ts from "typescript";
 
 // arch-baseline.json contains reviewed legacy findings from the preset's
 // advisory rules. Fix new findings; never regenerate the baseline merely to
@@ -161,14 +160,8 @@ const useOnlyPublicDomainPackageImports = defineCondition<ProjectSourceFile>(
           ) {
             return false;
           }
-          const argument = call.getArguments()[0];
-          const compilerNode = argument?.compilerNode as unknown as
-            | ts.Node
-            | undefined;
-          return (
-            compilerNode !== undefined &&
-            ts.isStringLiteralLike(compilerNode) &&
-            /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(compilerNode.text)
+          return /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
+            call.getName({ withArgument: 0 }) ?? "",
           );
         })
         .map((call) => call.getNode());

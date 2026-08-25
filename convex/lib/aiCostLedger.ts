@@ -1,4 +1,4 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   AI_COST_EVENT_RETENTION_MS,
   AI_COST_OBSERVATION_WINDOW_MS,
@@ -43,8 +43,19 @@ type LedgerQuery<T> = {
   };
 };
 
+type LedgerDocumentByTable = {
+  aiCostDailyRollups: LedgerRollupDocument;
+  aiCostLedgerCoverage: LedgerCoverageDocument;
+  aiCostLedgerCoverageResets: LedgerCoverageResetDocument;
+  aiCostLedgerDeliveries: LedgerDeliveryDocument;
+  aiCostLedgerEvents: LedgerEventDocument;
+  sectionAudio: Doc<"sectionAudio">;
+};
+
 type LedgerDb = {
-  query(table: string): LedgerQuery<LedgerEventDocument>;
+  query<TableName extends keyof LedgerDocumentByTable>(
+    table: TableName,
+  ): LedgerQuery<LedgerDocumentByTable[TableName]>;
   insert(table: string, value: Record<string, unknown>): Promise<unknown>;
   patch(id: unknown, value: Record<string, unknown>): Promise<void>;
   delete(id: unknown): Promise<void>;
@@ -57,6 +68,8 @@ type LedgerEventDocument = {
   eventDay: number;
   event: Record<string, unknown> & { kind: string };
 };
+
+type LedgerDeliveryDocument = Doc<"aiCostLedgerDeliveries">;
 
 type LedgerRollupDocument = Record<string, unknown> & {
   _id: unknown;
@@ -445,7 +458,7 @@ const getExistingEvent = async (
 const getExistingDelivery = async (
   db: LedgerDb,
   eventKey: string,
-): Promise<LedgerEventDocument | null> =>
+): Promise<LedgerDeliveryDocument | null> =>
   await db
     .query("aiCostLedgerDeliveries")
     .withIndex("by_eventKey", (query) => query.eq("eventKey", eventKey))
@@ -456,19 +469,19 @@ const AI_COST_COVERAGE_KEY = "observe-v1" as const;
 const getExistingCoverage = async (
   db: LedgerDb,
 ): Promise<LedgerCoverageDocument | null> =>
-  (await db
+  await db
     .query("aiCostLedgerCoverage")
     .withIndex("by_key", (query) => query.eq("key", AI_COST_COVERAGE_KEY))
-    .unique()) as unknown as LedgerCoverageDocument | null;
+    .unique();
 
 const getExistingCoverageReset = async (
   db: LedgerDb,
   epochKey: string,
 ): Promise<LedgerCoverageResetDocument | null> =>
-  (await db
+  await db
     .query("aiCostLedgerCoverageResets")
     .withIndex("by_epochKey", (query) => query.eq("epochKey", epochKey))
-    .unique()) as unknown as LedgerCoverageResetDocument | null;
+    .unique();
 
 export const ensureAiCostLedgerCoverageForCtx = async (
   ctx: LedgerMutationCtx,
@@ -848,10 +861,10 @@ const addRollupDelta = async (
     dimensions.provider ?? "none",
     dimensions.operation ?? "none",
   ].join(":");
-  const existing = (await db
+  const existing = await db
     .query("aiCostDailyRollups")
     .withIndex("by_key", (query) => query.eq("key", key))
-    .unique()) as LedgerRollupDocument | null;
+    .unique();
 
   if (!existing) {
     if (!seedMissingBucket) return;
@@ -1003,7 +1016,8 @@ export const recordProviderAttemptForCtx = async (
   const db = getDb(ctx);
   const now = Date.now();
   const existingDocument = await getExistingEvent(db, attempt.eventKey);
-  let existingDelivery = await getExistingDelivery(db, attempt.eventKey);
+  const existingDelivery = await getExistingDelivery(db, attempt.eventKey);
+  let existingDeliveryId: unknown = existingDelivery?._id ?? null;
   if (!existingDocument && existingDelivery) {
     return { recorded: false, disposition: "duplicate" };
   }
@@ -1014,19 +1028,13 @@ export const recordProviderAttemptForCtx = async (
       )
     : null;
   if (existingDocument && !existingDelivery) {
-    const deliveryId = await db.insert("aiCostLedgerDeliveries", {
+    existingDeliveryId = await db.insert("aiCostLedgerDeliveries", {
       eventKey: attempt.eventKey,
       eventKind: "provider_attempt",
       latestLifecycleVersion: existingAttempt?.lifecycleVersion ?? null,
       createdAt: now,
       updatedAt: now,
     });
-    existingDelivery = {
-      _id: deliveryId,
-      eventKey: attempt.eventKey,
-      eventDay: existingDocument.eventDay,
-      event: { kind: "provider_attempt" },
-    };
   }
   if (existingDocument && !existingAttempt) {
     return { recorded: false, disposition: "stale" };
@@ -1083,8 +1091,8 @@ export const recordProviderAttemptForCtx = async (
     event: toProviderAttemptEvent(attempt, estimate),
     updatedAt: now,
   });
-  if (existingDelivery) {
-    await db.patch(existingDelivery._id, {
+  if (existingDeliveryId !== null) {
+    await db.patch(existingDeliveryId, {
       latestLifecycleVersion: attempt.lifecycleVersion,
       updatedAt: now,
     });

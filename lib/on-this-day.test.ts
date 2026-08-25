@@ -4,7 +4,6 @@ import {
   paginateOnThisDaySnapshot,
   WIKIFEEDS_REQUEST_TIMEOUT_MS,
   wikifeedsOnThisDayProvider,
-  type OnThisDayFeedPayload,
   type OnThisDayProvider,
 } from "./on-this-day";
 import type { OnThisDaySnapshot } from "./on-this-day-contracts";
@@ -309,7 +308,7 @@ describe("On This Day snapshot", () => {
           births: [],
           deaths: [],
           holidays: [],
-        }) as unknown as OnThisDayFeedPayload),
+        })),
     };
     const malformed = await buildOnThisDaySnapshot({
       feedDate: "2026-07-24",

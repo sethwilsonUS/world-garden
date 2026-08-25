@@ -52,15 +52,31 @@ const initialNativePlaylistStatus: AudioPlaylistStatus = {
 type DurableNativePlaylistStatus = AudioPlaylistStatus &
   Readonly<{ ended: boolean }>;
 
+function createAudioBoundary(
+  overrides: Partial<ExpoAudioBoundary> = {},
+): ExpoAudioBoundary {
+  return {
+    createAudioPlayer: () => {
+      throw new Error("Unexpected native player creation");
+    },
+    createAudioPlaylist: () => {
+      throw new Error("Unexpected native playlist creation");
+    },
+    setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
+    setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
 describe("ExpoBackgroundAudioRuntime", () => {
   it("configures playback-only background mode without owning the global session switch", async () => {
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
     const setAudioModeAsync = jest.fn().mockResolvedValue(undefined);
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest.fn(),
       setAudioModeAsync,
       setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
 
     await runtime.configureBackgroundMode();
@@ -78,11 +94,11 @@ describe("ExpoBackgroundAudioRuntime", () => {
 
   it("fails closed when background audio mode configuration fails", async () => {
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest.fn(),
       setAudioModeAsync: jest.fn().mockRejectedValue(new Error("native mode")),
       setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary;
+    });
 
     await expect(
       createExpoBackgroundAudioRuntime(boundary).configureBackgroundMode(),
@@ -116,11 +132,11 @@ describe("ExpoBackgroundAudioRuntime", () => {
     };
     const createAudioPlayer = jest.fn(() => nativePlayer);
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer,
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
     const onStatus = jest.fn();
     const player = runtime.createPlayer(
@@ -248,14 +264,14 @@ describe("ExpoBackgroundAudioRuntime", () => {
     const firstNativePlayer = makeNativePlayer();
     const secondNativePlayer = makeNativePlayer();
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest
         .fn()
         .mockReturnValueOnce(firstNativePlayer)
         .mockReturnValueOnce(secondNativePlayer),
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
     const firstPlayer = runtime.createPlayer(
       { metadata: summaryMetadata, uri: "file:///private-cache/first.mp3" },
@@ -299,14 +315,14 @@ describe("ExpoBackgroundAudioRuntime", () => {
     const setIsAudioActiveAsync = jest.fn((active: boolean) =>
       active ? Promise.resolve() : deactivation,
     );
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest
         .fn()
         .mockReturnValueOnce(firstNativePlayer)
         .mockReturnValueOnce(secondNativePlayer),
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
     const firstPlayer = runtime.createPlayer(
       { metadata: summaryMetadata, uri: "file:///private-cache/first.mp3" },
@@ -382,12 +398,12 @@ describe("ExpoBackgroundAudioRuntime", () => {
     };
     const createAudioPlaylist = jest.fn(() => nativePlaylist);
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest.fn(),
       createAudioPlaylist,
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
     const onStatus = jest.fn();
     const onTrackChanged = jest.fn();
@@ -549,17 +565,19 @@ describe("ExpoBackgroundAudioRuntime", () => {
       pause: jest.fn(),
       play: jest.fn(),
       previous: jest.fn(),
+      playbackRate: 1,
       release: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
+      setPlaybackRate: jest.fn(),
       skipTo: jest.fn(),
     };
-    const runtime = createExpoBackgroundAudioRuntime({
+    const runtime = createExpoBackgroundAudioRuntime(createAudioBoundary({
       createAudioPlayer: jest.fn(),
       createAudioPlaylist: jest.fn(() => nativePlaylist),
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
-    } as unknown as ExpoAudioBoundary);
+    }));
     const onStatus = jest.fn();
     const playlist = runtime.createPlaylist(
       [
@@ -606,6 +624,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
       replace: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
+      setPlaybackRate: jest.fn(),
     };
     const nativePlaylist = {
       addListener: jest.fn(() => ({ remove: jest.fn() })),
@@ -618,6 +637,7 @@ describe("ExpoBackgroundAudioRuntime", () => {
       pause: jest.fn(),
       play: jest.fn(),
       previous: jest.fn(),
+      playbackRate: 1,
       release: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
@@ -625,18 +645,22 @@ describe("ExpoBackgroundAudioRuntime", () => {
     };
     const setIsAudioActiveAsync = jest.fn().mockResolvedValue(undefined);
     const setAudioModeAsync = jest.fn().mockResolvedValue(undefined);
-    const playerRuntime = createExpoBackgroundAudioRuntime({
-      createAudioPlayer: jest.fn(() => nativePlayer),
-      createAudioPlaylist: jest.fn(),
-      setAudioModeAsync,
-      setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary);
-    const playlistRuntime = createExpoBackgroundAudioRuntime({
-      createAudioPlayer: jest.fn(),
-      createAudioPlaylist: jest.fn(() => nativePlaylist),
-      setAudioModeAsync,
-      setIsAudioActiveAsync,
-    } as unknown as ExpoAudioBoundary);
+    const playerRuntime = createExpoBackgroundAudioRuntime(
+      createAudioBoundary({
+        createAudioPlayer: jest.fn(() => nativePlayer),
+        createAudioPlaylist: jest.fn(),
+        setAudioModeAsync,
+        setIsAudioActiveAsync,
+      }),
+    );
+    const playlistRuntime = createExpoBackgroundAudioRuntime(
+      createAudioBoundary({
+        createAudioPlayer: jest.fn(),
+        createAudioPlaylist: jest.fn(() => nativePlaylist),
+        setAudioModeAsync,
+        setIsAudioActiveAsync,
+      }),
+    );
     const player = playerRuntime.createPlayer(
       { metadata: summaryMetadata, uri: "file:///private-cache/summary.mp3" },
       jest.fn(),
@@ -678,12 +702,12 @@ describe("ExpoBackgroundAudioRuntime", () => {
     },
   ])("rejects $label queue before native creation", ({ sources }) => {
     const createAudioPlaylist = jest.fn();
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest.fn(),
       createAudioPlaylist,
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
 
     expect(() => runtime.createPlaylist(sources, jest.fn(), jest.fn())).toThrow(
@@ -696,11 +720,11 @@ describe("ExpoBackgroundAudioRuntime", () => {
     "rejects a non-private playback source before creating a native player (%s)",
     (uri) => {
       const createAudioPlayer = jest.fn();
-      const boundary = {
+      const boundary = createAudioBoundary({
         createAudioPlayer,
         setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
         setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
-      } as unknown as ExpoAudioBoundary;
+      });
       const runtime = createExpoBackgroundAudioRuntime(boundary);
 
       expect(() =>
@@ -722,12 +746,14 @@ describe("ExpoBackgroundAudioRuntime", () => {
       release: jest.fn(),
       replace: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
+      setActiveForLockScreen: jest.fn(),
+      setPlaybackRate: jest.fn(),
     };
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest.fn(() => nativePlayer),
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
 
     expect(() =>
@@ -762,17 +788,18 @@ describe("ExpoBackgroundAudioRuntime", () => {
       pause: jest.fn(),
       play: jest.fn(),
       previous: jest.fn(),
+      playbackRate: 1,
       release: jest.fn(),
       seekTo: jest.fn().mockResolvedValue(undefined),
       setActiveForLockScreen: jest.fn(),
       skipTo: jest.fn(),
     };
-    const boundary = {
+    const boundary = createAudioBoundary({
       createAudioPlayer: jest.fn(),
       createAudioPlaylist: jest.fn(() => nativePlaylist),
       setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
       setIsAudioActiveAsync: jest.fn().mockResolvedValue(undefined),
-    } as unknown as ExpoAudioBoundary;
+    });
     const runtime = createExpoBackgroundAudioRuntime(boundary);
 
     expect(() =>

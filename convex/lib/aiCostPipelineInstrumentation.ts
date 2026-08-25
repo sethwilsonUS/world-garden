@@ -1,6 +1,5 @@
-import { internal } from "../_generated/api";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
-import type { FunctionReference } from "convex/server";
+import { anyApi } from "convex/server";
 import { getAiCostLedgerMode } from "../../lib/ai-cost-ledger-contract";
 import { deriveOpaqueAiCostEventKey } from "../../lib/ai-cost-event-key";
 import type {
@@ -9,48 +8,30 @@ import type {
   AiCostListeningContributionInput,
   AiCostPipelineOutcomeInput,
 } from "./aiCostLedger";
+import type { FunctionReferenceFromExport } from "./functionReferenceFromExport";
 
-const recordPipelineOutcomeInternal = (
-  internal as unknown as {
-    aiCostLedger: {
-      recordPipelineOutcomeInternal: FunctionReference<"mutation">;
-      recordCacheDecisionInternal: FunctionReference<"mutation">;
-    };
-  }
-).aiCostLedger.recordPipelineOutcomeInternal;
-const recordCacheDecisionInternal = (
-  internal as unknown as {
-    aiCostLedger: {
-      recordCacheDecisionInternal: FunctionReference<"mutation">;
-    };
-  }
-).aiCostLedger.recordCacheDecisionInternal;
-const recordGenerationAssetInternal = (
-  internal as unknown as {
-    aiCostLedger: {
-      recordGenerationAssetInternal: FunctionReference<"mutation">;
-    };
-  }
-).aiCostLedger.recordGenerationAssetInternal;
-const recordListeningContributionInternal = (
-  internal as unknown as {
-    aiCostLedger: {
-      recordListeningContributionInternal: FunctionReference<"mutation">;
-    };
-  }
-).aiCostLedger.recordListeningContributionInternal;
+const recordPipelineOutcomeInternal: FunctionReferenceFromExport<
+  typeof import("../aiCostLedger").recordPipelineOutcomeInternal
+> = anyApi.aiCostLedger.recordPipelineOutcomeInternal;
+const recordCacheDecisionInternal: FunctionReferenceFromExport<
+  typeof import("../aiCostLedger").recordCacheDecisionInternal
+> = anyApi.aiCostLedger.recordCacheDecisionInternal;
+const recordGenerationAssetInternal: FunctionReferenceFromExport<
+  typeof import("../aiCostLedger").recordGenerationAssetInternal
+> = anyApi.aiCostLedger.recordGenerationAssetInternal;
+const recordListeningContributionInternal: FunctionReferenceFromExport<
+  typeof import("../aiCostLedger").recordListeningContributionInternal
+> = anyApi.aiCostLedger.recordListeningContributionInternal;
 
 type LedgerSchedulerCtx = Pick<MutationCtx, "scheduler">;
 
 const scheduleLedgerMutationBestEffort = async (
-  ctx: LedgerSchedulerCtx,
-  mutation: FunctionReference<"mutation">,
-  input: Record<string, unknown>,
+  schedule: () => Promise<unknown>,
   warning: string,
 ): Promise<boolean> => {
   if (getAiCostLedgerMode() !== "observe") return false;
   try {
-    await ctx.scheduler.runAfter(0, mutation, input);
+    await schedule();
     return true;
   } catch {
     console.warn(warning);
@@ -63,9 +44,7 @@ export const scheduleCacheDecisionBestEffort = async (
   input: AiCostCacheDecisionInput,
 ): Promise<boolean> =>
   await scheduleLedgerMutationBestEffort(
-    ctx,
-    recordCacheDecisionInternal,
-    input,
+    async () => await ctx.scheduler.runAfter(0, recordCacheDecisionInternal, input),
     "[ai-cost-ledger] Audio cache event was not scheduled.",
   );
 
@@ -74,9 +53,8 @@ export const scheduleGenerationAssetBestEffort = async (
   input: AiCostGenerationAssetInput,
 ): Promise<boolean> =>
   await scheduleLedgerMutationBestEffort(
-    ctx,
-    recordGenerationAssetInternal,
-    input,
+    async () =>
+      await ctx.scheduler.runAfter(0, recordGenerationAssetInternal, input),
     "[ai-cost-ledger] Audio generation event was not scheduled.",
   );
 
@@ -85,9 +63,8 @@ export const scheduleListeningContributionBestEffort = async (
   input: AiCostListeningContributionInput,
 ): Promise<boolean> =>
   await scheduleLedgerMutationBestEffort(
-    ctx,
-    recordListeningContributionInternal,
-    input,
+    async () =>
+      await ctx.scheduler.runAfter(0, recordListeningContributionInternal, input),
     "[ai-cost-ledger] Listening contribution was not scheduled.",
   );
 

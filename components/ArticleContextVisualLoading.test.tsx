@@ -1229,7 +1229,7 @@ describe("article context rich visual loading", () => {
           notes: [note],
         },
       },
-    } as unknown as ContextDiagramBlock;
+    } satisfies ContextDiagramBlock;
 
     await act(async () => {
       root.render(

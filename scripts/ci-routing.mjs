@@ -80,8 +80,19 @@ const webConfigurationFiles = new Set([
   "vitest.config.mts",
 ]);
 
+const sharedLintFiles = new Set([
+  ".oxlintrc.json",
+  "scripts/verify-anti-slop.mjs",
+  "scripts/verify-anti-slop.test.mjs",
+]);
+
 const routeKnownPath = (filePath, routes) => {
   if (isCiInfrastructure(filePath)) return false;
+
+  if (sharedLintFiles.has(filePath) || filePath.startsWith("tools/oxlint/")) {
+    select(routes, "web", "mobile");
+    return true;
+  }
 
   if (filePath.endsWith(".md")) {
     select(routes, "docs");
@@ -313,7 +324,9 @@ const runCli = () => {
       process.exitCode = 1;
       return;
     }
-    console.log("Required CI passed: every selected gate completed successfully.");
+    console.log(
+      "Required CI passed: every selected gate completed successfully.",
+    );
     return;
   }
 

@@ -1,4 +1,4 @@
-import { useAuth, useSession, useUser } from "@clerk/expo";
+import { useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import {
   fireEvent,
@@ -9,7 +9,6 @@ import {
 import {
   ConvexReactClient,
   useAction,
-  useConvex,
   useConvexAuth,
   useMutation,
   useQueries,
@@ -18,7 +17,13 @@ import type { PropsWithChildren } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { useNativeAuth } from "../auth/NativeAuthContext";
+import {
+  useNativeClerkAuth,
+  useNativeClerkSession,
+  useNativeClerkUser,
+} from "../auth/NativeClerkBoundary";
 import { convexClientApi } from "../data/convexClientApi";
+import { useNativeListeningProgressQueryClient } from "../data/NativeListeningProgressQueryBoundary";
 import { useWikipediaReader } from "../data/WikipediaReaderContext";
 import { useNativeLibrary } from "../library/NativeLibraryContext";
 import { useNativeListeningProgress } from "../listening/NativeListeningProgressContext";
@@ -37,8 +42,12 @@ const mockConvexProviderBoundary = jest.fn(
 jest.mock("@clerk/expo", () => ({
   ClerkProvider: (props: PropsWithChildren) => mockClerkProviderBoundary(props),
   useAuth: jest.fn(),
-  useSession: jest.fn(),
-  useUser: jest.fn(),
+}));
+
+jest.mock("../auth/NativeClerkBoundary", () => ({
+  useNativeClerkAuth: jest.fn(),
+  useNativeClerkSession: jest.fn(),
+  useNativeClerkUser: jest.fn(),
 }));
 
 jest.mock("@clerk/expo/token-cache", () => ({
@@ -54,10 +63,13 @@ jest.mock("convex/react", () => ({
     .fn()
     .mockImplementation((convexUrl: string) => ({ convexUrl })),
   useAction: jest.fn(),
-  useConvex: jest.fn(),
   useConvexAuth: jest.fn(),
   useMutation: jest.fn(),
   useQueries: jest.fn(),
+}));
+
+jest.mock("../data/NativeListeningProgressQueryBoundary", () => ({
+  useNativeListeningProgressQueryClient: jest.fn(),
 }));
 
 jest.mock("convex/react-clerk", () => ({
@@ -65,13 +77,15 @@ jest.mock("convex/react-clerk", () => ({
     mockConvexProviderBoundary(props),
 }));
 
-const convexClientConstructor = ConvexReactClient as unknown as jest.Mock;
+const convexClientConstructor = jest.mocked(ConvexReactClient);
 const useActionMock = useAction as jest.Mock;
-const useAuthMock = jest.mocked(useAuth);
-const useSessionMock = jest.mocked(useSession);
-const useUserMock = jest.mocked(useUser);
+const useNativeClerkAuthMock = jest.mocked(useNativeClerkAuth);
+const useNativeClerkSessionMock = jest.mocked(useNativeClerkSession);
+const useNativeClerkUserMock = jest.mocked(useNativeClerkUser);
 const useConvexAuthMock = jest.mocked(useConvexAuth);
-const useConvexMock = jest.mocked(useConvex);
+const useQueryClientMock = jest.mocked(
+  useNativeListeningProgressQueryClient,
+);
 const useMutationMock = useMutation as jest.Mock;
 const useQueriesMock = useQueries as jest.Mock;
 const publicSearch = jest.fn();
@@ -139,19 +153,19 @@ beforeEach(() => {
       ? publicSearch
       : publicFetchArticle,
   );
-  useAuthMock.mockReturnValue({
+  useNativeClerkAuthMock.mockReturnValue({
     isLoaded: true,
     isSignedIn: false,
     sessionId: null,
     signOut: clerkSignOut,
     userId: null,
-  } as unknown as ReturnType<typeof useAuth>);
-  useSessionMock.mockReturnValue({
+  });
+  useNativeClerkSessionMock.mockReturnValue({
     isLoaded: true,
     isSignedIn: false,
     session: null,
   });
-  useUserMock.mockReturnValue({
+  useNativeClerkUserMock.mockReturnValue({
     isLoaded: true,
     isSignedIn: false,
     user: null,
@@ -161,9 +175,7 @@ beforeEach(() => {
     isLoading: false,
     isRefreshing: false,
   });
-  useConvexMock.mockReturnValue({
-    query: progressQuery,
-  } as unknown as ReturnType<typeof useConvex>);
+  useQueryClientMock.mockReturnValue({ getNative: progressQuery });
   useMutationMock.mockReturnValue(jest.fn());
   useQueriesMock.mockReturnValue({});
 });
@@ -246,19 +258,19 @@ describe("NativeDataAuthProvider", () => {
   });
 
   it("keeps public Wikipedia search available when the private viewer query fails", async () => {
-    useAuthMock.mockReturnValue({
+    useNativeClerkAuthMock.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       sessionId: "session-a",
       signOut: clerkSignOut,
       userId: "user-a",
-    } as unknown as ReturnType<typeof useAuth>);
-    useUserMock.mockReturnValue({
+    });
+    useNativeClerkUserMock.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       user: { id: "user-a" },
-    } as ReturnType<typeof useUser>);
-    useSessionMock.mockReturnValue({
+    });
+    useNativeClerkSessionMock.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       session: {
@@ -266,7 +278,7 @@ describe("NativeDataAuthProvider", () => {
         id: "session-a",
         user: { id: "user-a" },
       },
-    } as unknown as ReturnType<typeof useSession>);
+    });
     useConvexAuthMock.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -299,19 +311,19 @@ describe("NativeDataAuthProvider", () => {
   });
 
   it("composes the ready progress adapter with the audited account binding", async () => {
-    useAuthMock.mockReturnValue({
+    useNativeClerkAuthMock.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       sessionId: "session-a",
       signOut: clerkSignOut,
       userId: "user-a",
-    } as unknown as ReturnType<typeof useAuth>);
-    useUserMock.mockReturnValue({
+    });
+    useNativeClerkUserMock.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       user: { id: "user-a" },
-    } as ReturnType<typeof useUser>);
-    useSessionMock.mockReturnValue({
+    });
+    useNativeClerkSessionMock.mockReturnValue({
       isLoaded: true,
       isSignedIn: true,
       session: {
@@ -319,7 +331,7 @@ describe("NativeDataAuthProvider", () => {
         id: "session-a",
         user: { id: "user-a" },
       },
-    } as unknown as ReturnType<typeof useSession>);
+    });
     useConvexAuthMock.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -333,7 +345,7 @@ describe("NativeDataAuthProvider", () => {
       },
     });
     progressQuery.mockImplementation(
-      async (_reference: unknown, args: { sessionEpochKey: string }) => ({
+      async (args: { sessionEpochKey: string }) => ({
         cursor: null,
         cursorVersion: 0,
         sessionEpochKey: args.sessionEpochKey,
@@ -356,13 +368,12 @@ describe("NativeDataAuthProvider", () => {
 
     await waitFor(() => expect(progressQuery).toHaveBeenCalledTimes(1));
     expect(progressQuery).toHaveBeenCalledWith(
-      convexClientApi.listeningProgress.getNative,
       expect.objectContaining({
         expectedAccountSubject: "user-a",
         wikiPageId: "736",
       }),
     );
-    expect(progressQuery.mock.calls[0]?.[1].sessionEpochKey).toMatch(
+    expect(progressQuery.mock.calls[0]?.[0].sessionEpochKey).toMatch(
       /^native-epoch-/u,
     );
   });

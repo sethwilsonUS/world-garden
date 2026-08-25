@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getFunctionName } from "convex/server";
+import type { Id } from "./_generated/dataModel";
 import {
   assertCurrentSectionAudioCacheContract,
   assertSectionAudioCacheAccess,
@@ -32,6 +33,7 @@ import {
   buildAudioCacheUploadAttestationPayload,
 } from "../lib/audio-cache-attestation";
 import { createServerAttestation } from "../lib/server-attestation";
+import { registeredInvoker } from "./testing/registeredFunctions";
 
 const openAiKey =
   "tts:openai:gpt-4o-mini-tts:marin:curio-warm-narrator-v1:ttsNorm:3";
@@ -122,7 +124,7 @@ describe("section audio provider access", () => {
 
   it("requires a payload-bound server attestation for protected reads", async () => {
     const readArgs = {
-      articleId: "article-1",
+      articleId: "article-1" as Id<"articles">,
       ttsNormVersion: "ttsNorm:3",
       ttsCacheKey: openAiKey,
       sourceHashes: [{ sectionKey: "summary", sourceHash }],
@@ -469,7 +471,7 @@ describe("section audio ledger scheduling", () => {
     vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "server-secret");
     const now = Date.now();
     const args = {
-      articleId: "article-1",
+      articleId: "article-1" as Id<"articles">,
       ttsNormVersion: "ttsNorm:3",
       ttsCacheKey: openAiKey,
       sourceHashes: [{ sectionKey: "summary", sourceHash }],
@@ -483,11 +485,7 @@ describe("section audio ledger scheduling", () => {
       nonce: "cache-read-nonce",
     });
     const runAfter = vi.fn().mockResolvedValue("scheduled-1");
-    const handler = (
-      getAllSectionAudioForServer as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getAllSectionAudioForServer);
 
     await expect(
       handler(
@@ -558,11 +556,7 @@ describe("section audio ledger scheduling", () => {
       nonce: "legacy-cache-read-result-nonce",
     });
     const runAfter = vi.fn().mockResolvedValue("scheduled-legacy-hit");
-    const handler = (
-      recordSectionAudioCacheReadResult as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(recordSectionAudioCacheReadResult);
 
     await expect(
       handler({ scheduler: { runAfter } }, { ...input, attestation }),
@@ -587,11 +581,7 @@ describe("section audio ledger scheduling", () => {
     const runAfter = vi
       .fn()
       .mockRejectedValue(new Error("scheduler unavailable"));
-    const handler = (
-      saveSectionAudioRecordInternal as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveSectionAudioRecordInternal);
 
     await expect(
       handler(
@@ -616,10 +606,10 @@ describe("section audio ledger scheduling", () => {
           scheduler: { runAfter },
         },
         {
-          articleId: "article-1",
+          articleId: "article-1" as Id<"articles">,
           sectionKey: "summary",
           sourceHash,
-          storageId: "storage-1",
+          storageId: "storage-1" as Id<"_storage">,
           ttsNormVersion: "ttsNorm:3",
           ttsCacheKey: openAiKey,
           provider: "openai",
@@ -677,11 +667,7 @@ describe("section audio ledger scheduling", () => {
     const patch = vi.fn();
     const deleteStorage = vi.fn();
     const runAfter = vi.fn().mockResolvedValue("scheduled-race");
-    const handler = (
-      saveSectionAudioRecordInternal as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveSectionAudioRecordInternal);
 
     await expect(
       handler(
@@ -701,10 +687,10 @@ describe("section audio ledger scheduling", () => {
           scheduler: { runAfter },
         },
         {
-          articleId: "article-1",
+          articleId: "article-1" as Id<"articles">,
           sectionKey: "summary",
           sourceHash,
-          storageId: "storage-loser",
+          storageId: "storage-loser" as Id<"_storage">,
           ttsNormVersion: "ttsNorm:3",
           ttsCacheKey: openAiKey,
           provider: "openai",
@@ -760,11 +746,7 @@ describe("section audio ledger scheduling", () => {
     const patch = vi.fn();
     const deleteStorage = vi.fn();
     const runAfter = vi.fn().mockResolvedValue("scheduled-repair");
-    const handler = (
-      saveSectionAudioRecordInternal as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveSectionAudioRecordInternal);
 
     await handler(
       {
@@ -783,10 +765,10 @@ describe("section audio ledger scheduling", () => {
         scheduler: { runAfter },
       },
       {
-        articleId: "article-1",
+        articleId: "article-1" as Id<"articles">,
         sectionKey: "summary",
         sourceHash,
-        storageId: "storage-repaired",
+        storageId: "storage-repaired" as Id<"_storage">,
         ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: openAiKey,
         provider: "openai",
@@ -837,11 +819,7 @@ describe("section audio ledger scheduling", () => {
     const patch = vi.fn();
     const deleteStorage = vi.fn();
     const runAfter = vi.fn();
-    const handler = (
-      saveSectionAudioRecordInternal as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(saveSectionAudioRecordInternal);
 
     await handler(
       {
@@ -860,10 +838,10 @@ describe("section audio ledger scheduling", () => {
         scheduler: { runAfter },
       },
       {
-        articleId: "article-1",
+        articleId: "article-1" as Id<"articles">,
         sectionKey: "summary",
         sourceHash,
-        storageId: "storage-new-off",
+        storageId: "storage-new-off" as Id<"_storage">,
         ttsNormVersion: "ttsNorm:3",
         ttsCacheKey: openAiKey,
         provider: "openai",
@@ -903,11 +881,7 @@ describe("section audio ledger scheduling", () => {
       nonce: "cache-write-failure-nonce",
     });
     const runAfter = vi.fn().mockResolvedValue("scheduled-failure");
-    const handler = (
-      recordSectionAudioCacheWriteFailure as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(recordSectionAudioCacheWriteFailure);
 
     await expect(
       handler({ scheduler: { runAfter } }, { ...input, attestation }),

@@ -58,23 +58,27 @@ const readStreamBytes = async (
   return concatBytes(...chunks);
 };
 
+class StreamOnlyAudioResponse extends Response {
+  constructor(bytes: Uint8Array) {
+    super(streamFromBytes(bytes), {
+      status: 200,
+      headers: { "Content-Type": "audio/mpeg" },
+    });
+  }
+
+  override async blob(): Promise<Blob> {
+    throw new Error("blob() should not be called for cached section audio");
+  }
+
+  override async arrayBuffer(): Promise<ArrayBuffer> {
+    throw new Error(
+      "arrayBuffer() should not be called for cached section audio",
+    );
+  }
+}
+
 const createStreamOnlyAudioResponse = (bytes: Uint8Array): Response =>
-  ({
-    ok: true,
-    status: 200,
-    headers: new Headers({
-      "Content-Type": "audio/mpeg",
-    }),
-    body: streamFromBytes(bytes),
-    blob: async () => {
-      throw new Error("blob() should not be called for cached section audio");
-    },
-    arrayBuffer: async () => {
-      throw new Error(
-        "arrayBuffer() should not be called for cached section audio",
-      );
-    },
-  }) as unknown as Response;
+  new StreamOnlyAudioResponse(bytes);
 
 describe("assembleArticleAudio", () => {
   beforeEach(() => {

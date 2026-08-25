@@ -6,7 +6,7 @@ import {
   type ResumeCursor,
   type ResumeCursorTarget,
 } from "@curio-garden/domain";
-import { useConvex, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import {
   useCallback,
   useLayoutEffect,
@@ -26,6 +26,7 @@ import {
   type NativeListeningProgressValue,
 } from "../listening/NativeListeningProgressContext";
 import { convexClientApi } from "./convexClientApi";
+import { useNativeListeningProgressQueryClient } from "./NativeListeningProgressQueryBoundary";
 
 const UNAVAILABLE_RESULT = Object.freeze({ status: "unavailable" as const });
 const SUPERSEDED_RESULT = Object.freeze({ status: "superseded" as const });
@@ -396,7 +397,7 @@ export function ConvexNativeListeningProgressProvider({
 }): ReactElement {
   const auth = useNativeAuth();
   const expectedAccountSubject = useNativeAccountSubjectBinding();
-  const convex = useConvex();
+  const queryClient = useNativeListeningProgressQueryClient();
   const writeMutation = useMutation(
     convexClientApi.listeningProgress.writeNative,
   );
@@ -445,14 +446,11 @@ export function ConvexNativeListeningProgressProvider({
         if (target === null) {
           return sanitizeOpenError(null, LOAD_ERROR_MESSAGE);
         }
-        const rawResponse: unknown = await convex.query(
-          convexClientApi.listeningProgress.getNative,
-          {
-            expectedAccountSubject: identity.expectedAccountSubject,
-            sessionEpochKey: identity.sessionEpochKey,
-            wikiPageId: target.wikiPageId,
-          },
-        );
+        const rawResponse = await queryClient.getNative({
+          expectedAccountSubject: identity.expectedAccountSubject,
+          sessionEpochKey: identity.sessionEpochKey,
+          wikiPageId: target.wikiPageId,
+        });
         if (!identityMatches(currentIdentityRef.current, identity)) {
           return SUPERSEDED_RESULT;
         }
@@ -485,9 +483,9 @@ export function ConvexNativeListeningProgressProvider({
     [
       auth.sessionEpoch,
       auth.sessionEpochKey,
-      convex,
       expectedAccountSubject,
       isReady,
+      queryClient,
       writeMutation,
     ],
   );

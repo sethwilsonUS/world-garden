@@ -4,6 +4,7 @@ import {
   getNativeViewerArticleResume,
   writeNativeViewerArticleResume,
 } from "./listeningProgress";
+import { validatorContractOf } from "./testing/registeredFunctions";
 
 const requiredField = (fieldType: unknown) => ({
   fieldType,
@@ -13,14 +14,8 @@ const requiredField = (fieldType: unknown) => ({
 // Convex does not expose these helpers on the public registered-function type.
 // These upgrade-sensitive assertions mirror its internal { type, value }
 // validator JSON representation so the native transport contract stays exact.
-const registeredQuery = getNativeViewerArticleResume as unknown as {
-  exportArgs(): string;
-  exportReturns(): string;
-};
-const registeredMutation = writeNativeViewerArticleResume as unknown as {
-  exportArgs(): string;
-  exportReturns(): string;
-};
+const registeredQuery = validatorContractOf(getNativeViewerArticleResume);
+const registeredMutation = validatorContractOf(writeNativeViewerArticleResume);
 
 const modeValidator = {
   type: "union",

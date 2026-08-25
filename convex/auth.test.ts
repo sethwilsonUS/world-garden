@@ -1,17 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { nativeViewer, viewer } from "./auth";
+import { registeredInvoker } from "./testing/registeredFunctions";
 
-const viewerHandler = (
-  viewer as unknown as {
-    _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-  }
-)._handler;
-const nativeViewerHandler = (
-  nativeViewer as unknown as {
-    _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-  }
-)._handler;
+const viewerHandler = registeredInvoker(viewer);
+const nativeViewerHandler = registeredInvoker(nativeViewer);
 
 describe("auth viewer", () => {
   it("preserves the existing authenticated viewer contract", async () => {

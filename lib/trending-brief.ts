@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
-import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -13,11 +12,15 @@ import {
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 import {
   createAiCostOperationContext,
-  getOpenAIClient,
   isOpenAIConfigured,
   recordAiCostOperationSupplement,
   runWithAiCostOperationContext,
 } from "@/lib/openai-client";
+import {
+  getTrendingOpenAIClient,
+  type TrendingBriefStructuredOutput,
+  type TrendingOpenAIClient,
+} from "@/lib/trending-brief-openai";
 import { generateTtsAudioWithMetadata } from "@/lib/tts-client";
 import { getTrustedTtsGenerationHeaders } from "@/lib/tts-quota-bypass";
 import type { TtsMetadata } from "@/lib/tts-profile";
@@ -141,12 +144,7 @@ export type TrendingBriefSource = {
   url: string;
 };
 
-export type GeneratedTrendingBrief = {
-  headline: string;
-  summary: string;
-  podcastDescription: string;
-  spokenSummary: string;
-  keyPoints: string[];
+export type GeneratedTrendingBrief = TrendingBriefStructuredOutput & {
   sources: TrendingBriefSource[];
 };
 
@@ -646,8 +644,6 @@ const buildTrendingTopicResearchPrompt = ({
     "Uncertainty: what the sources do not establish and any plausible explanation that must not be stated as fact.",
     "Use inline citations. Do not guess from the article title or view count.",
   ].join("\n");
-
-type TrendingOpenAIClient = Pick<OpenAI, "responses">;
 
 type TrendingResponseUsage = {
   inputTokens: number;
@@ -1440,7 +1436,7 @@ const generateTrendingBriefRecord = async ({
     const brief = cachedBriefContent
       ? normalizeTrendingBrief(cachedBriefContent)
       : await generateTrendingBriefContent({
-          client: getOpenAIClient(),
+          client: getTrendingOpenAIClient(),
           model,
           trendingDate: trendingDateIso,
           articles,

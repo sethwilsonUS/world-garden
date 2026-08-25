@@ -1,4 +1,3 @@
-import type OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import {
@@ -33,7 +32,16 @@ const ContextDescriptionSchema = z.object({
 
 type ContextDescriptionResult = z.infer<typeof ContextDescriptionSchema>;
 
-type ContextAIClient = Pick<OpenAI, "responses">;
+type ContextAIRequest = {
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  timeoutMs: number;
+};
+
+export type ContextAIClient = {
+  parse: (request: ContextAIRequest) => Promise<unknown>;
+};
 
 type EnhanceArticleContextOptions = {
   client?: ContextAIClient;
@@ -52,6 +60,29 @@ export const getContextDescriptionModel = (): string => {
 export const isArticleContextAIEnabled = (): boolean =>
   isOpenAIConfigured() &&
   process.env.ARTICLE_CONTEXT_AI_ENABLED?.trim().toLowerCase() === "true";
+
+const createOpenAIContextClient = (): ContextAIClient => ({
+  parse: async ({ model, systemPrompt, userPrompt, timeoutMs }) => {
+    const response = await getOpenAIClient().responses.parse(
+      {
+        model,
+        store: false,
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        text: {
+          format: zodTextFormat(
+            ContextDescriptionSchema,
+            "article_context_descriptions",
+          ),
+        },
+      },
+      { timeout: timeoutMs },
+    );
+    return response.output_parsed;
+  },
+});
 
 const getBlockFacts = (block: ContextBlock): unknown => {
   switch (block.kind) {
@@ -197,41 +228,26 @@ export const enhanceArticleContextManifest = async (
   const sourcePayload = JSON.stringify(sourceBlocks);
 
   try {
-    const client = options.client ?? getOpenAIClient();
-    const response = await runWithAiCostOperationContext(
+    const client = options.client ?? createOpenAIContextClient();
+    const output = await runWithAiCostOperationContext(
       createAiCostOperationContext({
         operation: "article_context_generation",
         source: "article_context",
         model,
       }),
       () =>
-        client.responses.parse(
-          {
-            model,
-            store: false,
-            input: [
-              {
-                role: "system",
-                content:
-                  "You are the accessibility copy editor for Curio Garden, a Wikipedia reader. Rewrite only the supplied deterministic copy into two fields: a concise, neutral visible caption and a fuller long description that remains useful without sight. Preserve every source fact in the long description exactly. Never add, infer, round, or alter dates, coordinates, measurements, values, labels, relationships, or uncertainty. For charts, call minimum and maximum values the lowest and highest; do not use from-to wording that could imply chronological endpoints. For diagrams, mention a walkthrough, named parts, or relationships only when the extracted facts actually include them; otherwise describe the static source image and its caption. Do not describe colors or visual position unless the source explicitly gives them. Do not include URLs. Return one item for every supplied block ID.",
-              },
-              {
-                role: "user",
-                content: `Article: ${manifest.title}\nRevision: ${manifest.revisionId}\n\nContext blocks:\n${sourcePayload}`,
-              },
-            ],
-            text: {
-              format: zodTextFormat(
-                ContextDescriptionSchema,
-                "article_context_descriptions",
-              ),
-            },
-          },
-          { timeout: CONTEXT_DESCRIPTION_TIMEOUT_MS },
-        ),
+        client.parse({
+          model,
+          systemPrompt:
+            "You are the accessibility copy editor for Curio Garden, a Wikipedia reader. Rewrite only the supplied deterministic copy into two fields: a concise, neutral visible caption and a fuller long description that remains useful without sight. Preserve every source fact in the long description exactly. Never add, infer, round, or alter dates, coordinates, measurements, values, labels, relationships, or uncertainty. For charts, call minimum and maximum values the lowest and highest; do not use from-to wording that could imply chronological endpoints. For diagrams, mention a walkthrough, named parts, or relationships only when the extracted facts actually include them; otherwise describe the static source image and its caption. Do not describe colors or visual position unless the source explicitly gives them. Do not include URLs. Return one item for every supplied block ID.",
+          userPrompt: `Article: ${manifest.title}\nRevision: ${manifest.revisionId}\n\nContext blocks:\n${sourcePayload}`,
+          timeoutMs: CONTEXT_DESCRIPTION_TIMEOUT_MS,
+        }),
     );
 
-    const description = response.output_parsed;
+    const parsedDescription = ContextDescriptionSchema.safeParse(output);
+    if (!parsedDescription.success) return manifest;
+    const description = parsedDescription.data;
     if (
       !description ||
       !hasExactBlockIds(manifest.blocks, description) ||

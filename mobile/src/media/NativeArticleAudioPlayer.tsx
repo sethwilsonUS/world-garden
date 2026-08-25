@@ -73,7 +73,7 @@ type ActiveOperation = {
   playbackStarted: boolean;
   playlist: BackgroundAudioPlaylist | null;
   responseRelease: (() => void) | null;
-  timeoutId: ReturnType<typeof setTimeout>;
+  timeoutId: ReturnType<typeof setTimeout> | null;
 };
 
 export interface NativeArticleAudioPlayerProps {
@@ -152,8 +152,14 @@ function releaseResponse(operation: ActiveOperation): void {
   if (release !== null) safeCall(release);
 }
 
-async function disposeOperation(operation: ActiveOperation): Promise<void> {
+function clearOperationTimeout(operation: ActiveOperation): void {
+  if (operation.timeoutId === null) return;
   clearTimeout(operation.timeoutId);
+  operation.timeoutId = null;
+}
+
+async function disposeOperation(operation: ActiveOperation): Promise<void> {
+  clearOperationTimeout(operation);
   operation.controller.abort();
   releaseResponse(operation);
   if (operation.playlist !== null) {
@@ -526,7 +532,7 @@ function NativeArticlePlaylistAudioPlayer({
         playbackStarted: false,
         playlist: null,
         responseRelease: null,
-        timeoutId: 0 as unknown as ReturnType<typeof setTimeout>,
+        timeoutId: null,
       };
       target.timeoutId = setTimeout(() => {
         if (operation.current !== target) return;
@@ -758,7 +764,7 @@ function NativeArticlePlaylistAudioPlayer({
           return;
         }
         target.playbackStarted = true;
-        clearTimeout(target.timeoutId);
+        clearOperationTimeout(target);
         updatePresentation({
           currentIndex: 0,
           currentTime: 0,

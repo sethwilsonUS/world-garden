@@ -25,8 +25,11 @@ import { renderTrendingPodcastArtworkPng } from "./trending-podcast-artwork";
 import { verifyPublicAudioWriteAttestation } from "./public-audio-write-attestation";
 import {
   createInstrumentedOpenAiFetch,
-  getOpenAIClient,
 } from "./openai-client";
+import {
+  getTrendingOpenAIClient,
+  type TrendingOpenAIClient,
+} from "./trending-brief-openai";
 import type { AiCostProviderAttempt } from "./ai-cost-ledger-contract";
 import { TTS_AI_COST_SOURCE_HEADER } from "./tts-source-attestation";
 import { TTS_QUOTA_BYPASS_HEADER } from "./tts-quota-bypass";
@@ -63,11 +66,12 @@ vi.mock("@/lib/trending-podcast-artwork", async (importOriginal) => {
   };
 });
 
-vi.mock("@/lib/openai-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./openai-client")>();
+vi.mock("@/lib/trending-brief-openai", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./trending-brief-openai")>();
   return {
     ...actual,
-    getOpenAIClient: vi.fn(actual.getOpenAIClient),
+    getTrendingOpenAIClient: vi.fn(actual.getTrendingOpenAIClient),
   };
 });
 
@@ -104,7 +108,7 @@ afterEach(async () => {
   vi.mocked(fetchMutation).mockClear();
   vi.mocked(fetchQuery).mockClear();
   vi.mocked(renderTrendingPodcastArtworkPng).mockReset();
-  vi.mocked(getOpenAIClient).mockReset();
+  vi.mocked(getTrendingOpenAIClient).mockReset();
   restoreEnvValue("OPENAI_API_KEY", originalOpenAiApiKey);
   restoreEnvValue("AI_GATEWAY_API_KEY", originalAiGatewayApiKey);
   restoreEnvValue("NEXT_PUBLIC_CONVEX_URL", originalConvexUrl);
@@ -761,9 +765,9 @@ describe("cached trending brief reuse", () => {
         usage: null,
       };
     });
-    vi.mocked(getOpenAIClient).mockReturnValue({
+    vi.mocked(getTrendingOpenAIClient).mockReturnValue({
       responses: { create: research, parse: writing },
-    } as unknown as ReturnType<typeof getOpenAIClient>);
+    } satisfies TrendingOpenAIClient);
 
     type PersistedBrief = Record<string, unknown> & {
       status: string;
@@ -824,7 +828,7 @@ describe("cached trending brief reuse", () => {
       syncDailyTrendingBrief({ baseUrl: "https://curiogarden.org" }),
     ).rejects.toThrow("artwork unavailable");
 
-    expect(getOpenAIClient).toHaveBeenCalledTimes(2);
+    expect(getTrendingOpenAIClient).toHaveBeenCalledTimes(2);
     expect(research).toHaveBeenCalledOnce();
     expect(writing).toHaveBeenCalledTimes(3);
     expect(renderTrendingPodcastArtworkPng).toHaveBeenCalledOnce();
@@ -876,8 +880,8 @@ describe("cached trending brief reuse", () => {
     }));
     const openAiClient = {
       responses: { create: research, parse: writing },
-    } as unknown as ReturnType<typeof getOpenAIClient>;
-    vi.mocked(getOpenAIClient).mockReturnValue(openAiClient);
+    } satisfies TrendingOpenAIClient;
+    vi.mocked(getTrendingOpenAIClient).mockReturnValue(openAiClient);
 
     type PersistedBrief = Record<string, unknown> & {
       status: string;
@@ -957,7 +961,7 @@ describe("cached trending brief reuse", () => {
       model: "gpt-5.6-luna",
       briefPromptVersion: "trending-brief-deep-research-v1",
     });
-    expect(getOpenAIClient).toHaveBeenCalledOnce();
+    expect(getTrendingOpenAIClient).toHaveBeenCalledOnce();
     expect(research).toHaveBeenCalledOnce();
     expect(writing).toHaveBeenCalledOnce();
     expect(
@@ -973,7 +977,7 @@ describe("cached trending brief reuse", () => {
     ).resolves.toMatchObject({ status: "created" });
 
     expect(ttsAttempt).toBe(2);
-    expect(getOpenAIClient).toHaveBeenCalledOnce();
+    expect(getTrendingOpenAIClient).toHaveBeenCalledOnce();
     expect(research).toHaveBeenCalledOnce();
     expect(writing).toHaveBeenCalledOnce();
     expect(persisted).toMatchObject({
@@ -1027,9 +1031,9 @@ describe("cached trending brief reuse", () => {
       },
       usage: null,
     }));
-    vi.mocked(getOpenAIClient).mockReturnValue({
+    vi.mocked(getTrendingOpenAIClient).mockReturnValue({
       responses: { create: research, parse: writing },
-    } as unknown as ReturnType<typeof getOpenAIClient>);
+    } satisfies TrendingOpenAIClient);
 
     type PersistedBrief = Record<string, unknown> & {
       status: string;
@@ -1178,7 +1182,7 @@ describe("cached trending brief reuse", () => {
     ).resolves.toMatchObject({ status: "created" });
 
     expect(ttsAttempt).toBe(2);
-    expect(getOpenAIClient).toHaveBeenCalledOnce();
+    expect(getTrendingOpenAIClient).toHaveBeenCalledOnce();
     expect(research).toHaveBeenCalledOnce();
     expect(writing).toHaveBeenCalledOnce();
     expect(persisted).toMatchObject({
@@ -1387,9 +1391,7 @@ describe("direct OpenAI trending generation", () => {
     });
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
 
     const brief = await generateTrendingBriefContent({
       client,
@@ -1516,9 +1518,7 @@ describe("direct OpenAI trending generation", () => {
     });
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
 
     const brief = await generateTrendingBriefContent({
       client,
@@ -1577,9 +1577,7 @@ describe("direct OpenAI trending generation", () => {
     );
     const client = {
       responses: { create, parse: vi.fn() },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
 
     await expect(
       generateTrendingBriefContent({
@@ -1615,9 +1613,7 @@ describe("direct OpenAI trending generation", () => {
     const parse = vi.fn();
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
     const generation = generateTrendingBriefContent({
       client,
       model: "gpt-5.6-luna",
@@ -1684,9 +1680,7 @@ describe("direct OpenAI trending generation", () => {
     });
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
 
     const brief = await generateTrendingBriefContent({
       client,
@@ -1753,9 +1747,7 @@ describe("direct OpenAI trending generation", () => {
     });
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
 
     let capturedResearch:
       | { text: string; sources: Array<{ title: string; url: string }> }
@@ -1822,9 +1814,7 @@ describe("direct OpenAI trending generation", () => {
     }));
     const client = {
       responses: { create, parse },
-    } as unknown as Parameters<
-      typeof generateTrendingBriefContent
-    >[0]["client"];
+    } satisfies TrendingOpenAIClient;
 
     await expect(
       generateTrendingBriefContent({

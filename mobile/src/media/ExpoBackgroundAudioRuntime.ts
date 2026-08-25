@@ -49,29 +49,111 @@ type CurioPatchedAudioPlaylist = InstalledAudioPlaylist & {
   ) => void;
 };
 
-// Keep the seam lazy-loadable and mockable, while deriving Expo's public
-// signatures from the installed SDK. The two playlist media-session methods
-// are the only structural extension; the exact-version native patch contract
-// verifies their implementation before any native build.
-export type ExpoAudioBoundary = Pick<
-  InstalledExpoAudioModule,
-  "createAudioPlayer" | "setAudioModeAsync" | "setIsAudioActiveAsync"
-> & {
-  createAudioPlaylist: (
-    ...args: Parameters<InstalledExpoAudioModule["createAudioPlaylist"]>
-  ) => CurioPatchedAudioPlaylist;
-};
-type NativeAudioPlaybackStatus = ReturnType<
-  ExpoAudioBoundary["createAudioPlayer"]
->["currentStatus"];
-type NativeAudioPlaylistStatus = InstalledAudioPlaylist["currentStatus"] &
+type NativeAudioSubscription = Readonly<{ remove: () => void }>;
+
+type NativeAudioPlaybackStatus = Readonly<{
+  currentTime: number;
+  didJustFinish: boolean;
+  duration: number;
+  error?: string | null;
+  isBuffering: boolean;
+  isLoaded: boolean;
+  playing: boolean;
+}>;
+
+type NativeAudioPlaylistStatus = NativeAudioPlaybackStatus &
   Readonly<{
+    currentIndex: number;
     // Expo Audio 57.0.4 omits these from its playlist status type. The pinned
     // native patch emits them while this optional seam keeps pristine installs
     // typecheckable before the native build hook runs.
     ended?: boolean;
-    error?: string | null;
+    playbackRate: number;
+    trackCount: number;
   }>;
+
+interface NativeAudioPlayerPort {
+  readonly currentStatus: NativeAudioPlaybackStatus;
+  readonly addListener: (
+    event: "playbackStatusUpdate",
+    listener: (status: NativeAudioPlaybackStatus) => void,
+  ) => NativeAudioSubscription;
+  readonly pause: () => void;
+  readonly play: () => void;
+  readonly release: () => void;
+  readonly remove: () => void;
+  readonly replace: (source: Readonly<{ name: string; uri: string }>) => void;
+  readonly seekTo: (seconds: number) => Promise<void>;
+  readonly setActiveForLockScreen: (
+    active: boolean,
+    metadata?: BackgroundAudioMetadata,
+    options?: Readonly<{
+      isLiveStream?: boolean;
+      showSeekBackward?: boolean;
+      showSeekForward?: boolean;
+    }>,
+  ) => void;
+  readonly setPlaybackRate: (rate: number, quality: "high") => void;
+}
+
+interface NativeAudioPlaylistPort {
+  readonly currentStatus: NativeAudioPlaylistStatus;
+  playbackRate: number;
+  readonly addListener: {
+    (
+      event: "playlistStatusUpdate",
+      listener: (status: NativeAudioPlaylistStatus) => void,
+    ): NativeAudioSubscription;
+    (
+      event: "trackChanged",
+      listener: (change: BackgroundAudioTrackChange) => void,
+    ): NativeAudioSubscription;
+  };
+  readonly destroy: () => void;
+  readonly next: () => void;
+  readonly pause: () => void;
+  readonly play: () => void;
+  readonly previous: () => void;
+  readonly release: () => void;
+  readonly seekTo: (seconds: number) => Promise<void>;
+  readonly setActiveForLockScreen: (
+    active: boolean,
+    metadata?: BackgroundAudioMetadata[],
+    options?: Readonly<{
+      isLiveStream?: boolean;
+      showSeekBackward?: boolean;
+      showSeekForward?: boolean;
+    }>,
+  ) => void;
+  readonly skipTo: (index: number) => void;
+}
+
+type NativeAudioMode = Readonly<{
+  allowsBackgroundRecording: boolean;
+  allowsRecording: boolean;
+  interruptionMode: "doNotMix";
+  playsInSilentMode: boolean;
+  shouldPlayInBackground: boolean;
+  shouldRouteThroughEarpiece: boolean;
+}>;
+
+export interface ExpoAudioBoundary {
+  readonly createAudioPlayer: (
+    source: null,
+    options: Readonly<{
+      downloadFirst: boolean;
+      keepAudioSessionActive: boolean;
+      updateInterval: number;
+    }>,
+  ) => NativeAudioPlayerPort;
+  readonly createAudioPlaylist: (options: Readonly<{
+    loop: "none";
+    sources: readonly Readonly<{ name: string; uri: string }>[];
+    updateInterval: number;
+  }>) => NativeAudioPlaylistPort;
+  readonly setAudioModeAsync: (mode: NativeAudioMode) => Promise<void>;
+  readonly setIsAudioActiveAsync: (active: boolean) => Promise<void>;
+}
 
 export interface BackgroundAudioPlayer {
   getStatus: () => BackgroundAudioPlaybackStatus;
@@ -259,7 +341,7 @@ function normalizeStatus(
     currentTime: status.currentTime,
     didJustFinish: status.didJustFinish,
     duration: status.duration,
-    error: status.error,
+    error: typeof status.error === "string" ? status.error : null,
     isBuffering: status.isBuffering,
     isLoaded: status.isLoaded,
     playing: status.playing,
@@ -466,10 +548,14 @@ export function createExpoBackgroundAudioRuntime(
 export async function loadExpoBackgroundAudioRuntime(): Promise<BackgroundAudioRuntime> {
   const installedAudio = await import("expo-audio");
   const audio: ExpoAudioBoundary = {
-    createAudioPlayer: installedAudio.createAudioPlayer,
-    createAudioPlaylist: (...args) =>
-      installedAudio.createAudioPlaylist(...args) as CurioPatchedAudioPlaylist,
-    setAudioModeAsync: installedAudio.setAudioModeAsync,
+    createAudioPlayer: (source, options) =>
+      installedAudio.createAudioPlayer(source, options),
+    createAudioPlaylist: (options) =>
+      installedAudio.createAudioPlaylist({
+        ...options,
+        sources: [...options.sources],
+      }) as CurioPatchedAudioPlaylist,
+    setAudioModeAsync: (mode) => installedAudio.setAudioModeAsync(mode),
     // Forward this reference unwrapped: the shared session lease is keyed on
     // its identity across separately loaded runtime boundaries.
     setIsAudioActiveAsync: installedAudio.setIsAudioActiveAsync,

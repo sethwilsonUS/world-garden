@@ -56,53 +56,52 @@ const responseFor = (url: string) => {
   };
 };
 
+const fetchMock = vi.fn<typeof fetch>();
+
 describe("OnThisDayExplorer", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    fetchMock = vi.fn(async (input: string | URL | Request) => ({
-      ok: true,
-      json: async () => responseFor(String(input)),
-    }));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (input) =>
+      Response.json(responseFor(String(input))),
+    );
+    vi.stubGlobal("fetch", fetchMock);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("uses Wikimedia's human-authored description as the image alternative", async () => {
-    fetchMock.mockImplementationOnce(async (input: string | URL | Request) => {
+    fetchMock.mockImplementationOnce(async (input) => {
       const response = responseFor(String(input));
-      return {
-        ok: true,
-        json: async () => ({
-          ...response,
-          items: response.items.map((item, index) =>
-            index === 0
-              ? {
-                  ...item,
-                  image: {
-                    source:
-                      "https://upload.wikimedia.org/wikipedia/commons/apollo.jpg",
-                    width: 640,
-                    height: 480,
-                    articleTitle: "Apollo 11",
-                    altText:
-                      "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
-                  },
-                }
-              : item,
-          ),
-        }),
-      };
+      return Response.json({
+        ...response,
+        items: response.items.map((item, index) =>
+          index === 0
+            ? {
+                ...item,
+                image: {
+                  source:
+                    "https://upload.wikimedia.org/wikipedia/commons/apollo.jpg",
+                  width: 640,
+                  height: 480,
+                  articleTitle: "Apollo 11",
+                  altText:
+                    "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
+                },
+              }
+            : item,
+        ),
+      });
     });
 
     await act(async () => root.render(<OnThisDayExplorer />));
@@ -189,13 +188,10 @@ describe("OnThisDayExplorer", () => {
     ) as HTMLButtonElement;
     let resolveOldestRequest: (() => void) | undefined;
     fetchMock.mockImplementationOnce(
-      async (input: string | URL | Request) =>
-        await new Promise((resolve) => {
+      async (input) =>
+        await new Promise<Response>((resolve) => {
           resolveOldestRequest = () =>
-            resolve({
-              ok: true,
-              json: async () => responseFor(String(input)),
-            });
+            resolve(Response.json(responseFor(String(input))));
         }),
     );
     sortButton.focus();
@@ -230,10 +226,12 @@ describe("OnThisDayExplorer", () => {
     await act(async () => eventsTab.click());
     await act(async () => undefined);
 
-    fetchMock.mockImplementationOnce(async () => ({
-      ok: false,
-      json: async () => ({ error: "Wikimedia took the scenic route." }),
-    }));
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json(
+        { error: "Wikimedia took the scenic route." },
+        { status: 503 },
+      ),
+    );
     const showMore = container.querySelector<HTMLButtonElement>(
       ".on-this-day-show-more",
     )!;
@@ -260,8 +258,8 @@ describe("OnThisDayExplorer", () => {
     await act(async () => undefined);
     let aborted = false;
     fetchMock.mockImplementationOnce(
-      async (_input: string | URL | Request, init?: RequestInit) =>
-        await new Promise((_, reject) => {
+      async (_input, init) =>
+        await new Promise<Response>((_, reject) => {
           init?.signal?.addEventListener("abort", () => {
             aborted = true;
             reject(new DOMException("Aborted", "AbortError"));
@@ -285,9 +283,8 @@ describe("OnThisDayExplorer", () => {
   });
 
   it("exposes selected-only fallback categories as unavailable native tabs", async () => {
-    fetchMock.mockImplementationOnce(async (input: string | URL | Request) => ({
-      ok: true,
-      json: async () => ({
+    fetchMock.mockImplementationOnce(async (input) =>
+      Response.json({
         ...responseFor(String(input)),
         counts: {
           selected: 1,
@@ -304,7 +301,7 @@ describe("OnThisDayExplorer", () => {
           holidays: false,
         },
       }),
-    }));
+    );
     await act(async () => root.render(<OnThisDayExplorer />));
     await act(async () => undefined);
 

@@ -59,10 +59,9 @@ describe("AdaptiveImageFrame", () => {
 
   it("re-evaluates crop retention when ResizeObserver reports a new frame", async () => {
     let triggerResize: (() => void) | undefined;
-    class TestResizeObserver {
+    class TestResizeObserver implements ResizeObserver {
       constructor(callback: ResizeObserverCallback) {
-        triggerResize = () =>
-          callback([], this as unknown as ResizeObserver);
+        triggerResize = () => callback([], this);
       }
       observe() {}
       disconnect() {}

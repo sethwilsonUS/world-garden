@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Id } from "./_generated/dataModel";
 
 const workerMocks = vi.hoisted(() => ({
   assembleArticleAudio: vi.fn(),
@@ -62,6 +63,7 @@ import {
 } from "../lib/section-narration";
 import { createTestSection } from "../lib/test-section-narration";
 import { createArticleAudioExportReadAttestation } from "../lib/article-audio-export-attestation";
+import { registeredInvoker } from "./testing/registeredFunctions";
 
 const STALE_TTS_NORM_VERSION = `${TTS_NORM_VERSION}:stale`;
 const ARTICLE_EXPORT_LEASE_MS = 10 * 60 * 1000;
@@ -89,6 +91,26 @@ const createOwnedStorageQueryChain = (
 });
 
 const createEmptyOwnedStorageQueryChain = () => createOwnedStorageQueryChain();
+
+const requireArrayResult = (value: unknown): unknown[] => {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Expected the registered Convex function to return an array.");
+  }
+  return value;
+};
+
+const requireExportIdResults = (value: unknown): Array<{ _id: string }> =>
+  requireArrayResult(value).map((record) => {
+    if (
+      record === null ||
+      typeof record !== "object" ||
+      !("_id" in record) ||
+      typeof record._id !== "string"
+    ) {
+      throw new TypeError("Expected an article audio export ID result.");
+    }
+    return { _id: record._id };
+  });
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -391,11 +413,7 @@ describe("startArticleAudioExport provider expectation", () => {
         return chain;
       });
       const insert = vi.fn(async () => "export-1");
-      const handler = (
-        startArticleAudioExport as unknown as {
-          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-        }
-      )._handler;
+      const handler = registeredInvoker(startArticleAudioExport);
 
       await expect(
         handler(
@@ -415,7 +433,7 @@ describe("startArticleAudioExport provider expectation", () => {
           },
           {
             clientId: "client-1",
-            articleId: "article-1",
+            articleId: "article-1" as Id<"articles">,
             expectedTtsProvider,
           },
         ),
@@ -475,11 +493,7 @@ describe("startArticleAudioExport provider expectation", () => {
       });
       const insert = vi.fn();
       const runAfter = vi.fn();
-      const handler = (
-        startArticleAudioExport as unknown as {
-          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-        }
-      )._handler;
+      const handler = registeredInvoker(startArticleAudioExport);
 
       await expect(
         handler(
@@ -494,12 +508,12 @@ describe("startArticleAudioExport provider expectation", () => {
           },
           {
             clientId: "client-1",
-            articleId: article._id,
+            articleId: article._id as Id<"articles">,
             expectedTtsProvider: "edge",
           },
         ),
       ).resolves.toEqual({
-        exportId: "export-1",
+        exportId: "export-1" as Id<"articleAudioExports">,
         status,
         ttsProvider: "edge",
         reused: true,
@@ -541,15 +555,11 @@ describe("article audio export account deletion barriers", () => {
 
   it("blocks signed-in reads before touching export data", async () => {
     const { ctx, get, query } = createDeletingContext();
-    const handler = (
-      getArticleAudioExportById as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportById);
 
     await expect(
       handler(ctx, {
-        exportId: "export-1",
+        exportId: "export-1" as Id<"articleAudioExports">,
         ttsCacheKey: "tts:openai:profile",
       }),
     ).rejects.toThrow(ACCOUNT_DELETION_IN_PROGRESS);
@@ -560,14 +570,13 @@ describe("article audio export account deletion barriers", () => {
 
   it("blocks signed-in public mutations before touching export data", async () => {
     const { ctx, get, patch } = createDeletingContext();
-    const handler = (
-      dismissArticleAudioExport as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(dismissArticleAudioExport);
 
     await expect(
-      handler(ctx, { exportId: "export-1", clientId: "client-1" }),
+      handler(ctx, {
+        exportId: "export-1" as Id<"articleAudioExports">,
+        clientId: "client-1",
+      }),
     ).rejects.toThrow(ACCOUNT_DELETION_IN_PROGRESS);
 
     expect(get).not.toHaveBeenCalled();
@@ -577,11 +586,7 @@ describe("article audio export account deletion barriers", () => {
   it("keeps the guest Edge dismissal path usable without a tombstone read", async () => {
     const patch = vi.fn();
     const query = vi.fn();
-    const handler = (
-      dismissArticleAudioExport as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(dismissArticleAudioExport);
 
     await expect(
       handler(
@@ -597,7 +602,10 @@ describe("article audio export account deletion barriers", () => {
           },
           auth: { getUserIdentity: vi.fn(async () => null) },
         },
-        { exportId: "export-1", clientId: "client-1" },
+        {
+          exportId: "export-1" as Id<"articleAudioExports">,
+          clientId: "client-1",
+        },
       ),
     ).resolves.toEqual({ dismissed: true });
 
@@ -1850,11 +1858,7 @@ describe("article audio export worker leases", () => {
         throw new Error("Unexpected worker query.");
       });
       const runMutation = vi.fn(async () => ({ failed: true }));
-      const handler = (
-        processArticleAudioExport as unknown as {
-          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-        }
-      )._handler;
+      const handler = registeredInvoker(processArticleAudioExport);
 
       await expect(
         handler(
@@ -1863,7 +1867,7 @@ describe("article audio export worker leases", () => {
             runMutation,
             scheduler: { runAfter: vi.fn() },
           },
-          { exportId: "export-1" },
+          { exportId: "export-1" as Id<"articleAudioExports"> },
         ),
       ).resolves.toBeUndefined();
 
@@ -1923,11 +1927,7 @@ describe("getNextQueuedArticleAudioExportForQueue", () => {
         legacyWithIndex.mockReturnValue(chain);
         return chain;
       });
-    const handler = (
-      getNextQueuedArticleAudioExportForQueue as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getNextQueuedArticleAudioExportForQueue);
 
     await expect(
       handler(
@@ -2054,14 +2054,13 @@ describe("getRecentArticleAudioExports", () => {
       if (id === "article-current") return currentArticle;
       throw new Error(`Unexpected article read: ${id}`);
     });
-    const handler = (
-      getRecentArticleAudioExports as unknown as {
-        _handler: (
-          ctx: unknown,
-          args: unknown,
-        ) => Promise<Array<{ _id: string }>>;
-      }
-    )._handler;
+    const invokeRecentExports = registeredInvoker(getRecentArticleAudioExports);
+    const handler = async (
+      ...call: Parameters<typeof invokeRecentExports>
+    ) =>
+      requireExportIdResults(
+        await invokeRecentExports(...call),
+      );
 
     const result = await handler(
       {
@@ -2150,11 +2149,10 @@ describe("getRecentArticleAudioExports", () => {
         ? "https://storage.example/edge.mp3"
         : `https://storage.example/${storageId}.mp3`,
     );
-    const handler = (
-      getRecentArticleAudioExports as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown[]>;
-      }
-    )._handler;
+    const invokeRecentExports = registeredInvoker(getRecentArticleAudioExports);
+    const handler = async (
+      ...call: Parameters<typeof invokeRecentExports>
+    ) => requireArrayResult(await invokeRecentExports(...call));
 
     const result = await handler(
       {
@@ -2205,11 +2203,7 @@ describe("getArticleAudioExportById", () => {
       ownerTokenIdentifier: "https://clerk.example|user-a",
     };
     const getUrl = vi.fn(async () => "https://storage.example/openai.mp3");
-    const handler = (
-      getArticleAudioExportById as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportById);
 
     const result = await handler(
       {
@@ -2226,7 +2220,10 @@ describe("getArticleAudioExportById", () => {
         },
         storage: { getUrl },
       },
-      { exportId: record._id, ttsCacheKey },
+      {
+        exportId: record._id as Id<"articleAudioExports">,
+        ttsCacheKey,
+      },
     );
 
     expect(result).toMatchObject({ _id: "export-1", audioUrl: null });
@@ -2261,11 +2258,7 @@ describe("getArticleAudioExportForServer", () => {
       exportId: record._id,
       ttsCacheKey,
     });
-    const handler = (
-      getArticleAudioExportForServer as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportForServer);
 
     await expect(
       handler(
@@ -2285,7 +2278,11 @@ describe("getArticleAudioExportForServer", () => {
             getUrl: vi.fn(async () => "https://storage.example/protected.mp3"),
           },
         },
-        { exportId: record._id, ttsCacheKey, attestation },
+        {
+          exportId: record._id as Id<"articleAudioExports">,
+          ttsCacheKey,
+          attestation,
+        },
       ),
     ).resolves.toEqual({
       _id: "export-1",
@@ -2303,11 +2300,7 @@ describe("getArticleAudioExportForServer", () => {
       ttsCacheKey: "tts:openai:profile:ttsNorm:3",
     });
     const get = vi.fn();
-    const handler = (
-      getArticleAudioExportForServer as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportForServer);
 
     await expect(
       handler(
@@ -2317,7 +2310,7 @@ describe("getArticleAudioExportForServer", () => {
           storage: { getUrl: vi.fn() },
         },
         {
-          exportId: "export-1",
+          exportId: "export-1" as Id<"articleAudioExports">,
           ttsCacheKey: "tts:openai:tampered:ttsNorm:3",
           attestation,
         },
@@ -2334,11 +2327,7 @@ describe("getArticleAudioExportForServer", () => {
       ttsCacheKey,
     });
     const getUrl = vi.fn();
-    const handler = (
-      getArticleAudioExportForServer as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportForServer);
 
     await expect(
       handler(
@@ -2358,7 +2347,11 @@ describe("getArticleAudioExportForServer", () => {
           auth: { getUserIdentity: vi.fn(async () => null) },
           storage: { getUrl },
         },
-        { exportId: "export-1", ttsCacheKey, attestation },
+        {
+          exportId: "export-1" as Id<"articleAudioExports">,
+          ttsCacheKey,
+          attestation,
+        },
       ),
     ).resolves.toBeNull();
     expect(getUrl).not.toHaveBeenCalled();
@@ -2378,11 +2371,7 @@ describe("getArticleAudioExportForServer", () => {
         ttsCacheKey,
       });
       const getUrl = vi.fn();
-      const handler = (
-        getArticleAudioExportForServer as unknown as {
-          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-        }
-      )._handler;
+      const handler = registeredInvoker(getArticleAudioExportForServer);
 
       await expect(
         handler(
@@ -2407,7 +2396,11 @@ describe("getArticleAudioExportForServer", () => {
             },
             storage: { getUrl },
           },
-          { exportId: "export-1", ttsCacheKey, attestation },
+          {
+            exportId: "export-1" as Id<"articleAudioExports">,
+            ttsCacheKey,
+            attestation,
+          },
         ),
       ).resolves.toBeNull();
       expect(getUrl).not.toHaveBeenCalled();
@@ -2419,11 +2412,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
   it("returns null for a malformed Convex ID without reading the database", async () => {
     const normalizeId = vi.fn(() => null);
     const get = vi.fn();
-    const handler = (
-      getArticleAudioExportDownloadIdentity as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportDownloadIdentity);
 
     await expect(
       handler(
@@ -2458,11 +2447,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
       ttsProvider: "edge",
       narrationHash: buildArticleNarrationHash(article as never),
     };
-    const handler = (
-      getArticleAudioExportDownloadIdentity as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportDownloadIdentity);
 
     await expect(
       handler(
@@ -2502,11 +2487,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
       ownerTokenIdentifier: "https://clerk.example|user-a",
       narrationHash: buildArticleNarrationHash(article as never),
     };
-    const handler = (
-      getArticleAudioExportDownloadIdentity as unknown as {
-        _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-      }
-    )._handler;
+    const handler = registeredInvoker(getArticleAudioExportDownloadIdentity);
     const readAs = async (tokenIdentifier: string | null) =>
       await handler(
         {
@@ -2553,11 +2534,7 @@ describe("getArticleAudioExportDownloadIdentity", () => {
         narrationHash: "current-narration",
       };
       const get = vi.fn(async () => record);
-      const handler = (
-        getArticleAudioExportDownloadIdentity as unknown as {
-          _handler: (ctx: unknown, args: unknown) => Promise<unknown>;
-        }
-      )._handler;
+      const handler = registeredInvoker(getArticleAudioExportDownloadIdentity);
 
       await expect(
         handler(

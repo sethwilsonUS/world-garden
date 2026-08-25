@@ -35,3 +35,24 @@ Next.js currently includes plugins that still use APIs removed by ESLint 10.
 adapts those plugin rules in `eslint.config.mjs`. Remove the compatibility
 wrapper once the plugins bundled by `eslint-config-next` support ESLint 10
 directly.
+
+## Oxlint anti-slop companion
+
+ESLint remains the authoritative framework, accessibility, import, and
+TypeScript linter. Oxlint is an additive lane for five repository-appropriate
+rules vendored from
+[`dmmulroy/anti-slop`](https://github.com/dmmulroy/anti-slop) at a reviewed
+commit. The provenance and upstream MIT license live beside the source in
+`tools/oxlint/anti-slop/`; the Effect-specific plugin is not included.
+
+The JavaScript-plugin bridge is still alpha, so `oxlint` and
+`@oxlint/plugins` are exact-pinned to the same version. Every lint command uses
+the project-local Node launcher rather than a standalone Oxlint binary. Before
+the project scan, `scripts/verify-anti-slop.mjs` checks the Node 24 runtime,
+package pins, suppression policy, and an intentionally failing five-rule
+canary. This runtime check is the source of truth because Oxlint's
+`--print-config` output does not currently report JavaScript-plugin rules.
+
+The shared root `.oxlintrc.json` applies the same anti-slop policy to web,
+Convex, tooling, and mobile source. All built-in Oxlint categories are off;
+the companion lane exists only for the explicitly selected anti-slop rules.

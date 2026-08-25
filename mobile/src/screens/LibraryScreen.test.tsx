@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react-native";
-import { AccessibilityInfo, Alert, Platform, type View } from "react-native";
+import { AccessibilityInfo, Alert, Platform, View } from "react-native";
 import type {
   NativeLibraryMutationResult,
   NativeLibraryValue,
@@ -124,16 +124,16 @@ describe("LibraryScreen", () => {
   });
 
   it("restores hardware-keyboard and screen-reader focus to the same target", () => {
-    const focus = jest.fn();
-    const sendAccessibilityEvent = jest
+    const target = new View({});
+    const focus = jest.spyOn(target, "focus").mockImplementation(() => {});
+    const sendAccessibilityFocus = jest
       .spyOn(AccessibilityInfo, "sendAccessibilityEvent")
-      .mockImplementation(() => undefined);
-    const target = { focus } as unknown as View;
+      .mockImplementation(() => {});
 
     focusLibraryElement(target);
 
     expect(focus).toHaveBeenCalledTimes(1);
-    expect(sendAccessibilityEvent).toHaveBeenCalledWith(target, "focus");
+    expect(sendAccessibilityFocus).toHaveBeenCalledWith(target, "focus");
   });
 
   it("keeps one route heading and one status node through loading and empty states", async () => {

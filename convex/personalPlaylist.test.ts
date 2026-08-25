@@ -7,27 +7,31 @@ import {
   getFeedEpisodesByToken,
   getEpisodeForPersonalFeedServer,
   getViewerFeedState,
-  listViewerPlaylistEpisodesForCtx,
-  moveViewerPlaylistEpisodeForCtx,
-  removeViewerPlaylistEpisodeForCtx,
+  listViewerPlaylistEpisodesForCtx as listViewerPlaylistEpisodesForCtxSignature,
+  moveViewerPlaylistEpisodeForCtx as moveViewerPlaylistEpisodeForCtxSignature,
+  removeViewerPlaylistEpisodeForCtx as removeViewerPlaylistEpisodeForCtxSignature,
   registerViewerPlaylistEpisodeStorageInternal,
   revokeViewerFeedToken,
   retryViewerPlaylistEpisode,
   rotateViewerFeedToken,
-  upsertViewerPlaylistEpisodeForCtx,
+  upsertViewerPlaylistEpisodeForCtx as upsertViewerPlaylistEpisodeForCtxSignature,
 } from "./personalPlaylist";
 import {
   PERSONAL_PLAYLIST_LEASE_MS,
-  completeViewerPlaylistEpisodeForCtx,
-  failViewerPlaylistEpisodeForCtx,
-  getNextQueuedEpisodeForViewerForCtx,
+  completeViewerPlaylistEpisodeForCtx as completeViewerPlaylistEpisodeForCtxSignature,
+  failViewerPlaylistEpisodeForCtx as failViewerPlaylistEpisodeForCtxSignature,
+  getNextQueuedEpisodeForViewerForCtx as getNextQueuedEpisodeForViewerForCtxSignature,
   getPersonalPlaylistOpenAiQuotaConfig,
-  markViewerPlaylistEpisodeRunningForCtx,
-  retryViewerPlaylistEpisodeForCtx,
-  updateViewerPlaylistEpisodeProgressForCtx,
-  type PersonalPlaylistMutationCtx,
+  markViewerPlaylistEpisodeRunningForCtx as markViewerPlaylistEpisodeRunningForCtxSignature,
+  retryViewerPlaylistEpisodeForCtx as retryViewerPlaylistEpisodeForCtxSignature,
+  updateViewerPlaylistEpisodeProgressForCtx as updateViewerPlaylistEpisodeProgressForCtxSignature,
+  type ViewerPersonalFeedState,
 } from "./lib/personalPlaylistPersistence";
 import { createPersonalFeedMediaReadAttestation } from "../lib/personal-feed-media-attestation";
+import {
+  invokeRegistered,
+  validatorContractOf,
+} from "./testing/registeredFunctions";
 
 type FeedDoc = {
   _id: Id<"personalPodcastFeeds">;
@@ -98,6 +102,159 @@ type ArticleDoc = {
   _id: Id<"articles">;
   revisionId: string;
 };
+
+const requireViewerPersonalFeedState = (
+  value: unknown,
+): ViewerPersonalFeedState => {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    !("status" in value) ||
+    !("feedToken" in value) ||
+    !("updatedAt" in value)
+  ) {
+    throw new TypeError("Expected a personal feed state result.");
+  }
+
+  if (
+    value.status === "active" &&
+    typeof value.feedToken === "string" &&
+    typeof value.updatedAt === "number"
+  ) {
+    return {
+      status: value.status,
+      feedToken: value.feedToken,
+      updatedAt: value.updatedAt,
+    };
+  }
+  if (
+    value.status === "revoked" &&
+    value.feedToken === null &&
+    typeof value.updatedAt === "number"
+  ) {
+    return {
+      status: value.status,
+      feedToken: value.feedToken,
+      updatedAt: value.updatedAt,
+    };
+  }
+  if (
+    value.status === "not_created" &&
+    value.feedToken === null &&
+    value.updatedAt === null
+  ) {
+    return {
+      status: value.status,
+      feedToken: value.feedToken,
+      updatedAt: value.updatedAt,
+    };
+  }
+
+  throw new TypeError("Received a malformed personal feed state result.");
+};
+
+const upsertViewerPlaylistEpisodeForTest = {
+  _handler: upsertViewerPlaylistEpisodeForCtxSignature,
+};
+const listViewerPlaylistEpisodesForTest = {
+  _handler: async (
+    ctx: Parameters<typeof listViewerPlaylistEpisodesForCtxSignature>[0],
+    args: { viewerTokenIdentifier: string },
+  ) =>
+    await listViewerPlaylistEpisodesForCtxSignature(
+      ctx,
+      args.viewerTokenIdentifier,
+    ),
+};
+const moveViewerPlaylistEpisodeForTest = {
+  _handler: moveViewerPlaylistEpisodeForCtxSignature,
+};
+const removeViewerPlaylistEpisodeForTest = {
+  _handler: removeViewerPlaylistEpisodeForCtxSignature,
+};
+const retryViewerPlaylistEpisodeForTest = {
+  _handler: retryViewerPlaylistEpisodeForCtxSignature,
+};
+const completeViewerPlaylistEpisodeForTest = {
+  _handler: completeViewerPlaylistEpisodeForCtxSignature,
+};
+const failViewerPlaylistEpisodeForTest = {
+  _handler: failViewerPlaylistEpisodeForCtxSignature,
+};
+const getNextQueuedEpisodeForViewerForTest = {
+  _handler: getNextQueuedEpisodeForViewerForCtxSignature,
+};
+const markViewerPlaylistEpisodeRunningForTest = {
+  _handler: markViewerPlaylistEpisodeRunningForCtxSignature,
+};
+const updateViewerPlaylistEpisodeProgressForTest = {
+  _handler: updateViewerPlaylistEpisodeProgressForCtxSignature,
+};
+
+const upsertViewerPlaylistEpisodeForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof upsertViewerPlaylistEpisodeForCtxSignature>[1],
+): ReturnType<typeof upsertViewerPlaylistEpisodeForCtxSignature> =>
+  invokeRegistered(upsertViewerPlaylistEpisodeForTest, ctx, args);
+
+const listViewerPlaylistEpisodesForCtx = (
+  ctx: unknown,
+  viewerTokenIdentifier: string,
+): ReturnType<typeof listViewerPlaylistEpisodesForCtxSignature> =>
+  invokeRegistered(listViewerPlaylistEpisodesForTest, ctx, {
+    viewerTokenIdentifier,
+  });
+
+const moveViewerPlaylistEpisodeForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof moveViewerPlaylistEpisodeForCtxSignature>[1],
+): ReturnType<typeof moveViewerPlaylistEpisodeForCtxSignature> => {
+  return invokeRegistered(moveViewerPlaylistEpisodeForTest, ctx, args);
+};
+
+const removeViewerPlaylistEpisodeForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof removeViewerPlaylistEpisodeForCtxSignature>[1],
+): ReturnType<typeof removeViewerPlaylistEpisodeForCtxSignature> => {
+  return invokeRegistered(removeViewerPlaylistEpisodeForTest, ctx, args);
+};
+
+const retryViewerPlaylistEpisodeForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof retryViewerPlaylistEpisodeForCtxSignature>[1],
+): ReturnType<typeof retryViewerPlaylistEpisodeForCtxSignature> => {
+  return invokeRegistered(retryViewerPlaylistEpisodeForTest, ctx, args);
+};
+
+const completeViewerPlaylistEpisodeForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof completeViewerPlaylistEpisodeForCtxSignature>[1],
+): ReturnType<typeof completeViewerPlaylistEpisodeForCtxSignature> =>
+  invokeRegistered(completeViewerPlaylistEpisodeForTest, ctx, args);
+
+const failViewerPlaylistEpisodeForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof failViewerPlaylistEpisodeForCtxSignature>[1],
+): ReturnType<typeof failViewerPlaylistEpisodeForCtxSignature> =>
+  invokeRegistered(failViewerPlaylistEpisodeForTest, ctx, args);
+
+const getNextQueuedEpisodeForViewerForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof getNextQueuedEpisodeForViewerForCtxSignature>[1],
+): ReturnType<typeof getNextQueuedEpisodeForViewerForCtxSignature> =>
+  invokeRegistered(getNextQueuedEpisodeForViewerForTest, ctx, args);
+
+const markViewerPlaylistEpisodeRunningForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof markViewerPlaylistEpisodeRunningForCtxSignature>[1],
+): ReturnType<typeof markViewerPlaylistEpisodeRunningForCtxSignature> =>
+  invokeRegistered(markViewerPlaylistEpisodeRunningForTest, ctx, args);
+
+const updateViewerPlaylistEpisodeProgressForCtx = (
+  ctx: unknown,
+  args: Parameters<typeof updateViewerPlaylistEpisodeProgressForCtxSignature>[1],
+): ReturnType<typeof updateViewerPlaylistEpisodeProgressForCtxSignature> =>
+  invokeRegistered(updateViewerPlaylistEpisodeProgressForTest, ctx, args);
 
 const buildEpisode = (
   overrides: Partial<EpisodeDoc> &
@@ -300,7 +457,7 @@ const createCtx = (seed?: {
       getUrl: getStorageUrl,
       delete: deleteStorage,
     },
-  } as unknown as PersonalPlaylistMutationCtx;
+  };
 
   return {
     ctx,
@@ -312,17 +469,6 @@ const createCtx = (seed?: {
     deleteStorage,
   };
 };
-
-const invokeRegistered = async <TArgs, TResult>(
-  registeredFunction: unknown,
-  ctx: unknown,
-  args: TArgs,
-): Promise<TResult> =>
-  await (
-    registeredFunction as {
-      _handler: (handlerCtx: unknown, handlerArgs: TArgs) => Promise<TResult>;
-    }
-  )._handler(ctx, args);
 
 describe("personal playlist data helpers", () => {
   const narrationHash = "article-narration-current";
@@ -359,7 +505,7 @@ describe("personal playlist data helpers", () => {
       optional: true,
     };
     const exportArgs = (registeredFunction: unknown) =>
-      (registeredFunction as { exportArgs(): string }).exportArgs();
+      validatorContractOf(registeredFunction).exportArgs();
     const addArgs = JSON.parse(exportArgs(addViewerPlaylistEpisodeBySlug)) as {
       value: Record<string, unknown>;
     };
@@ -477,22 +623,22 @@ describe("personal playlist data helpers", () => {
       ],
     });
 
-    const rotated = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null }
-    >(rotateViewerFeedToken, ctx, {});
-    const activeState = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null }
-    >(getViewerFeedState, ctx, {});
-    const oldPublicFeed = await invokeRegistered<
-      { feedToken: string },
-      unknown
-    >(getFeedEpisodesByToken, ctx, { feedToken: oldFeedToken });
-    const newPublicFeed = await invokeRegistered<
-      { feedToken: string },
-      unknown
-    >(getFeedEpisodesByToken, ctx, { feedToken: rotated.feedToken ?? "" });
+    const rotated = requireViewerPersonalFeedState(
+      await invokeRegistered(rotateViewerFeedToken, ctx, {}),
+    );
+    const activeState = requireViewerPersonalFeedState(
+      await invokeRegistered(getViewerFeedState, ctx, {}),
+    );
+    const oldPublicFeed = await invokeRegistered(
+      getFeedEpisodesByToken,
+      ctx,
+      { feedToken: oldFeedToken },
+    );
+    const newPublicFeed = await invokeRegistered(
+      getFeedEpisodesByToken,
+      ctx,
+      { feedToken: rotated.feedToken ?? "" },
+    );
 
     expect(rotated).toMatchObject({ status: "active" });
     expect(rotated.feedToken).toMatch(/^[a-f0-9]{64}$/);
@@ -541,19 +687,16 @@ describe("personal playlist data helpers", () => {
       episodes: [episode],
     });
 
-    const revoked = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null; updatedAt: number | null }
-    >(revokeViewerFeedToken, ctx, {});
-    const repeated = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null; updatedAt: number | null }
-    >(revokeViewerFeedToken, ctx, {});
-    const viewerState = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null; updatedAt: number | null }
-    >(getViewerFeedState, ctx, {});
-    const publicFeed = await invokeRegistered<{ feedToken: string }, unknown>(
+    const revoked = requireViewerPersonalFeedState(
+      await invokeRegistered(revokeViewerFeedToken, ctx, {}),
+    );
+    const repeated = requireViewerPersonalFeedState(
+      await invokeRegistered(revokeViewerFeedToken, ctx, {}),
+    );
+    const viewerState = requireViewerPersonalFeedState(
+      await invokeRegistered(getViewerFeedState, ctx, {}),
+    );
+    const publicFeed = await invokeRegistered(
       getFeedEpisodesByToken,
       ctx,
       { feedToken: originalFeedToken },
@@ -584,20 +727,18 @@ describe("personal playlist data helpers", () => {
       sectionCount: 2,
       narrationHash: "venus-narration",
     });
-    const stillRevoked = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null; updatedAt: number | null }
-    >(getViewerFeedState, ctx, {});
+    const stillRevoked = requireViewerPersonalFeedState(
+      await invokeRegistered(getViewerFeedState, ctx, {}),
+    );
 
     expect(addedWhileRevoked).not.toHaveProperty("feedToken");
     expect(stillRevoked.status).toBe("revoked");
     expect(getFeeds()[0].feedToken).toBe(tombstoneToken);
 
     vi.advanceTimersByTime(1_000);
-    const reactivated = await invokeRegistered<
-      Record<string, never>,
-      { status: string; feedToken: string | null; updatedAt: number | null }
-    >(rotateViewerFeedToken, ctx, {});
+    const reactivated = requireViewerPersonalFeedState(
+      await invokeRegistered(rotateViewerFeedToken, ctx, {}),
+    );
 
     expect(reactivated.status).toBe("active");
     expect(reactivated.feedToken).toMatch(/^[a-f0-9]{64}$/);
@@ -652,7 +793,7 @@ describe("personal playlist data helpers", () => {
       episodes: [readyEpisode, failedEpisode],
     });
 
-    const payload = await invokeRegistered<{ feedToken: string }, unknown>(
+    const payload = await invokeRegistered(
       getFeedEpisodesByToken,
       ctx,
       { feedToken },
@@ -748,10 +889,7 @@ describe("personal playlist data helpers", () => {
     const identity = { feedToken, episodeId: episode._id };
     const attestation = await createPersonalFeedMediaReadAttestation(identity);
 
-    const resolved = await invokeRegistered<
-      typeof identity & { attestation: typeof attestation },
-      unknown
-    >(getEpisodeForPersonalFeedServer, ctx, {
+    const resolved = await invokeRegistered(getEpisodeForPersonalFeedServer, ctx, {
       ...identity,
       attestation,
     });

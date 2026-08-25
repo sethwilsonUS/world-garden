@@ -48,10 +48,23 @@ describe("usePrefetch", () => {
   });
 
   it("warms guest summary audio with an explicit Edge request", async () => {
-    const fetchArticle = vi.fn().mockResolvedValue({
+    const fetchArticle = vi.fn<DataContextValue["fetchArticle"]>(async () => ({
+      wikiPageId: "123",
+      revisionId: "456",
+      title: "The Silmarillion",
+      language: "en",
+      narrationVersion: 1,
       summary: "The Silmarillion recounts the elder history of Middle-earth.",
-    });
-    const data = { fetchArticle } as unknown as DataContextValue;
+    }));
+    const data: DataContextValue = {
+      search: async () => [],
+      fetchArticle,
+      getSectionLinkCounts: async () => [],
+      getCitationCounts: async () => [],
+      getSectionLinks: async () => [],
+      getSectionCitations: async () => [],
+      getArticleImages: async () => [],
+    };
 
     await act(async () => {
       root.render(
