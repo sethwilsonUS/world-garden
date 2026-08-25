@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 
 type InfoTooltipProps = {
   text: string;
@@ -10,6 +18,8 @@ type InfoTooltipProps = {
   tooltipClassName?: string;
   children?: ReactNode;
 };
+
+const HOVER_CLOSE_DELAY_MS = 150;
 
 export const InfoTooltip = ({
   text,
@@ -23,18 +33,61 @@ export const InfoTooltip = ({
   const id = useId();
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLSpanElement>(null);
+  const hoverBridgeRef = useRef<HTMLSpanElement>(null);
+  const closeTimeoutRef = useRef<number | null>(null);
+
+  const cancelScheduledClose = useCallback(() => {
+    if (closeTimeoutRef.current === null) return;
+    window.clearTimeout(closeTimeoutRef.current);
+    closeTimeoutRef.current = null;
+  }, []);
+
+  const showTooltip = useCallback(() => {
+    cancelScheduledClose();
+    setOpen(true);
+  }, [cancelScheduledClose]);
+
+  const hideTooltip = useCallback(() => {
+    cancelScheduledClose();
+    setOpen(false);
+  }, [cancelScheduledClose]);
+
+  const scheduleTooltipClose = useCallback(() => {
+    cancelScheduledClose();
+    closeTimeoutRef.current = window.setTimeout(() => {
+      closeTimeoutRef.current = null;
+      if (
+        wrapperRef.current?.contains(document.activeElement) ||
+        wrapperRef.current?.matches(":hover") ||
+        hoverBridgeRef.current?.matches(":hover") ||
+        tooltipRef.current?.matches(":hover")
+      ) {
+        return;
+      }
+      setOpen(false);
+    }, HOVER_CLOSE_DELAY_MS);
+  }, [cancelScheduledClose]);
+
+  useEffect(() => {
+    return () => cancelScheduledClose();
+  }, [cancelScheduledClose]);
 
   useEffect(() => {
     if (!open) return;
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) {
-        setOpen(false);
+      const target = event.target as Node;
+      if (
+        !wrapperRef.current?.contains(target) &&
+        !tooltipRef.current?.contains(target) &&
+        !hoverBridgeRef.current?.contains(target)
+      ) {
+        hideTooltip();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") hideTooltip();
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
@@ -43,13 +96,14 @@ export const InfoTooltip = ({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [hideTooltip, open]);
 
   useEffect(() => {
     if (!open) return;
     const trigger = wrapperRef.current;
     const tooltip = tooltipRef.current;
-    if (!trigger || !tooltip) return;
+    const hoverBridge = hoverBridgeRef.current;
+    if (!trigger || !tooltip || !hoverBridge) return;
 
     const placeTooltip = () => {
       const margin = 16;
@@ -77,6 +131,25 @@ export const InfoTooltip = ({
       tooltip.style.top = `${top}px`;
       tooltip.style.width = `${width}px`;
       tooltip.style.visibility = "visible";
+
+      const tooltipBottom = top + tooltipBox.height;
+      const hoverBridgeLeft = Math.max(0, Math.min(left, triggerBox.left));
+      const hoverBridgeRight = Math.min(
+        window.innerWidth,
+        Math.max(left + width, triggerBox.right),
+      );
+      hoverBridge.style.left = `${hoverBridgeLeft}px`;
+      hoverBridge.style.width = `${hoverBridgeRight - hoverBridgeLeft}px`;
+      if (top >= triggerBox.bottom) {
+        hoverBridge.style.top = `${triggerBox.bottom}px`;
+        hoverBridge.style.height = `${top - triggerBox.bottom}px`;
+      } else if (tooltipBottom <= triggerBox.top) {
+        hoverBridge.style.top = `${tooltipBottom}px`;
+        hoverBridge.style.height = `${triggerBox.top - tooltipBottom}px`;
+      } else {
+        hoverBridge.style.top = `${top}px`;
+        hoverBridge.style.height = "0";
+      }
     };
 
     placeTooltip();
@@ -92,8 +165,8 @@ export const InfoTooltip = ({
     <span
       ref={wrapperRef}
       className="relative inline-flex items-center"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={showTooltip}
+      onMouseLeave={scheduleTooltipClose}
     >
       <button
         type="button"
@@ -107,15 +180,19 @@ export const InfoTooltip = ({
           // pointer/touch activation open as well; Escape, blur, or an outside
           // press provide predictable dismissal without immediately toggling it
           // closed again.
-          setOpen(true);
+          showTooltip();
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={showTooltip}
         onBlur={(event) => {
-          if (
-            !wrapperRef.current?.contains(event.relatedTarget as Node | null)
-          ) {
-            setOpen(false);
-          }
+          const nextTarget = event.relatedTarget as Node | null;
+          const focusStaysInside =
+            wrapperRef.current?.contains(nextTarget) ||
+            tooltipRef.current?.contains(nextTarget);
+          const pointerStaysInside =
+            wrapperRef.current?.matches(":hover") ||
+            hoverBridgeRef.current?.matches(":hover") ||
+            tooltipRef.current?.matches(":hover");
+          if (!focusStaysInside && !pointerStaysInside) hideTooltip();
         }}
         className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border bg-surface text-muted transition-colors duration-150 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${buttonClassName}`.trim()}
       >
@@ -128,22 +205,39 @@ export const InfoTooltip = ({
           </span>
         )}
       </button>
-      {open && (
-        <span
-          ref={tooltipRef}
-          id={id}
-          role="tooltip"
-          className={`fixed left-4 top-4 z-10 max-h-[calc(100dvh-32px)] w-[min(16rem,calc(100vw-32px))] max-w-[calc(100vw-32px)] overflow-y-auto overscroll-contain break-words rounded-xl border px-[12px] py-[8px] text-left text-[0.75rem] font-normal leading-snug text-foreground shadow-2xl backdrop-blur-md [overflow-wrap:anywhere] invisible ${tooltipClassName}`.trim()}
-          style={{
-            backgroundColor: "var(--color-surface)",
-            borderColor: "var(--color-border)",
-            boxShadow:
-              "0 18px 42px rgba(0, 0, 0, 0.26), 0 2px 8px rgba(0, 0, 0, 0.16)",
-          }}
-        >
-          {text}
-        </span>
-      )}
+      {/* Article entrance animations retain a transform, so the fixed tooltip
+          must live under body for its viewport coordinates to stay accurate. */}
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <span
+              ref={hoverBridgeRef}
+              aria-hidden="true"
+              data-info-tooltip-hover-bridge=""
+              onMouseEnter={showTooltip}
+              onMouseLeave={scheduleTooltipClose}
+              className="fixed z-10 block"
+            />
+            <span
+              ref={tooltipRef}
+              id={id}
+              role="tooltip"
+              onMouseEnter={showTooltip}
+              onMouseLeave={scheduleTooltipClose}
+              className={`fixed left-4 top-4 z-10 max-h-[calc(100dvh-32px)] w-[min(16rem,calc(100vw-32px))] max-w-[calc(100vw-32px)] overflow-y-auto overscroll-contain break-words rounded-xl border px-[12px] py-[8px] text-left text-[0.75rem] font-normal leading-snug text-foreground shadow-2xl backdrop-blur-md [overflow-wrap:anywhere] invisible ${tooltipClassName}`.trim()}
+              style={{
+                backgroundColor: "var(--color-surface)",
+                borderColor: "var(--color-border)",
+                boxShadow:
+                  "0 18px 42px rgba(0, 0, 0, 0.26), 0 2px 8px rgba(0, 0, 0, 0.16)",
+              }}
+            >
+              {text}
+            </span>
+          </>,
+          document.body,
+        )}
     </span>
   );
 };

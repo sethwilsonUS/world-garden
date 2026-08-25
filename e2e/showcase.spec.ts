@@ -1377,6 +1377,75 @@ test("article keeps structured source sections playable with an accessible adapt
     }),
   ).toBeVisible();
   await expect(page.getByText("Not suited for audio")).toHaveCount(0);
+
+  const adaptationInfo = page.getByRole("button", {
+    name: "How Recognition was adapted for audio",
+  });
+  await adaptationInfo.hover();
+
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  const [triggerBox, tooltipBox] = await Promise.all([
+    adaptationInfo.boundingBox(),
+    tooltip.boundingBox(),
+  ]);
+  const viewport = page.viewportSize();
+  expect(triggerBox).not.toBeNull();
+  expect(tooltipBox).not.toBeNull();
+  expect(viewport).not.toBeNull();
+
+  const horizontalGap = Math.max(
+    triggerBox!.x - (tooltipBox!.x + tooltipBox!.width),
+    tooltipBox!.x - (triggerBox!.x + triggerBox!.width),
+    0,
+  );
+  const verticalGap = Math.max(
+    triggerBox!.y - (tooltipBox!.y + tooltipBox!.height),
+    tooltipBox!.y - (triggerBox!.y + triggerBox!.height),
+    0,
+  );
+  expect(Math.hypot(horizontalGap, verticalGap)).toBeLessThanOrEqual(12);
+  expect(tooltipBox!.x).toBeGreaterThanOrEqual(0);
+  expect(tooltipBox!.y).toBeGreaterThanOrEqual(0);
+  expect(tooltipBox!.x + tooltipBox!.width).toBeLessThanOrEqual(
+    viewport!.width,
+  );
+  expect(tooltipBox!.y + tooltipBox!.height).toBeLessThanOrEqual(
+    viewport!.height,
+  );
+
+  const tooltipIsBelow = tooltipBox!.y >= triggerBox!.y + triggerBox!.height;
+  const pointerX = Math.max(
+    tooltipBox!.x + 1,
+    Math.min(
+      triggerBox!.x + triggerBox!.width / 2,
+      tooltipBox!.x + tooltipBox!.width - 1,
+    ),
+  );
+  const triggerEdgeY = tooltipIsBelow
+    ? triggerBox!.y + triggerBox!.height - 1
+    : triggerBox!.y + 1;
+  const tooltipEdgeY = tooltipIsBelow
+    ? tooltipBox!.y + 1
+    : tooltipBox!.y + tooltipBox!.height - 1;
+  await page.mouse.move(pointerX, triggerEdgeY);
+  await page.mouse.move(pointerX, (triggerEdgeY + tooltipEdgeY) / 2);
+  await page.waitForTimeout(200);
+  await expect(tooltip).toBeVisible();
+  await page.mouse.move(pointerX, tooltipEdgeY);
+  await page.waitForTimeout(200);
+  await expect(tooltip).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toBeHidden();
+
+  await adaptationInfo.focus();
+  await expect(adaptationInfo).toHaveAccessibleDescription(
+    "Wikipedia presents part of this section as a table or list. Curio Garden reads its labels and values in source order without generative rewriting.",
+  );
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toBeHidden();
+  await expect(adaptationInfo).toBeFocused();
+
   await page.getByRole("button", { name: "Listen to Recognition" }).focus();
   await expectVisibleFocusIndicator(
     page.getByRole("button", { name: "Listen to Recognition" }),
@@ -1420,13 +1489,37 @@ test("article section controls and metadata reflow with enlarged text", async ({
     expect(box!.height).toBeGreaterThanOrEqual(44);
   }
 
+  await adaptationInfo.evaluate((button) => {
+    const wrapper = button.parentElement;
+    if (!wrapper) throw new Error("Tooltip trigger wrapper is missing");
+    const triggerBox = button.getBoundingClientRect();
+    wrapper.style.transform = `translateX(${-triggerBox.left}px)`;
+  });
   await adaptationInfo.click();
   const tooltip = page.getByRole("tooltip");
   await expect(tooltip).toBeVisible();
-  const tooltipBox = await tooltip.boundingBox();
+  const hoverBridge = page.locator("[data-info-tooltip-hover-bridge]");
+  const [triggerBox, tooltipBox, hoverBridgeBox] = await Promise.all([
+    adaptationInfo.boundingBox(),
+    tooltip.boundingBox(),
+    hoverBridge.boundingBox(),
+  ]);
+  expect(triggerBox).not.toBeNull();
   expect(tooltipBox).not.toBeNull();
+  expect(hoverBridgeBox).not.toBeNull();
   expect(tooltipBox!.x).toBeGreaterThanOrEqual(0);
   expect(tooltipBox!.x + tooltipBox!.width).toBeLessThanOrEqual(320);
+  expect(tooltipBox!.y).toBeGreaterThanOrEqual(0);
+  expect(tooltipBox!.y + tooltipBox!.height).toBeLessThanOrEqual(800);
+  expect(hoverBridgeBox!.x).toBeLessThanOrEqual(
+    Math.min(triggerBox!.x, tooltipBox!.x),
+  );
+  expect(hoverBridgeBox!.x + hoverBridgeBox!.width).toBeGreaterThanOrEqual(
+    Math.max(
+      triggerBox!.x + triggerBox!.width,
+      tooltipBox!.x + tooltipBox!.width,
+    ),
+  );
 });
 
 test("gallery lightbox reflows narrowly, at zoom-equivalent dimensions, and falls back", async ({
