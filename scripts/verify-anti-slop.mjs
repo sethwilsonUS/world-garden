@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const verifierPath = fileURLToPath(import.meta.url);
-const EXPECTED_VERSION = "1.79.0";
+const EXPECTED_VERSION = "1.80.0";
 const EXPECTED_CODES = new Set([
   "anti-slop(no-chained-type-assertions)",
   "anti-slop(no-reflect-apply)",
