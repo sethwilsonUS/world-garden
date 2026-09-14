@@ -76,6 +76,7 @@
     "@nielspeter/ts-archunit": "0.61.0",
     "@oxlint/plugins": "1.81.0",
     "@playwright/test": "^1.61.1",
+    "@react-native/jest-preset": "0.86.3",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.17",
@@ -84,7 +85,7 @@
     "eslint": "^10.9.1",
     "eslint-config-next": "^16.3.3",
     "eslint-import-resolver-typescript": "3.10.1",
-    "expo-modules-core": "57.0.16",
+    "expo-modules-core": "57.0.18",
     "fast-check": "^4.3.0",
     "github-slugger": "^2.0.0",
     "jsdom": "^29.1.1",
@@ -102,6 +103,7 @@
     "vitest": "^4.1.8"
   },
   "overrides": {
+    "@react-native/jest-preset": "0.86.3",
     "postcss": "^8.5.10",
     "react-native-gesture-handler": "$react-native-gesture-handler",
     "react-native-reanimated": "$react-native-reanimated",
