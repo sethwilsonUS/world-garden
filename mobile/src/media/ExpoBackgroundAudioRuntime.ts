@@ -64,7 +64,7 @@ type NativeAudioPlaybackStatus = Readonly<{
 type NativeAudioPlaylistStatus = NativeAudioPlaybackStatus &
   Readonly<{
     currentIndex: number;
-    // Expo Audio 57.0.4 omits these from its playlist status type. The pinned
+    // Expo Audio 57.0.5 omits these from its playlist status type. The pinned
     // native patch emits them while this optional seam keeps pristine installs
     // typecheckable before the native build hook runs.
     ended?: boolean;
