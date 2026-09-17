@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import {
   formatWikipediaSearchStatus,
   normalizeWikipediaSearchTerm,
-  type WikipediaSearchResult,
-} from "@curio-garden/domain";
+} from "@/lib/wikipedia-search";
+import type { WikipediaSearchResult } from "@/lib/wikipedia-contracts";
 import { analytics } from "@/lib/analytics";
 import { useData } from "@/lib/data-context";
 import { ArticleLink } from "@/components/ArticleLink";

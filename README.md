@@ -552,9 +552,10 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run eval:trending-podcast`        | Run the nonpublishing eight-profile evaluation against three frozen fixtures                              |
 | `npm run render:trending-podcast-eval` | Render one evaluation profile locally through strict Mini/Marin without publishing                        |
 | `npm run build`                        | Production build (handles Vercel environments)                                                            |
-| `npm run check`                        | Canonical baseline: toolchain alignment, ESLint plus anti-slop, both TypeScript compilers, and the complete Vitest suite |
+| `npm run check`                        | Canonical baseline: toolchain alignment, ESLint plus anti-slop, both TypeScript compilers, architecture rules, and all Vitest tests |
 | `npm run toolchain:check`              | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |
 | `npm run typecheck`                    | Run the TypeScript 7 native compiler and TypeScript 6 tooling compiler without emitting files             |
+| `npm run arch`                         | Check module boundaries and architecture rules for the app and backend                                    |
 | `npm run test`                         | Run all Vitest tests once                                                                                 |
 | `npm run test:watch`                   | Watch mode tests                                                                                          |
 | `npm run test:e2e`                     | Run Chromium journeys and axe accessibility checks in local mode                                          |
@@ -575,20 +576,26 @@ LOCAL_MODE=true NEXT_PUBLIC_LOCAL_MODE=true npm run build
 ```
 
 `npm run check` validates the toolchain, runs lint and both supported TypeScript
-compiler paths, and executes every Vitest file. See [Toolchain](docs/toolchain.md)
+compiler paths, checks architecture rules, and executes every Vitest file. See [Toolchain](docs/toolchain.md)
 for the runtime contract and the temporary compiler and lint compatibility
 layers. Rendered UI
 changes also run `npm run test:e2e`, which starts the keyless local-mode app,
 drives Chromium with Playwright, and includes axe accessibility scans.
 
-Changes to the Edge TTS Python function should match CI's import and Ruff
-checks:
+GitHub Actions runs lint, type checking, architecture, documentation links,
+production build, unit tests, browser accessibility tests, and Python checks
+for every pull request. The `Required CI` check passes only when all eight
+gates succeed.
+
+Changes to the Edge TTS Python function should match CI's import, unit-test,
+and Ruff checks:
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt ruff
 python -c "from _python.tts import handler, _generate, _VOICE_RE; print('_python/tts.py OK')"
+python -m unittest discover _python -p 'test_*.py'
 python -m ruff check _python/
 ```
 

@@ -15,7 +15,6 @@ const maplibreAssets = [
 ] as const;
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@curio-garden/domain"],
   webpack: (config, { webpack }) => {
     config.plugins.push({
       apply(compiler: WebpackTypes.Compiler) {

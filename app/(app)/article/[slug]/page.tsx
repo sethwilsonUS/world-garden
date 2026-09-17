@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import {
   articleRouteFromTitle,
   parseCanonicalArticlePath,
-} from "@curio-garden/domain";
+} from "@/lib/article-route";
 import { ArticleView } from "@/components/ArticleView";
 import { BackButton } from "@/components/BackButton";
 import { RandomRerollButton } from "@/components/RandomRerollButton";

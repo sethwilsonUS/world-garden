@@ -1,6 +1,6 @@
 "use client";
 
-import { splitArticleSummary } from "@curio-garden/domain";
+import { splitArticleSummary } from "@/lib/article-summary";
 import Image from "next/image";
 import { type MouseEvent as ReactMouseEvent } from "react";
 import type { Article } from "@/lib/data-context";

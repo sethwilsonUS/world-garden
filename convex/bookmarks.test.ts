@@ -1,13 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getAuthenticatedViewerTokenIdentifier,
-  getBoundNativeViewerTokenIdentifier,
   importGuestBookmarksForCtx,
-  listNativeViewerBookmarksForCtx,
   listViewerBookmarksForCtx,
-  removeNativeViewerBookmarkForCtx,
   removeViewerBookmarkForCtx,
-  saveNativeViewerBookmarkForCtx,
   saveViewerBookmarkForCtx,
 } from "./bookmarks";
 import { createAccountDeletionQueryChain } from "../test-utils/account-deletion-stubs";
@@ -132,17 +128,6 @@ describe("getAuthenticatedViewerTokenIdentifier", () => {
   });
 });
 
-describe("getBoundNativeViewerTokenIdentifier", () => {
-  it("rejects a queued Account A operation when transport authenticates Account B", async () => {
-    const { ctx, getDocs } = createCtx([], "user-b");
-
-    await expect(
-      getBoundNativeViewerTokenIdentifier(ctx as never, "user-a"),
-    ).rejects.toThrow("Account changed");
-    expect(getDocs()).toEqual([]);
-  });
-});
-
 describe("listViewerBookmarksForCtx", () => {
   it("returns only the current viewer's bookmarks sorted newest first", async () => {
     const { ctx } = createCtx([
@@ -176,94 +161,6 @@ describe("listViewerBookmarksForCtx", () => {
       { slug: "venus", title: "Venus", savedAt: 20 },
       { slug: "mars", title: "Mars", savedAt: 10 },
     ]);
-  });
-});
-
-describe("listNativeViewerBookmarksForCtx", () => {
-  it("echoes the opaque epoch and returns only normalized viewer bookmarks newest first", async () => {
-    const { ctx } = createCtx([
-      {
-        _id: "bookmark-1",
-        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
-        slug: "mars",
-        title: "Old Mars",
-        savedAt: 10,
-        updatedAt: 10,
-      },
-      {
-        _id: "bookmark-2",
-        viewerTokenIdentifier: tokenIdentifierForSubject("user-2"),
-        slug: "earth",
-        title: "Earth",
-        savedAt: 100,
-        updatedAt: 100,
-      },
-      {
-        _id: "bookmark-3",
-        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
-        slug: "venus",
-        title: "Venus",
-        savedAt: 20,
-        updatedAt: 20,
-      },
-      {
-        _id: "bookmark-4",
-        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
-        slug: "mars",
-        title: "Mars",
-        savedAt: 30,
-        updatedAt: 30,
-      },
-      {
-        _id: "bookmark-5",
-        viewerTokenIdentifier: tokenIdentifierForSubject("user-1"),
-        slug: " ",
-        title: "Invalid",
-        savedAt: 40,
-        updatedAt: 40,
-      },
-    ]);
-    const sessionEpochKey = "epoch:account-switch/7?opaque";
-
-    await expect(
-      listNativeViewerBookmarksForCtx(ctx as never, {
-        expectedAccountSubject: "user-1",
-        sessionEpochKey,
-      }),
-    ).resolves.toEqual({
-      sessionEpochKey,
-      entries: [
-        { slug: "mars", title: "Mars", savedAt: 30 },
-        { slug: "venus", title: "Venus", savedAt: 20 },
-      ],
-    });
-  });
-
-  it("rejects Account A query args when transport authenticates Account B", async () => {
-    const accountABookmark = {
-      _id: "bookmark-a",
-      viewerTokenIdentifier: tokenIdentifierForSubject("user-a"),
-      slug: "mars",
-      title: "Mars",
-      savedAt: 10,
-      updatedAt: 10,
-    };
-    const accountBBookmark = {
-      _id: "bookmark-b",
-      viewerTokenIdentifier: tokenIdentifierForSubject("user-b"),
-      slug: "venus",
-      title: "Venus",
-      savedAt: 20,
-      updatedAt: 20,
-    };
-    const { ctx } = createCtx([accountABookmark, accountBBookmark], "user-b");
-
-    await expect(
-      listNativeViewerBookmarksForCtx(ctx as never, {
-        expectedAccountSubject: "user-a",
-        sessionEpochKey: "epoch-a",
-      }),
-    ).rejects.toThrow("Account changed");
   });
 });
 
@@ -357,73 +254,6 @@ describe("removeViewerBookmarkForCtx", () => {
       removeViewerBookmarkForCtx(ctx as never, { slug: "mars" }),
     ).resolves.toEqual({ removed: false });
     expect(getDocs()).toEqual([accountABookmark]);
-  });
-});
-
-describe("native viewer bookmark mutations", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("echoes the epoch and commits only when the validated subject still matches", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-05T12:00:00Z"));
-    const { ctx, getDocs } = createCtx([], "user-a");
-
-    await expect(
-      saveNativeViewerBookmarkForCtx(ctx as never, {
-        expectedAccountSubject: "user-a",
-        sessionEpochKey: "epoch-a",
-        slug: "mars",
-        title: "Mars",
-      }),
-    ).resolves.toEqual({
-      entry: {
-        savedAt: Date.now(),
-        slug: "mars",
-        title: "Mars",
-      },
-      sessionEpochKey: "epoch-a",
-    });
-    expect(getDocs()).toHaveLength(1);
-
-    await expect(
-      removeNativeViewerBookmarkForCtx(ctx as never, {
-        expectedAccountSubject: "user-a",
-        sessionEpochKey: "epoch-a",
-        slug: "mars",
-      }),
-    ).resolves.toEqual({ removed: true, sessionEpochKey: "epoch-a" });
-    expect(getDocs()).toEqual([]);
-  });
-
-  it("cannot execute a queued Account A write after Account B authenticates", async () => {
-    const accountBBookmark = {
-      _id: "bookmark-b",
-      viewerTokenIdentifier: tokenIdentifierForSubject("user-b"),
-      slug: "mars",
-      title: "Account B Mars",
-      savedAt: 20,
-      updatedAt: 20,
-    };
-    const { ctx, getDocs } = createCtx([accountBBookmark], "user-b");
-
-    await expect(
-      saveNativeViewerBookmarkForCtx(ctx as never, {
-        expectedAccountSubject: "user-a",
-        sessionEpochKey: "epoch-a",
-        slug: "mars",
-        title: "Account A Mars",
-      }),
-    ).rejects.toThrow("Account changed");
-    await expect(
-      removeNativeViewerBookmarkForCtx(ctx as never, {
-        expectedAccountSubject: "user-a",
-        sessionEpochKey: "epoch-a",
-        slug: "mars",
-      }),
-    ).rejects.toThrow("Account changed");
-    expect(getDocs()).toEqual([accountBBookmark]);
   });
 });
 

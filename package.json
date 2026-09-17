@@ -2,10 +2,6 @@
   "name": "curio-garden",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "mobile",
-    "packages/*"
-  ],
   "engines": {
     "node": "^24.3.0"
   },
@@ -34,29 +30,20 @@
     "lint:eslint": "eslint",
     "lint:anti-slop": "npm-run-all lint:anti-slop:verify lint:anti-slop:root",
     "lint:anti-slop:verify": "node scripts/verify-anti-slop.mjs",
-    "lint:anti-slop:root": "node node_modules/oxlint/bin/oxlint --config .oxlintrc.json --disable-nested-config --ignore-pattern 'mobile/**' --ignore-pattern 'tools/oxlint/canary.ts' .",
-    "lint:anti-slop:mobile": "npm-run-all lint:anti-slop:verify lint:anti-slop:mobile:project",
-    "lint:anti-slop:mobile:project": "node node_modules/oxlint/bin/oxlint --config .oxlintrc.json --disable-nested-config mobile/app mobile/src mobile/plugins mobile/scripts mobile/app.config.ts mobile/arch.rules.mts",
+    "lint:anti-slop:root": "node node_modules/oxlint/bin/oxlint --config .oxlintrc.json --disable-nested-config --ignore-pattern 'tools/oxlint/canary.ts' .",
     "toolchain:check": "node scripts/validate-toolchain.mjs",
-    "typecheck": "npm-run-all typecheck:native typecheck:tooling typecheck:domain",
+    "typecheck": "npm-run-all typecheck:native typecheck:tooling",
     "typecheck:native": "tsc --noEmit",
     "typecheck:tooling": "node node_modules/typescript/bin/tsc --noEmit",
-    "typecheck:domain": "node node_modules/typescript/bin/tsc --noEmit -p packages/domain/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:auth": "playwright test --config playwright.auth.config.ts",
     "docs:check": "node scripts/validate-doc-links.mjs",
-    "mobile:start": "npm run start --workspace @curio-garden/mobile",
-    "mobile:ios": "npm run ios --workspace @curio-garden/mobile",
-    "mobile:android": "npm run android --workspace @curio-garden/mobile",
-    "mobile:check": "npm run check --workspace @curio-garden/mobile",
-    "mobile:doctor": "npm run doctor --workspace @curio-garden/mobile",
     "check": "npm-run-all toolchain:check lint typecheck arch test"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.3",
-    "@curio-garden/domain": "*",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "convex": "^1.40.0",
@@ -76,7 +63,6 @@
     "@nielspeter/ts-archunit": "0.61.0",
     "@oxlint/plugins": "1.82.0",
     "@playwright/test": "^1.61.1",
-    "@react-native/jest-preset": "0.86.3",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.17",
@@ -85,30 +71,18 @@
     "eslint": "^10.9.1",
     "eslint-config-next": "^16.3.3",
     "eslint-import-resolver-typescript": "3.10.1",
-    "expo-modules-core": "57.0.18",
     "fast-check": "^4.3.0",
     "github-slugger": "^2.0.0",
     "jsdom": "^29.1.1",
     "npm-run-all": "^4.1.5",
     "oxlint": "1.82.0",
     "playwright": "^1.61.1",
-    "react-native-gesture-handler": "2.32.0",
-    "react-native-reanimated": "4.5.1",
-    "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0",
-    "react-native-worklets": "0.10.1",
     "tailwindcss": "^4.3.0",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
   "overrides": {
-    "@react-native/jest-preset": "0.86.3",
-    "postcss": "^8.5.10",
-    "react-native-gesture-handler": "$react-native-gesture-handler",
-    "react-native-reanimated": "$react-native-reanimated",
-    "react-native-safe-area-context": "$react-native-safe-area-context",
-    "react-native-screens": "$react-native-screens",
-    "react-native-worklets": "$react-native-worklets"
+    "postcss": "^8.5.10"
   }
 }

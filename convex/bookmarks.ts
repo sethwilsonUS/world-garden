@@ -1,7 +1,7 @@
 import {
   normalizeBookmarkEntries,
   type BookmarkEntry,
-} from "@curio-garden/domain";
+} from "../lib/bookmarks";
 import { v } from "convex/values";
 import {
   mutation,
@@ -23,11 +23,6 @@ type ViewerAuthCtx =
 
 type BookmarkQueryCtx = Pick<QueryCtx, "auth" | "db">;
 type BookmarkMutationCtx = Pick<MutationCtx, "auth" | "db">;
-
-interface NativeBookmarkRequestIdentity {
-  readonly expectedAccountSubject: string;
-  readonly sessionEpochKey: string;
-}
 
 const bookmarkEntryValidator = v.object({
   slug: v.string(),
@@ -56,23 +51,6 @@ export const getAuthenticatedViewerTokenIdentifier = async (
   return identity.tokenIdentifier;
 };
 
-export const getBoundNativeViewerTokenIdentifier = async (
-  ctx: ViewerAuthCtx,
-  expectedAccountSubject: string,
-): Promise<string> => {
-  const identity = await ctx.auth.getUserIdentity();
-
-  if (!identity) {
-    throw new Error("Unauthorized");
-  }
-  if (identity.subject !== expectedAccountSubject) {
-    throw new Error("Account changed");
-  }
-
-  await assertViewerAccountActiveForCtx(ctx, identity.tokenIdentifier);
-  return identity.tokenIdentifier;
-};
-
 const getExistingBookmark = async (
   ctx: BookmarkQueryCtx | BookmarkMutationCtx,
   viewerTokenIdentifier: string,
@@ -91,13 +69,6 @@ export const listViewerBookmarksForCtx = async (
 ): Promise<BookmarkEntry[]> => {
   const viewerTokenIdentifier =
     await getAuthenticatedViewerTokenIdentifier(ctx);
-  return listBookmarksForViewer(ctx, viewerTokenIdentifier);
-};
-
-const listBookmarksForViewer = async (
-  ctx: BookmarkQueryCtx,
-  viewerTokenIdentifier: string,
-): Promise<BookmarkEntry[]> => {
   const bookmarks = (await ctx.db
     .query("bookmarks")
     .withIndex("by_viewerTokenIdentifier", (q) =>
@@ -110,23 +81,6 @@ const listBookmarksForViewer = async (
     .map(toPublicBookmarkEntry);
 };
 
-export const listNativeViewerBookmarksForCtx = async (
-  ctx: BookmarkQueryCtx,
-  args: NativeBookmarkRequestIdentity,
-): Promise<{ sessionEpochKey: string; entries: BookmarkEntry[] }> => {
-  const viewerTokenIdentifier = await getBoundNativeViewerTokenIdentifier(
-    ctx,
-    args.expectedAccountSubject,
-  );
-
-  return {
-    sessionEpochKey: args.sessionEpochKey,
-    entries: normalizeBookmarkEntries(
-      await listBookmarksForViewer(ctx, viewerTokenIdentifier),
-    ),
-  };
-};
-
 export const saveViewerBookmarkForCtx = async (
   ctx: BookmarkMutationCtx,
   args: {
@@ -136,17 +90,6 @@ export const saveViewerBookmarkForCtx = async (
 ): Promise<BookmarkEntry> => {
   const viewerTokenIdentifier =
     await getAuthenticatedViewerTokenIdentifier(ctx);
-  return saveBookmarkForViewer(ctx, viewerTokenIdentifier, args);
-};
-
-const saveBookmarkForViewer = async (
-  ctx: BookmarkMutationCtx,
-  viewerTokenIdentifier: string,
-  args: {
-    slug: string;
-    title: string;
-  },
-): Promise<BookmarkEntry> => {
   const now = Date.now();
   const existing = await getExistingBookmark(
     ctx,
@@ -182,22 +125,6 @@ const saveBookmarkForViewer = async (
   };
 };
 
-export const saveNativeViewerBookmarkForCtx = async (
-  ctx: BookmarkMutationCtx,
-  args: NativeBookmarkRequestIdentity & {
-    slug: string;
-    title: string;
-  },
-): Promise<{ entry: BookmarkEntry; sessionEpochKey: string }> => {
-  const viewerTokenIdentifier = await getBoundNativeViewerTokenIdentifier(
-    ctx,
-    args.expectedAccountSubject,
-  );
-  const entry = await saveBookmarkForViewer(ctx, viewerTokenIdentifier, args);
-
-  return { entry, sessionEpochKey: args.sessionEpochKey };
-};
-
 export const removeViewerBookmarkForCtx = async (
   ctx: BookmarkMutationCtx,
   args: {
@@ -206,16 +133,6 @@ export const removeViewerBookmarkForCtx = async (
 ): Promise<{ removed: boolean }> => {
   const viewerTokenIdentifier =
     await getAuthenticatedViewerTokenIdentifier(ctx);
-  return removeBookmarkForViewer(ctx, viewerTokenIdentifier, args);
-};
-
-const removeBookmarkForViewer = async (
-  ctx: BookmarkMutationCtx,
-  viewerTokenIdentifier: string,
-  args: {
-    slug: string;
-  },
-): Promise<{ removed: boolean }> => {
   const existing = await getExistingBookmark(
     ctx,
     viewerTokenIdentifier,
@@ -228,25 +145,6 @@ const removeBookmarkForViewer = async (
 
   await ctx.db.delete(existing._id as never);
   return { removed: true };
-};
-
-export const removeNativeViewerBookmarkForCtx = async (
-  ctx: BookmarkMutationCtx,
-  args: NativeBookmarkRequestIdentity & {
-    slug: string;
-  },
-): Promise<{ removed: boolean; sessionEpochKey: string }> => {
-  const viewerTokenIdentifier = await getBoundNativeViewerTokenIdentifier(
-    ctx,
-    args.expectedAccountSubject,
-  );
-  const { removed } = await removeBookmarkForViewer(
-    ctx,
-    viewerTokenIdentifier,
-    args,
-  );
-
-  return { removed, sessionEpochKey: args.sessionEpochKey };
 };
 
 export const importGuestBookmarksForCtx = async (
@@ -288,18 +186,6 @@ export const listViewerBookmarks = query({
   handler: listViewerBookmarksForCtx,
 });
 
-export const listNativeViewerBookmarks = query({
-  args: {
-    expectedAccountSubject: v.string(),
-    sessionEpochKey: v.string(),
-  },
-  returns: v.object({
-    sessionEpochKey: v.string(),
-    entries: v.array(bookmarkEntryValidator),
-  }),
-  handler: (ctx, args) => listNativeViewerBookmarksForCtx(ctx, args),
-});
-
 export const saveViewerBookmark = mutation({
   args: {
     slug: v.string(),
@@ -313,33 +199,6 @@ export const removeViewerBookmark = mutation({
     slug: v.string(),
   },
   handler: (ctx, args) => removeViewerBookmarkForCtx(ctx, args),
-});
-
-export const saveNativeViewerBookmark = mutation({
-  args: {
-    expectedAccountSubject: v.string(),
-    sessionEpochKey: v.string(),
-    slug: v.string(),
-    title: v.string(),
-  },
-  returns: v.object({
-    entry: bookmarkEntryValidator,
-    sessionEpochKey: v.string(),
-  }),
-  handler: (ctx, args) => saveNativeViewerBookmarkForCtx(ctx, args),
-});
-
-export const removeNativeViewerBookmark = mutation({
-  args: {
-    expectedAccountSubject: v.string(),
-    sessionEpochKey: v.string(),
-    slug: v.string(),
-  },
-  returns: v.object({
-    removed: v.boolean(),
-    sessionEpochKey: v.string(),
-  }),
-  handler: (ctx, args) => removeNativeViewerBookmarkForCtx(ctx, args),
 });
 
 export const importGuestBookmarks = mutation({

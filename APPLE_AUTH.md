@@ -4,8 +4,6 @@
 
 This guide is for adding **Sign in with Apple** to **Curio Garden's web sign-in flow through Clerk**.
 
-This guide is **not** the native iPhone/TestFlight setup. The native app uses a separate Apple sign-in path. There is a short note about that near the end so the two flows do not get mixed together.
-
 Expected result:
 
 1. Apple appears in Curio Garden's existing Clerk sign-in UI.
@@ -430,22 +428,9 @@ Check:
 2. You are signed into the intended Apple Developer team
 3. The Team ID you pasted matches the App ID and key you created
 
-## Native/TestFlight Note
-
-> This guide is for the **web Clerk flow** in Curio Garden.
->
-> The **Expo/TestFlight** app uses a different native Apple sign-in path.
->
-> Reusing the web Services ID instructions there may be wrong.
->
-> If you later want Apple sign-in in `surroundings-ai`, make a separate native-focused guide and use Clerk's Expo or iOS Sign in with Apple docs.
-
-For the native app, start with Clerk's native Apple docs instead of this file.
-
 ## Helpful Links
 
 1. Clerk web Apple social connection docs: https://clerk.com/docs/guides/configure/auth-strategies/social-connections/apple
 2. Apple web Sign in with Apple configuration docs: https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web
 3. Apple Services ID docs: https://developer.apple.com/help/account/identifiers/register-a-services-id
 4. Apple private email relay docs: https://developer.apple.com/help/account/capabilities/configure-private-email-relay-service/
-5. Clerk Expo native Apple docs: https://clerk.com/docs/expo/guides/configure/auth-strategies/sign-in-with-apple

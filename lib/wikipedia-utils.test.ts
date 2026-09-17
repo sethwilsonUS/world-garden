@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   findWikipediaSectionMetadata,
+  normalizeMediaWikiNumericId,
   normalizeWikipediaSectionTitle,
   normalizeWikipediaTitle,
   slugToWikipediaTitle,
@@ -86,5 +87,36 @@ describe("Wikipedia client-safe utilities", () => {
         sectionTitle: "  HISTORY ",
       })?.value,
     ).toBe("legacy");
+  });
+});
+
+describe("normalizeMediaWikiNumericId", () => {
+  it.each([
+    [42, "42"],
+    ["00042", "42"],
+    [" 42 ", "42"],
+    ["9".repeat(20), "9".repeat(20)],
+  ])("normalizes %s to %s", (value, expected) => {
+    expect(normalizeMediaWikiNumericId(value)).toBe(expected);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+    NaN,
+    Infinity,
+    "0",
+    "1e3",
+    "12.5",
+    "9".repeat(21),
+    `${"0".repeat(64)}1`,
+    null,
+    undefined,
+    [42],
+    { toString: () => "42" },
+  ])("rejects invalid numeric identifier %s", (value) => {
+    expect(normalizeMediaWikiNumericId(value)).toBeNull();
   });
 });
