@@ -1,5 +1,4 @@
 import {
-  collectCalls,
   createViolation,
   defineCondition,
   definePredicate,
@@ -16,24 +15,6 @@ import { recommended } from "@nielspeter/ts-archunit/presets";
 const p = project("tsconfig.arch.json");
 
 type ProjectSourceFile = ReturnType<(typeof p)["getSourceFiles"]>[number];
-
-const nativeRuntimeImports = [
-  "mobile/**",
-  "@curio-garden/mobile",
-  "@curio-garden/mobile/**",
-  "@clerk/expo",
-  "@clerk/expo/**",
-  "expo",
-  "expo-*",
-  "expo-*/**",
-  "expo/**",
-  "@expo/**",
-  "react-native",
-  "react-native-*",
-  "react-native-*/**",
-  "react-native/**",
-  "@react-native/**",
-] as const;
 
 // Next.js 16.3 made next/cache a mixed entry point: io is documented for
 // Client Components, and these legacy helpers have explicit browser shims.
@@ -139,43 +120,6 @@ const useOnlyClientSafeNextCacheExports = defineCondition<ProjectSourceFile>(
     }),
 );
 
-const useOnlyPublicDomainPackageImports = defineCondition<ProjectSourceFile>(
-  "use only the public @curio-garden/domain package interface",
-  (sourceFiles, context) =>
-    sourceFiles.flatMap((sourceFile) => {
-      const staticDeclarations = [
-        ...sourceFile.getImportDeclarations(),
-        ...sourceFile.getExportDeclarations(),
-      ].filter((declaration) =>
-        /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
-          declaration.getModuleSpecifierValue() ?? "",
-        ),
-      );
-      const literalCalls = collectCalls(sourceFile)
-        .filter((call) => {
-          if (
-            call.getObjectName() !== undefined ||
-            (call.getMethodName() !== "import" &&
-              call.getMethodName() !== "require")
-          ) {
-            return false;
-          }
-          return /(?:^|\/)packages\/domain\/src(?:\/|$)/u.test(
-            call.getName({ withArgument: 0 }) ?? "",
-          );
-        })
-        .map((call) => call.getNode());
-
-      return [...staticDeclarations, ...literalCalls].map((declaration) =>
-        createViolation(
-          declaration,
-          "domain consumer bypasses the public @curio-garden/domain package interface",
-          context,
-        ),
-      );
-    }),
-);
-
 const convexMustStayIndependentOfWeb = modules(p)
   .that()
   .resideInFolder("convex/**")
@@ -195,7 +139,6 @@ const convexMustStayIndependentOfWeb = modules(p)
     "react-dom/**",
     "@clerk/nextjs",
     "@clerk/nextjs/**",
-    ...nativeRuntimeImports,
     "convex/react",
     "convex/react/**",
   )
@@ -207,57 +150,6 @@ const convexMustStayIndependentOfWeb = modules(p)
       "Move platform-neutral behavior behind a small interface in lib, or keep the web-specific implementation in app, components, or hooks",
     imperative:
       "Do NOT import web runtime packages or app, component, or hook modules from Convex production code",
-  })
-  .asSeverity("error");
-
-const webMustStayIndependentOfMobile = modules(p)
-  .that()
-  .resideInFolder("{app,components,hooks,lib}/**")
-  .expectNonEmpty()
-  .should()
-  .notImportFrom(...nativeRuntimeImports)
-  .rule({
-    id: "curio/runtime/web-independent-of-mobile",
-    because:
-      "the production Next.js application must not acquire an Expo or React Native runtime dependency",
-    suggestion:
-      "Move platform-neutral behavior into packages/domain and retain separate web and mobile adapters",
-    imperative:
-      "Do NOT import mobile implementation or native runtime packages from the web application",
-  })
-  .asSeverity("error");
-
-const domainConsumersMustUseThePublicPackageInterface = modules(p)
-  .that()
-  .resideInFolder("{app,components,hooks,lib,convex,mobile}/**")
-  .expectNonEmpty()
-  .should()
-  .satisfy(useOnlyPublicDomainPackageImports)
-  .rule({
-    id: "curio/domain/public-package-interface",
-    because:
-      "shared domain internals must remain replaceable behind the package's reviewed public exports",
-    suggestion:
-      'Import shared values from "@curio-garden/domain" and export any newly earned seam from packages/domain/src/index.ts',
-    imperative:
-      "Do NOT import packages/domain/src implementation files from web, Convex, or mobile consumers",
-  })
-  .asSeverity("error");
-
-const webEntrypointsMustStayIndependentOfMobile = modules(p)
-  .that()
-  .resideInFile("**/{proxy,next.config}.ts")
-  .expectNonEmpty()
-  .should()
-  .notImportFrom(...nativeRuntimeImports)
-  .rule({
-    id: "curio/runtime/web-entrypoints-independent-of-mobile",
-    because:
-      "Next.js runtime and build entrypoints must not acquire an Expo or React Native dependency",
-    suggestion:
-      "Keep native configuration in mobile and expose only platform-neutral values through an explicit shared package",
-    imperative:
-      "Do NOT import mobile implementation or native runtime packages from Next.js entrypoints",
   })
   .asSeverity("error");
 
@@ -322,9 +214,6 @@ const architectureRules = [
     include: "{app,components,hooks,lib,convex}/**/*.{ts,tsx}",
   }),
   convexMustStayIndependentOfWeb,
-  webMustStayIndependentOfMobile,
-  domainConsumersMustUseThePublicPackageInterface,
-  webEntrypointsMustStayIndependentOfMobile,
   clientModulesMustStayOutOfServerRuntimes,
   clientModulesMustUseClientSafeNextCacheExports,
 ];

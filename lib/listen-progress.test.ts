@@ -94,6 +94,23 @@ describe("getMeaningfulUseQualification", () => {
 });
 
 describe("detectContinuousPlaybackWindow", () => {
+  it.each([
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative infinity", Number.NEGATIVE_INFINITY],
+    ["zero", 0],
+    ["a negative value", -1],
+  ])("rejects %s as a playback rate", (_label, playbackRate) => {
+    expect(
+      detectContinuousPlaybackWindow({
+        previousTime: 4,
+        currentTime: 4.5,
+        elapsedMs: 1_000,
+        playbackRate,
+      }),
+    ).toBeNull();
+  });
+
   it("counts natural forward playback", () => {
     expect(
       detectContinuousPlaybackWindow({

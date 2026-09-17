@@ -1,4 +1,3 @@
-import { normalizeMediaWikiNumericId } from "@curio-garden/domain";
 import type { WikipediaRevisionIdentity } from "@/lib/wikipedia-contracts";
 
 /**
@@ -6,7 +5,21 @@ import type { WikipediaRevisionIdentity } from "@/lib/wikipedia-contracts";
  * This lives in the client-safe identity module so cache keys do not pull the
  * server-only semantic parser into the browser bundle.
  */
-export { normalizeMediaWikiNumericId };
+export const normalizeMediaWikiNumericId = (value: unknown): string | null => {
+  let digits: string;
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value <= 0) return null;
+    digits = String(value);
+  } else if (typeof value === "string") {
+    digits = value.trim();
+    if (digits.length > 64 || !/^\d+$/u.test(digits)) return null;
+  } else {
+    return null;
+  }
+
+  const canonical = digits.replace(/^0+/u, "");
+  return canonical && canonical.length <= 20 ? canonical : null;
+};
 
 export const wikipediaRevisionKey = (
   identity: WikipediaRevisionIdentity,

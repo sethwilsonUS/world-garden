@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { nativeViewer, viewer } from "./auth";
+import { viewer } from "./auth";
 import { registeredInvoker } from "./testing/registeredFunctions";
 
 const viewerHandler = registeredInvoker(viewer);
-const nativeViewerHandler = registeredInvoker(nativeViewer);
 
 describe("auth viewer", () => {
   it("preserves the existing authenticated viewer contract", async () => {
@@ -34,89 +33,39 @@ describe("auth viewer", () => {
     });
   });
 
-  it("returns only the mobile profile fields from nativeViewer", async () => {
-    const identity = {
-      email: "ada@example.com",
-      issuer: "https://issuer.example",
-      name: "Ada Lovelace",
-      pictureUrl: "https://private.example/avatar.png",
-      subject: "user-a",
-      tokenIdentifier: "https://issuer.example|user-a",
-    };
-
+  it("normalizes missing optional identity fields", async () => {
     await expect(
-      nativeViewerHandler(
+      viewerHandler(
         {
           auth: {
-            getUserIdentity: vi.fn().mockResolvedValue(identity),
+            getUserIdentity: vi.fn().mockResolvedValue({
+              issuer: "https://issuer.example",
+              subject: "user-a",
+              tokenIdentifier: "https://issuer.example|user-a",
+            }),
           },
         },
         {},
       ),
     ).resolves.toEqual({
-      email: "ada@example.com",
-      name: "Ada Lovelace",
+      email: null,
+      issuer: "https://issuer.example",
+      name: null,
       subject: "user-a",
+      tokenIdentifier: "https://issuer.example|user-a",
     });
   });
 
-  it.each([
-    [
-      "viewer",
-      viewerHandler,
-      {
-        email: null,
-        issuer: "https://issuer.example",
-        name: null,
-        subject: "user-a",
-        tokenIdentifier: "https://issuer.example|user-a",
-      },
-    ],
-    [
-      "nativeViewer",
-      nativeViewerHandler,
-      {
-        email: null,
-        name: null,
-        subject: "user-a",
-      },
-    ],
-  ] as const)(
-    "normalizes missing optional identity fields for %s",
-    async (_queryName, handler, expected) => {
-      await expect(
-        handler(
-          {
-            auth: {
-              getUserIdentity: vi.fn().mockResolvedValue({
-                issuer: "https://issuer.example",
-                subject: "user-a",
-                tokenIdentifier: "https://issuer.example|user-a",
-              }),
-            },
+  it("discloses no identity without authentication", async () => {
+    await expect(
+      viewerHandler(
+        {
+          auth: {
+            getUserIdentity: vi.fn().mockResolvedValue(null),
           },
-          {},
-        ),
-      ).resolves.toEqual(expected);
-    },
-  );
-
-  it.each([
-    ["viewer", viewerHandler],
-    ["nativeViewer", nativeViewerHandler],
-  ] as const)(
-    "discloses no identity when %s is called without authentication",
-    async (_queryName, handler) => {
-      await expect(
-        handler(
-          {
-            auth: {
-              getUserIdentity: vi.fn().mockResolvedValue(null),
-            },
-          },
-          {},
-        ),
-      ).resolves.toBeNull();
-    },
-  );
+        },
+        {},
+      ),
+    ).resolves.toBeNull();
+  });
 });

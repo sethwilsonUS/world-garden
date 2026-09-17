@@ -53,6 +53,6 @@ package pins, suppression policy, and an intentionally failing five-rule
 canary. This runtime check is the source of truth because Oxlint's
 `--print-config` output does not currently report JavaScript-plugin rules.
 
-The shared root `.oxlintrc.json` applies the same anti-slop policy to web,
-Convex, tooling, and mobile source. All built-in Oxlint categories are off;
+The root `.oxlintrc.json` applies the same anti-slop policy to the web app,
+Convex, and tooling source. All built-in Oxlint categories are off;
 the companion lane exists only for the explicitly selected anti-slop rules.

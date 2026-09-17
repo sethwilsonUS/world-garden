@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
-import { articleRouteFromTitle } from "@curio-garden/domain";
+import { articleRouteFromTitle } from "@/lib/article-route";
 import { usePrefetch } from "@/hooks/usePrefetch";
 
 type NextLinkProps = ComponentPropsWithoutRef<typeof Link>;

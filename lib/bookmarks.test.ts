@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getBookmarkListViewState,
   getUnclaimedGuestBookmarks,
+  isBookmarkSaved,
   mergeBookmarkEntries,
   normalizeBookmarkEntries,
 } from "./bookmarks";
@@ -71,5 +72,46 @@ describe("getBookmarkListViewState", () => {
     expect(
       getBookmarkListViewState({ isLoaded: true, entriesCount: 1 }),
     ).toBe("list");
+  });
+});
+
+describe("isBookmarkSaved", () => {
+  it("matches the exact article slug", () => {
+    const entries = [{ slug: "Mars", title: "Mars", savedAt: 20 }];
+
+    expect(isBookmarkSaved(entries, "Mars")).toBe(true);
+    expect(isBookmarkSaved(entries, "mars")).toBe(false);
+  });
+});
+
+describe("mergeBookmarkEntries", () => {
+  it("keeps the preferred entry when equal timestamps share a slug", () => {
+    expect(
+      mergeBookmarkEntries(
+        [{ slug: "mars", title: "Mars from account", savedAt: 30 }],
+        [
+          { slug: "mars", title: "Mars from guest", savedAt: 30 },
+          { slug: "jupiter", title: "Jupiter", savedAt: 25 },
+        ],
+      ),
+    ).toEqual([
+      { slug: "mars", title: "Mars from account", savedAt: 30 },
+      { slug: "jupiter", title: "Jupiter", savedAt: 25 },
+    ]);
+  });
+
+  it("keeps the newer entry when recency and source preference disagree", () => {
+    expect(
+      mergeBookmarkEntries(
+        [
+          { slug: "mars", title: "Mars from account", savedAt: 30 },
+          { slug: "jupiter", title: "Jupiter", savedAt: 25 },
+        ],
+        [{ slug: "mars", title: "Mars from guest", savedAt: 45 }],
+      ),
+    ).toEqual([
+      { slug: "mars", title: "Mars from guest", savedAt: 45 },
+      { slug: "jupiter", title: "Jupiter", savedAt: 25 },
+    ]);
   });
 });

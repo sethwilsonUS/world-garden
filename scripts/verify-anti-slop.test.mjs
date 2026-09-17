@@ -72,8 +72,8 @@ describe("anti-slop verification", () => {
   it("ignores suppression directives inside dependency trees at any depth", () => {
     for (const relativePath of [
       "node_modules/root-dependency/index.ts",
-      "mobile/node_modules/mobile-dependency/index.ts",
-      "packages/domain/node_modules/domain-dependency/index.ts",
+      "tools/example/node_modules/tool-dependency/index.ts",
+      "tools/example/nested/node_modules/nested-dependency/index.ts",
     ]) {
       writeProbe(
         relativePath,

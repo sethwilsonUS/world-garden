@@ -11,7 +11,6 @@ const eslintConfig = defineConfig([
     ".venv/**",
     "out/**",
     "build/**",
-    "mobile/**",
     "tools/oxlint/**",
     "next-env.d.ts",
     "convex/_generated/**",
