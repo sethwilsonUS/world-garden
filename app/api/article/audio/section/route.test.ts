@@ -49,6 +49,7 @@ const brokenLedgerAssetKey = "00000000-0000-4000-8000-000000000001";
 const request = (
   provider: "edge" | "openai" = "edge",
   sourceHash = summary.sourceHash,
+  sectionKey = summary.sectionKey,
 ) =>
   new NextRequest("https://preview.example/api/article/audio/section", {
     method: "POST",
@@ -58,7 +59,7 @@ const request = (
     },
     body: JSON.stringify({
       slug: article.slug,
-      sectionKey: summary.sectionKey,
+      sectionKey,
       sourceHash,
       provider,
     }),
@@ -264,6 +265,47 @@ describe("POST /api/article/audio/section", () => {
       { text: summary.text, provider: "openai" },
       expect.any(Object),
     );
+  });
+
+  describe.each(["sourceHash", "sectionKey"] as const)("%s validation", (field) => {
+    it.each([
+      ["missing", undefined],
+      ["empty", ""],
+      ["whitespace-only", " \t "],
+      ["non-string", 42],
+      ["null", null],
+      ["overlong", "x".repeat(501)],
+    ])("rejects a %s value before doing server work", async (_label, value) => {
+      const malformedRequest = new NextRequest(
+        "https://preview.example/api/article/audio/section",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            slug: article.slug,
+            sectionKey: summary.sectionKey,
+            sourceHash: summary.sourceHash,
+            provider: "edge",
+            [field]: value,
+          }),
+        },
+      );
+      const { POST } = await import("./route");
+
+      const response = await POST(malformedRequest);
+
+      expect(response.status).toBe(400);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      await expect(response.json()).resolves.toEqual({
+        error: "A valid article audio request is required.",
+      });
+      expect(auth).not.toHaveBeenCalled();
+      expect(fetchQuery).not.toHaveBeenCalled();
+      expect(fetchArticleByTitle).not.toHaveBeenCalled();
+      expect(generateTtsAudioWithMetadata).not.toHaveBeenCalled();
+      expect(fetchMutation).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+      expect(after).not.toHaveBeenCalled();
+    });
   });
 
   it("does not expose unexpected server error details", async () => {
@@ -474,6 +516,26 @@ describe("POST /api/article/audio/section", () => {
     });
     expect(generateTtsAudioWithMetadata).not.toHaveBeenCalled();
     expect(fetchMutation).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown section before generation or cache writes", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      request("edge", summary.sourceHash, "section-999"),
+    );
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      error: "Article narration changed; refresh and try again.",
+    });
+    expect(fetchQuery).toHaveBeenCalledOnce();
+    expect(getFunctionName(fetchQuery.mock.calls[0][0])).toBe("articles:getBySlug");
+    expect(fetchQuery.mock.calls[0][1]).toEqual({ slug: article.slug });
+    expect(generateTtsAudioWithMetadata).not.toHaveBeenCalled();
+    expect(fetchMutation).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(after).not.toHaveBeenCalled();
   });
 
   it("keeps successful playback independent from best-effort cache failure", async () => {
