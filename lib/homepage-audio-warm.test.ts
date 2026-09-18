@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TodayWikipediaData } from "./today-snapshot";
 import {
   isHomepageAudioWarmEnabled,
@@ -64,6 +64,8 @@ describe("homepage summary audio warmer", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it("defaults on only in production and honors explicit overrides", () => {
     expect(isHomepageAudioWarmEnabled(undefined, "production")).toBe(true);
@@ -342,5 +344,85 @@ describe("homepage summary audio warmer", () => {
       generated: 1,
       deadlineSkipped: 2,
     });
+  });
+
+  it("finishes at the deadline with completed work preserved and no late generation or queued work", async () => {
+    vi.useFakeTimers();
+    let finishArticle!: (
+      article: ReturnType<typeof warmArticleFixture>,
+    ) => void;
+    const dependencies = makeDependencies({
+      fetchArticle: vi
+        .fn()
+        .mockResolvedValueOnce(
+          warmArticleFixture({ slug: "One", title: "One" }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishArticle = resolve;
+            }),
+        ),
+    });
+    const pending = warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot: snapshot(["One", "Two", "Three"]),
+      dependencies,
+      concurrency: 1,
+      deadlineMs: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await pending;
+    expect(result).toMatchObject({
+      status: "partial",
+      generated: 1,
+      failed: 0,
+      deadlineSkipped: 2,
+      deadlineExceeded: true,
+    });
+    expect(dependencies.fetchArticle).toHaveBeenCalledTimes(2);
+    finishArticle(warmArticleFixture({ slug: "Two", title: "Two" }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dependencies.generateAudio).toHaveBeenCalledTimes(1);
+    expect(dependencies.saveSummary).toHaveBeenCalledTimes(1);
+    expect(result.generated).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not save audio from generation that finishes after cancellation", async () => {
+    vi.useFakeTimers();
+    let finishGeneration!: (result: {
+      blob: Blob;
+      metadata: ReturnType<typeof getTtsMetadata>;
+    }) => void;
+    const dependencies = makeDependencies({
+      generateAudio: vi.fn<HomepageAudioWarmDependencies["generateAudio"]>(
+        () =>
+          new Promise((resolve) => {
+            finishGeneration = resolve;
+          }),
+      ),
+    });
+    const pending = warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot: snapshot(["One", "Two"]),
+      dependencies,
+      concurrency: 1,
+      deadlineMs: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await pending;
+    finishGeneration({
+      blob: new Blob(["late"]),
+      metadata: getTtsMetadata(getTtsProfile("edge")),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result).toMatchObject({
+      generated: 0,
+      failed: 0,
+      deadlineSkipped: 2,
+    });
+    expect(dependencies.saveSummary).not.toHaveBeenCalled();
+    expect(dependencies.fetchArticle).toHaveBeenCalledOnce();
   });
 });

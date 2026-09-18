@@ -17,10 +17,10 @@ const mocks = vi.hoisted(() => ({
   createAudioCacheLedgerAssetKey: vi.fn(),
 }));
 
-vi.mock("convex/nextjs", () => ({
-  fetchAction: mocks.fetchAction,
-  fetchMutation: mocks.fetchMutation,
-  fetchQuery: mocks.fetchQuery,
+vi.mock("@/lib/convex-request-timeout", () => ({
+  fetchConvexActionWithTimeout: mocks.fetchAction,
+  fetchConvexMutationWithTimeout: mocks.fetchMutation,
+  fetchConvexQueryWithTimeout: mocks.fetchQuery,
 }));
 vi.mock("@/convex/lib/storageUpload", () => ({
   uploadBlobToConvexStorage: mocks.uploadBlobToConvexStorage,
@@ -127,6 +127,7 @@ describe("homepage summary audio production adapter", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -193,10 +194,76 @@ describe("homepage summary audio production adapter", () => {
     });
 
     expect(result.failed).toBe(1);
-    expect(mocks.recordAudioCacheWriteFailureBestEffort).toHaveBeenCalledWith({
-      ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
-      source: "featured_audio_warm",
-      provider: "edge",
+    expect(mocks.recordAudioCacheWriteFailureBestEffort).toHaveBeenCalledWith(
+      {
+        ledgerAssetKey: "00000000-0000-4000-8000-000000000001",
+        source: "featured_audio_warm",
+        provider: "edge",
+      },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("aborts a stalled cached-audio request instead of starting regeneration", async () => {
+    vi.useFakeTimers();
+    mocks.fetchMutation.mockResolvedValue({
+      urls: { summary: "https://audio.test/cached.mp3" },
+      metadata: { summary: edgeMetadata },
     });
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url, init) => {
+        requestSignal = init.signal;
+        return new Promise<Response>(() => {});
+      }),
+    );
+    const pending = warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot,
+      deadlineMs: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await pending).toMatchObject({
+      status: "partial",
+      reused: 0,
+      generated: 0,
+      deadlineSkipped: 1,
+    });
+    expect(requestSignal?.aborted).toBe(true);
+    expect(mocks.generateTtsAudioWithMetadata).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels an upload and prevents a late completion from saving its cache record", async () => {
+    vi.useFakeTimers();
+    mocks.fetchMutation
+      .mockResolvedValueOnce({ urls: {}, metadata: {} })
+      .mockResolvedValueOnce("https://upload.test/audio");
+    let finishUpload!: (storageId: string) => void;
+    mocks.uploadBlobToConvexStorage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishUpload = resolve;
+        }),
+    );
+    const pending = warmHomepageArticleSummaries({
+      baseUrl: "https://curiogarden.org",
+      snapshot,
+      deadlineMs: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await pending).toMatchObject({
+      status: "partial",
+      generated: 0,
+      deadlineSkipped: 1,
+    });
+    const uploadSignal = mocks.uploadBlobToConvexStorage.mock
+      .calls[0][2] as AbortSignal;
+    expect(uploadSignal.aborted).toBe(true);
+    finishUpload("late-storage-id");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.fetchMutation).toHaveBeenCalledTimes(2);
+    expect(mocks.createAudioCacheSaveAttestation).not.toHaveBeenCalled();
   });
 });

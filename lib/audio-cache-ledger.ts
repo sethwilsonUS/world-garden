@@ -8,6 +8,7 @@ import {
 export { createAudioCacheLedgerAssetKey } from "./audio-cache-ledger-key";
 import { createAudioCacheWriteFailureAttestation } from "./tts-quota-bypass";
 import { createAudioCacheReadResultAttestation } from "./tts-quota-bypass";
+import { fetchConvexMutationWithTimeout } from "./convex-request-timeout";
 
 export type AudioCacheReadResultInput = {
   source: AiCostSource;
@@ -19,14 +20,28 @@ export type AudioCacheReadResultInput = {
 
 export const recordAudioCacheReadResultBestEffort = async (
   input: AudioCacheReadResultInput,
+  signal?: AbortSignal,
 ): Promise<void> => {
   if (getAiCostLedgerMode() !== "observe") return;
   try {
     const attestation = await createAudioCacheReadResultAttestation(input);
-    await fetchMutation(anyApi.audio.recordSectionAudioCacheReadResult, {
+    const args = {
       ...input,
       attestation,
-    });
+    };
+    if (signal) {
+      await fetchConvexMutationWithTimeout(
+        anyApi.audio.recordSectionAudioCacheReadResult,
+        args,
+        {
+          signal,
+          timeoutMs: 0,
+          message: "Audio cache read recording timed out",
+        },
+      );
+    } else {
+      await fetchMutation(anyApi.audio.recordSectionAudioCacheReadResult, args);
+    }
   } catch {
     console.warn("[ai-cost-ledger] Audio cache read result was not recorded.");
   }
@@ -40,14 +55,31 @@ export type AudioCacheWriteFailureInput = {
 
 export const recordAudioCacheWriteFailureBestEffort = async (
   input: AudioCacheWriteFailureInput,
+  signal?: AbortSignal,
 ): Promise<void> => {
   if (getAiCostLedgerMode() !== "observe") return;
   try {
     const attestation = await createAudioCacheWriteFailureAttestation(input);
-    await fetchMutation(anyApi.audio.recordSectionAudioCacheWriteFailure, {
+    const args = {
       ...input,
       attestation,
-    });
+    };
+    if (signal) {
+      await fetchConvexMutationWithTimeout(
+        anyApi.audio.recordSectionAudioCacheWriteFailure,
+        args,
+        {
+          signal,
+          timeoutMs: 0,
+          message: "Audio cache failure recording timed out",
+        },
+      );
+    } else {
+      await fetchMutation(
+        anyApi.audio.recordSectionAudioCacheWriteFailure,
+        args,
+      );
+    }
   } catch {
     console.warn("[ai-cost-ledger] Audio cache failure was not recorded.");
   }

@@ -1,5 +1,13 @@
 import { anyApi } from "convex/server";
-import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
+import {
+  fetchConvexActionWithTimeout,
+  fetchConvexMutationWithTimeout,
+  fetchConvexQueryWithTimeout,
+} from "@/lib/convex-request-timeout";
+import {
+  createRequestDeadline,
+  runWithAbortSignal,
+} from "@/lib/request-deadline";
 import { uploadBlobToConvexStorage } from "@/convex/lib/storageUpload";
 import { estimateDurationSeconds } from "@/convex/lib/articleAudioPipeline";
 import {
@@ -35,7 +43,9 @@ import {
 } from "@/lib/tts-profile";
 
 const DEFAULT_CONCURRENCY = 3;
-const DEFAULT_DEADLINE_MS = 240_000;
+export const HOMEPAGE_AUDIO_WARM_DEADLINE_MS = 240_000;
+export const HOMEPAGE_AUDIO_WARM_DEADLINE_MESSAGE =
+  "Homepage audio warm deadline exceeded";
 const MIN_SUMMARY_LENGTH = 1;
 
 type CachedSummaryAudio = {
@@ -77,6 +87,7 @@ export type HomepageAudioWarmResult = {
   failed: number;
   capped: number;
   deadlineSkipped: number;
+  deadlineExceeded: boolean;
   failures: HomepageAudioWarmFailure[];
 };
 
@@ -103,6 +114,7 @@ export type HomepageAudioWarmOptions = {
   maxArticles?: number;
   concurrency?: number;
   deadlineMs?: number;
+  signal?: AbortSignal;
   dependencies?: HomepageAudioWarmDependencies;
 };
 
@@ -162,132 +174,186 @@ const sanitizeError = (error: unknown): string => {
 
 const createProductionDependencies = (
   baseUrl: string,
-): HomepageAudioWarmDependencies => ({
-  async fetchArticle(article) {
-    const result = article.wikiPageId
-      ? await fetchAction(anyApi.articles.fetchAndCache, {
-          wikiPageId: article.wikiPageId,
-        })
-      : await fetchAction(anyApi.articles.fetchAndCacheBySlug, {
-          slug: article.slug,
-        });
-    return result as WarmArticle;
-  },
-  async getCachedSummary(articleId, sourceHash, expected) {
-    const cacheArgs = {
-      articleId,
-      ttsNormVersion: expected.ttsNormVersion,
-      ttsCacheKey: expected.ttsCacheKey,
-      sourceHashes: [{ sectionKey: "summary", sourceHash }],
-    };
-    const cached = (
-      process.env.TTS_QUOTA_BYPASS_SECRET?.trim()
-        ? await (async () => {
-            const attestation =
-              await createAudioCacheReadAttestation(cacheArgs);
-            return await fetchMutation(
-              anyApi.audio.getAllSectionAudioForServer,
-              { ...cacheArgs, attestation },
-            );
-          })()
-        : await fetchQuery(anyApi.audio.getAllSectionAudio, cacheArgs)
-    ) as {
-      urls?: Record<string, string>;
-      metadata?: Record<string, Partial<TtsMetadata>>;
-      durations?: Record<string, number>;
-      byteLengths?: Record<string, number>;
-    };
-    return {
-      url: cached.urls?.summary,
-      metadata: cached.metadata?.summary,
-      durationSeconds: cached.durations?.summary,
-      byteLength: cached.byteLengths?.summary,
-    };
-  },
-  async verifyAudioUrl(url) {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`Cached summary audio returned ${response.status}`);
-    }
-    await response.body?.cancel();
-  },
-  recordCacheReadResult: recordAudioCacheReadResultBestEffort,
-  async generateAudio(text, expected) {
-    return generateTtsAudioWithMetadata(
-      { text, provider: expected.provider },
-      {
-        apiBaseUrl: baseUrl,
-        headers: await getTrustedTtsGenerationHeaders(
-          baseUrl,
-          "featured_audio_warm",
-        ),
-      },
-    );
-  },
-  async saveSummary({
-    articleId,
-    sourceHash,
-    blob,
-    durationSeconds,
-    metadata,
-  }) {
-    const ledgerAssetKey = createAudioCacheLedgerAssetKey();
-    const uploadAttestation = await createAudioCacheUploadAttestation();
-    const uploadUrl = await fetchMutation(anyApi.audio.generateUploadUrl, {
-      attestation: uploadAttestation,
-    });
-    const storageId = await uploadBlobToConvexStorage(
-      uploadUrl as string,
-      blob,
-    );
-    const record = {
-      articleId,
-      sectionKey: "summary",
-      sourceHash,
-      storageId,
-      ttsNormVersion: metadata.ttsNormVersion,
-      ttsCacheKey: metadata.ttsCacheKey,
-      provider: metadata.provider,
-      model: metadata.model,
-      voiceId: metadata.voiceId,
-      promptVersion: metadata.promptVersion,
-      durationSeconds,
-      ...(ledgerAssetKey
-        ? {
-            byteLength: blob.size,
-            ledgerAssetKey,
-            ledgerSource: "featured_audio_warm" as const,
-          }
-        : {}),
-    };
-    const saveAttestation = await createAudioCacheSaveAttestation(record);
-    try {
-      await fetchMutation(anyApi.audio.saveSectionAudioRecord, {
-        ...record,
-        attestation: saveAttestation,
-      });
-    } catch (error) {
-      if (ledgerAssetKey) {
-        await recordAudioCacheWriteFailureBestEffort({
-          ledgerAssetKey,
-          source: "featured_audio_warm",
-          provider: metadata.provider,
-        });
+  signal: AbortSignal,
+): HomepageAudioWarmDependencies => {
+  const requestOptions = {
+    signal,
+    timeoutMs: 0,
+    message: HOMEPAGE_AUDIO_WARM_DEADLINE_MESSAGE,
+  };
+  return {
+    async fetchArticle(article) {
+      const result = article.wikiPageId
+        ? await fetchConvexActionWithTimeout(
+            anyApi.articles.fetchAndCache,
+            {
+              wikiPageId: article.wikiPageId,
+            },
+            requestOptions,
+          )
+        : await fetchConvexActionWithTimeout(
+            anyApi.articles.fetchAndCacheBySlug,
+            {
+              slug: article.slug,
+            },
+            requestOptions,
+          );
+      return result as WarmArticle;
+    },
+    async getCachedSummary(articleId, sourceHash, expected) {
+      const cacheArgs = {
+        articleId,
+        ttsNormVersion: expected.ttsNormVersion,
+        ttsCacheKey: expected.ttsCacheKey,
+        sourceHashes: [{ sectionKey: "summary", sourceHash }],
+      };
+      const cached = (
+        process.env.TTS_QUOTA_BYPASS_SECRET?.trim()
+          ? await (async () => {
+              const attestation =
+                await createAudioCacheReadAttestation(cacheArgs);
+              signal.throwIfAborted();
+              return await fetchConvexMutationWithTimeout(
+                anyApi.audio.getAllSectionAudioForServer,
+                { ...cacheArgs, attestation },
+                requestOptions,
+              );
+            })()
+          : await fetchConvexQueryWithTimeout(
+              anyApi.audio.getAllSectionAudio,
+              cacheArgs,
+              requestOptions,
+            )
+      ) as {
+        urls?: Record<string, string>;
+        metadata?: Record<string, Partial<TtsMetadata>>;
+        durations?: Record<string, number>;
+        byteLengths?: Record<string, number>;
+      };
+      return {
+        url: cached.urls?.summary,
+        metadata: cached.metadata?.summary,
+        durationSeconds: cached.durations?.summary,
+        byteLength: cached.byteLengths?.summary,
+      };
+    },
+    async verifyAudioUrl(url) {
+      signal.throwIfAborted();
+      const response = await fetch(url, { cache: "no-store", signal });
+      if (!response.ok) {
+        throw new Error(`Cached summary audio returned ${response.status}`);
       }
-      throw error;
-    }
-  },
-  now: Date.now,
-});
+      await response.body?.cancel();
+    },
+    recordCacheReadResult: (input) =>
+      recordAudioCacheReadResultBestEffort(input, signal),
+    async generateAudio(text, expected) {
+      const headers = await getTrustedTtsGenerationHeaders(
+        baseUrl,
+        "featured_audio_warm",
+      );
+      signal.throwIfAborted();
+      return generateTtsAudioWithMetadata(
+        { text, provider: expected.provider },
+        {
+          apiBaseUrl: baseUrl,
+          signal,
+          headers,
+        },
+      );
+    },
+    async saveSummary({
+      articleId,
+      sourceHash,
+      blob,
+      durationSeconds,
+      metadata,
+    }) {
+      const ledgerAssetKey = createAudioCacheLedgerAssetKey();
+      const uploadAttestation = await createAudioCacheUploadAttestation();
+      signal.throwIfAborted();
+      const uploadUrl = await fetchConvexMutationWithTimeout(
+        anyApi.audio.generateUploadUrl,
+        {
+          attestation: uploadAttestation,
+        },
+        requestOptions,
+      );
+      signal.throwIfAborted();
+      const storageId = await uploadBlobToConvexStorage(
+        uploadUrl as string,
+        blob,
+        signal,
+      );
+      signal.throwIfAborted();
+      const record = {
+        articleId,
+        sectionKey: "summary",
+        sourceHash,
+        storageId,
+        ttsNormVersion: metadata.ttsNormVersion,
+        ttsCacheKey: metadata.ttsCacheKey,
+        provider: metadata.provider,
+        model: metadata.model,
+        voiceId: metadata.voiceId,
+        promptVersion: metadata.promptVersion,
+        durationSeconds,
+        ...(ledgerAssetKey
+          ? {
+              byteLength: blob.size,
+              ledgerAssetKey,
+              ledgerSource: "featured_audio_warm" as const,
+            }
+          : {}),
+      };
+      const saveAttestation = await createAudioCacheSaveAttestation(record);
+      signal.throwIfAborted();
+      try {
+        await fetchConvexMutationWithTimeout(
+          anyApi.audio.saveSectionAudioRecord,
+          {
+            ...record,
+            attestation: saveAttestation,
+          },
+          requestOptions,
+        );
+      } catch (error) {
+        if (ledgerAssetKey && !signal.aborted) {
+          await recordAudioCacheWriteFailureBestEffort(
+            {
+              ledgerAssetKey,
+              source: "featured_audio_warm",
+              provider: metadata.provider,
+            },
+            signal,
+          );
+        }
+        throw error;
+      }
+    },
+    now: Date.now,
+  };
+};
 
 export const warmHomepageArticleSummaries = async ({
   baseUrl,
   snapshot,
   maxArticles = HOMEPAGE_PREVIEW_LIMITS.warmedArticles,
   concurrency = DEFAULT_CONCURRENCY,
-  deadlineMs = DEFAULT_DEADLINE_MS,
-  dependencies = createProductionDependencies(baseUrl),
+  deadlineMs = HOMEPAGE_AUDIO_WARM_DEADLINE_MS,
+  signal: parentSignal,
+  dependencies: providedDependencies,
 }: HomepageAudioWarmOptions): Promise<HomepageAudioWarmResult> => {
+  const deadline = createRequestDeadline(
+    deadlineMs,
+    HOMEPAGE_AUDIO_WARM_DEADLINE_MESSAGE,
+    parentSignal,
+  );
+  const { signal } = deadline;
+  const dependencies =
+    providedDependencies ?? createProductionDependencies(baseUrl, signal);
+  const run = <T>(operation: () => Promise<T>) =>
+    runWithAbortSignal(signal, operation);
   const collection = collectHomepageArticleRefs(snapshot, maxArticles);
   const expected = getTtsMetadata(getTtsProfile("edge"));
   const result: HomepageAudioWarmResult = {
@@ -299,6 +365,7 @@ export const warmHomepageArticleSummaries = async ({
     failed: 0,
     capped: collection.capped,
     deadlineSkipped: 0,
+    deadlineExceeded: false,
     failures: [],
   };
   const startedAt = dependencies.now();
@@ -309,7 +376,7 @@ export const warmHomepageArticleSummaries = async ({
     input: AudioCacheReadResultInput,
   ): Promise<void> => {
     try {
-      await dependencies.recordCacheReadResult(input);
+      await run(() => dependencies.recordCacheReadResult(input));
     } catch {
       console.warn(
         "[ai-cost-ledger] Homepage audio cache read was not recorded.",
@@ -319,7 +386,7 @@ export const warmHomepageArticleSummaries = async ({
 
   const warmArticle = async (ref: HomepageArticleRef): Promise<void> => {
     try {
-      const article = await dependencies.fetchArticle(ref);
+      const article = await run(() => dependencies.fetchArticle(ref));
       const summaryTrack = buildArticleNarrationTracks(article).find(
         (track) => track.sectionKey === "summary",
       );
@@ -331,14 +398,12 @@ export const warmHomepageArticleSummaries = async ({
 
       const summary = summaryTrack.text;
       const sourceHash = summaryTrack.sourceHash;
-      const cached = await dependencies.getCachedSummary(
-        article._id,
-        sourceHash,
-        expected,
+      const cached = await run(() =>
+        dependencies.getCachedSummary(article._id, sourceHash, expected),
       );
       if (cached.url && metadataMatches(cached.metadata, expected)) {
         try {
-          await dependencies.verifyAudioUrl(cached.url);
+          await run(() => dependencies.verifyAudioUrl(cached.url!));
           await recordCacheReadResult({
             source: "featured_audio_warm",
             provider: expected.provider,
@@ -353,9 +418,11 @@ export const warmHomepageArticleSummaries = async ({
                 ? cached.durationSeconds!
                 : estimateDurationSeconds(summary),
           });
+          signal.throwIfAborted();
           result.reused += 1;
           return;
         } catch (error) {
+          signal.throwIfAborted();
           console.warn(
             "[homepage-audio-warm] cached summary unavailable; regenerating",
             {
@@ -376,19 +443,25 @@ export const warmHomepageArticleSummaries = async ({
         durationSeconds: 0,
       });
 
-      const generated = await dependencies.generateAudio(summary, expected);
-      await dependencies.saveSummary({
-        articleId: article._id,
-        sourceHash,
-        blob: generated.blob,
-        durationSeconds: estimateDurationSeconds(summary),
-        metadata: generated.metadata,
-      });
+      const generated = await run(() =>
+        dependencies.generateAudio(summary, expected),
+      );
+      await run(() =>
+        dependencies.saveSummary({
+          articleId: article._id,
+          sourceHash,
+          blob: generated.blob,
+          durationSeconds: estimateDurationSeconds(summary),
+          metadata: generated.metadata,
+        }),
+      );
+      signal.throwIfAborted();
       result.generated += 1;
       if (!metadataMatches(generated.metadata, expected)) {
         result.degraded += 1;
       }
     } catch (error) {
+      if (signal.aborted) return;
       result.failed += 1;
       result.failures.push({
         slug: ref.slug,
@@ -397,13 +470,14 @@ export const warmHomepageArticleSummaries = async ({
         error: sanitizeError(error),
       });
     } finally {
-      processed += 1;
+      if (!signal.aborted) processed += 1;
     }
   };
 
   const worker = async (): Promise<void> => {
     while (true) {
-      if (dependencies.now() - startedAt >= deadlineMs) return;
+      if (signal.aborted || dependencies.now() - startedAt >= deadlineMs)
+        return;
       const index = nextIndex;
       nextIndex += 1;
       const ref = collection.articles[index];
@@ -416,14 +490,19 @@ export const warmHomepageArticleSummaries = async ({
     1,
     Math.min(Math.floor(concurrency), collection.articles.length || 1),
   );
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  try {
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  } finally {
+    deadline.dispose();
+  }
 
   result.deadlineSkipped = Math.max(0, result.targets - processed);
+  result.deadlineExceeded = signal.aborted || result.deadlineSkipped > 0;
   if (
     result.failed > 0 ||
     result.degraded > 0 ||
     result.capped > 0 ||
-    result.deadlineSkipped > 0
+    result.deadlineExceeded
   ) {
     result.status = "partial";
   }
@@ -431,7 +510,7 @@ export const warmHomepageArticleSummaries = async ({
 };
 
 const emptyResult = (
-  status: "disabled" | "missing_snapshot",
+  status: "disabled" | "missing_snapshot" | "partial",
 ): HomepageAudioWarmResult => ({
   status,
   targets: 0,
@@ -441,23 +520,44 @@ const emptyResult = (
   failed: 0,
   capped: 0,
   deadlineSkipped: 0,
+  deadlineExceeded: status === "partial",
   failures: [],
 });
 
 export const warmLatestHomepageArticleSummaries = async ({
   baseUrl,
+  signal,
+  deadlineMs = HOMEPAGE_AUDIO_WARM_DEADLINE_MS,
 }: {
   baseUrl: string;
+  signal?: AbortSignal;
+  deadlineMs?: number;
 }): Promise<HomepageAudioWarmResult> => {
   if (!isHomepageAudioWarmEnabled()) return emptyResult("disabled");
 
-  const snapshot = await getTodayWikipediaData({ allowLiveFallback: false });
-  if (!snapshot) return emptyResult("missing_snapshot");
-
-  const settings = getHomepageAudioWarmSettings();
-  return warmHomepageArticleSummaries({
-    baseUrl,
-    snapshot,
-    ...settings,
-  });
+  const deadline = createRequestDeadline(
+    deadlineMs,
+    HOMEPAGE_AUDIO_WARM_DEADLINE_MESSAGE,
+    signal,
+  );
+  try {
+    const snapshot = await runWithAbortSignal(deadline.signal, () =>
+      getTodayWikipediaData({
+        allowLiveFallback: false,
+        signal: deadline.signal,
+      }),
+    );
+    if (!snapshot) return emptyResult("missing_snapshot");
+    return await warmHomepageArticleSummaries({
+      baseUrl,
+      snapshot,
+      signal: deadline.signal,
+      ...getHomepageAudioWarmSettings(),
+    });
+  } catch (error) {
+    if (deadline.signal.aborted) return emptyResult("partial");
+    throw error;
+  } finally {
+    deadline.dispose();
+  }
 };
