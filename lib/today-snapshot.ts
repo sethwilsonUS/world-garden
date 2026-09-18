@@ -1,5 +1,6 @@
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchConvexQueryWithTimeout } from "./convex-request-timeout";
 import {
   fetchWikipediaFeaturedSnapshot,
   getWikipediaFeaturedFeedDate,
@@ -178,7 +179,9 @@ const filterTrendingArticles = async (
 
   const candidateTitles = candidates.map((candidate) => candidate.title);
   const safeTitles = await filterSafeTitles(candidateTitles);
-  const filtered = candidates.filter((candidate) => safeTitles.has(candidate.title));
+  const filtered = candidates.filter((candidate) =>
+    safeTitles.has(candidate.title),
+  );
 
   return filtered.length > 0 ? filtered : candidates;
 };
@@ -273,13 +276,24 @@ const hydrateCachedSnapshot = (
 
 const getLatestCachedTodaySnapshot = async (
   currentFeedDate = resolveTodayFeedDateIso(),
+  signal?: AbortSignal,
 ): Promise<TodayWikipediaData | null> => {
   if (!shouldUseSnapshotCache()) return null;
 
-  const latestRecord = (await fetchQuery(
-    anyApi.today.getLatestTodaySnapshot,
-    {},
-  )) as TodaySnapshotRecord | null;
+  const latestRecord = (await (signal
+    ? fetchConvexQueryWithTimeout(
+        anyApi.today.getLatestTodaySnapshot,
+        {},
+        {
+          signal,
+          timeoutMs: 0,
+          message: "Today snapshot lookup timed out",
+        },
+      )
+    : fetchQuery(
+        anyApi.today.getLatestTodaySnapshot,
+        {},
+      ))) as TodaySnapshotRecord | null;
   return latestRecord
     ? hydrateCachedSnapshot(latestRecord, currentFeedDate)
     : null;
@@ -288,38 +302,53 @@ const getLatestCachedTodaySnapshot = async (
 const getCachedTodaySnapshot = async ({
   includeLatestFallback = true,
   feedDateIso,
+  signal,
 }: {
   includeLatestFallback?: boolean;
   feedDateIso?: string;
+  signal?: AbortSignal;
 } = {}): Promise<TodayWikipediaData | null> => {
   if (!shouldUseSnapshotCache()) return null;
 
   const currentFeedDate = resolveTodayFeedDateIso();
-  const record = (await fetchQuery(anyApi.today.getTodaySnapshotByDate, {
-    feedDate: feedDateIso ?? currentFeedDate,
-  })) as TodaySnapshotRecord | null;
+  const args = { feedDate: feedDateIso ?? currentFeedDate };
+  const record = (await (signal
+    ? fetchConvexQueryWithTimeout(anyApi.today.getTodaySnapshotByDate, args, {
+        signal,
+        timeoutMs: 0,
+        message: "Today snapshot lookup timed out",
+      })
+    : fetchQuery(
+        anyApi.today.getTodaySnapshotByDate,
+        args,
+      ))) as TodaySnapshotRecord | null;
   if (record) return hydrateCachedSnapshot(record, currentFeedDate);
   if (feedDateIso || !includeLatestFallback) return null;
 
-  return getLatestCachedTodaySnapshot(currentFeedDate);
+  return getLatestCachedTodaySnapshot(currentFeedDate, signal);
 };
 
 export const getTodayWikipediaData = async ({
   allowLiveFallback = false,
   feedDateIso,
+  signal,
 }: {
   allowLiveFallback?: boolean;
   feedDateIso?: string;
+  signal?: AbortSignal;
 } = {}): Promise<TodayWikipediaData | null> => {
   const currentFeedDate = feedDateIso ?? resolveTodayFeedDateIso();
   const cached = await getCachedTodaySnapshot({
     feedDateIso: currentFeedDate,
     includeLatestFallback: false,
+    signal,
   });
   if (cached) return cached;
 
   if (!allowLiveFallback) {
-    return feedDateIso ? null : getLatestCachedTodaySnapshot(currentFeedDate);
+    return feedDateIso
+      ? null
+      : getLatestCachedTodaySnapshot(currentFeedDate, signal);
   }
 
   try {

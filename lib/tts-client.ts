@@ -1,4 +1,5 @@
 import { normalizeTtsText } from "./tts-normalize";
+import { createRequestDeadline, runWithAbortSignal } from "./request-deadline";
 import { concatenateMp3Blobs } from "./audio-metadata";
 import {
   DEFAULT_TTS_MAX_CHARACTERS_PER_REQUEST,
@@ -24,6 +25,7 @@ type TtsErrorBody = {
 type TtsClientOptions = {
   apiBaseUrl?: string;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 type SingleTtsAudioResult = {
@@ -228,90 +230,70 @@ const fetchSingleTtsAudioWithMetadata = async (
   const requestHeaders = new Headers(options?.headers);
   requestHeaders.set("Content-Type", "application/json");
   const timeoutMs = getClientTtsTimeoutMs();
-  const controller =
-    typeof AbortController !== "undefined" ? new AbortController() : null;
-  let didTimeout = false;
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-  const fetchPromise = fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
-    method: "POST",
-    headers: requestHeaders,
-    body: JSON.stringify({
-      text,
-      ...(voiceId ? { voiceId } : {}),
-      ...(provider ? { provider } : {}),
-      ...(fallbackPolicy ? { fallbackPolicy } : {}),
-      ...(expectedTtsCacheKey ? { expectedTtsCacheKey } : {}),
-    }),
-    ...(controller ? { signal: controller.signal } : {}),
-  });
-
-  const timeoutPromise =
-    timeoutMs > 0
-      ? new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            didTimeout = true;
-            controller?.abort();
-            reject(new Error(`TTS request timed out after ${timeoutMs}ms`));
-          }, timeoutMs);
-        })
-      : null;
-
-  let resp: Response;
-  try {
-    resp = await (timeoutPromise
-      ? Promise.race([fetchPromise, timeoutPromise])
-      : fetchPromise);
-  } catch (error) {
-    if (didTimeout) {
-      throw new Error(`TTS request timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-    fetchPromise.catch(() => {});
-  }
-
-  if (!resp.ok) {
-    const contentType = resp.headers.get("content-type") ?? "unknown";
-    const bodyText = await resp.text().catch(() => "");
-
-    if (contentType.includes("application/json")) {
-      let body: TtsErrorBody | null = null;
-      try {
-        body = JSON.parse(bodyText) as TtsErrorBody;
-      } catch {
-        // Fall through to the structured fallback below.
-      }
-
-      if (body?.error?.trim()) {
-        throw new Error(body.error);
-      }
-    }
-
-    const preview = bodyText.replace(/\s+/g, " ").trim().slice(0, 160);
-    throw new Error(
-      preview
-        ? `TTS request failed with ${resp.status} (${contentType}): ${preview}`
-        : `TTS request failed with ${resp.status} (${contentType})`,
-    );
-  }
-
-  const blob = await resp.blob();
-  if (blob.size === 0) {
-    throw new Error("TTS returned an empty audio payload");
-  }
-
-  const headers = resp.headers ?? new Headers();
-  const metadata =
-    parseTtsMetadataFromHeaders(headers) ??
-    getTtsMetadata(getTtsProfile(provider, voiceId));
-  const usedFallback = headers.get("X-Curio-TTS-Fallback") === "true";
-  const fallbackReason = parseTtsFallbackReason(
-    headers.get("X-Curio-TTS-Fallback-Reason"),
+  const deadline = createRequestDeadline(
+    timeoutMs,
+    `TTS request timed out after ${timeoutMs}ms`,
+    options?.signal,
   );
+  try {
+    return await runWithAbortSignal(deadline.signal, async () => {
+      const resp = await fetch(resolveTtsApiRoute(options?.apiBaseUrl), {
+        method: "POST",
+        headers: requestHeaders,
+        body: JSON.stringify({
+          text,
+          ...(voiceId ? { voiceId } : {}),
+          ...(provider ? { provider } : {}),
+          ...(fallbackPolicy ? { fallbackPolicy } : {}),
+          ...(expectedTtsCacheKey ? { expectedTtsCacheKey } : {}),
+        }),
+        signal: deadline.signal,
+      });
 
-  return { blob, metadata, usedFallback, fallbackReason };
+      if (!resp.ok) {
+        const contentType = resp.headers.get("content-type") ?? "unknown";
+        const bodyText = await resp.text().catch(() => "");
+
+        if (contentType.includes("application/json")) {
+          let body: TtsErrorBody | null = null;
+          try {
+            body = JSON.parse(bodyText) as TtsErrorBody;
+          } catch {
+            // Fall through to the structured fallback below.
+          }
+
+          if (body?.error?.trim()) {
+            throw new Error(body.error);
+          }
+        }
+
+        const preview = bodyText.replace(/\s+/g, " ").trim().slice(0, 160);
+        throw new Error(
+          preview
+            ? `TTS request failed with ${resp.status} (${contentType}): ${preview}`
+            : `TTS request failed with ${resp.status} (${contentType})`,
+        );
+      }
+
+      const blob = await resp.blob();
+      if (blob.size === 0) {
+        throw new Error("TTS returned an empty audio payload");
+      }
+
+      const headers = resp.headers ?? new Headers();
+      const metadata =
+        parseTtsMetadataFromHeaders(headers) ??
+        getTtsMetadata(getTtsProfile(provider, voiceId));
+      const usedFallback = headers.get("X-Curio-TTS-Fallback") === "true";
+      const fallbackReason = parseTtsFallbackReason(
+        headers.get("X-Curio-TTS-Fallback-Reason"),
+      );
+
+      return { blob, metadata, usedFallback, fallbackReason };
+    });
+  } finally {
+    deadline.dispose();
+  }
 };
 
 const generateTtsAudioForChunks = async ({
@@ -338,6 +320,7 @@ const generateTtsAudioForChunks = async ({
 
     const workers = Array.from({ length: workerCount }, async () => {
       while (nextIndex < chunks.length) {
+        options?.signal?.throwIfAborted();
         const index = nextIndex;
         nextIndex += 1;
         const chunk = chunks[index];
@@ -367,6 +350,7 @@ const generateTtsAudioForChunks = async ({
   };
 
   const results = await fetchChunkResults();
+  options?.signal?.throwIfAborted();
   let activeFallbackReason = fallbackReason;
 
   let metadata: TtsMetadata | null = null;

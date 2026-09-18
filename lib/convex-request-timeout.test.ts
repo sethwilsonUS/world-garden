@@ -174,4 +174,25 @@ describe("abortable Convex HTTP requests", () => {
     expect(requestSignal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it.each([0, 1_000])(
+    "handles immediate parent cancellation without dispatching or leaking a rejection (timeout %s)",
+    async (timeoutMs) => {
+      const parent = new AbortController();
+      const pending = fetchConvexQueryWithTimeout(
+        anyApi.today.getLatestTodaySnapshot,
+        {},
+        {
+          timeoutMs,
+          message: "Snapshot lookup timed out",
+          signal: parent.signal,
+        },
+      );
+      parent.abort(new Error("Cancelled immediately"));
+      await expect(pending).rejects.toThrow("Cancelled immediately");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(requestFetch).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 });

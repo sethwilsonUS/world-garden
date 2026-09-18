@@ -3,6 +3,7 @@ import { anyApi } from "convex/server";
 import { fetchMutation } from "convex/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import { createAttestedRouteQuotaArgs } from "./route-quota-attestation";
+import { fetchConvexMutationWithTimeout } from "./convex-request-timeout";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 
@@ -45,6 +46,7 @@ type RouteQuotaOptions = {
   limit: number;
   windowMs: number;
   label: string;
+  signal?: AbortSignal;
 };
 
 export const enforceRouteQuota = async ({
@@ -53,6 +55,7 @@ export const enforceRouteQuota = async ({
   limit,
   windowMs,
   label,
+  signal,
 }: RouteQuotaOptions): Promise<NextResponse | null> => {
   let quota;
   try {
@@ -64,7 +67,17 @@ export const enforceRouteQuota = async ({
       limit,
       windowMs,
     });
-    quota = await fetchMutation(anyApi.rateLimits.consumeRouteQuota, quotaArgs);
+    quota = await (signal
+      ? fetchConvexMutationWithTimeout(
+          anyApi.rateLimits.consumeRouteQuota,
+          quotaArgs,
+          {
+            signal,
+            timeoutMs: 0,
+            message: "Route quota check timed out",
+          },
+        )
+      : fetchMutation(anyApi.rateLimits.consumeRouteQuota, quotaArgs));
   } catch (error) {
     console.error(`[route-quota] ${scope} quota check failed`, error);
     return NextResponse.json(

@@ -118,9 +118,7 @@ describe("tts-client", () => {
       ]),
     );
     expect(
-      requestBodies.every(
-        (body) => body.fallbackPolicy === "forbid",
-      ),
+      requestBodies.every((body) => body.fallbackPolicy === "forbid"),
     ).toBe(true);
   });
 
@@ -482,6 +480,82 @@ describe("tts-client", () => {
 
     await vi.advanceTimersByTimeAsync(100);
     await rejection;
+    vi.useRealTimers();
+  });
+
+  it.each([200, 500])(
+    "keeps the timeout active while reading a stalled %s response body",
+    async (status) => {
+      vi.useFakeTimers();
+      process.env.NEXT_PUBLIC_TTS_CLIENT_TIMEOUT_MS = "25";
+      let requestSignal: AbortSignal | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url, init) => {
+          requestSignal = init.signal;
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                requestSignal?.addEventListener(
+                  "abort",
+                  () => controller.error(requestSignal?.reason),
+                  { once: true },
+                );
+              },
+            }),
+            { status },
+          );
+        }),
+      );
+      const pending = generateTtsAudioWithMetadata({
+        text: "An article summary.",
+        provider: "edge",
+      });
+      const rejection = expect(pending).rejects.toThrow(
+        "TTS request timed out after 25ms",
+      );
+      await vi.advanceTimersByTimeAsync(25);
+      await rejection;
+      expect(requestSignal?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+      vi.useRealTimers();
+    },
+  );
+
+  it("cancels an active body read and does not start queued chunks when its parent aborts", async () => {
+    vi.useFakeTimers();
+    process.env.NEXT_PUBLIC_TTS_MAX_WORDS_PER_REQUEST = "2";
+    process.env.NEXT_PUBLIC_TTS_CHUNK_CONCURRENCY = "1";
+    const parent = new AbortController();
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url, init) => {
+        requestSignal = init.signal;
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              requestSignal?.addEventListener(
+                "abort",
+                () => controller.error(requestSignal?.reason),
+                { once: true },
+              );
+            },
+          }),
+        );
+      }),
+    );
+    const pending = generateTtsAudioWithMetadata(
+      { text: "One two three four five six.", provider: "edge" },
+      { signal: parent.signal },
+    );
+    const rejection = expect(pending).rejects.toThrow("Warm deadline reached");
+    await vi.advanceTimersByTimeAsync(0);
+    parent.abort(new Error("Warm deadline reached"));
+    await rejection;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
 

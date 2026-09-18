@@ -4,6 +4,7 @@ import type {
   FunctionReference,
   FunctionReturnType,
 } from "convex/server";
+import { runWithAbortSignal } from "./request-deadline";
 
 type ConvexRequestTimeoutOptions = {
   timeoutMs: number;
@@ -53,20 +54,21 @@ const runAbortableConvexRequest = async <T>(
   } else {
     parentSignal?.addEventListener("abort", abortFromParent, { once: true });
   }
+  controller.signal.throwIfAborted();
 
-  const request = Promise.resolve().then(() => {
+  const request = () => {
     if (controller.signal.aborted) {
       throw controller.signal.reason ?? new Error("Request cancelled");
     }
     return operation(createAbortableClient(controller.signal, token));
-  });
+  };
 
   let didTimeout = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-      return await request;
+      return await runWithAbortSignal(controller.signal, request);
     }
 
     const deadline = new Promise<never>((_, reject) => {
@@ -77,7 +79,9 @@ const runAbortableConvexRequest = async <T>(
         reject(timeoutError);
       }, timeoutMs);
     });
-    return await Promise.race([request, deadline]);
+    return await runWithAbortSignal(controller.signal, () =>
+      Promise.race([request(), deadline]),
+    );
   } catch (error) {
     if (didTimeout) throw new Error(message);
     throw error;
@@ -108,5 +112,17 @@ export const fetchConvexQueryWithTimeout = async <
 ): Promise<FunctionReturnType<Query>> =>
   await runAbortableConvexRequest(
     (client) => client.query(query, args),
+    options,
+  );
+
+export const fetchConvexActionWithTimeout = async <
+  Action extends FunctionReference<"action">,
+>(
+  action: Action,
+  args: FunctionArgs<Action>,
+  options: ConvexRequestTimeoutOptions,
+): Promise<FunctionReturnType<Action>> =>
+  await runAbortableConvexRequest(
+    (client) => client.action(action, args),
     options,
   );

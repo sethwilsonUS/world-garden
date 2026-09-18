@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile);
 const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_HOURS = 24;
 const DEFAULT_LIMIT = 1000;
+const MIN_LOG_WINDOW_MS = 1000;
+const MAX_LOG_SPLITS = 100;
 const DEFAULT_OUTPUT_DIR = ".reports/analytics";
 const SENSITIVE_TEXT_KEYS = [
   "apiKey",
@@ -423,7 +425,7 @@ const summarizeDrainRollups = (rollups = []) => {
     const count = Number(rollup.count ?? 0);
     total += count;
     if (rollup.eventType === "pageview") pageviews += count;
-    if (rollup.eventType === "custom") customEvents += count;
+    if (rollup.eventType === "event" || rollup.eventType === "custom") customEvents += count;
     increment(eventNames, rollup.eventName || rollup.eventType || "unknown", count);
     increment(paths, rollup.path || "(none)", count);
   }
@@ -444,6 +446,7 @@ export const renderAccessibleReport = ({
   environment,
   summary,
   drain,
+  logCoverage,
 }) => {
   const lines = [
     "# Curio Garden Analytics Report",
@@ -516,6 +519,9 @@ export const renderAccessibleReport = ({
     );
     lines.push(`- Drain pageviews: ${drainSummary.pageviews.toLocaleString()}.`);
     lines.push(`- Drain custom events: ${drainSummary.customEvents.toLocaleString()}.`);
+    if (drainSummary.total === 0) {
+      lines.push("- No analytics rollups were returned. This does not verify drain delivery or mean the site had no traffic; check that a Web Analytics Drain is configured and delivering events.");
+    }
     lines.push("- Top drain events:");
     lines.push(
       ...drainSummary.eventNames.map(({ key, count }) => `- ${key}: ${count.toLocaleString()}`),
@@ -538,6 +544,24 @@ export const renderAccessibleReport = ({
     "- The report does not include raw session identifiers, device identifiers, API keys, user IDs, article text, or search terms.",
     "",
   );
+
+  if (logCoverage) {
+    const coverageLines = [
+      "## Log Coverage",
+      "",
+      `- Queried ${formatCount(logCoverage.queryCount, "window")}; split ${formatCount(logCoverage.splitCount, "capped window")}.`,
+    ];
+    if (logCoverage.status === "complete") {
+      coverageLines.push("- No queried window remains at the CLI entry limit. This covers available runtime logs, not unique visitors or all pageviews.");
+    } else {
+      coverageLines.push("- WARNING: This report may be incomplete. Some windows still reached the CLI entry limit.");
+      for (const range of logCoverage.limitedRanges) {
+        coverageLines.push(`- ${range.since} through ${range.until}: ${range.reason === "minimum_window" ? "minimum query window reached" : "automatic split limit reached"}; ${range.entryCount} raw log records returned.`);
+      }
+    }
+    // Keep completeness visible before readers encounter any traffic totals.
+    lines.splice(lines.indexOf("## Plain-English Summary"), 0, ...coverageLines, "");
+  }
 
   return lines.join("\n");
 };
@@ -745,28 +769,73 @@ export const warnIfLogLimitReached = (parsedLogs, range, warn = console.warn) =>
   return true;
 };
 
-const fetchAllLogs = async ({ since, until, environment, project, cwd }) => {
-  const command = await resolveVercelCommand();
-  const ranges = buildLogRanges(since.getTime(), until.getTime());
+export const collectVercelLogs = async ({
+  since,
+  until,
+  fetchRange,
+  progress = console.error,
+  minWindowMs = MIN_LOG_WINDOW_MS,
+  maxSplits = MAX_LOG_SPLITS,
+}) => {
+  const pending = buildLogRanges(since.getTime(), until.getTime());
   const logs = [];
+  const coverage = {
+    status: "complete",
+    queryCount: 0,
+    splitCount: 0,
+    limitedRanges: [],
+  };
 
-  for (const [index, range] of ranges.entries()) {
-    console.error(
-      `Fetching Vercel logs chunk ${index + 1}/${ranges.length}: ${range.since.toISOString()} to ${range.until.toISOString()}`,
+  while (pending.length > 0) {
+    const range = pending.shift();
+    coverage.queryCount += 1;
+    progress(
+      `Fetching Vercel logs window ${coverage.queryCount}: ${range.since.toISOString()} to ${range.until.toISOString()}`,
     );
-    const output = await runVercelLogs({
-      commandSpec: command,
+    const parsed = await fetchRange(range);
+    if (parsed.length >= DEFAULT_LIMIT) {
+      const duration = range.until.getTime() - range.since.getTime();
+      if (duration > minWindowMs && coverage.splitCount < maxSplits) {
+        const midpoint = new Date(range.since.getTime() + Math.floor(duration / 2));
+        coverage.splitCount += 1;
+        progress(`[analytics:site] Splitting capped window (${DEFAULT_LIMIT} entries): ${range.since.toISOString()} to ${range.until.toISOString()}`);
+        // Replace the capped sample with both child windows. Shared boundaries
+        // avoid gaps; summarizeLogs deduplicates request IDs at those boundaries.
+        pending.unshift(
+          { since: range.since, until: midpoint },
+          { since: midpoint, until: range.until },
+        );
+        continue;
+      }
+
+      coverage.status = "incomplete";
+      coverage.limitedRanges.push({
+        since: range.since.toISOString(),
+        until: range.until.toISOString(),
+        reason: duration <= minWindowMs ? "minimum_window" : "split_limit",
+        entryCount: parsed.length,
+      });
+      warnIfLogLimitReached(parsed, range, progress);
+    }
+    logs.push(...parsed);
+  }
+
+  return { logs, coverage };
+};
+
+const fetchAllLogs = async ({ since, until, environment, project, cwd }) => {
+  const commandSpec = await resolveVercelCommand();
+  return collectVercelLogs({
+    since,
+    until,
+    fetchRange: async (range) => parseVercelLogLines(await runVercelLogs({
+      commandSpec,
       range,
       environment,
       project,
       cwd,
-    });
-    const parsed = parseVercelLogLines(output);
-    warnIfLogLimitReached(parsed, range);
-    logs.push(...parsed);
-  }
-
-  return logs;
+    })),
+  });
 };
 
 export const fetchDrainData = async ({ since, until, includeDrain }) => {
@@ -823,7 +892,7 @@ const saveReport = async (outputPath, contents) => {
 
 export const buildReportPayload = async (options, cwd = process.cwd()) => {
   const generatedAt = new Date();
-  const logs = await fetchAllLogs({
+  const { logs, coverage: logCoverage } = await fetchAllLogs({
     since: options.since,
     until: options.until,
     environment: options.environment,
@@ -843,6 +912,7 @@ export const buildReportPayload = async (options, cwd = process.cwd()) => {
     until: options.until,
     environment: options.environment,
     logCount: logs.length,
+    logCoverage,
     summary,
     drain,
   };

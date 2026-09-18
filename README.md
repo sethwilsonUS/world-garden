@@ -333,7 +333,9 @@ For local owner-facing monitoring, run:
 npm run analytics:site
 ```
 
-The command pulls the last 24 hours of production Vercel logs in hourly chunks, prints a plain-English report to Terminal, and saves the same accessible Markdown to `.reports/analytics/<timestamp>.md`. The `.reports/` folder is gitignored.
+The command pulls the last 24 hours of production Vercel logs in hourly chunks, prints a plain-English report to Terminal, and saves the same accessible Markdown to `.reports/analytics/<timestamp>.md`. When a query reaches the 1,000-record limit, it automatically divides that window and retries both halves. Request IDs are deduplicated because the CLI can repeat records across pages or time boundaries. The `.reports/` folder is gitignored.
+
+Saved Markdown and JSON reports include log coverage: the number of queries, windows split, and any windows that remain capped. Splitting stops at windows of one second or less, or after 100 splits per run; unresolved caps retain their available records and are explicitly marked incomplete. Even a report with no remaining caps covers available runtime logs, not unique visitors or every pageview.
 
 Useful variants:
 
@@ -370,6 +372,8 @@ To enable the drain path:
 3. Set `ANALYTICS_REPORT_SECRET` to the same value in Vercel and Convex.
 4. Put the same `ANALYTICS_REPORT_SECRET` in local `.env.local` along with `NEXT_PUBLIC_SITE_URL=https://your-domain`.
 5. Run `npm run analytics:site` after new traffic arrives.
+
+An included drain section with zero events means the report endpoint returned no rollups. It does not confirm that a drain exists or is delivering events, and it does not mean the site had no traffic. Verify the Web Analytics Drain configuration and delivery status in Vercel separately.
 
 If the local Vercel CLI is too old for `vercel logs --json --environment`, the report command falls back to `npx --yes vercel@latest`. In a fresh worktree without an ignored `.vercel/` link, pass `--project world-garden` or set `VERCEL_PROJECT`. Set `VERCEL_ANALYTICS_CLI` to a custom command if you want to pin the CLI used by the report script.
 
@@ -516,6 +520,8 @@ The default schedules are:
 - `25 0 * * *` and `55 0 * * *` for homepage article summary audio (`00:25 UTC` primary run, `00:55 UTC` retry)
 - `45 4 * * *` and `15 5 * * *` for the trending podcast (`04:45 UTC` primary run, `05:15 UTC` retry)
 - `17 * * * *` for durable account-deletion retries (`17` minutes past each UTC hour)
+
+Homepage audio warming shares a four-minute budget across quota checks, snapshot lookup, and article processing, leaving time to respond before Vercel's five-minute limit. Expiry aborts outgoing requests and stops subsequent work; completed audio remains cached for the scheduled retry. A partial result reports `deadlineExceeded` and `deadlineSkipped`, and the cron logs completion counts and elapsed time. Remote operations already accepted may still finish after the outgoing request is cancelled.
 
 ### Local podcast testing
 

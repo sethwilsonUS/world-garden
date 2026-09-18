@@ -3,11 +3,14 @@ import { type Id } from "../_generated/dataModel";
 export const uploadBlobToConvexStorage = async (
   uploadUrl: string,
   blob: Blob,
+  signal?: AbortSignal,
 ): Promise<Id<"_storage">> => {
+  signal?.throwIfAborted();
   const response = await fetch(uploadUrl, {
     method: "POST",
     headers: { "Content-Type": blob.type || "audio/mpeg" },
     body: blob,
+    ...(signal ? { signal } : {}),
   });
 
   if (!response.ok) {
