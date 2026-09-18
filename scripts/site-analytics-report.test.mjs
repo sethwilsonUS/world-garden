@@ -19,9 +19,9 @@ describe("site analytics report helpers", () => {
   it("recovers capped windows by splitting them until all returned logs fit", async () => {
     const since = new Date("2026-09-17T19:00:00.000Z");
     const until = new Date("2026-09-17T20:00:00.000Z");
-    const records = Array.from({ length: 2500 }, (_, index) => ({
+    const records = Array.from({ length: 125 }, (_, index) => ({
       id: `request-${index}`,
-      timestamp: since.getTime() + index * 1000,
+      timestamp: since.getTime() + index * 20000,
       requestPath: "/",
       statusCode: 200,
     }));
@@ -31,7 +31,7 @@ describe("site analytics report helpers", () => {
       fetchRange: async (range) => records.filter(
         (log) => log.timestamp >= range.since.getTime()
           && log.timestamp < range.until.getTime(),
-      ).slice(0, 1000),
+      ).slice(0, 50),
       progress: vi.fn(),
     });
 
@@ -47,7 +47,7 @@ describe("site analytics report helpers", () => {
   it("persists unresolved caps in JSON and Markdown without discarding the sample", async () => {
     const since = new Date("2026-09-17T19:00:00.000Z");
     const until = new Date("2026-09-17T19:00:01.000Z");
-    const records = Array.from({ length: 1000 }, (_, index) => ({ id: String(index) }));
+    const records = Array.from({ length: 50 }, (_, index) => ({ id: String(index) }));
     const { logs, coverage } = await collectVercelLogs({
       since, until,
       fetchRange: async () => records,
@@ -58,7 +58,7 @@ describe("site analytics report helpers", () => {
       status: "incomplete", queryCount: 1, splitCount: 0,
       limitedRanges: [{
         since: since.toISOString(), until: until.toISOString(),
-        reason: "minimum_window", entryCount: 1000,
+        reason: "minimum_window", entryCount: 50,
       }],
     });
     const report = renderAccessibleReport({
@@ -71,7 +71,7 @@ describe("site analytics report helpers", () => {
   });
 
   it("bounds automatic retries and still collects later hourly windows", async () => {
-    const records = Array.from({ length: 1000 }, (_, index) => ({ id: String(index) }));
+    const records = Array.from({ length: 50 }, (_, index) => ({ id: String(index) }));
     const result = await collectVercelLogs({
       since: new Date("2026-09-17T19:00:00.000Z"),
       until: new Date("2026-09-17T21:00:00.000Z"),
@@ -89,22 +89,23 @@ describe("site analytics report helpers", () => {
   it("counts requests once when split boundaries return overlapping IDs", async () => {
     const since = new Date("2026-09-17T19:00:00.000Z");
     const until = new Date("2026-09-17T20:00:00.000Z");
-    const records = Array.from({ length: 1500 }, (_, index) => ({
-      id: String(index), timestamp: since.getTime() + index * 2000,
+    const records = Array.from({ length: 75 }, (_, index) => ({
+      id: String(index), timestamp: since.getTime() + index * 40000,
       requestPath: "/", statusCode: 200,
     }));
     const { logs, coverage } = await collectVercelLogs({
       since, until, progress: vi.fn(),
       fetchRange: async (range) => records.filter((log) =>
         log.timestamp >= range.since.getTime() && log.timestamp <= range.until.getTime(),
-      ).slice(0, 1000),
+      ).slice(0, 50),
     });
     expect(coverage.status).toBe("complete");
-    expect(summarizeLogs(logs).totalRequests).toBe(1500);
+    expect(logs).toHaveLength(76);
+    expect(summarizeLogs(logs).totalRequests).toBe(75);
   });
 
   it("does not silently treat a failed child query as complete coverage", async () => {
-    const records = Array.from({ length: 1000 }, (_, index) => ({ id: String(index) }));
+    const records = Array.from({ length: 50 }, (_, index) => ({ id: String(index) }));
     const fetchRange = vi.fn().mockResolvedValueOnce(records).mockRejectedValueOnce(new Error("CLI failed"));
     await expect(collectVercelLogs({
       since: new Date("2026-09-17T19:00:00.000Z"),
@@ -195,6 +196,32 @@ describe("site analytics report helpers", () => {
     expect(summary.notableErrors[0].message).toBe(
       "Error: upstream failed with token=[redacted]",
     );
+  });
+
+  it("keeps server failures visible when missing routes fill the error display", () => {
+    const summary = summarizeLogs([
+      ...Array.from({ length: 13 }, (_, index) => ({
+        id: `missing-${index}`, requestPath: `/missing-${index}`, statusCode: 404,
+      })),
+      {
+        id: "timeout", requestPath: "/api/featured/audio-warm/cron", statusCode: 504,
+        message: "Task timed out after 300 seconds",
+      },
+    ]);
+
+    expect(summary.notableErrors).toHaveLength(12);
+    expect(summary.notableErrors[0]).toMatchObject({
+      path: "/api/featured/audio-warm/cron", statusCode: 504,
+    });
+    expect(summary.notableErrorCount).toBe(14);
+    const report = renderAccessibleReport({
+      generatedAt: new Date("2026-09-18T12:00:00Z"),
+      since: new Date("2026-09-17T12:00:00Z"),
+      until: new Date("2026-09-18T12:00:00Z"),
+      environment: "production", summary,
+    });
+    expect(report).toContain("Showing 12 of 14 notable errors, with server errors listed first.");
+    expect(report).toContain("/api/featured/audio-warm/cron: status 504; Task timed out after 300 seconds");
   });
 
   it("redacts JSON and object-style secrets from notable error summaries", () => {
@@ -329,10 +356,10 @@ describe("site analytics report helpers", () => {
       since: new Date("2026-05-10T00:00:00.000Z"),
       until: new Date("2026-05-10T01:00:00.000Z"),
     };
-    const logs = Array.from({ length: 1000 }, (_, index) => ({ id: String(index) }));
+    const logs = Array.from({ length: 50 }, (_, index) => ({ id: String(index) }));
 
     expect(warnIfLogLimitReached(logs, range, warn)).toBe(true);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("1000 entry limit"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("50 entry limit"));
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("2026-05-10T00:00:00.000Z"),
     );

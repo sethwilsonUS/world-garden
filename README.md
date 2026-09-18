@@ -333,7 +333,7 @@ For local owner-facing monitoring, run:
 npm run analytics:site
 ```
 
-The command pulls the last 24 hours of production Vercel logs in hourly chunks, prints a plain-English report to Terminal, and saves the same accessible Markdown to `.reports/analytics/<timestamp>.md`. When a query reaches the 1,000-record limit, it automatically divides that window and retries both halves. Request IDs are deduplicated because the CLI can repeat records across pages or time boundaries. The `.reports/` folder is gitignored.
+The command pulls the last 24 hours of production Vercel logs in hourly chunks, prints a plain-English report to Terminal, and saves the same accessible Markdown to `.reports/analytics/<timestamp>.md`. Queries request at most 50 records, matching the observed CLI page size; larger requests can repeatedly download the same first page. When a query reaches that limit, the command automatically divides its time window and retries both halves. Request IDs are deduplicated because the CLI can repeat records across pages or time boundaries. The `.reports/` folder is gitignored.
 
 Saved Markdown and JSON reports include log coverage: the number of queries, windows split, and any windows that remain capped. Splitting stops at windows of one second or less, or after 100 splits per run; unresolved caps retain their available records and are explicitly marked incomplete. Even a report with no remaining caps covers available runtime logs, not unique visitors or every pageview.
 
@@ -356,7 +356,7 @@ What is available immediately from Vercel logs:
 - top routes, API routes, and article routes
 - cache buckets such as `HIT`, `MISS`, and `PRERENDER` when Vercel includes them
 - source type, deployment, and domain coverage
-- notable short error summaries
+- notable short error summaries, with server errors first and a notice when the 12-entry display omits additional errors
 - TTS structured logs, including provider mix, fallback reasons, quota fallback count, word-count buckets, duration buckets, and slow generation buckets
 
 What requires the Vercel Analytics Drain:

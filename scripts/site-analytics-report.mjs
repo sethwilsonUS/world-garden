@@ -9,7 +9,9 @@ const execFileAsync = promisify(execFile);
 
 const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_HOURS = 24;
-const DEFAULT_LIMIT = 1000;
+// The CLI can repeat its first 50-record page instead of advancing pagination.
+// Query one page and split full windows to avoid repeatedly downloading it.
+const DEFAULT_LIMIT = 50;
 const MIN_LOG_WINDOW_MS = 1000;
 const MAX_LOG_SPLITS = 100;
 const DEFAULT_OUTPUT_DIR = ".reports/analytics";
@@ -302,6 +304,7 @@ export const summarizeLogs = (logs) => {
       topArticles: [],
     },
     notableErrors: [],
+    notableErrorCount: 0,
     tts: {
       totalEvents: 0,
       providerMix: {},
@@ -398,7 +401,11 @@ export const summarizeLogs = (logs) => {
   summary.articleActivity.topArticles = topEntries(articleCounts, 10).map(
     ({ key, count }) => ({ path: key, count }),
   );
-  summary.notableErrors = summary.notableErrors.slice(0, 12);
+  summary.notableErrorCount = summary.notableErrors.length;
+  const isServerError = (error) => error.statusCode >= 500 && error.statusCode < 600;
+  summary.notableErrors = summary.notableErrors
+    .sort((a, b) => Number(isServerError(b)) - Number(isServerError(a)))
+    .slice(0, 12);
 
   return summary;
 };
@@ -505,6 +512,9 @@ export const renderAccessibleReport = ({
   if (summary.notableErrors.length === 0) {
     lines.push("- No notable errors appeared in the sampled logs.");
   } else {
+    if (summary.notableErrorCount > summary.notableErrors.length) {
+      lines.push(`- Showing ${summary.notableErrors.length} of ${summary.notableErrorCount} notable errors, with server errors listed first.`);
+    }
     for (const error of summary.notableErrors) {
       lines.push(`- ${error.path}: status ${error.statusCode}; ${error.message}`);
     }
