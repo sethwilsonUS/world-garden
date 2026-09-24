@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as ttsClient from "../../lib/tts-client";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { getFunctionName, type FunctionReference } from "convex/server";
+import {
+  getFunctionName,
+  type FunctionReference,
+  type FunctionReference_future,
+} from "convex/server";
 import { getTtsMetadata, getTtsProfile } from "../../lib/tts-profile";
 import { TTS_AI_COST_SOURCE_HEADER } from "../../lib/tts-source-attestation";
 import { PERSONAL_PLAYLIST_LEASE_MS } from "./personalPlaylistPersistence";
@@ -56,7 +60,9 @@ const buildCombinedUploadHarness = ({
   let episodeReadCount = 0;
   const runQuery = vi.fn(
     async (
-      reference: FunctionReference<"query", "public" | "internal">,
+      reference:
+        | FunctionReference<"query", "public" | "internal">
+        | FunctionReference_future<"query", "public" | "internal">,
       args?: unknown,
     ) => {
       void args;
@@ -78,7 +84,9 @@ const buildCombinedUploadHarness = ({
   let uploadUrlCount = 0;
   const runMutation = vi.fn(
     async (
-      reference: FunctionReference<"mutation", "public" | "internal">,
+      reference:
+        | FunctionReference<"mutation", "public" | "internal">
+        | FunctionReference_future<"mutation", "public" | "internal">,
       args?: unknown,
     ) => {
       void args;
