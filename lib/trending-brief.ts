@@ -18,6 +18,7 @@ import {
 } from "@/lib/openai-client";
 import {
   getTrendingOpenAIClient,
+  type TrendingBriefReasoningEffort,
   type TrendingBriefStructuredOutput,
   type TrendingOpenAIClient,
 } from "@/lib/trending-brief-openai";
@@ -47,7 +48,12 @@ import {
 export { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
-const DEFAULT_TRENDING_BRIEF_MODEL = "gpt-5.6-luna";
+const DEFAULT_TRENDING_BRIEF_MODEL = "gpt-6-luna";
+// Output limits include hidden reasoning tokens as well as the visible result.
+const MAX_OUTPUT_TOKENS_BY_REASONING: Record<TrendingBriefReasoningEffort, number> = {
+  medium: 4_000,
+  high: 12_000,
+};
 const MAX_ARTICLES_IN_PROMPT = 10;
 const MAX_KEY_POINTS = 5;
 const MAX_CONTROL_SOURCES = 6;
@@ -810,6 +816,7 @@ const logOpenAIUsage = ({
 const runTrendingResearchPass = async ({
   client,
   model,
+  reasoningEffort,
   profile,
   prompt,
   topicIndex,
@@ -819,6 +826,7 @@ const runTrendingResearchPass = async ({
 }: {
   client: TrendingOpenAIClient;
   model: string;
+  reasoningEffort: TrendingBriefReasoningEffort;
   profile: TrendingBriefGenerationProfile;
   prompt: string;
   topicIndex: number | null;
@@ -850,8 +858,8 @@ const runTrendingResearchPass = async ({
           ],
           tool_choice: "required",
           include: ["web_search_call.action.sources"],
-          reasoning: { effort: "medium" },
-          max_output_tokens: 4_000,
+          reasoning: { effort: reasoningEffort },
+          max_output_tokens: MAX_OUTPUT_TOKENS_BY_REASONING[reasoningEffort],
           metadata: {
             workflow: "trending-brief",
             stage: deepResearch ? "research-topic" : "research",
@@ -932,6 +940,7 @@ export const countTrendingSpokenWords = (text: string): number =>
 const runTrendingWritingPass = async ({
   client,
   model,
+  reasoningEffort,
   profile,
   attempt,
   input,
@@ -941,6 +950,7 @@ const runTrendingWritingPass = async ({
 }: {
   client: TrendingOpenAIClient;
   model: string;
+  reasoningEffort: TrendingBriefReasoningEffort;
   profile: TrendingBriefGenerationProfile;
   attempt: "initial" | "repair";
   input: string;
@@ -964,8 +974,8 @@ const runTrendingWritingPass = async ({
               ? "You are repairing a sourced podcast script that missed a strict spoken-word target. Preserve every supported fact and uncertainty label, never add a claim, and return the complete structured brief."
               : "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using only the supplied research and article context, never speculation. Write clean prose for sighted and screen-reader audiences.",
           input,
-          reasoning: { effort: "medium" },
-          max_output_tokens: 4_000,
+          reasoning: { effort: reasoningEffort },
+          max_output_tokens: MAX_OUTPUT_TOKENS_BY_REASONING[reasoningEffort],
           text: {
             format: zodTextFormat(TrendingBriefOutputSchema, "trending_brief"),
             verbosity: profile === "control" ? "low" : "medium",
@@ -1017,6 +1027,7 @@ const runTrendingWritingPass = async ({
 type GenerateTrendingBriefContentOptions = {
   client: TrendingOpenAIClient;
   model: string;
+  reasoningEffort?: TrendingBriefReasoningEffort;
   trendingDate: string;
   articles: TrendingArticle[];
   profile?: TrendingBriefGenerationProfile;
@@ -1032,6 +1043,7 @@ type GenerateTrendingBriefContentOptions = {
 const generateTrendingBriefContentWithinDeadline = async ({
   client,
   model,
+  reasoningEffort = "high",
   trendingDate,
   articles,
   profile = "control",
@@ -1058,6 +1070,7 @@ const generateTrendingBriefContentWithinDeadline = async ({
                 await runTrendingResearchPass({
                   client,
                   model,
+                  reasoningEffort,
                   profile,
                   prompt: buildTrendingTopicResearchPrompt({
                     trendingDate,
@@ -1075,6 +1088,7 @@ const generateTrendingBriefContentWithinDeadline = async ({
               await runTrendingResearchPass({
                 client,
                 model,
+                reasoningEffort,
                 profile,
                 prompt: buildTrendingResearchPrompt({
                   trendingDate,
@@ -1119,6 +1133,7 @@ const generateTrendingBriefContentWithinDeadline = async ({
   const initialBrief = await runTrendingWritingPass({
     client,
     model,
+    reasoningEffort,
     profile,
     attempt: "initial",
     input: sharedWritingInput,
@@ -1152,6 +1167,7 @@ const generateTrendingBriefContentWithinDeadline = async ({
   const repairedBrief = await runTrendingWritingPass({
     client,
     model,
+    reasoningEffort,
     profile,
     attempt: "repair",
     input: [

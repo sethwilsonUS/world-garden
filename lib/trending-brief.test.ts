@@ -737,7 +737,7 @@ describe("cached trending brief reuse", () => {
     );
 
     const research = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       output_text: "Trigger: supported. Uncertainty: labelled.",
       output: [
         {
@@ -751,7 +751,7 @@ describe("cached trending brief reuse", () => {
     const writing = vi.fn(async () => {
       writingAttempt += 1;
       return {
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         output_parsed: {
           headline: "Researched headline",
           summary: "Researched summary.",
@@ -814,11 +814,30 @@ describe("cached trending brief reuse", () => {
     ).rejects.toThrow("outside 300-420 words after one repair");
 
     expect(researchDraftSaves).toHaveLength(1);
+    expect(research).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-6-luna",
+        reasoning: { effort: "high" },
+        max_output_tokens: 12_000,
+      }),
+      expect.anything(),
+    );
+    for (const attempt of [1, 2]) {
+      expect(writing).toHaveBeenNthCalledWith(
+        attempt,
+        expect.objectContaining({
+          model: "gpt-6-luna",
+          reasoning: { effort: "high" },
+          max_output_tokens: 12_000,
+        }),
+        expect.anything(),
+      );
+    }
     expect(persisted).toMatchObject({
       status: "failed",
       draftResearch: {
         text: "Topic 1: Example Trend\nTrigger: supported. Uncertainty: labelled.",
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         briefPromptVersion: "trending-brief-deep-research-v1",
         articleTitles: ["Example Trend"],
       },
@@ -845,7 +864,7 @@ describe("cached trending brief reuse", () => {
     });
 
     const research = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       output_text: [
         "Trigger: A supported recent event.",
         "Timeline: The event happened this week.",
@@ -868,7 +887,7 @@ describe("cached trending brief reuse", () => {
       (_, index) => `word${index + 1}`,
     ).join(" ");
     const writing = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       output_parsed: {
         headline: "Freshly researched headline",
         summary: "Freshly researched summary.",
@@ -958,7 +977,7 @@ describe("cached trending brief reuse", () => {
       status: "failed",
       headline: "Freshly researched headline",
       spokenSummary,
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       briefPromptVersion: "trending-brief-deep-research-v1",
     });
     expect(getTrendingOpenAIClient).toHaveBeenCalledOnce();
@@ -998,7 +1017,7 @@ describe("cached trending brief reuse", () => {
     });
 
     const research = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       output_text: [
         "Trigger: A supported recent event.",
         "Timeline: The event happened this week.",
@@ -1021,7 +1040,7 @@ describe("cached trending brief reuse", () => {
       (_, index) => `word${index + 1}`,
     ).join(" ");
     const writing = vi.fn(async () => ({
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       output_parsed: {
         headline: "Replacement headline",
         summary: "Replacement summary.",
@@ -1147,7 +1166,7 @@ describe("cached trending brief reuse", () => {
       draftBrief: {
         headline: "Replacement headline",
         spokenSummary,
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         briefPromptVersion: "trending-brief-deep-research-v1",
       },
     });
@@ -1467,7 +1486,7 @@ describe("direct OpenAI trending generation", () => {
     });
   });
 
-  it("researches each topic with high context before depth writing", async () => {
+  it.each(["medium", "high"] as const)("uses %s reasoning throughout per-topic research and depth writing", async (reasoningEffort) => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     let researchIndex = 0;
     const create = vi.fn(async (request: unknown) => {
@@ -1524,6 +1543,7 @@ describe("direct OpenAI trending generation", () => {
       client,
       model: "gpt-5.6-terra",
       profile: "deep-research",
+      reasoningEffort,
       trendingDate: "2026-08-24",
       articles: [
         { title: "Topic One", extract: "First.", views: 3_000 },
@@ -1538,6 +1558,8 @@ describe("direct OpenAI trending generation", () => {
         expect.objectContaining({
           tools: [{ type: "web_search", search_context_size: "high" }],
           tool_choice: "required",
+          reasoning: { effort: reasoningEffort },
+          max_output_tokens: reasoningEffort === "high" ? 12_000 : 4_000,
         }),
       );
       expect(request).not.toHaveProperty("max_tool_calls");
@@ -1546,6 +1568,8 @@ describe("direct OpenAI trending generation", () => {
       expect.objectContaining({
         text: expect.objectContaining({ verbosity: "medium" }),
         input: expect.stringContaining("Confidence: High"),
+        reasoning: { effort: reasoningEffort },
+        max_output_tokens: reasoningEffort === "high" ? 12_000 : 4_000,
       }),
       expect.objectContaining({
         maxRetries: 0,
@@ -1867,16 +1891,19 @@ describe("direct OpenAI trending generation", () => {
     expect(isTrendingBriefEnabled()).toBe(true);
   });
 
-  it("defaults to Luna and translates legacy Gateway model identifiers", () => {
+  it("defaults to GPT-6 Luna and preserves explicit OpenAI model overrides", () => {
     delete process.env.TRENDING_BRIEF_MODEL;
-    expect(getTrendingBriefModel()).toBe("gpt-5.6-luna");
+    expect(getTrendingBriefModel()).toBe("gpt-6-luna");
+
+    process.env.TRENDING_BRIEF_MODEL = "openai/gpt-6-luna";
+    expect(getTrendingBriefModel()).toBe("gpt-6-luna");
 
     process.env.TRENDING_BRIEF_MODEL = "openai/gpt-5.6-luna";
     expect(getTrendingBriefModel()).toBe("gpt-5.6-luna");
 
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     process.env.TRENDING_BRIEF_MODEL = "anthropic/claude-opus-4.5";
-    expect(getTrendingBriefModel()).toBe("gpt-5.6-luna");
+    expect(getTrendingBriefModel()).toBe("gpt-6-luna");
   });
 
   it("defaults production Trending generation to the evaluated deep-research profile", () => {

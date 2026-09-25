@@ -301,6 +301,7 @@ export const createProductionTrendingEvaluationGenerator =
     const brief = await generateContent({
       client,
       model: request.model,
+      reasoningEffort: request.reasoningEffort,
       trendingDate: request.trendingDate,
       articles: request.articles.map((article) => ({ ...article })),
       profile: request.promptProfile,

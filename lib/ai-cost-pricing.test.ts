@@ -4,6 +4,7 @@ import {
   AI_COST_PRICING_EFFECTIVE_FROM,
   AI_COST_PRICING_VERSION,
   estimateDirectAiCost,
+  getGpt56ModelFamily,
 } from "./ai-cost-pricing";
 
 const attempt = (
@@ -42,8 +43,8 @@ const attempt = (
 
 describe("AI cost pricing", () => {
   it("uses the current published Standard pricing revision", () => {
-    expect(AI_COST_PRICING_VERSION).toBe("openai-2026-08-24-v2");
-    expect(AI_COST_PRICING_EFFECTIVE_FROM).toBe("2026-08-24");
+    expect(AI_COST_PRICING_VERSION).toBe("openai-2026-09-24-v3");
+    expect(AI_COST_PRICING_EFFECTIVE_FROM).toBe("2026-09-24");
   });
 
   it("prices each Luna token class once and rounds to integer micros", () => {
@@ -83,6 +84,37 @@ describe("AI cost pricing", () => {
     ).toBe(486);
   });
 
+  it("prices GPT-6 Luna research and writing with its separate rates", () => {
+    expect(
+      estimateDirectAiCost(attempt({ model: "gpt-6-luna" })).amountMicros,
+    ).toBe(20_023);
+    expect(
+      estimateDirectAiCost(
+        attempt({
+          model: "gpt-6-luna",
+          operation: "trending_brief_writing",
+          webSearchCalls: null,
+        }),
+      ).amountMicros,
+    ).toBe(23);
+    expect(getGpt56ModelFamily("gpt-6-luna")).toBeNull();
+  });
+
+  it("preserves fractional GPT-6 Luna cache-write rates until final rounding", () => {
+    expect(
+      estimateDirectAiCost(
+        attempt({
+          model: "gpt-6-luna",
+          inputTokens: 4,
+          cachedInputTokens: 0,
+          cacheWriteInputTokens: 4,
+          outputTokens: 0,
+          webSearchCalls: 0,
+        }),
+      ).amountMicros,
+    ).toBe(1);
+  });
+
   it("prices Sol at the current Standard tier rates", () => {
     expect(
       estimateDirectAiCost(attempt({ model: "gpt-5.6-sol" })).amountMicros,
@@ -102,6 +134,7 @@ describe("AI cost pricing", () => {
   });
 
   it.each([
+    ["gpt-6-luna", 10_000, 1_000, 12_500, 50_000],
     ["gpt-5.6-luna", 20_000, 2_000, 25_000, 120_000],
     ["gpt-5.6-terra", 200_000, 20_000, 250_000, 1_200_000],
     ["gpt-5.6-sol", 400_000, 40_000, 500_000, 2_000_000],
@@ -157,14 +190,20 @@ describe("AI cost pricing", () => {
     ).toBe(10_000);
   });
 
-  it("does not estimate unsupported tiers or long context", () => {
-    expect(
-      estimateDirectAiCost(attempt({ serviceTier: "priority" })),
-    ).toMatchObject({ amountMicros: null, reason: "unsupported_service_tier" });
-    expect(
-      estimateDirectAiCost(attempt({ inputTokens: 272_001 })),
-    ).toMatchObject({ amountMicros: null, reason: "long_context" });
-  });
+  it.each(["gpt-5.6-luna", "gpt-6-luna"])(
+    "does not estimate unsupported tiers or long context for %s",
+    (model) => {
+      expect(
+        estimateDirectAiCost(attempt({ model, serviceTier: "priority" })),
+      ).toMatchObject({ amountMicros: null, reason: "unsupported_service_tier" });
+      expect(
+        estimateDirectAiCost(attempt({ model, inputTokens: 272_001 })),
+      ).toMatchObject({ amountMicros: null, reason: "long_context" });
+      expect(
+        estimateDirectAiCost(attempt({ model, inputTokens: 272_000 })),
+      ).toMatchObject({ reason: null });
+    },
+  );
 
   it("requires search-call usage only for the research operation", () => {
     expect(
@@ -207,6 +246,9 @@ describe("AI cost pricing", () => {
     ).toMatchObject({ amountMicros: null, reason: "unsupported_model" });
     expect(
       estimateDirectAiCost(attempt({ model: "gpt-5.6-sol-2026-08-01" })),
+    ).toMatchObject({ amountMicros: null, reason: "unsupported_model" });
+    expect(
+      estimateDirectAiCost(attempt({ model: "gpt-6-luna-2026-09-24" })),
     ).toMatchObject({ amountMicros: null, reason: "unsupported_model" });
   });
 

@@ -448,6 +448,7 @@ describe("Trending brief production content adapter", () => {
       articles: expect.any(Array),
       model: "gpt-5.6-terra",
       profile: "deep-research",
+      reasoningEffort: "medium",
       trendingDate: "2026-08-23",
       onEvent: expect.any(Function),
     });

@@ -17,7 +17,8 @@ vi.mock("./article-context-extractor", () => ({
   normalizeArticleContextRequest,
 }));
 
-vi.mock("./article-context-ai", () => ({
+vi.mock("./article-context-ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./article-context-ai")>()),
   CONTEXT_DESCRIPTION_PROMPT_VERSION: "context-accessibility-v3",
   enhanceArticleContextManifest,
   isArticleContextAIEnabled,
@@ -159,7 +160,7 @@ describe("article context enhanced-memory cache", () => {
         provenance: {
           ...block.provenance,
           descriptionMethod: "ai-assisted" as const,
-          model: "gpt-5.6-luna",
+          model: "gpt-6-luna",
           promptVersion: "context-accessibility-v3",
         },
       })),

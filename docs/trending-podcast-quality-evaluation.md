@@ -1,12 +1,18 @@
 # Trending Podcast Quality Evaluation
 
-## Luna deep research is the production choice
+The current production default is `gpt-6-luna` with high reasoning for research, writing, and script repair, retaining the same deep-research profile, prompts, word limits, and narration. The evaluation below records the original GPT-5.6 comparison at medium reasoning; its scores and costs are historical and do not evaluate GPT-6 Luna. The frozen evaluation profiles remain available for reproducing that comparison. See the [GPT-6 Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna) for supported API features.
 
-The production choice is **GPT-5.6 Luna with per-topic deep research and the depth-writing prompt**.
+High-reasoning requests allow 12,000 output tokens, including hidden reasoning, after a live migration check exhausted the former 4,000-token allowance before returning research text. The existing request and whole-job deadlines still apply. Historical medium-reasoning evaluations retain their 4,000-token allowance.
+
+A nonpublishing migration smoke test on 2026-09-24 completed all ten research passes and structured writing for the August 24 fixture using GPT-6 Luna at high reasoning: 381 spoken words, 15 sources, and approximately 106 seconds. This verifies the generation workflow, not an editorial quality score.
+
+## Luna deep research won the original production evaluation
+
+The original production choice was **GPT-5.6 Luna with per-topic deep research and the depth-writing prompt**.
 
 The strongest raw editorial result came from Sol with deep research at 91.2. Luna with deep research scored 89.5, finished within the predeclared five-point quality band, and was the lowest-cost and lowest-latency passing finalist. It therefore won the planned near-tie rule without giving up the contextual depth that motivated this work.
 
-The promoted production identity is:
+The originally promoted production identity was:
 
 - Text model: `gpt-5.6-luna`
 - Generation profile: `deep-research`

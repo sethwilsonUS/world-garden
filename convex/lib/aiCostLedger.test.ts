@@ -18,7 +18,11 @@ import {
   toProviderAttemptEvent,
 } from "./aiCostLedger";
 import type { AiCostProviderAttempt } from "../../lib/ai-cost-ledger-contract";
-import { estimateDirectAiCost } from "../../lib/ai-cost-pricing";
+import {
+  AI_COST_PRICING_EFFECTIVE_FROM,
+  AI_COST_PRICING_VERSION,
+  estimateDirectAiCost,
+} from "../../lib/ai-cost-pricing";
 
 const providerAttempt = (
   overrides: Partial<AiCostProviderAttempt> = {},
@@ -1041,8 +1045,8 @@ describe("AI cost ledger mutation inputs", () => {
     expect(stored).not.toHaveProperty("eventKey");
     expect(stored).toMatchObject({
       estimatedCostCurrency: "USD",
-      estimatedCostEffectiveFrom: "2026-08-24",
-      estimatedCostPricingVersion: "openai-2026-08-24-v2",
+      estimatedCostEffectiveFrom: AI_COST_PRICING_EFFECTIVE_FROM,
+      estimatedCostPricingVersion: AI_COST_PRICING_VERSION,
     });
     expect(
       getProviderAttemptFromEvent(

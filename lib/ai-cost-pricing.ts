@@ -1,9 +1,9 @@
 import type { AiCostProviderAttempt } from "./ai-cost-ledger-contract";
 
-export const AI_COST_PRICING_VERSION = "openai-2026-08-24-v2";
-export const AI_COST_PRICING_EFFECTIVE_FROM = "2026-08-24";
+export const AI_COST_PRICING_VERSION = "openai-2026-09-24-v3";
+export const AI_COST_PRICING_EFFECTIVE_FROM = "2026-09-24";
 
-const GPT_5_6_SHORT_CONTEXT_MAX_INPUT_TOKENS = 272_000;
+const SHORT_CONTEXT_MAX_INPUT_TOKENS = 272_000;
 
 export type Gpt56ModelFamily = "luna" | "terra" | "sol";
 
@@ -15,36 +15,44 @@ const GPT_5_6_MODEL_FAMILIES = new Map<string, Gpt56ModelFamily>([
   ["gpt-5.6", "sol"],
 ]);
 
-type StandardPricingInHundredthMicros = {
+type StandardPricingInThousandthMicros = {
   uncachedInput: bigint;
   cachedInput: bigint;
   cacheWriteInput: bigint;
   output: bigint;
 };
 
-const STANDARD_PRICING_IN_HUNDREDTH_MICROS: Record<
+const GPT_5_6_STANDARD_PRICING_IN_THOUSANDTH_MICROS: Record<
   Gpt56ModelFamily,
-  StandardPricingInHundredthMicros
+  StandardPricingInThousandthMicros
 > = {
   luna: {
-    uncachedInput: BigInt(20),
-    cachedInput: BigInt(2),
-    cacheWriteInput: BigInt(25),
-    output: BigInt(120),
-  },
-  terra: {
     uncachedInput: BigInt(200),
     cachedInput: BigInt(20),
     cacheWriteInput: BigInt(250),
     output: BigInt(1_200),
   },
+  terra: {
+    uncachedInput: BigInt(2_000),
+    cachedInput: BigInt(200),
+    cacheWriteInput: BigInt(2_500),
+    output: BigInt(12_000),
+  },
   sol: {
-    uncachedInput: BigInt(400),
-    cachedInput: BigInt(40),
-    cacheWriteInput: BigInt(500),
-    output: BigInt(2_000),
+    uncachedInput: BigInt(4_000),
+    cachedInput: BigInt(400),
+    cacheWriteInput: BigInt(5_000),
+    output: BigInt(20_000),
   },
 };
+
+const GPT_6_LUNA_STANDARD_PRICING_IN_THOUSANDTH_MICROS: StandardPricingInThousandthMicros =
+  {
+    uncachedInput: BigInt(100),
+    cachedInput: BigInt(10),
+    cacheWriteInput: BigInt(125),
+    output: BigInt(500),
+  };
 
 export type AiCostEstimateReason =
   | "not_dispatched"
@@ -110,9 +118,12 @@ export const estimateDirectAiCost = (
     return unknownEstimate("speech_usage_unavailable");
   }
   const modelFamily = getGpt56ModelFamily(attempt.model);
-  const pricing = modelFamily
-    ? STANDARD_PRICING_IN_HUNDREDTH_MICROS[modelFamily]
-    : null;
+  const pricing =
+    attempt.model === "gpt-6-luna"
+      ? GPT_6_LUNA_STANDARD_PRICING_IN_THOUSANDTH_MICROS
+      : modelFamily
+        ? GPT_5_6_STANDARD_PRICING_IN_THOUSANDTH_MICROS[modelFamily]
+        : null;
   if (!pricing) {
     return unknownEstimate("unsupported_model");
   }
@@ -143,22 +154,22 @@ export const estimateDirectAiCost = (
   ) {
     return unknownEstimate("missing_usage");
   }
-  if (inputTokens > GPT_5_6_SHORT_CONTEXT_MAX_INPUT_TOKENS) {
+  if (inputTokens > SHORT_CONTEXT_MAX_INPUT_TOKENS) {
     return unknownEstimate("long_context");
   }
 
   const uncachedInputTokens =
     inputTokens - cachedInputTokens - cacheWriteInputTokens;
 
-  // The common denominator of 100 keeps all documented rates exact in integer
+  // The common denominator of 1,000 keeps all documented rates exact in integer
   // arithmetic before one final half-up rounding to currency micros.
-  const numeratorInHundredthMicros =
+  const numeratorInThousandthMicros =
     BigInt(uncachedInputTokens) * pricing.uncachedInput +
     BigInt(cachedInputTokens) * pricing.cachedInput +
     BigInt(cacheWriteInputTokens) * pricing.cacheWriteInput +
     BigInt(outputTokens) * pricing.output +
-    BigInt(effectiveWebSearchCalls) * BigInt(1_000_000);
-  const amount = roundPositiveRatio(numeratorInHundredthMicros, BigInt(100));
+    BigInt(effectiveWebSearchCalls) * BigInt(10_000_000);
+  const amount = roundPositiveRatio(numeratorInThousandthMicros, BigInt(1_000));
   if (amount > BigInt(Number.MAX_SAFE_INTEGER)) {
     return unknownEstimate("missing_usage");
   }

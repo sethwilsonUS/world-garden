@@ -15,6 +15,8 @@ export type TrendingBriefStructuredOutput = {
   keyPoints: string[];
 };
 
+export type TrendingBriefReasoningEffort = "medium" | "high";
+
 type TrendingOpenAIRequestOptions = {
   signal: AbortSignal;
   timeout: number;
@@ -31,7 +33,7 @@ type TrendingOpenAIResearchRequest = {
   }>;
   tool_choice: "required";
   include: ["web_search_call.action.sources"];
-  reasoning: { effort: "medium" };
+  reasoning: { effort: TrendingBriefReasoningEffort };
   max_output_tokens: number;
   metadata: {
     workflow: "trending-brief";
@@ -53,7 +55,7 @@ type TrendingOpenAIWritingRequest = {
   model: string;
   instructions: string;
   input: string;
-  reasoning: { effort: "medium" };
+  reasoning: { effort: TrendingBriefReasoningEffort };
   max_output_tokens: number;
   text: {
     format: TrendingOpenAITextFormat;

@@ -13,7 +13,7 @@ import type {
   ContextManifest,
 } from "@/lib/article-context-types";
 
-const DEFAULT_CONTEXT_DESCRIPTION_MODEL = "gpt-5.6-luna";
+const DEFAULT_CONTEXT_DESCRIPTION_MODEL = "gpt-6-luna";
 export const CONTEXT_DESCRIPTION_PROMPT_VERSION = "context-accessibility-v3";
 const MAX_CONTEXT_DESCRIPTION_SOURCE_CHARS = 120_000;
 const CONTEXT_DESCRIPTION_TIMEOUT_MS = 20_000;
@@ -66,6 +66,7 @@ const createOpenAIContextClient = (): ContextAIClient => ({
     const response = await getOpenAIClient().responses.parse(
       {
         model,
+        reasoning: { effort: "high" },
         store: false,
         input: [
           { role: "system", content: systemPrompt },
