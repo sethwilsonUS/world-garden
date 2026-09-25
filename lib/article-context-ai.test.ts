@@ -115,21 +115,21 @@ const observedClientWith = (output: unknown) => {
 };
 
 describe("article context AI descriptions", () => {
-  it("defaults to GPT-6 Luna and normalizes configured OpenAI model IDs", () => {
+  it("pins GPT-6 Luna even when a retired model override remains configured", () => {
     delete process.env.CONTEXT_DESCRIPTION_MODEL;
     expect(getContextDescriptionModel()).toBe("gpt-6-luna");
 
-    process.env.CONTEXT_DESCRIPTION_MODEL = "openai/gpt-6-luna";
+    process.env.CONTEXT_DESCRIPTION_MODEL = "openai/retired-text-model";
     expect(getContextDescriptionModel()).toBe("gpt-6-luna");
 
-    process.env.CONTEXT_DESCRIPTION_MODEL = "  gpt-6-luna  ";
+    process.env.CONTEXT_DESCRIPTION_MODEL = "  retired-text-model  ";
     expect(getContextDescriptionModel()).toBe("gpt-6-luna");
   });
 
-  it("requests high reasoning from OpenAI and records the default model", async () => {
+  it("requests GPT-6 Luna high despite a stale override and records its model", async () => {
     process.env.OPENAI_API_KEY = "test-key";
     process.env.ARTICLE_CONTEXT_AI_ENABLED = "true";
-    delete process.env.CONTEXT_DESCRIPTION_MODEL;
+    process.env.CONTEXT_DESCRIPTION_MODEL = "retired-text-model";
     mocks.parse.mockResolvedValue({
       output_parsed: {
         blocks: [
@@ -204,7 +204,6 @@ describe("article context AI descriptions", () => {
     });
     const enhanced = await enhanceArticleContextManifest(manifest, {
       client,
-      model: "gpt-6-luna",
     });
 
     expect(client.parse).toHaveBeenCalledWith(
@@ -256,7 +255,6 @@ describe("article context AI descriptions", () => {
 
     await enhanceArticleContextManifest(manifest, {
       client: { parse },
-      model: "gpt-6-luna",
     });
     await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2));
 

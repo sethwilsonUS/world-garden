@@ -1882,15 +1882,14 @@ describe("direct OpenAI trending generation", () => {
     expect(isTrendingBriefEnabled()).toBe(true);
   });
 
-  it("defaults to GPT-6 Luna and preserves explicit OpenAI model overrides", () => {
+  it("pins GPT-6 Luna even when a retired model override remains configured", () => {
     delete process.env.TRENDING_BRIEF_MODEL;
     expect(getTrendingBriefModel()).toBe("gpt-6-luna");
 
-    process.env.TRENDING_BRIEF_MODEL = "openai/gpt-6-luna";
+    process.env.TRENDING_BRIEF_MODEL = "openai/retired-text-model";
     expect(getTrendingBriefModel()).toBe("gpt-6-luna");
 
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    process.env.TRENDING_BRIEF_MODEL = "unsupported-provider/model";
+    process.env.TRENDING_BRIEF_MODEL = "retired-text-model";
     expect(getTrendingBriefModel()).toBe("gpt-6-luna");
   });
 

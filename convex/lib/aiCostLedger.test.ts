@@ -858,6 +858,81 @@ describe("AI cost ledger mutation inputs", () => {
     ]);
   });
 
+  it.each([
+    ["succeeded", null],
+    ["failed_after_dispatch", null],
+    ["succeeded", "priority"],
+  ] as const)(
+    "preserves only compatible historical costs when finalizing as %s (tier %s)",
+    async (state, serviceTier) => {
+      vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+      const historicalAttempt = providerAttempt({
+        model: "retired-text-model",
+        serviceTier: null,
+        lifecycleVersion: 1,
+        inputTokens: 200,
+        cachedInputTokens: 20,
+        cacheWriteInputTokens: 4,
+        outputTokens: 10,
+      });
+      const historicalEstimate = {
+        amountMicros: 49,
+        currency: "USD",
+        quality: "derived_from_provider_usage",
+        pricingVersion: "historical-pricing-version",
+        effectiveFrom: "2026-07-28",
+        reason: null,
+      } as const;
+      const eventDay = 1_799_971_200_000;
+      const { ctx, tables } = createProviderAttemptLedgerHarness({
+        aiCostLedgerEvents: [
+          {
+            _id: "historical-event",
+            eventKey: historicalAttempt.eventKey,
+            eventDay,
+            event: toProviderAttemptEvent(historicalAttempt, historicalEstimate),
+          },
+        ],
+        aiCostDailyRollups: [
+          {
+            _id: "historical-rollup",
+            key: `${eventDay}:article_context:openai:article_context_generation`,
+            ...getProviderAttemptRollupContribution(
+              historicalAttempt,
+              historicalEstimate,
+            ),
+          },
+        ],
+      });
+      const terminal = {
+        ...historicalAttempt,
+        lifecycleVersion: 2,
+        state,
+        serviceTier,
+        failureCategory: state === "succeeded" ? null : "invalid_response",
+        completedAt: 1_800_000_000_100,
+        reasoningOutputTokens: 3,
+      } as const;
+      const expectedEstimate = serviceTier === null
+        ? historicalEstimate
+        : estimateDirectAiCost(terminal);
+
+      expect(estimateDirectAiCost(terminal).reason).toBe("unsupported_model");
+      await expect(recordProviderAttemptForCtx(ctx as never, terminal)).resolves
+        .toEqual({ recorded: true, disposition: "updated" });
+      expect(tables.aiCostLedgerEvents[0]?.event).toEqual(
+        toProviderAttemptEvent(terminal, expectedEstimate),
+      );
+      expect(tables.aiCostDailyRollups).toHaveLength(1);
+      expect(tables.aiCostDailyRollups[0]).toMatchObject(
+        getProviderAttemptRollupContribution(terminal, expectedEstimate),
+      );
+      expect(tables.aiCostLedgerDeliveries[0]).toMatchObject({
+        latestLifecycleVersion: 2,
+      });
+    },
+  );
+
   it("does not seed a missing rollup bucket with a provider-attempt reversal", async () => {
     vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
     const initial = providerAttempt();

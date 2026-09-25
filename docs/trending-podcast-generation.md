@@ -1,6 +1,6 @@
 # Trending Podcast Generation
 
-The daily Trending podcast uses `gpt-6-luna` with high reasoning for research, writing, and script repair. Its prompt identity is `trending-brief-deep-research-v1`. `TRENDING_BRIEF_MODEL` can override the text model; reasoning remains high.
+The daily Trending podcast is pinned to `gpt-6-luna` with high reasoning for research, writing, and script repair. Its prompt identity is `trending-brief-deep-research-v1`. Optional article-context accessibility descriptions use the same model and reasoning level. The retired `TRENDING_BRIEF_MODEL` and `CONTEXT_DESCRIPTION_MODEL` environment overrides are ignored.
 
 ## Research and writing
 

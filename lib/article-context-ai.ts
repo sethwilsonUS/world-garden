@@ -13,7 +13,6 @@ import type {
   ContextManifest,
 } from "@/lib/article-context-types";
 
-const DEFAULT_CONTEXT_DESCRIPTION_MODEL = "gpt-6-luna";
 export const CONTEXT_DESCRIPTION_PROMPT_VERSION = "context-accessibility-v3";
 const MAX_CONTEXT_DESCRIPTION_SOURCE_CHARS = 120_000;
 const CONTEXT_DESCRIPTION_TIMEOUT_MS = 20_000;
@@ -45,17 +44,10 @@ export type ContextAIClient = {
 
 type EnhanceArticleContextOptions = {
   client?: ContextAIClient;
-  model?: string;
   consumeQuota?: () => Promise<boolean>;
 };
 
-export const getContextDescriptionModel = (): string => {
-  const configured = process.env.CONTEXT_DESCRIPTION_MODEL?.trim();
-  if (!configured) return DEFAULT_CONTEXT_DESCRIPTION_MODEL;
-  return configured.startsWith("openai/")
-    ? configured.slice("openai/".length)
-    : configured;
-};
+export const getContextDescriptionModel = (): string => "gpt-6-luna";
 
 export const isArticleContextAIEnabled = (): boolean =>
   isOpenAIConfigured() &&
@@ -211,7 +203,7 @@ export const enhanceArticleContextManifest = async (
     return manifest;
   }
 
-  const model = options.model?.trim() || getContextDescriptionModel();
+  const model = getContextDescriptionModel();
   const promptBlocks = compactBlocksForPrompt(manifest.blocks);
   const completeSourcePayload = JSON.stringify(promptBlocks);
   const sourceBlocks =

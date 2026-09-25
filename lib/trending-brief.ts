@@ -47,7 +47,6 @@ import {
 export { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
-const DEFAULT_TRENDING_BRIEF_MODEL = "gpt-6-luna";
 // Output limits include hidden reasoning tokens as well as the visible result.
 const MAX_OUTPUT_TOKENS = 12_000;
 const MAX_ARTICLES_IN_PROMPT = 10;
@@ -92,23 +91,7 @@ const withTrendingWriteAttestation = async <
 export const getTrendingAudioScript = (spokenSummary: string): string =>
   `${TRENDING_AI_AUDIO_DISCLOSURE} ${spokenSummary.trim()}`;
 
-export const getTrendingBriefModel = (): string => {
-  const configuredModel = process.env.TRENDING_BRIEF_MODEL?.trim();
-  if (!configuredModel) return DEFAULT_TRENDING_BRIEF_MODEL;
-
-  // Smooth the transition from the Gateway's provider/model identifiers.
-  if (configuredModel.startsWith("openai/")) {
-    return configuredModel.slice("openai/".length);
-  }
-  if (configuredModel.includes("/")) {
-    console.warn(
-      `[podcast:trending] Ignoring non-OpenAI TRENDING_BRIEF_MODEL=${configuredModel}; using ${DEFAULT_TRENDING_BRIEF_MODEL}`,
-    );
-    return DEFAULT_TRENDING_BRIEF_MODEL;
-  }
-
-  return configuredModel;
-};
+export const getTrendingBriefModel = (): string => "gpt-6-luna";
 
 export const getTrendingBriefPromptVersion = (): string =>
   "trending-brief-deep-research-v1";

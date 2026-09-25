@@ -978,6 +978,18 @@ const getStoredEstimate = (
   reason: (event.estimatedCostReason ?? null) as AiCostEstimate["reason"],
 });
 
+const hasUnchangedCostInputs = (
+  existing: AiCostProviderAttempt,
+  incoming: AiCostProviderAttempt,
+): boolean =>
+  existing.serviceTier === incoming.serviceTier &&
+  existing.inputTokens === incoming.inputTokens &&
+  existing.cachedInputTokens === incoming.cachedInputTokens &&
+  existing.cacheWriteInputTokens === incoming.cacheWriteInputTokens &&
+  existing.outputTokens === incoming.outputTokens &&
+  (existing.operation !== "trending_brief_research" ||
+    existing.webSearchCalls === incoming.webSearchCalls);
+
 export const toProviderAttemptEvent = (
   attempt: AiCostProviderAttempt,
   estimate: AiCostEstimate,
@@ -1045,7 +1057,20 @@ export const recordProviderAttemptForCtx = async (
 
   const eventTimestamp = attempt.dispatchedAt ?? attempt.completedAt ?? now;
   const eventDay = utcDayStart(eventTimestamp);
-  const estimate = estimateDirectAiCost(attempt);
+  const oldEstimate = existingDocument
+    ? getStoredEstimate(existingDocument.event)
+    : null;
+  const currentEstimate = estimateDirectAiCost(attempt);
+  // Finalizing a retired model must not erase its recorded price. Reuse it
+  // only while the billing inputs remain unchanged; new usage needs pricing.
+  const estimate =
+    currentEstimate.reason === "unsupported_model" &&
+    oldEstimate !== null &&
+    oldEstimate.amountMicros !== null &&
+    existingAttempt !== null &&
+    hasUnchangedCostInputs(existingAttempt, attempt)
+      ? oldEstimate
+      : currentEstimate;
   const contribution = getProviderAttemptRollupContribution(attempt, estimate);
   const dimensions = {
     bucketStart: eventDay,
@@ -1076,10 +1101,9 @@ export const recordProviderAttemptForCtx = async (
     return { recorded: true, disposition };
   }
 
-  if (!existingDocument || !existingAttempt) {
+  if (!existingDocument || !existingAttempt || !oldEstimate) {
     return { recorded: false, disposition: "stale" };
   }
-  const oldEstimate = getStoredEstimate(existingDocument.event);
   const oldContribution = getProviderAttemptRollupContribution(
     existingAttempt,
     oldEstimate,
