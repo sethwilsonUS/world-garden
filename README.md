@@ -20,7 +20,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 **Discovery** — Search Wikipedia, browse today's Featured Article (with thumbnail), or tap "Surprise me" for a random article. A cron-cached "Today on Wikipedia" section gathers the full Did You Know list, editor-curated In the News items, an accessible Picture of the Day with cached spoken description audio, three On This Day highlights, and a compact Trending teaser. The dedicated On This Day page expands the daily edition into accessible timelines for highlights, events, births, deaths, and holidays. The dedicated Trending page keeps the full pageview-driven list and daily audio brief. NSFW category filtering keeps random and trending results safe. After finishing an article, related articles are surfaced as "Listen next" suggestions.
 
-**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. Luna performs bounded high-context research for each of ten topics, then writes a 300–420-word sourced script with explicit uncertainty. The brief is generated once per trending date, narrated with OpenAI Mini/Marin, and cached in Convex with model and prompt-version provenance.
+**Trending briefing** — The Trending page can generate a daily AI-written audio briefing that summarizes why those articles are spiking and links out to recent news sources. GPT-6 Luna with high reasoning performs bounded high-context research for each of ten topics, then writes a 300–420-word sourced script with explicit uncertainty. The brief is generated once per trending date, narrated with OpenAI Mini/Marin, and cached in Convex with model and prompt-version provenance.
 
 **Accessible article context** — Articles can add revision-matched maps, timelines, charts, and diagrams when Wikipedia's structured source supports them. Every visual has a useful text equivalent, descriptive caption, keyboard-operable controls, and downloadable source data where appropriate. Visual context stays out of article narration and the Play All queue.
 
@@ -486,10 +486,10 @@ Featured Articles:
 
 Trending Brief:
 
-- The selected text and speech configuration is documented in the [Trending Podcast Quality Evaluation](docs/trending-podcast-quality-evaluation.md).
+- The text, speech, and publication workflow is documented in [Trending Podcast Generation](docs/trending-podcast-generation.md).
 - Each episode points at a stable enclosure URL under `/api/podcast/media/trending/[briefId]`, which redirects to the stored MP3 in Convex.
 - Each episode also gets local collage artwork generated from up to four trending-article thumbnails, with the trending date rendered into the image and embedded into the MP3 metadata.
-- The default uses `gpt-6-luna` with high reasoning for research, writing, and script repair, one bounded high-context research pass per topic, and prompt version `trending-brief-deep-research-v1`. The research and writing profile was originally evaluated with GPT-5.6 Luna; those historical scores do not evaluate GPT-6 Luna. Scripts outside 300–420 words get one writing-only repair and otherwise fail before publication. Research is cached under the active job lease before that repair, so a failed length repair can retry writing without repeating the paid search fan-out.
+- The default uses `gpt-6-luna` with high reasoning for research, writing, and script repair, one bounded high-context research pass per topic, and prompt version `trending-brief-deep-research-v1`. Scripts outside 300–420 words get one writing-only repair and otherwise fail before publication. Research is cached under the active job lease before that repair, so a failed length repair can retry writing without repeating the paid search fan-out.
 - Narration is pinned to OpenAI `gpt-4o-mini-tts` with the `marin` voice. Trusted requests forbid Edge fallback; provider or timeout failures leave the job failed with validated prose preserved for the second cron attempt.
 - Model and brief-prompt versions participate in content reuse. Changing either invalidates old prose and audio eligibility without rewriting historical ready episodes.
 - `POST /api/podcast/trending/sync` is a manual trigger for generating the latest trending brief episode and is protected by `CRON_SECRET`.
@@ -555,8 +555,6 @@ For Apple Podcasts and other validators, use a preview or production HTTPS deplo
 | `npm run analytics:site`               | Generate a local accessible analytics report from Vercel logs and optional drain rollups                  |
 | `npm run report:costs`                 | Read the owner-only AI cost ledger as accessible text, private CSV, or aggregate JSON                     |
 | `npm run report:feedback`              | View production feedback in Terminal or export a private, spreadsheet-safe CSV                            |
-| `npm run eval:trending-podcast`        | Run the nonpublishing eight-profile evaluation against three frozen fixtures                              |
-| `npm run render:trending-podcast-eval` | Render one evaluation profile locally through strict Mini/Marin without publishing                        |
 | `npm run build`                        | Production build (handles Vercel environments)                                                            |
 | `npm run check`                        | Canonical baseline: toolchain alignment, ESLint plus anti-slop, both TypeScript compilers, architecture rules, and all Vitest tests |
 | `npm run toolchain:check`              | Verify the runtime, `.nvmrc`, package engine, and Node declarations use the same major                    |

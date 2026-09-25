@@ -115,15 +115,15 @@ const observedClientWith = (output: unknown) => {
 };
 
 describe("article context AI descriptions", () => {
-  it("defaults to GPT-6 Luna and preserves direct OpenAI model overrides", () => {
+  it("defaults to GPT-6 Luna and normalizes configured OpenAI model IDs", () => {
     delete process.env.CONTEXT_DESCRIPTION_MODEL;
     expect(getContextDescriptionModel()).toBe("gpt-6-luna");
 
     process.env.CONTEXT_DESCRIPTION_MODEL = "openai/gpt-6-luna";
     expect(getContextDescriptionModel()).toBe("gpt-6-luna");
 
-    process.env.CONTEXT_DESCRIPTION_MODEL = "gpt-6-sol";
-    expect(getContextDescriptionModel()).toBe("gpt-6-sol");
+    process.env.CONTEXT_DESCRIPTION_MODEL = "  gpt-6-luna  ";
+    expect(getContextDescriptionModel()).toBe("gpt-6-luna");
   });
 
   it("requests high reasoning from OpenAI and records the default model", async () => {

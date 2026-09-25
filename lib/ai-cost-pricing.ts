@@ -5,16 +5,6 @@ export const AI_COST_PRICING_EFFECTIVE_FROM = "2026-09-24";
 
 const SHORT_CONTEXT_MAX_INPUT_TOKENS = 272_000;
 
-export type Gpt56ModelFamily = "luna" | "terra" | "sol";
-
-const GPT_5_6_MODEL_FAMILIES = new Map<string, Gpt56ModelFamily>([
-  ["gpt-5.6-luna", "luna"],
-  ["gpt-5.6-luna-2026-07-01", "luna"],
-  ["gpt-5.6-terra", "terra"],
-  ["gpt-5.6-sol", "sol"],
-  ["gpt-5.6", "sol"],
-]);
-
 type StandardPricingInThousandthMicros = {
   uncachedInput: bigint;
   cachedInput: bigint;
@@ -22,29 +12,14 @@ type StandardPricingInThousandthMicros = {
   output: bigint;
 };
 
-const GPT_5_6_STANDARD_PRICING_IN_THOUSANDTH_MICROS: Record<
-  Gpt56ModelFamily,
-  StandardPricingInThousandthMicros
-> = {
-  luna: {
+// Retained for historical attempts recorded before the GPT-6 Luna migration.
+const GPT_5_6_LUNA_STANDARD_PRICING_IN_THOUSANDTH_MICROS: StandardPricingInThousandthMicros =
+  {
     uncachedInput: BigInt(200),
     cachedInput: BigInt(20),
     cacheWriteInput: BigInt(250),
     output: BigInt(1_200),
-  },
-  terra: {
-    uncachedInput: BigInt(2_000),
-    cachedInput: BigInt(200),
-    cacheWriteInput: BigInt(2_500),
-    output: BigInt(12_000),
-  },
-  sol: {
-    uncachedInput: BigInt(4_000),
-    cachedInput: BigInt(400),
-    cacheWriteInput: BigInt(5_000),
-    output: BigInt(20_000),
-  },
-};
+  };
 
 const GPT_6_LUNA_STANDARD_PRICING_IN_THOUSANDTH_MICROS: StandardPricingInThousandthMicros =
   {
@@ -90,10 +65,10 @@ const unknownEstimate = (
 const roundPositiveRatio = (numerator: bigint, denominator: bigint): bigint =>
   (numerator + denominator / BigInt(2)) / denominator;
 
-export const getGpt56ModelFamily = (
+export const isHistoricalGpt56LunaModel = (
   model: string | null,
-): Gpt56ModelFamily | null =>
-  model === null ? null : (GPT_5_6_MODEL_FAMILIES.get(model) ?? null);
+): boolean =>
+  model === "gpt-5.6-luna" || model === "gpt-5.6-luna-2026-07-01";
 
 export const estimateDirectAiCost = (
   attempt: AiCostProviderAttempt,
@@ -117,12 +92,11 @@ export const estimateDirectAiCost = (
   if (attempt.operation === "tts") {
     return unknownEstimate("speech_usage_unavailable");
   }
-  const modelFamily = getGpt56ModelFamily(attempt.model);
   const pricing =
     attempt.model === "gpt-6-luna"
       ? GPT_6_LUNA_STANDARD_PRICING_IN_THOUSANDTH_MICROS
-      : modelFamily
-        ? GPT_5_6_STANDARD_PRICING_IN_THOUSANDTH_MICROS[modelFamily]
+      : isHistoricalGpt56LunaModel(attempt.model)
+        ? GPT_5_6_LUNA_STANDARD_PRICING_IN_THOUSANDTH_MICROS
         : null;
   if (!pricing) {
     return unknownEstimate("unsupported_model");

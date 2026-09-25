@@ -4,7 +4,6 @@ import {
   AI_COST_PRICING_EFFECTIVE_FROM,
   AI_COST_PRICING_VERSION,
   estimateDirectAiCost,
-  getGpt56ModelFamily,
 } from "./ai-cost-pricing";
 
 const attempt = (
@@ -17,7 +16,7 @@ const attempt = (
   source: "trending_brief",
   requestedProvider: "openai",
   effectiveProvider: "openai",
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   serviceTier: "auto",
   profile: null,
   state: "succeeded",
@@ -47,9 +46,9 @@ describe("AI cost pricing", () => {
     expect(AI_COST_PRICING_EFFECTIVE_FROM).toBe("2026-09-24");
   });
 
-  it("prices each Luna token class once and rounds to integer micros", () => {
+  it("prices each GPT-6 Luna token class once and rounds to integer micros", () => {
     expect(estimateDirectAiCost(attempt())).toEqual({
-      amountMicros: 20_049,
+      amountMicros: 20_023,
       currency: "USD",
       quality: "derived_from_provider_usage",
       pricingVersion: AI_COST_PRICING_VERSION,
@@ -69,35 +68,19 @@ describe("AI cost pricing", () => {
     ).toBe(0);
   });
 
-  it("prices Terra at the current Standard tier rates", () => {
+  it("retains separate GPT-5.6 Luna rates for historical research and writing", () => {
     expect(
-      estimateDirectAiCost(attempt({ model: "gpt-5.6-terra" })).amountMicros,
-    ).toBe(20_486);
+      estimateDirectAiCost(attempt({ model: "gpt-5.6-luna" })).amountMicros,
+    ).toBe(20_049);
     expect(
       estimateDirectAiCost(
         attempt({
-          model: "gpt-5.6-terra",
+          model: "gpt-5.6-luna",
           operation: "trending_brief_writing",
           webSearchCalls: null,
         }),
       ).amountMicros,
-    ).toBe(486);
-  });
-
-  it("prices GPT-6 Luna research and writing with its separate rates", () => {
-    expect(
-      estimateDirectAiCost(attempt({ model: "gpt-6-luna" })).amountMicros,
-    ).toBe(20_023);
-    expect(
-      estimateDirectAiCost(
-        attempt({
-          model: "gpt-6-luna",
-          operation: "trending_brief_writing",
-          webSearchCalls: null,
-        }),
-      ).amountMicros,
-    ).toBe(23);
-    expect(getGpt56ModelFamily("gpt-6-luna")).toBeNull();
+    ).toBe(49);
   });
 
   it("preserves fractional GPT-6 Luna cache-write rates until final rounding", () => {
@@ -115,29 +98,9 @@ describe("AI cost pricing", () => {
     ).toBe(1);
   });
 
-  it("prices Sol at the current Standard tier rates", () => {
-    expect(
-      estimateDirectAiCost(attempt({ model: "gpt-5.6-sol" })).amountMicros,
-    ).toBe(20_932);
-    expect(
-      estimateDirectAiCost(
-        attempt({
-          model: "gpt-5.6-sol",
-          operation: "trending_brief_writing",
-          webSearchCalls: null,
-        }),
-      ).amountMicros,
-    ).toBe(932);
-    expect(
-      estimateDirectAiCost(attempt({ model: "gpt-5.6" })).amountMicros,
-    ).toBe(20_932);
-  });
-
   it.each([
     ["gpt-6-luna", 10_000, 1_000, 12_500, 50_000],
     ["gpt-5.6-luna", 20_000, 2_000, 25_000, 120_000],
-    ["gpt-5.6-terra", 200_000, 20_000, 250_000, 1_200_000],
-    ["gpt-5.6-sol", 400_000, 40_000, 500_000, 2_000_000],
   ] as const)(
     "prices every token class independently for %s",
     (model, uncachedInput, cachedInput, cacheWriteInput, output) => {
@@ -214,7 +177,7 @@ describe("AI cost pricing", () => {
           webSearchCalls: null,
         }),
       ).amountMicros,
-    ).toBe(49);
+    ).toBe(23);
     expect(
       estimateDirectAiCost(
         attempt({
@@ -222,13 +185,13 @@ describe("AI cost pricing", () => {
           webSearchCalls: null,
         }),
       ).amountMicros,
-    ).toBe(49);
+    ).toBe(23);
     expect(
       estimateDirectAiCost(attempt({ webSearchCalls: null })),
     ).toMatchObject({ amountMicros: null, reason: "missing_usage" });
   });
 
-  it("recognizes only catalog aliases plus the legacy dated Luna snapshot", () => {
+  it("recognizes the historical Luna snapshot and rejects unknown model names", () => {
     expect(
       estimateDirectAiCost(attempt({ model: "gpt-5.6-luna-2026-07-01" }))
         .amountMicros,
@@ -242,10 +205,7 @@ describe("AI cost pricing", () => {
       estimateDirectAiCost(attempt({ model: "gpt-5.6-luna-2099-01-01" })),
     ).toMatchObject({ amountMicros: null, reason: "unsupported_model" });
     expect(
-      estimateDirectAiCost(attempt({ model: "gpt-5.6-terra-2026-08-01" })),
-    ).toMatchObject({ amountMicros: null, reason: "unsupported_model" });
-    expect(
-      estimateDirectAiCost(attempt({ model: "gpt-5.6-sol-2026-08-01" })),
+      estimateDirectAiCost(attempt({ model: "unknown-model" })),
     ).toMatchObject({ amountMicros: null, reason: "unsupported_model" });
     expect(
       estimateDirectAiCost(attempt({ model: "gpt-6-luna-2026-09-24" })),

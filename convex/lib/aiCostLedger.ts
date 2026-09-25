@@ -16,7 +16,7 @@ import {
 } from "../../lib/ai-cost-ledger-contract";
 import {
   estimateDirectAiCost,
-  getGpt56ModelFamily,
+  isHistoricalGpt56LunaModel,
   type AiCostEstimate,
 } from "../../lib/ai-cost-pricing";
 
@@ -694,10 +694,9 @@ const modelIdentityIsCompatible = (
   incoming: string | null,
 ): boolean => {
   if (existing === incoming) return true;
-  const existingFamily = getGpt56ModelFamily(existing);
   return (
-    existingFamily !== null &&
-    existingFamily === getGpt56ModelFamily(incoming)
+    isHistoricalGpt56LunaModel(existing) &&
+    isHistoricalGpt56LunaModel(incoming)
   );
 };
 

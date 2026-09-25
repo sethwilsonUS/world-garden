@@ -7,7 +7,7 @@ import {
 import type { AiCostProviderAttempt } from "./ai-cost-ledger-contract";
 
 describe("OpenAI provider dispatch instrumentation", () => {
-  it("records a boundary and terminal usage without retaining provider content", async () => {
+  it("records historical provider model aliases and usage without retaining content", async () => {
     const record = vi.fn<(attempt: AiCostProviderAttempt) => Promise<void>>(
       async () => undefined,
     );
@@ -105,7 +105,7 @@ describe("OpenAI provider dispatch instrumentation", () => {
       )
       .mockResolvedValueOnce(
         Response.json({
-          model: "gpt-5.6-luna",
+          model: "gpt-6-luna",
           service_tier: "auto",
           output: [],
           usage: null,
@@ -120,7 +120,7 @@ describe("OpenAI provider dispatch instrumentation", () => {
     const context = createAiCostOperationContext({
       operation: "trending_brief_writing",
       source: "trending_brief",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
     });
 
     await runWithAiCostOperationContext(context, async () => {
@@ -174,7 +174,7 @@ describe("OpenAI provider dispatch instrumentation", () => {
     const context = createAiCostOperationContext({
       operation: "trending_brief_research",
       source: "trending_brief",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
     });
 
     await expect(
@@ -211,7 +211,7 @@ describe("OpenAI provider dispatch instrumentation", () => {
     const context = createAiCostOperationContext({
       operation: "article_context_generation",
       source: "article_context",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
     });
 
     const actual = await runWithAiCostOperationContext(context, () =>
@@ -244,7 +244,7 @@ describe("OpenAI provider dispatch instrumentation", () => {
     const context = createAiCostOperationContext({
       operation: "article_context_generation",
       source: "article_context",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
     });
 
     const actual = await runWithAiCostOperationContext(context, () =>

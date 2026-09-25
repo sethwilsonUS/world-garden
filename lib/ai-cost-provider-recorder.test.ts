@@ -10,7 +10,7 @@ const attempt: AiCostProviderAttempt = {
   source: "trending_brief",
   requestedProvider: "openai",
   effectiveProvider: "openai",
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   serviceTier: "auto",
   profile: null,
   state: "succeeded",

@@ -204,7 +204,7 @@ describe("Trending publication write attestations", () => {
       spokenSummary: "Replacement spoken summary",
       keyPoints: ["One", "Two", "Three"],
       sources: [{ title: "News", url: "https://news.example/story" }],
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       briefPromptVersion: "trending-brief-deep-research-v1",
     };
     const draftArgs = {
@@ -222,7 +222,7 @@ describe("Trending publication write attestations", () => {
       operation: "save-record",
       args: {
         ...draftArgs,
-        draftBrief: { ...draftBrief, model: "gpt-5.6-sol" },
+        draftBrief: { ...draftBrief, model: "gpt-5.6-luna" },
       },
     });
     const query = vi.fn((table: string) => {
@@ -315,7 +315,7 @@ describe("Trending publication write attestations", () => {
     const draftResearch = {
       text: "Topic 1: Example\nTrigger: supported.",
       sources: [{ title: "News", url: "https://news.example/story" }],
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       briefPromptVersion: "trending-brief-deep-research-v1",
       articleTitles: ["Example"],
     };
@@ -569,7 +569,7 @@ describe("Trending publication write attestations", () => {
                   spokenSummary: "Replacement spoken summary",
                   keyPoints: ["One", "Two", "Three"],
                   sources: [],
-                  model: "gpt-5.6-luna",
+                  model: "gpt-6-luna",
                   briefPromptVersion: "trending-brief-deep-research-v1",
                 },
                 audioVariants: [

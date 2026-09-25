@@ -34,7 +34,7 @@ const providerAttempt = (
   source: "article_context",
   requestedProvider: "openai",
   effectiveProvider: "openai",
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   serviceTier: "auto",
   profile: null,
   state: "unknown_after_dispatch",
@@ -786,7 +786,7 @@ describe("AI cost ledger mutation inputs", () => {
     ).toBe("stale");
   });
 
-  it("treats supported aliases and the legacy Luna snapshot as family identities", () => {
+  it("preserves historical Luna alias identity without crossing model generations", () => {
     const legacySnapshot = providerAttempt({
       model: "gpt-5.6-luna-2026-07-01",
     });
@@ -803,16 +803,59 @@ describe("AI cost ledger mutation inputs", () => {
     );
     expect(
       resolveProviderAttemptWrite(
-        providerAttempt({ model: "gpt-5.6" }),
-        { ...terminalAlias, model: "gpt-5.6-sol" },
-      ),
-    ).toBe("updated");
-    expect(
-      resolveProviderAttemptWrite(
-        providerAttempt({ model: "gpt-5.6-terra" }),
-        { ...terminalAlias, model: "gpt-5.6-sol" },
+        legacySnapshot,
+        { ...terminalAlias, model: "gpt-6-luna" },
       ),
     ).toBe("stale");
+  });
+
+  it("preserves stored costs and model labels after pricing support is retired", async () => {
+    vi.stubEnv("AI_COST_LEDGER_MODE", "observe");
+    const historicalAttempt = providerAttempt({
+      model: "retired-text-model",
+      lifecycleVersion: 1,
+      state: "succeeded",
+      failureCategory: null,
+      completedAt: 1_800_000_000_100,
+    });
+    const storedEvent = toProviderAttemptEvent(historicalAttempt, {
+      amountMicros: 49,
+      currency: "USD",
+      quality: "derived_from_provider_usage",
+      pricingVersion: "historical-pricing-version",
+      effectiveFrom: "2026-07-28",
+      reason: null,
+    });
+    const { ctx, tables } = createProviderAttemptLedgerHarness({
+      aiCostLedgerEvents: [
+        {
+          _id: "historical-event",
+          eventKey: historicalAttempt.eventKey,
+          eventDay: 1_799_971_200_000,
+          event: storedEvent,
+        },
+      ],
+      aiCostDailyRollups: [
+        {
+          _id: "historical-rollup",
+          estimatedDirectAiCostMicros: 49,
+        },
+      ],
+    });
+
+    expect(estimateDirectAiCost(historicalAttempt).reason).toBe(
+      "unsupported_model",
+    );
+    await expect(
+      recordProviderAttemptForCtx(ctx as never, historicalAttempt),
+    ).resolves.toEqual({ recorded: false, disposition: "duplicate" });
+    expect(tables.aiCostLedgerEvents[0]?.event).toEqual(storedEvent);
+    expect(tables.aiCostDailyRollups).toEqual([
+      {
+        _id: "historical-rollup",
+        estimatedDirectAiCostMicros: 49,
+      },
+    ]);
   });
 
   it("does not seed a missing rollup bucket with a provider-attempt reversal", async () => {
@@ -922,7 +965,7 @@ describe("AI cost ledger mutation inputs", () => {
     expect(
       resolveProviderAttemptWrite(succeeded, {
         ...enriched,
-        model: "gpt-5.6-luna-lookalike",
+        model: "gpt-6-luna-lookalike",
       }),
     ).toBe("stale");
 
@@ -951,7 +994,7 @@ describe("AI cost ledger mutation inputs", () => {
     }).toEqual({
       providerAttempts: 0,
       webSearchCalls: 2,
-      estimatedDirectAiCostMicros: 20_049,
+      estimatedDirectAiCostMicros: 20_023,
       known: 1,
       unknown: -1,
     });
