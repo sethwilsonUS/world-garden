@@ -184,6 +184,22 @@ using an unsupported service tier or beyond the supported short-context tier
 return an unknown local estimate rather than silently applying the wrong rate.
 Web-search tool calls are captured separately from language-model token usage.
 
+The current `openai-2026-09-24-v3` revision was verified on 2026-09-24 against
+[OpenAI API pricing](https://developers.openai.com/api/docs/pricing) and the
+[GPT-6 Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+It adds GPT-6 Luna Standard short-context rates of $0.10 per million uncached
+input tokens, $0.01 per million cached input tokens, $0.125 per million
+cache-write input tokens, and $0.50 per million output tokens. Historical
+GPT-5.6 Luna attempts retain the 2026-08-24 rates of
+$0.20/$0.02/$0.25/$1.20 per million tokens in the same order, including the
+known `gpt-5.6-luna-2026-07-01` snapshot alias. GPT-6 Luna is the model used
+for new text generation. Stored estimates retain their recorded amount and
+pricing version independently of the current price table. The estimator
+supports at most 272,000 input tokens and the default/auto Standard service
+tier; other tiers or longer requests remain
+unknown. All token classes are summed at exact thousandths of a microdollar
+before the total is rounded to an integer microdollar.
+
 The published GPT-4o mini TTS rates are $0.60 per million text input tokens and
 $12.00 per million audio output tokens. The speech endpoint's binary response
 does not provide those counts, so the ledger leaves its local TTS cost unknown;

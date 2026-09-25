@@ -47,10 +47,10 @@ import {
 export { getTrendingAudioCacheKey } from "@/lib/trending-audio-profile";
 
 const TTS_WORDS_PER_SECOND = 2.5;
-const DEFAULT_TRENDING_BRIEF_MODEL = "gpt-5.6-luna";
+// Output limits include hidden reasoning tokens as well as the visible result.
+const MAX_OUTPUT_TOKENS = 12_000;
 const MAX_ARTICLES_IN_PROMPT = 10;
 const MAX_KEY_POINTS = 5;
-const MAX_CONTROL_SOURCES = 6;
 const MAX_SOURCES = 15;
 const MIN_SPOKEN_WORDS = 300;
 const MAX_SPOKEN_WORDS = 420;
@@ -91,46 +91,10 @@ const withTrendingWriteAttestation = async <
 export const getTrendingAudioScript = (spokenSummary: string): string =>
   `${TRENDING_AI_AUDIO_DISCLOSURE} ${spokenSummary.trim()}`;
 
-export const getTrendingBriefModel = (): string => {
-  const configuredModel = process.env.TRENDING_BRIEF_MODEL?.trim();
-  if (!configuredModel) return DEFAULT_TRENDING_BRIEF_MODEL;
+export const getTrendingBriefModel = (): string => "gpt-6-luna";
 
-  // Smooth the transition from the Gateway's provider/model identifiers.
-  if (configuredModel.startsWith("openai/")) {
-    return configuredModel.slice("openai/".length);
-  }
-  if (configuredModel.includes("/")) {
-    console.warn(
-      `[podcast:trending] Ignoring non-OpenAI TRENDING_BRIEF_MODEL=${configuredModel}; using ${DEFAULT_TRENDING_BRIEF_MODEL}`,
-    );
-    return DEFAULT_TRENDING_BRIEF_MODEL;
-  }
-
-  return configuredModel;
-};
-
-export type TrendingBriefGenerationProfile =
-  | "control"
-  | "depth-writing"
-  | "deep-research";
-
-const DEFAULT_TRENDING_BRIEF_PROFILE: TrendingBriefGenerationProfile =
-  "deep-research";
-const TRENDING_BRIEF_PROMPT_VERSIONS: Record<
-  TrendingBriefGenerationProfile,
-  string
-> = {
-  control: "trending-brief-control-v1",
-  "depth-writing": "trending-brief-depth-writing-v1",
-  "deep-research": "trending-brief-deep-research-v1",
-};
-
-export const getTrendingBriefGenerationProfile =
-  (): TrendingBriefGenerationProfile => DEFAULT_TRENDING_BRIEF_PROFILE;
-
-export const getTrendingBriefPromptVersion = (
-  profile = getTrendingBriefGenerationProfile(),
-): string => TRENDING_BRIEF_PROMPT_VERSIONS[profile];
+export const getTrendingBriefPromptVersion = (): string =>
+  "trending-brief-deep-research-v1";
 
 export type TrendingArticle = {
   title: string;
@@ -482,7 +446,7 @@ const getSourceTitleFromUrl = (url: string): string => {
  */
 export const extractTrendingBriefSources = (
   output: unknown,
-  maxSources = MAX_CONTROL_SOURCES,
+  maxSources = MAX_SOURCES,
 ): TrendingBriefSource[] => {
   if (!Array.isArray(output)) return [];
 
@@ -556,11 +520,9 @@ export const normalizeTrendingBrief = (
 export const buildTrendingBriefPrompt = ({
   trendingDate,
   articles,
-  profile = "control",
 }: {
   trendingDate: string;
   articles: TrendingArticle[];
-  profile?: TrendingBriefGenerationProfile;
 }): string => {
   const includedArticles = articles.slice(0, MAX_ARTICLES_IN_PROMPT);
   const articleList = includedArticles
@@ -570,56 +532,23 @@ export const buildTrendingBriefPrompt = ({
     )
     .join("\n");
 
-  const sharedInstructions = [
+  return [
     `Today's Wikipedia trending date is ${trendingDate}.`,
     "You are preparing a daily Curio Garden trend briefing about why these English Wikipedia articles are trending.",
     "Use only the supplied web research and Wikipedia context. If the reason is uncertain, say that clearly.",
     "Do not claim that something is trending for a specific reason unless the research supports it.",
     "The response schema is enforced separately; write complete content for every requested field.",
     "For podcastDescription, write a compact 1-2 sentence episode description suitable for a podcast app listing. Keep it shorter than summary.",
-  ];
-  const writingInstructions =
-    profile === "control"
-      ? [
-          "For spokenSummary, write natural audio-ready prose with no markdown, no bullets, and no URLs.",
-          "For summary, keep it readable on-screen in 1-2 short paragraphs.",
-          "For keyPoints, provide 3-5 short bullets explaining the most likely drivers across the list.",
-        ]
-      : [
-          "For spokenSummary, write 300-420 words of natural audio-ready prose with no markdown, no bullets, and no URLs.",
-          `Account for all ${includedArticles.length} topics. Give the strongest, best-supported stories the most time, but mention quieter or unexplained topics accurately instead of dropping them.`,
-          "For each leading topic, explain the supported trigger, relevant background or timeline, and why now readers are seeking it out.",
-          "Use natural transitions so the briefing sounds like one thoughtful podcast rather than ten disconnected blurbs.",
-          "When evidence does not establish a driver, state that the cause is uncertain and separate known context from any plausible but unconfirmed explanation.",
-          "For summary, keep it readable on-screen in 1-2 concise paragraphs while preserving the main supported drivers and caveats.",
-          "For keyPoints, provide 3-5 short bullets that preserve the most important supported drivers and uncertainties across the list.",
-        ];
-
-  return [
-    ...sharedInstructions,
-    ...writingInstructions,
+    "For spokenSummary, write 300-420 words of natural audio-ready prose with no markdown, no bullets, and no URLs.",
+    `Account for all ${includedArticles.length} topics. Give the strongest, best-supported stories the most time, but mention quieter or unexplained topics accurately instead of dropping them.`,
+    "For each leading topic, explain the supported trigger, relevant background or timeline, and why now readers are seeking it out.",
+    "Use natural transitions so the briefing sounds like one thoughtful podcast rather than ten disconnected blurbs.",
+    "When evidence does not establish a driver, state that the cause is uncertain and separate known context from any plausible but unconfirmed explanation.",
+    "For summary, keep it readable on-screen in 1-2 concise paragraphs while preserving the main supported drivers and caveats.",
+    "For keyPoints, provide 3-5 short bullets that preserve the most important supported drivers and uncertainties across the list.",
     "",
     "Trending Wikipedia articles:",
     articleList,
-  ].join("\n");
-};
-
-const buildTrendingResearchPrompt = ({
-  trendingDate,
-  articles,
-}: {
-  trendingDate: string;
-  articles: TrendingArticle[];
-}): string => {
-  const articleTitles = articles.map((article) => article.title).join(", ");
-
-  return [
-    `Today's Wikipedia trending date is ${trendingDate}.`,
-    `Search recent news coverage for likely reasons these topics are trending: ${articleTitles}.`,
-    "Use web search and gather the most relevant recent reporting.",
-    "Focus on timely events, deaths, announcements, releases, sports moments, political developments, and media coverage spikes.",
-    "Return a short plain-text research note summarizing the strongest explanations you found, with inline citations.",
-    "If no credible recent source explains an item, explicitly mark its cause as uncertain rather than guessing.",
   ].join("\n");
 };
 
@@ -645,40 +574,7 @@ const buildTrendingTopicResearchPrompt = ({
     "Use inline citations. Do not guess from the article title or view count.",
   ].join("\n");
 
-type TrendingResponseUsage = {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-};
-
-export type TrendingBriefGenerationEvent =
-  | {
-      type: "research";
-      profile: TrendingBriefGenerationProfile;
-      topicIndex: number | null;
-      topicTitle: string | null;
-      researchText: string;
-      sources: TrendingBriefSource[];
-      webSearchCalls: number;
-      latencyMs: number;
-      model: string;
-      usage: TrendingResponseUsage;
-      /** Full provider response retained only by opt-in evaluation observers. */
-      rawResponse?: unknown;
-    }
-  | {
-      type: "writing";
-      profile: TrendingBriefGenerationProfile;
-      attempt: "initial" | "repair";
-      brief: GeneratedTrendingBrief;
-      latencyMs: number;
-      model: string;
-      usage: TrendingResponseUsage;
-      /** Full provider response retained only by opt-in evaluation observers. */
-      rawResponse?: unknown;
-    };
-
-export type ResearchPassResult = {
+type ResearchPassResult = {
   text: string;
   sources: TrendingBriefSource[];
 };
@@ -732,18 +628,6 @@ const createTrendingGenerationRuntime = (
     dispose: () => clearTimeout(deadlineTimer),
   };
 };
-
-const getResponseUsage = (response: {
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-    total_tokens?: number;
-  } | null;
-}): TrendingResponseUsage => ({
-  inputTokens: response.usage?.input_tokens ?? 0,
-  outputTokens: response.usage?.output_tokens ?? 0,
-  totalTokens: response.usage?.total_tokens ?? 0,
-});
 
 const mapWithConcurrency = async <TInput, TOutput>(
   items: TInput[],
@@ -810,29 +694,21 @@ const logOpenAIUsage = ({
 const runTrendingResearchPass = async ({
   client,
   model,
-  profile,
   prompt,
-  topicIndex,
   topicTitle,
   runtime,
-  onEvent,
 }: {
   client: TrendingOpenAIClient;
   model: string;
-  profile: TrendingBriefGenerationProfile;
   prompt: string;
-  topicIndex: number | null;
-  topicTitle: string | null;
+  topicTitle: string;
   runtime: TrendingGenerationRuntime;
-  onEvent?: (event: TrendingBriefGenerationEvent) => void;
 }): Promise<ResearchPassResult> => {
   const researchContext = createAiCostOperationContext({
     operation: "trending_brief_research",
     source: "trending_brief",
     model,
   });
-  const startedAt = Date.now();
-  const deepResearch = profile === "deep-research";
   const researchResult = await runWithAiCostOperationContext(
     researchContext,
     () =>
@@ -845,16 +721,16 @@ const runTrendingResearchPass = async ({
           tools: [
             {
               type: "web_search",
-              search_context_size: deepResearch ? "high" : "medium",
+              search_context_size: "high",
             },
           ],
           tool_choice: "required",
           include: ["web_search_call.action.sources"],
-          reasoning: { effort: "medium" },
-          max_output_tokens: 4_000,
+          reasoning: { effort: "high" },
+          max_output_tokens: MAX_OUTPUT_TOKENS,
           metadata: {
             workflow: "trending-brief",
-            stage: deepResearch ? "research-topic" : "research",
+            stage: "research-topic",
           },
           safety_identifier: "public-trending-brief",
           store: false,
@@ -882,73 +758,45 @@ const runTrendingResearchPass = async ({
 
   if (webSearchCalls === 0) {
     throw new Error(
-      topicTitle
-        ? `Trending brief research did not perform a web search for ${topicTitle}`
-        : "Trending brief research did not perform a web search",
+      `Trending brief research did not perform a web search for ${topicTitle}`,
     );
   }
 
   const researchText = researchResult.output_text.trim();
   if (!researchText) {
     throw new Error(
-      topicTitle
-        ? `Trending brief research returned empty text for ${topicTitle}`
-        : "Trending brief research returned empty text",
+      `Trending brief research returned empty text for ${topicTitle}`,
     );
   }
 
-  const sources = extractTrendingBriefSources(
-    researchResult.output,
-    deepResearch ? MAX_SOURCES : MAX_CONTROL_SOURCES,
-  );
+  const sources = extractTrendingBriefSources(researchResult.output);
   if (sources.length === 0) {
     throw new Error(
-      topicTitle
-        ? `Trending brief research did not return cited web sources for ${topicTitle}`
-        : "Trending brief research did not return cited web sources",
+      `Trending brief research did not return cited web sources for ${topicTitle}`,
     );
   }
-
-  onEvent?.({
-    type: "research",
-    profile,
-    topicIndex,
-    topicTitle,
-    researchText,
-    sources,
-    webSearchCalls,
-    latencyMs: Date.now() - startedAt,
-    model: researchResult.model ?? model,
-    usage: getResponseUsage(researchResult),
-    rawResponse: researchResult,
-  });
 
   return { text: researchText, sources };
 };
 
-export const countTrendingSpokenWords = (text: string): number =>
+const countTrendingSpokenWords = (text: string): number =>
   text.trim().split(/\s+/u).filter(Boolean).length;
 
 const runTrendingWritingPass = async ({
   client,
   model,
-  profile,
   attempt,
   input,
   sources,
   runtime,
-  onEvent,
 }: {
   client: TrendingOpenAIClient;
   model: string;
-  profile: TrendingBriefGenerationProfile;
   attempt: "initial" | "repair";
   input: string;
   sources: TrendingBriefSource[];
   runtime: TrendingGenerationRuntime;
-  onEvent?: (event: TrendingBriefGenerationEvent) => void;
 }): Promise<GeneratedTrendingBrief> => {
-  const startedAt = Date.now();
   const writingResult = await runWithAiCostOperationContext(
     createAiCostOperationContext({
       operation: "trending_brief_writing",
@@ -964,11 +812,11 @@ const runTrendingWritingPass = async ({
               ? "You are repairing a sourced podcast script that missed a strict spoken-word target. Preserve every supported fact and uncertainty label, never add a claim, and return the complete structured brief."
               : "You are a careful editorial analyst for an accessibility-first Wikipedia listening app. Explain why topics are trending using only the supplied research and article context, never speculation. Write clean prose for sighted and screen-reader audiences.",
           input,
-          reasoning: { effort: "medium" },
-          max_output_tokens: 4_000,
+          reasoning: { effort: "high" },
+          max_output_tokens: MAX_OUTPUT_TOKENS,
           text: {
             format: zodTextFormat(TrendingBriefOutputSchema, "trending_brief"),
-            verbosity: profile === "control" ? "low" : "medium",
+            verbosity: "medium",
           },
           metadata: {
             workflow: "trending-brief",
@@ -1000,18 +848,7 @@ const runTrendingWritingPass = async ({
     sources,
   });
   const validated = TrendingBriefOutputSchema.parse(normalized);
-  const brief = { ...validated, sources: normalized.sources };
-  onEvent?.({
-    type: "writing",
-    profile,
-    attempt,
-    brief,
-    latencyMs: Date.now() - startedAt,
-    model: writingResult.model ?? model,
-    usage: getResponseUsage(writingResult),
-    rawResponse: writingResult,
-  });
-  return brief;
+  return { ...validated, sources: normalized.sources };
 };
 
 type GenerateTrendingBriefContentOptions = {
@@ -1019,8 +856,6 @@ type GenerateTrendingBriefContentOptions = {
   model: string;
   trendingDate: string;
   articles: TrendingArticle[];
-  profile?: TrendingBriefGenerationProfile;
-  onEvent?: (event: TrendingBriefGenerationEvent) => void;
   research?: ResearchPassResult;
   onWordBandRepairRequired?: (
     research: ResearchPassResult,
@@ -1034,8 +869,6 @@ const generateTrendingBriefContentWithinDeadline = async ({
   model,
   trendingDate,
   articles,
-  profile = "control",
-  onEvent,
   research: cachedResearch,
   onWordBandRepairRequired,
   runtime,
@@ -1049,54 +882,29 @@ const generateTrendingBriefContentWithinDeadline = async ({
   const research =
     cachedResearch ??
     (await (async (): Promise<ResearchPassResult> => {
-      const researchPasses =
-        profile === "deep-research"
-          ? await mapWithConcurrency(
-              includedArticles,
-              4,
-              async (article, topicIndex) =>
-                await runTrendingResearchPass({
-                  client,
-                  model,
-                  profile,
-                  prompt: buildTrendingTopicResearchPrompt({
-                    trendingDate,
-                    article,
-                  }),
-                  topicIndex,
-                  topicTitle: article.title,
-                  runtime,
-                  onEvent,
-                }),
-              runtime.abort,
-              runtime.signal,
-            )
-          : [
-              await runTrendingResearchPass({
-                client,
-                model,
-                profile,
-                prompt: buildTrendingResearchPrompt({
-                  trendingDate,
-                  articles: includedArticles,
-                }),
-                topicIndex: null,
-                topicTitle: null,
-                runtime,
-                onEvent,
-              }),
-            ];
+      const researchPasses = await mapWithConcurrency(
+        includedArticles,
+        4,
+        async (article) =>
+          await runTrendingResearchPass({
+            client,
+            model,
+            prompt: buildTrendingTopicResearchPrompt({ trendingDate, article }),
+            topicTitle: article.title,
+            runtime,
+          }),
+        runtime.abort,
+        runtime.signal,
+      );
       return {
         text: researchPasses
-          .map((pass, index) =>
-            profile === "deep-research"
-              ? `Topic ${index + 1}: ${includedArticles[index]?.title ?? "Unknown"}\n${pass.text}`
-              : pass.text,
+          .map(
+            (pass, index) =>
+              `Topic ${index + 1}: ${includedArticles[index]?.title ?? "Unknown"}\n${pass.text}`,
           )
           .join("\n\n"),
         sources: mergeTrendingBriefSourceGroups(
           researchPasses.map((pass) => pass.sources),
-          profile === "deep-research" ? MAX_SOURCES : MAX_CONTROL_SOURCES,
         ),
       };
     })());
@@ -1107,7 +915,6 @@ const generateTrendingBriefContentWithinDeadline = async ({
     buildTrendingBriefPrompt({
       trendingDate,
       articles: includedArticles,
-      profile,
     }),
     "",
     "Research context from OpenAI web search:",
@@ -1119,15 +926,11 @@ const generateTrendingBriefContentWithinDeadline = async ({
   const initialBrief = await runTrendingWritingPass({
     client,
     model,
-    profile,
     attempt: "initial",
     input: sharedWritingInput,
     sources,
     runtime,
-    onEvent,
   });
-
-  if (profile === "control") return initialBrief;
 
   const initialWordCount = countTrendingSpokenWords(initialBrief.spokenSummary);
   if (
@@ -1152,7 +955,6 @@ const generateTrendingBriefContentWithinDeadline = async ({
   const repairedBrief = await runTrendingWritingPass({
     client,
     model,
-    profile,
     attempt: "repair",
     input: [
       sharedWritingInput,
@@ -1164,7 +966,6 @@ const generateTrendingBriefContentWithinDeadline = async ({
     ].join("\n"),
     sources,
     runtime,
-    onEvent,
   });
   const repairedWordCount = countTrendingSpokenWords(
     repairedBrief.spokenSummary,
@@ -1290,8 +1091,7 @@ const generateTrendingBriefRecord = async ({
   }
 
   const model = getTrendingBriefModel();
-  const profile = getTrendingBriefGenerationProfile();
-  const briefPromptVersion = getTrendingBriefPromptVersion(profile);
+  const briefPromptVersion = getTrendingBriefPromptVersion();
 
   const existing = (await fetchQuery(anyApi.trending.getTrendingBriefByDate, {
     trendingDate: trendingDateIso,
@@ -1440,7 +1240,6 @@ const generateTrendingBriefRecord = async ({
           model,
           trendingDate: trendingDateIso,
           articles,
-          profile,
           research: cachedBriefResearch ?? undefined,
           onWordBandRepairRequired: async (research) => {
             stage = "caching_research_for_repair";

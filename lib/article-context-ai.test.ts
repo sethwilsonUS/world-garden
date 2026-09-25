@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   enhanceArticleContextManifest,
+  getContextDescriptionModel,
   isArticleContextAIEnabled,
   type ContextAIClient,
 } from "./article-context-ai";
@@ -12,6 +13,15 @@ import {
   type ContextDiagramBlock,
   type ContextManifest,
 } from "./article-context-types";
+
+const mocks = vi.hoisted(() => ({
+  parse: vi.fn(),
+}));
+
+vi.mock("./openai-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./openai-client")>()),
+  getOpenAIClient: () => ({ responses: { parse: mocks.parse } }),
+}));
 
 const manifest: ContextManifest = {
   schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
@@ -78,6 +88,7 @@ const manifest: ContextManifest = {
 
 const originalApiKey = process.env.OPENAI_API_KEY;
 const originalEnabled = process.env.ARTICLE_CONTEXT_AI_ENABLED;
+const originalModel = process.env.CONTEXT_DESCRIPTION_MODEL;
 
 afterEach(() => {
   if (originalApiKey === undefined) delete process.env.OPENAI_API_KEY;
@@ -85,6 +96,9 @@ afterEach(() => {
   if (originalEnabled === undefined)
     delete process.env.ARTICLE_CONTEXT_AI_ENABLED;
   else process.env.ARTICLE_CONTEXT_AI_ENABLED = originalEnabled;
+  if (originalModel === undefined) delete process.env.CONTEXT_DESCRIPTION_MODEL;
+  else process.env.CONTEXT_DESCRIPTION_MODEL = originalModel;
+  mocks.parse.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -101,6 +115,53 @@ const observedClientWith = (output: unknown) => {
 };
 
 describe("article context AI descriptions", () => {
+  it("pins GPT-6 Luna even when a retired model override remains configured", () => {
+    delete process.env.CONTEXT_DESCRIPTION_MODEL;
+    expect(getContextDescriptionModel()).toBe("gpt-6-luna");
+
+    process.env.CONTEXT_DESCRIPTION_MODEL = "openai/retired-text-model";
+    expect(getContextDescriptionModel()).toBe("gpt-6-luna");
+
+    process.env.CONTEXT_DESCRIPTION_MODEL = "  retired-text-model  ";
+    expect(getContextDescriptionModel()).toBe("gpt-6-luna");
+  });
+
+  it("requests GPT-6 Luna high despite a stale override and records its model", async () => {
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.ARTICLE_CONTEXT_AI_ENABLED = "true";
+    process.env.CONTEXT_DESCRIPTION_MODEL = "retired-text-model";
+    mocks.parse.mockResolvedValue({
+      output_parsed: {
+        blocks: [
+          {
+            id: "timeline-1",
+            caption: "Two milestones span 1969 to 1972.",
+            longDescription:
+              "The chronology begins with launch in 1969 and ends with return in 1972.",
+          },
+        ],
+      },
+    });
+
+    const enhanced = await enhanceArticleContextManifest(manifest, {
+      consumeQuota: async () => true,
+    });
+
+    expect(mocks.parse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-6-luna",
+        reasoning: { effort: "high" },
+        store: false,
+      }),
+      { timeout: 20_000 },
+    );
+    expect(enhanced.blocks[0]?.provenance).toMatchObject({
+      descriptionMethod: "ai-assisted",
+      model: "gpt-6-luna",
+      promptVersion: "context-accessibility-v3",
+    });
+  });
+
   it("keeps deterministic copy when OpenAI is not configured", async () => {
     delete process.env.OPENAI_API_KEY;
     expect(isArticleContextAIEnabled()).toBe(false);
@@ -143,12 +204,11 @@ describe("article context AI descriptions", () => {
     });
     const enhanced = await enhanceArticleContextManifest(manifest, {
       client,
-      model: "gpt-5.6-luna",
     });
 
     expect(client.parse).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-5.6-luna",
+        model: "gpt-6-luna",
         timeoutMs: 20_000,
       }),
     );
@@ -157,7 +217,7 @@ describe("article context AI descriptions", () => {
     expect(enhanced.blocks[0]).not.toHaveProperty("spokenSummary");
     expect(enhanced.blocks[0]?.provenance).toMatchObject({
       descriptionMethod: "ai-assisted",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       promptVersion: "context-accessibility-v3",
     });
   });
@@ -169,7 +229,7 @@ describe("article context AI descriptions", () => {
     const providerFetch = createInstrumentedOpenAiFetch({
       fetch: vi.fn(async () =>
         Response.json({
-          model: "gpt-5.6-luna",
+          model: "gpt-6-luna",
           service_tier: "auto",
           usage: {
             input_tokens: 80,
@@ -195,7 +255,6 @@ describe("article context AI descriptions", () => {
 
     await enhanceArticleContextManifest(manifest, {
       client: { parse },
-      model: "gpt-5.6-luna",
     });
     await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2));
 

@@ -38,7 +38,7 @@ const provenance = {
   sourceHash: "0123456789abcdef0123456789abcdef",
   extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
   descriptionMethod: "ai-assisted" as const,
-  model: "gpt-5.6-luna",
+  model: "gpt-6-luna",
   promptVersion: "context-accessibility-v3",
 };
 
@@ -1461,7 +1461,7 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   await expect(provenanceDetails).toContainText(
     "AI-assisted from cited source material",
   );
-  await expect(provenanceDetails).toContainText("Model: gpt-5.6-luna");
+  await expect(provenanceDetails).toContainText("Model: gpt-6-luna");
   await expect(
     provenanceDetails.getByRole("link", {
       name: /Open the exact article revision/,

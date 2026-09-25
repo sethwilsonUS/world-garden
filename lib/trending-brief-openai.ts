@@ -27,15 +27,15 @@ type TrendingOpenAIResearchRequest = {
   input: string;
   tools: Array<{
     type: "web_search";
-    search_context_size: "medium" | "high";
+    search_context_size: "high";
   }>;
   tool_choice: "required";
   include: ["web_search_call.action.sources"];
-  reasoning: { effort: "medium" };
+  reasoning: { effort: "high" };
   max_output_tokens: number;
   metadata: {
     workflow: "trending-brief";
-    stage: "research" | "research-topic";
+    stage: "research-topic";
   };
   safety_identifier: "public-trending-brief";
   store: false;
@@ -53,11 +53,11 @@ type TrendingOpenAIWritingRequest = {
   model: string;
   instructions: string;
   input: string;
-  reasoning: { effort: "medium" };
+  reasoning: { effort: "high" };
   max_output_tokens: number;
   text: {
     format: TrendingOpenAITextFormat;
-    verbosity: "low" | "medium";
+    verbosity: "medium";
   };
   metadata: {
     workflow: "trending-brief";
