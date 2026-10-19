@@ -145,7 +145,6 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
                 <ArticleLink
                   articleTitle={result.title}
                   className="result-link flex min-h-[44px] min-w-0 max-w-full flex-[1_1_240px] items-center gap-[16px] no-underline"
-                  aria-label={`${index + 1}. ${result.title}: ${result.description}`}
                   onClick={() => analytics.searchResultClicked()}
                 >
                   <span
