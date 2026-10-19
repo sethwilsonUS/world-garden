@@ -121,7 +121,13 @@ describe("OnThisDayExplorer", () => {
     );
     expect(
       tabs.map((tab) => tab.textContent?.replace(/, \d+ items$/u, "")),
-    ).toEqual(["Highlights1", "Events30", "Births2", "Deaths3", "Holidays4"]);
+    ).toEqual([
+      "Highlights 1",
+      "Events 30",
+      "Births 2",
+      "Deaths 3",
+      "Holidays 4",
+    ]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(container.textContent).toContain("selected item 1");
     const persistentStatus = container.querySelector(
@@ -310,7 +316,7 @@ describe("OnThisDayExplorer", () => {
     );
     expect(tabs[0].disabled).toBe(false);
     expect(tabs.slice(1).every((tab) => tab.disabled)).toBe(true);
-    expect(tabs[1].getAttribute("aria-label")).toBe("Events, 0 items");
+    expect(tabs[1].getAttribute("aria-label")).toBe("Events 0 items");
 
     tabs[0].focus();
     await act(async () =>

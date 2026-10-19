@@ -371,7 +371,7 @@ export const OnThisDayExplorer = () => {
               aria-selected={selected}
               aria-label={
                 metadata
-                  ? `${CATEGORY_LABELS[category]}, ${metadata.counts[category]} ${metadata.counts[category] === 1 ? "item" : "items"}`
+                  ? `${CATEGORY_LABELS[category]} ${metadata.counts[category]} ${metadata.counts[category] === 1 ? "item" : "items"}`
                   : CATEGORY_LABELS[category]
               }
               tabIndex={selected ? 0 : -1}
@@ -379,7 +379,7 @@ export const OnThisDayExplorer = () => {
               onClick={() => activateCategory(category)}
               onKeyDown={(event) => handleTabKeyDown(event, category)}
             >
-              <span>{CATEGORY_LABELS[category]}</span>
+              <span>{`${CATEGORY_LABELS[category]} `}</span>
               {metadata ? (
                 <span aria-hidden="true">{metadata.counts[category]}</span>
               ) : null}

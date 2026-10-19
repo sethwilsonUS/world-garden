@@ -49,7 +49,7 @@ export const RandomArticleButton = () => {
       onMouseEnter={prePick}
       onFocus={prePick}
       disabled={loading}
-      aria-label="Listen to a random Wikipedia article"
+      aria-label="Surprise me: listen to a random Wikipedia article"
       className={`linked-article-link inline-flex min-h-11 items-center gap-1.5 py-2 px-[18px] bg-transparent text-foreground-2 border border-border rounded-full font-medium text-[0.8125rem] font-[inherit] transition-all duration-200 ${loading ? "cursor-wait opacity-60" : "cursor-pointer"}`}
     >
       {loading ? (
