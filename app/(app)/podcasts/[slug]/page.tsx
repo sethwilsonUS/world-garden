@@ -16,7 +16,7 @@ import {
   getTrendingEpisodeTitle,
   getTrendingEpisodes,
   formatPodcastDate,
-  formatTrendingDate,
+  getTrendingEpisodeDateLabel,
 } from "@/lib/podcast-directory";
 
 type PodcastDetailPageProps = {
@@ -210,9 +210,7 @@ export default async function PodcastDetailPage({
                         audioUrl={trendingEpisode.audioUrl}
                         durationSeconds={trendingEpisode.durationSeconds}
                         title={title}
-                        dateLabel={formatTrendingDate(
-                          trendingEpisode.trendingDate,
-                        )}
+                        dateLabel={getTrendingEpisodeDateLabel(trendingEpisode)}
                         summary={description}
                         actions={
                           <>

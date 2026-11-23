@@ -16,7 +16,7 @@ import {
   getTrendingEpisodeTitle,
   getTrendingEpisodes,
   formatPodcastDate,
-  formatTrendingDate,
+  getTrendingEpisodeDateLabel,
 } from "@/lib/podcast-directory";
 
 const title = "Wikipedia Audio Podcasts — Curio Garden";
@@ -214,7 +214,7 @@ export default async function PodcastsPage() {
                         audioUrl={episode.audioUrl}
                         durationSeconds={episode.durationSeconds}
                         title={title}
-                        dateLabel={formatTrendingDate(episode.trendingDate)}
+                        dateLabel={getTrendingEpisodeDateLabel(episode)}
                         summary={description}
                         actions={
                           <>

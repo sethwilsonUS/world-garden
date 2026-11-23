@@ -8,6 +8,12 @@ import { AudioPlayer } from "@/components/AudioPlayer";
 import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { formatUtcCalendarDate } from "@/lib/date-format";
 
+const briefStatusMessage = {
+  missing: "The audio brief for these pageviews has not been published yet.",
+  pending: "The audio brief for these pageviews is being prepared.",
+  failed: "The audio brief for these pageviews could not be published.",
+} as const;
+
 export default function TrendingPage() {
   const { rate, setRate } = usePlaybackRate();
   const [articles, setArticles] = useState<TrendingArticle[]>([]);
@@ -224,9 +230,7 @@ export default function TrendingPage() {
               briefState.status === "pending" ||
               briefState.status === "failed") ? (
             <p className="mb-6 text-sm leading-[1.6] text-muted">
-              {briefState.status === "failed"
-                ? "Today\u2019s audio brief couldn\u2019t be published yet; Curio Garden will retry in the background."
-                : "Today\u2019s audio brief is still being prepared."}{" "}
+              {briefStatusMessage[briefState.status]}{" "}
               <Link href="/podcasts/trending" className="text-accent underline">
                 Listen to earlier briefs
               </Link>
