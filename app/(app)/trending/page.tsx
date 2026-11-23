@@ -9,10 +9,13 @@ import { usePlaybackRate } from "@/hooks/usePlaybackRate";
 import { formatUtcCalendarDate } from "@/lib/date-format";
 
 const briefStatusMessage = {
+  disabled: "",
+  ready: "",
   missing: "The audio brief for these pageviews has not been published yet.",
   pending: "The audio brief for these pageviews is being prepared.",
   failed: "The audio brief for these pageviews could not be published.",
 } as const;
+type BriefStatus = keyof typeof briefStatusMessage;
 
 export default function TrendingPage() {
   const { rate, setRate } = usePlaybackRate();
@@ -27,11 +30,7 @@ export default function TrendingPage() {
     model?: string;
     audioUrl: string | null;
   } | null>(null);
-  const [briefState, setBriefState] = useState<{
-    enabled: boolean;
-    status: "disabled" | "missing" | "pending" | "failed" | "ready";
-    lastError?: string;
-  } | null>(null);
+  const [briefStatus, setBriefStatus] = useState<BriefStatus>("disabled");
   const [briefLoading, setBriefLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
@@ -74,8 +73,7 @@ export default function TrendingPage() {
 
         const data = (await response.json()) as {
           enabled: boolean;
-          status?: "disabled" | "missing" | "pending" | "failed" | "ready";
-          lastError?: string;
+          status?: BriefStatus;
           brief?: {
             headline?: string;
             summary?: string;
@@ -87,11 +85,7 @@ export default function TrendingPage() {
         };
 
         if (cancelled) return;
-        setBriefState({
-          enabled: data.enabled,
-          status: data.status ?? "missing",
-          lastError: data.lastError,
-        });
+        setBriefStatus(data.enabled ? (data.status ?? "missing") : "disabled");
         setBrief(data.brief ?? null);
       } catch {
         // Non-critical enhancement; fail quietly.
@@ -106,6 +100,7 @@ export default function TrendingPage() {
   }, []);
 
   const skeletonCount = 12;
+  const availability = brief ? "" : briefStatusMessage[briefStatus];
 
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
@@ -225,17 +220,20 @@ export default function TrendingPage() {
                 </div>
               )}
             </section>
-          ) : briefState?.enabled &&
-            (briefState.status === "missing" ||
-              briefState.status === "pending" ||
-              briefState.status === "failed") ? (
-            <p className="mb-6 text-sm leading-[1.6] text-muted">
-              {briefStatusMessage[briefState.status]}{" "}
-              <Link href="/podcasts/trending" className="text-accent underline">
-                Listen to earlier briefs
-              </Link>
-            </p>
           ) : null}
+          <p className={availability ? "mb-6 text-sm leading-[1.6] text-muted" : "m-0"}>
+            <span role="status" aria-label="Audio brief availability">
+              {availability}
+            </span>
+            {availability && (
+              <>
+                {" "}
+                <Link href="/podcasts/trending" className="text-accent underline">
+                  Listen to earlier briefs
+                </Link>
+              </>
+            )}
+          </p>
 
           {loading ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

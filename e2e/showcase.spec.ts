@@ -1000,6 +1000,23 @@ test("ordinary editorial photos fill their frames without blurred bars", async (
   });
 });
 
+test("trending announces availability in an existing status region", async ({ page }) => {
+  await mockHomeData(page);
+  const response = Promise.withResolvers<void>();
+  await page.route("**/api/trending/brief", async (route) => {
+    await response.promise;
+    await route.fulfill({ json: { enabled: true, status: "missing", brief: null } });
+  });
+  await page.goto("/trending");
+  const status = page.getByRole("status", { name: "Audio brief availability" });
+  await expect(status).toBeEmpty();
+  const original = await status.evaluateHandle((element) => element);
+  response.resolve();
+  await expect(status).toHaveText("The audio brief for these pageviews has not been published yet.");
+  expect(await original.evaluate((element) => element.isConnected)).toBe(true);
+  await expect(page.getByRole("link", { name: "Listen to earlier briefs" })).toHaveAttribute("href", "/podcasts/trending");
+});
+
 test.describe("date-only labels stay on the Wikimedia calendar date", () => {
   test.describe("west of UTC", () => {
     test.use({ timezoneId: "America/Chicago" });
