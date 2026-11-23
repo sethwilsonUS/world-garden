@@ -27,7 +27,13 @@ const AccountDataIcon = () => (
   </svg>
 );
 
-export const AuthNavControls = ({ mobile = false }: { mobile?: boolean }) => {
+export const AuthNavControls = ({
+  mobile = false,
+  onSignIn,
+}: {
+  mobile?: boolean;
+  onSignIn?: () => void;
+}) => {
   const wrapperClass = mobile
     ? "flex flex-col gap-2"
     : "flex items-center gap-2 pl-1";
@@ -39,7 +45,9 @@ export const AuthNavControls = ({ mobile = false }: { mobile?: boolean }) => {
     <div className={wrapperClass}>
       <Show when="signed-out">
         <SignInButton>
-          <button className={buttonClass}>Sign in</button>
+          <button type="button" className={buttonClass} onClick={onSignIn}>
+            Sign in
+          </button>
         </SignInButton>
       </Show>
 
