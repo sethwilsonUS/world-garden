@@ -1,18 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CURRENT_ON_THIS_DAY_SCHEMA_VERSION } from "./on-this-day-contracts";
+import { DEGRADED_RETRY_COOLDOWN_MS } from "./on-this-day-refresh";
 
-const fetchMutation = vi.fn();
-const fetchQuery = vi.fn();
-const buildOnThisDaySnapshot = vi.fn();
-const getTodayWikipediaData = vi.fn();
+const {
+  fetchMutation,
+  fetchQuery,
+  buildOnThisDaySnapshot,
+  getTodayWikipediaData,
+} = vi.hoisted(() => ({
+  fetchMutation: vi.fn(),
+  fetchQuery: vi.fn(),
+  buildOnThisDaySnapshot: vi.fn(),
+  getTodayWikipediaData: vi.fn(),
+}));
 
 vi.mock("convex/nextjs", () => ({ fetchMutation, fetchQuery }));
 vi.mock("convex/server", () => ({
   anyApi: {
     onThisDay: {
       getDaySnapshot: "getDaySnapshot",
+      getLegacySnapshotForMonthDay: "getLegacySnapshotForMonthDay",
       listRefreshStates: "listRefreshStates",
       saveDaySnapshot: "saveDaySnapshot",
+      insertDaySnapshotIfMissing: "insertDaySnapshotIfMissing",
       markDayCheckedUnchanged: "markDayCheckedUnchanged",
       recordRefreshFailure: "recordRefreshFailure",
       claimRefreshLease: "claimRefreshLease",
@@ -33,7 +43,12 @@ const makeSnapshot = (monthDay: string, checkedAt = 10_000) => ({
   sourceUrl: `https://en.wikipedia.org/wiki/${monthDay}`,
   categories: {
     selected: [
-      { id: `selected-${monthDay}`, year: 1999, text: `Item ${monthDay}`, pages: [] },
+      {
+        id: `selected-${monthDay}`,
+        year: 1999,
+        text: `Item ${monthDay}`,
+        pages: [],
+      },
     ],
     events: [],
     births: [],
@@ -72,27 +87,22 @@ describe("on-this-day-snapshot", () => {
     const { getOnThisDayDayRecord } = await import("./on-this-day-snapshot");
     const t0 = 1_000_000;
 
-    // Load 10 days
     for (let day = 1; day <= 10; day += 1) {
       await getOnThisDayDayRecord({ day: { month: 1, day }, now: t0 });
     }
     expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(10);
 
-    // Hit day 1 -> cached (moves day 1 to MRU, day 2 is now LRU)
     await getOnThisDayDayRecord({ day: { month: 1, day: 1 }, now: t0 + 1000 });
     expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(10);
 
-    // Load day 11 -> evicts day 2
     await getOnThisDayDayRecord({ day: { month: 1, day: 11 }, now: t0 + 2000 });
     expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(11);
 
-    // Day 1 is still cached; day 2 must rebuild
     await getOnThisDayDayRecord({ day: { month: 1, day: 1 }, now: t0 + 3000 });
     expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(11);
     await getOnThisDayDayRecord({ day: { month: 1, day: 2 }, now: t0 + 3000 });
     expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(12);
 
-    // After 1 hour TTL, day 1 rebuilds
     await getOnThisDayDayRecord({
       day: { month: 1, day: 1 },
       now: t0 + 60 * 60 * 1000 + 10,
@@ -133,14 +143,34 @@ describe("on-this-day-snapshot", () => {
     expect(buildOnThisDaySnapshot).not.toHaveBeenCalled();
   });
 
-  it("builds a fast cold day without image enrichment and saves imagesCheckedAt=0", async () => {
+  it("uses insertDaySnapshotIfMissing for cold builds and returns the winner if another caller published first", async () => {
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
     process.env.TTS_QUOTA_BYPASS_SECRET = "test-secret";
     fetchQuery.mockResolvedValue(null);
-    fetchMutation.mockResolvedValue("day-id");
+
+    const winner = makeSnapshot("03-05", 49_000);
+    winner.categories.selected[0]!.text = "Already enriched winner";
     const cold = makeSnapshot("03-05", 50_000);
     buildOnThisDaySnapshot.mockResolvedValue(cold);
+    fetchMutation.mockResolvedValue({
+      inserted: false,
+      existing: {
+        monthDay: "03-05",
+        schemaVersion: 2,
+        contentHash: "winner-hash",
+        data: winner,
+        state: {
+          monthDay: "03-05",
+          schemaVersion: 2,
+          degraded: false,
+          checkedAt: 49_000,
+          changedAt: 49_000,
+          imagesCheckedAt: 49_000,
+          suspiciousStreak: 0,
+        },
+      },
+    });
 
     const { getOnThisDayDayRecord } = await import("./on-this-day-snapshot");
     const result = await getOnThisDayDayRecord({
@@ -149,23 +179,49 @@ describe("on-this-day-snapshot", () => {
       now: 50_000,
     });
 
-    expect(buildOnThisDaySnapshot).toHaveBeenCalledWith({
-      day: { month: 3, day: 5 },
-      skipImageResolution: true,
-      checkedAt: 50_000,
-    });
     expect(fetchMutation).toHaveBeenCalledWith(
-      "saveDaySnapshot",
+      "insertDaySnapshotIfMissing",
       expect.objectContaining({
         monthDay: "03-05",
         imagesCheckedAt: 0,
         degraded: false,
       }),
     );
-    expect(result?.snapshot).toBe(cold);
+    expect(result?.snapshot.categories.selected[0]?.text).toBe(
+      "Already enriched winner",
+    );
   });
 
-  it("only runs triggerSafetyNetRefresh when the Convex lease is claimed", async () => {
+  it("falls back to legacy onThisDaySnapshots if upstream fails during rollout backfill", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+    const legacySnap = makeSnapshot("03-05", 12_345);
+    fetchQuery.mockImplementation(async (query: string) => {
+      if (query === "getDaySnapshot") return null;
+      if (query === "getLegacySnapshotForMonthDay") {
+        return {
+          feedDate: "2026-03-05",
+          monthDay: "03-05",
+          generatedAt: 12_345,
+          data: legacySnap,
+        };
+      }
+      return null;
+    });
+    buildOnThisDaySnapshot.mockRejectedValue(new Error("Upstream down"));
+
+    const { getOnThisDayDayRecord } = await import("./on-this-day-snapshot");
+    const result = await getOnThisDayDayRecord({
+      day: { month: 3, day: 5 },
+      allowColdBuild: true,
+      now: 50_000,
+    });
+
+    expect(result?.snapshot.monthDay).toBe("03-05");
+    expect(result?.needsSafetyNetRefresh).toBe(true);
+  });
+
+  it("passes retry cooldown atomically to claimRefreshLease in triggerSafetyNetRefresh", async () => {
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
     process.env.TTS_QUOTA_BYPASS_SECRET = "test-secret";
@@ -174,6 +230,13 @@ describe("on-this-day-snapshot", () => {
     const { triggerSafetyNetRefresh } = await import("./on-this-day-snapshot");
     const skipped = await triggerSafetyNetRefresh({ month: 3, day: 5 }, 10_000);
     expect(skipped).toBeNull();
+    expect(fetchMutation).toHaveBeenCalledWith(
+      "claimRefreshLease",
+      expect.objectContaining({
+        monthDay: "03-05",
+        minRetryIntervalMs: DEGRADED_RETRY_COOLDOWN_MS,
+      }),
+    );
     expect(buildOnThisDaySnapshot).not.toHaveBeenCalled();
   });
 });

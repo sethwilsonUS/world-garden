@@ -43,11 +43,26 @@ describe("/on-this-day/[day] route", () => {
     expect(meta.alternates?.canonical).toBe("/on-this-day/march-5");
   });
 
-  it("permanently redirects non-canonical slugs like 03-05 to /on-this-day/march-5", async () => {
+  it("permanently redirects non-canonical slugs like 03-05 while preserving category and order", async () => {
     await expect(
       OnThisDayCalendarPage({ params: Promise.resolve({ day: "03-05" }) }),
     ).rejects.toThrow("NEXT_PERMANENT_REDIRECT:/on-this-day/march-5");
     expect(permanentRedirectMock).toHaveBeenCalledWith("/on-this-day/march-5");
+
+    await expect(
+      OnThisDayCalendarPage({
+        params: Promise.resolve({ day: "03-05" }),
+        searchParams: Promise.resolve({
+          category: "births",
+          order: "oldest",
+        }),
+      }),
+    ).rejects.toThrow(
+      "NEXT_PERMANENT_REDIRECT:/on-this-day/march-5?category=births&order=oldest",
+    );
+    expect(permanentRedirectMock).toHaveBeenCalledWith(
+      "/on-this-day/march-5?category=births&order=oldest",
+    );
   });
 
   it("returns 404 via notFound() for invalid calendar slugs", async () => {

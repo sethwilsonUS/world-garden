@@ -24,6 +24,24 @@ const NORMAL_CACHE_HEADERS = {
     "public, max-age=900, s-maxage=3600, stale-while-revalidate=86400",
 } as const;
 
+const buildUndatedCacheHeaders = (nowMs = Date.now()): { "Cache-Control": string } => {
+  const now = new Date(nowMs);
+  const nextUtcMidnightMs = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+  );
+  const secondsUntilMidnight = Math.max(
+    1,
+    Math.floor((nextUtcMidnightMs - nowMs) / 1000),
+  );
+  const sMaxAge = Math.min(3600, secondsUntilMidnight);
+  const maxAge = Math.min(900, sMaxAge);
+  return {
+    "Cache-Control": `public, max-age=${maxAge}, s-maxage=${sMaxAge}`,
+  };
+};
+
 const parseInteger = (
   value: string | null,
   fallback: number,
@@ -34,21 +52,31 @@ const parseInteger = (
   return Number.isSafeInteger(parsed) ? parsed : null;
 };
 
-const resolveRequestedDay = (params: URLSearchParams): CalendarDay | null => {
+const resolveRequestedDay = (
+  params: URLSearchParams,
+  now = new Date(),
+): { day: CalendarDay | null; isExplicitDay: boolean } => {
   const dayParam = params.get("day");
   if (dayParam != null) {
-    return parseCalendarDayKey(dayParam);
+    return { day: parseCalendarDayKey(dayParam), isExplicitDay: true };
   }
   const legacyDateParam = params.get("date");
   if (legacyDateParam != null) {
-    return parseLegacyFeedDateToCalendarDay(legacyDateParam);
+    return {
+      day: parseLegacyFeedDateToCalendarDay(legacyDateParam),
+      isExplicitDay: true,
+    };
   }
-  return calendarDayFromUtcDate();
+  return { day: calendarDayFromUtcDate(now), isExplicitDay: false };
 };
 
 export const GET = async (request: NextRequest) => {
+  const nowMs = Date.now();
   const params = request.nextUrl.searchParams;
-  const requestedDay = resolveRequestedDay(params);
+  const { day: requestedDay, isExplicitDay } = resolveRequestedDay(
+    params,
+    new Date(nowMs),
+  );
   const categoryValue = params.get("category") ?? "selected";
   const orderValue = params.get("order") ?? "newest";
   const offset = parseInteger(params.get("offset"), 0);
@@ -72,6 +100,7 @@ export const GET = async (request: NextRequest) => {
     const record = await getOnThisDayDayRecord({
       day: requestedDay,
       allowColdBuild: true,
+      now: nowMs,
     });
     if (!record) {
       return NextResponse.json(
@@ -110,9 +139,13 @@ export const GET = async (request: NextRequest) => {
       degraded: record.degraded,
     });
 
-    return NextResponse.json(body, {
-      headers: record.degraded ? NO_CACHE_HEADERS : NORMAL_CACHE_HEADERS,
-    });
+    const headers = record.degraded
+      ? NO_CACHE_HEADERS
+      : isExplicitDay
+        ? NORMAL_CACHE_HEADERS
+        : buildUndatedCacheHeaders(nowMs);
+
+    return NextResponse.json(body, { headers });
   } catch (error) {
     console.error(
       `[/api/on-this-day] ${error instanceof Error ? error.message : String(error)}`,

@@ -88,10 +88,12 @@ describe("GET /api/on-this-day", () => {
     expect(response.headers.get("cache-control")).toBe(
       "public, max-age=900, s-maxage=3600, stale-while-revalidate=86400",
     );
-    expect(getOnThisDayDayRecord).toHaveBeenCalledWith({
-      day: { month: 7, day: 30 },
-      allowColdBuild: true,
-    });
+    expect(getOnThisDayDayRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        day: { month: 7, day: 30 },
+        allowColdBuild: true,
+      }),
+    );
     expect(afterMock).not.toHaveBeenCalled();
     expect(body).toMatchObject({
       calendarDay: "07-30",
@@ -108,6 +110,23 @@ describe("GET /api/on-this-day", () => {
     expect(body.items[0].year).toBe(1900);
   });
 
+  it("caps Cache-Control at UTC midnight for undated requests so caches cannot cross midnight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T23:59:00Z"));
+    try {
+      const { GET } = await import("./route");
+      const response = await GET(
+        new NextRequest("https://curiogarden.org/api/on-this-day"),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe(
+        "public, max-age=60, s-maxage=60",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("maps legacy date=YYYY-MM-DD parameters for one-release backwards compatibility", async () => {
     const { GET } = await import("./route");
     const response = await GET(
@@ -116,10 +135,12 @@ describe("GET /api/on-this-day", () => {
       ),
     );
     expect(response.status).toBe(200);
-    expect(getOnThisDayDayRecord).toHaveBeenCalledWith({
-      day: { month: 7, day: 30 },
-      allowColdBuild: true,
-    });
+    expect(getOnThisDayDayRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        day: { month: 7, day: 30 },
+        allowColdBuild: true,
+      }),
+    );
   });
 
   it("uses no-store headers for degraded snapshots and schedules safety-net refresh via after()", async () => {

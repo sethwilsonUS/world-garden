@@ -67,6 +67,50 @@ const cacheKey = (
   order: OnThisDayOrder,
 ): string => `${dayKey}:${category}:${category === "holidays" ? "newest" : order}`;
 
+const isNewerServerSnapshot = (
+  incoming: OnThisDayPageResponse,
+  existing: OnThisDayPageResponse | undefined,
+): boolean => {
+  if (!existing) return true;
+  if (incoming.changedAt > existing.changedAt) return true;
+  if (existing.degraded && !incoming.degraded) return true;
+  return false;
+};
+
+const mergeInitialResponseIntoCache = (
+  current: Record<string, OnThisDayPageResponse>,
+  incoming: OnThisDayPageResponse,
+  incomingKey: string,
+): Record<string, OnThisDayPageResponse> => {
+  const existing = current[incomingKey];
+  if (existing && !isNewerServerSnapshot(incoming, existing)) {
+    return current;
+  }
+
+  const dayPrefix = `${incoming.calendarDay}:`;
+  const anyExistingForDay =
+    existing ??
+    Object.values(current).find(
+      (entry) => entry.calendarDay === incoming.calendarDay,
+    );
+  const supersedesDay =
+    anyExistingForDay !== undefined &&
+    isNewerServerSnapshot(incoming, anyExistingForDay);
+
+  if (!supersedesDay) {
+    return { ...current, [incomingKey]: incoming };
+  }
+
+  const next: Record<string, OnThisDayPageResponse> = {};
+  for (const [key, entry] of Object.entries(current)) {
+    if (!key.startsWith(dayPrefix)) {
+      next[key] = entry;
+    }
+  }
+  next[incomingKey] = incoming;
+  return next;
+};
+
 const displayYear = (year: number | undefined): string => {
   if (year == null) return "Annual";
   return year < 0 ? `${Math.abs(year)} BCE` : String(year);
@@ -223,7 +267,7 @@ export const OnThisDayExplorer = ({
     }
   }, [searchParamsString]);
 
-  // Seed shared cache with server-provided initialResponse when available.
+  // Seed or refresh shared cache with server-provided initialResponse when newer.
   const initialResponseKey = initialResponse
     ? cacheKey(
         initialResponse.calendarDay,
@@ -234,9 +278,7 @@ export const OnThisDayExplorer = ({
   useEffect(() => {
     if (!initialResponse || !initialResponseKey) return;
     session.setCache((current) =>
-      current[initialResponseKey]
-        ? current
-        : { ...current, [initialResponseKey]: initialResponse },
+      mergeInitialResponseIntoCache(current, initialResponse, initialResponseKey),
     );
   }, [initialResponse, initialResponseKey, session]);
 
@@ -246,10 +288,12 @@ export const OnThisDayExplorer = ({
   const activeKey = cacheKey(dayKey, activeCategory, activeOrder);
 
   const effectiveCache = useMemo(() => {
-    if (initialResponse && initialResponseKey && !session.cache[initialResponseKey]) {
-      return { ...session.cache, [initialResponseKey]: initialResponse };
-    }
-    return session.cache;
+    if (!initialResponse || !initialResponseKey) return session.cache;
+    return mergeInitialResponseIntoCache(
+      session.cache,
+      initialResponse,
+      initialResponseKey,
+    );
   }, [initialResponse, initialResponseKey, session.cache]);
 
   const activeResponse = effectiveCache[activeKey];
@@ -445,6 +489,29 @@ export const OnThisDayExplorer = ({
   const availableTabs = ON_THIS_DAY_CATEGORIES.filter(
     (category) => metadata?.availableCategories[category] !== false,
   );
+  const fallbackAvailableCategory = availableTabs[0] ?? "selected";
+  const activeCategoryUnavailable =
+    metadata?.availableCategories[activeCategory] === false;
+
+  useEffect(() => {
+    if (!activeCategoryUnavailable) return;
+    if (fallbackAvailableCategory === activeCategory) return;
+    setActiveCategory(fallbackAvailableCategory);
+    syncViewStateToUrl(
+      fallbackAvailableCategory,
+      orders[fallbackAvailableCategory],
+    );
+  }, [
+    activeCategory,
+    activeCategoryUnavailable,
+    fallbackAvailableCategory,
+    orders,
+    syncViewStateToUrl,
+  ]);
+
+  const tabStopCategory = activeCategoryUnavailable
+    ? fallbackAvailableCategory
+    : activeCategory;
 
   const activateCategory = (category: OnThisDayCategory) => {
     if (metadata?.availableCategories[category] === false) return;
@@ -643,7 +710,7 @@ export const OnThisDayExplorer = ({
                     ? `${CATEGORY_LABELS[category]} ${metadata.counts[category]} ${metadata.counts[category] === 1 ? "item" : "items"}`
                     : CATEGORY_LABELS[category]
                 }
-                tabIndex={selected ? 0 : -1}
+                tabIndex={category === tabStopCategory ? 0 : -1}
                 disabled={!available}
                 onClick={() => activateCategory(category)}
                 onKeyDown={(event) => handleTabKeyDown(event, category)}

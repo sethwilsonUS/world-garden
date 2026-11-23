@@ -21,22 +21,31 @@ describe("GET /api/on-this-day/cron", () => {
     vi.clearAllMocks();
     getPodcastAdminAuthError.mockReturnValue(null);
     enforceRouteQuota.mockResolvedValue(null);
-    runOnThisDayRollingRefresh.mockResolvedValue({
-      refreshed: 2,
-      unchanged: 5,
-      degraded: 0,
-      suspicious: 0,
-      failed: 0,
-      refreshedDays: [
-        { month: 3, day: 5 },
-        { month: 11, day: 23 },
-      ],
-      remainingStale: 0,
-      oldestCheckedAt: 1_780_000_000_000,
-    });
+    runOnThisDayRollingRefresh.mockImplementation(
+      async ({ onDayRefreshed }: { onDayRefreshed?: (d: { month: number; day: number }) => void }) => {
+        const refreshedDays = [
+          { month: 3, day: 5 },
+          { month: 11, day: 23 },
+        ];
+        for (const day of refreshedDays) onDayRefreshed?.(day);
+        return {
+          refreshed: 2,
+          unchanged: 5,
+          degraded: 0,
+          skipped: 1,
+          suspicious: 0,
+          failed: 0,
+          refreshedDays,
+          remainingStale: 0,
+          oldestCheckedAt: 1_780_000_000_000,
+          stoppedEarlyReason: "rate-limit",
+          retryAfterSeconds: 600,
+        };
+      },
+    );
   });
 
-  it("runs the rolling refresh worker and revalidates refreshed day pages", async () => {
+  it("runs the rolling refresh worker, propagates retryAfterSeconds, and revalidates refreshed day pages", async () => {
     const { GET } = await import("./route");
     const response = await GET(
       new NextRequest(
@@ -46,9 +55,9 @@ describe("GET /api/on-this-day/cron", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(runOnThisDayRollingRefresh).toHaveBeenCalledWith({
-      budgetSeconds: 180,
-    });
+    expect(runOnThisDayRollingRefresh).toHaveBeenCalledWith(
+      expect.objectContaining({ budgetSeconds: 180 }),
+    );
     expect(revalidatePath).toHaveBeenCalledWith("/on-this-day");
     expect(revalidatePath).toHaveBeenCalledWith("/api/on-this-day");
     expect(revalidatePath).toHaveBeenCalledWith("/on-this-day/march-5");
@@ -56,12 +65,39 @@ describe("GET /api/on-this-day/cron", () => {
     expect(body).toMatchObject({
       refreshed: 2,
       unchanged: 5,
+      skipped: 1,
       remainingStale: 0,
+      stoppedEarlyReason: "rate-limit",
+      retryAfterSeconds: 600,
     });
   });
 
-  it("supports forced single-day refresh for manual review", async () => {
-    refreshSingleOnThisDayCalendarDay.mockResolvedValue({
+  it("still revalidates already-committed days if a later day throws", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      runOnThisDayRollingRefresh.mockImplementationOnce(
+        async ({ onDayRefreshed }: { onDayRefreshed?: (d: { month: number; day: number }) => void }) => {
+          onDayRefreshed?.({ month: 3, day: 5 });
+          throw new Error("Convex transient error on next day");
+        },
+      );
+
+      const { GET } = await import("./route");
+      const response = await GET(
+        new NextRequest("https://curiogarden.org/api/on-this-day/cron"),
+      );
+      expect(response.status).toBe(500);
+      expect(revalidatePath).toHaveBeenCalledWith("/on-this-day");
+      expect(revalidatePath).toHaveBeenCalledWith("/on-this-day/march-5");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("supports forced single-day refresh and returns 409 when lease is held", async () => {
+    refreshSingleOnThisDayCalendarDay.mockResolvedValueOnce({
       status: "refreshed",
       monthDay: "03-05",
       snapshot: { monthDay: "03-05" },
@@ -79,6 +115,16 @@ describe("GET /api/on-this-day/cron", () => {
       force: true,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/on-this-day/march-5");
+
+    refreshSingleOnThisDayCalendarDay.mockResolvedValueOnce({
+      status: "skipped",
+      monthDay: "03-05",
+      reason: "lease-held",
+    });
+    const conflict = await GET(
+      new NextRequest("https://curiogarden.org/api/on-this-day/cron?day=03-05"),
+    );
+    expect(conflict.status).toBe(409);
   });
 
   it("rejects invalid budgetSeconds or day parameters", async () => {

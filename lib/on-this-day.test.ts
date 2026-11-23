@@ -408,6 +408,58 @@ describe("On This Day snapshot", () => {
     ]);
   });
 
+  it("preserves prior resolved image metadata and signals failure when re-resolution throws", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      const { buildOnThisDaySnapshotWithMeta } = await import("./on-this-day");
+      const previousSnapshot = await buildOnThisDaySnapshot({
+        day: { month: 7, day: 24 },
+        provider,
+        resolveImages: vi.fn(async () =>
+          new Map([
+            [
+              "https://upload.wikimedia.org/apollo.jpg",
+              {
+                altText: "Verified Apollo alt text",
+                attribution: {
+                  sourceTitle: "File:Apollo.jpg",
+                  sourceUrl:
+                    "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+                  creator: "NASA",
+                  licenseName: "Public domain",
+                },
+              },
+            ],
+          ]),
+        ),
+        checkedAt: 1_000,
+      });
+
+      const rebuilt = await buildOnThisDaySnapshotWithMeta({
+        day: { month: 7, day: 24 },
+        provider,
+        previousSnapshot,
+        reResolveImages: true,
+        resolveImages: vi.fn(async () => {
+          throw new Error("Commons timed out");
+        }),
+        checkedAt: 2_000,
+      });
+
+      expect(rebuilt.imageResolutionSucceeded).toBe(false);
+      expect(rebuilt.snapshot.categories.selected[0].image?.altText).toBe(
+        "Verified Apollo alt text",
+      );
+      expect(
+        rebuilt.snapshot.categories.selected[0].image?.attribution?.creator,
+      ).toBe("NASA");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("keeps valid events with source-page attribution when metadata resolution fails", async () => {
     const snapshot = await buildOnThisDaySnapshot({
       day: { month: 7, day: 24 },

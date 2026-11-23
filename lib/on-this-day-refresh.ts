@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ALL_CALENDAR_DAYS,
   calendarDayFromUtcDate,
@@ -12,7 +13,7 @@ import {
 import type { WikipediaOnThisDayItem } from "@/lib/featured-article";
 import {
   buildFeaturedOnThisDayFallback,
-  buildOnThisDaySnapshot,
+  buildOnThisDaySnapshotWithMeta,
   hashOnThisDaySnapshot,
   OnThisDayUpstreamError,
   type OnThisDayImageResolver,
@@ -45,6 +46,15 @@ export type StoredOnThisDayDay = {
   state: OnThisDayRefreshState | null;
 };
 
+export type LeaseWriteResult = {
+  applied: boolean;
+  superseded: boolean;
+};
+
+export type InsertIfMissingResult =
+  | { inserted: true }
+  | { inserted: false; existing: StoredOnThisDayDay };
+
 export type OnThisDayRefreshStore = {
   getDaySnapshot(monthDay: string): Promise<StoredOnThisDayDay | null>;
   listRefreshStates(): Promise<OnThisDayRefreshState[]>;
@@ -58,31 +68,58 @@ export type OnThisDayRefreshStore = {
     changedAt: number;
     imagesCheckedAt: number;
     lastAttemptAt: number;
-  }): Promise<void>;
+    leaseToken: string;
+  }): Promise<LeaseWriteResult>;
+  insertDaySnapshotIfMissing?(args: {
+    monthDay: string;
+    schemaVersion: number;
+    data: OnThisDaySnapshot;
+    contentHash: string;
+    degraded: boolean;
+    checkedAt: number;
+    changedAt: number;
+    imagesCheckedAt: number;
+    lastAttemptAt: number;
+  }): Promise<InsertIfMissingResult>;
   markDayCheckedUnchanged(args: {
     monthDay: string;
     schemaVersion: number;
     checkedAt: number;
     imagesCheckedAt: number;
     lastAttemptAt: number;
-  }): Promise<void>;
+    leaseToken: string;
+  }): Promise<LeaseWriteResult>;
   recordRefreshFailure(args: {
     monthDay: string;
     lastAttemptAt: number;
     lastError: string;
     suspicious: boolean;
-  }): Promise<{ suspiciousStreak: number }>;
+    leaseToken: string;
+  }): Promise<LeaseWriteResult & { suspiciousStreak: number }>;
   claimRefreshLease(args: {
     monthDay: string;
     now: number;
     ttlMs: number;
+    leaseToken: string;
+    minRetryIntervalMs?: number;
   }): Promise<boolean>;
 };
 
 export type RefreshCalendarDayResult =
   | { status: "refreshed"; monthDay: string; snapshot: OnThisDaySnapshot }
   | { status: "unchanged"; monthDay: string; snapshot: OnThisDaySnapshot }
-  | { status: "degraded"; monthDay: string; snapshot: OnThisDaySnapshot }
+  | {
+      status: "degraded";
+      monthDay: string;
+      snapshot: OnThisDaySnapshot;
+      isRateLimited: boolean;
+      retryAfterSeconds?: number;
+    }
+  | {
+      status: "skipped";
+      monthDay: string;
+      reason: "lease-held" | "lease-superseded";
+    }
   | {
       status: "suspicious";
       monthDay: string;
@@ -97,16 +134,16 @@ export type RefreshCalendarDayResult =
       retryAfterSeconds?: number;
     };
 
+/**
+ * Checks for an unexpected >50% shrink in any populated category relative to a
+ * previously stored non-degraded Snapshot. Missing categories are rejected
+ * earlier as a hard upstream contract failure in `buildOnThisDaySnapshotWithMeta`
+ * and cannot be bypassed with `force`.
+ */
 export const detectSuspiciousRefresh = (
   previous: OnThisDaySnapshot | null,
   next: OnThisDaySnapshot,
 ): string | null => {
-  for (const category of ON_THIS_DAY_CATEGORIES) {
-    if (!Array.isArray(next.categories[category])) {
-      return `Missing ${category} category in Wikipedia response.`;
-    }
-  }
-
   if (!previous || previous.provider === "featured-fallback") {
     return null;
   }
@@ -276,6 +313,8 @@ export const refreshCalendarDay = async (
     getFeaturedItems,
     now = Date.now(),
     force = false,
+    minRetryIntervalMs,
+    leaseToken = randomUUID(),
   }: {
     store: OnThisDayRefreshStore;
     provider?: OnThisDayProvider;
@@ -285,9 +324,22 @@ export const refreshCalendarDay = async (
     ) => Promise<WikipediaOnThisDayItem[] | null>;
     now?: number;
     force?: boolean;
+    minRetryIntervalMs?: number;
+    leaseToken?: string;
   },
 ): Promise<RefreshCalendarDayResult> => {
   const monthDay = calendarDayKey(day);
+  const claimed = await store.claimRefreshLease({
+    monthDay,
+    now,
+    ttlMs: REFRESH_LEASE_TTL_MS,
+    leaseToken,
+    ...(minRetryIntervalMs != null ? { minRetryIntervalMs } : {}),
+  });
+  if (!claimed) {
+    return { status: "skipped", monthDay, reason: "lease-held" };
+  }
+
   const existing = await store.getDaySnapshot(monthDay);
   const previousSnapshot = existing?.data ?? null;
   const previousState = existing?.state ?? null;
@@ -299,14 +351,15 @@ export const refreshCalendarDay = async (
     now - previousState.imagesCheckedAt > IMAGE_RE_RESOLVE_MAX_AGE_MS;
 
   try {
-    const nextSnapshot = await buildOnThisDaySnapshot({
-      day,
-      provider,
-      resolveImages,
-      previousSnapshot,
-      reResolveImages: shouldReResolveImages,
-      checkedAt: now,
-    });
+    const { snapshot: nextSnapshot, imageResolutionSucceeded } =
+      await buildOnThisDaySnapshotWithMeta({
+        day,
+        provider,
+        resolveImages,
+        previousSnapshot,
+        reResolveImages: shouldReResolveImages,
+        checkedAt: now,
+      });
 
     if (!force) {
       const suspiciousReason = detectSuspiciousRefresh(
@@ -314,34 +367,39 @@ export const refreshCalendarDay = async (
         nextSnapshot,
       );
       if (suspiciousReason) {
-        const { suspiciousStreak } = await store.recordRefreshFailure({
+        const failure = await store.recordRefreshFailure({
           monthDay,
           lastAttemptAt: now,
           lastError: suspiciousReason,
           suspicious: true,
+          leaseToken,
         });
-        if (suspiciousStreak >= 3) {
+        if (!failure.applied) {
+          return { status: "skipped", monthDay, reason: "lease-superseded" };
+        }
+        if (failure.suspiciousStreak >= 3) {
           console.error(
-            `[on-this-day] Manual review needed for ${monthDay} (suspicious streak ${suspiciousStreak}): ${suspiciousReason}`,
+            `[on-this-day] Manual review needed for ${monthDay} (suspicious streak ${failure.suspiciousStreak}): ${suspiciousReason}`,
           );
         } else {
           console.warn(
-            `[on-this-day] Rejected suspicious refresh for ${monthDay} (streak ${suspiciousStreak}): ${suspiciousReason}`,
+            `[on-this-day] Rejected suspicious refresh for ${monthDay} (streak ${failure.suspiciousStreak}): ${suspiciousReason}`,
           );
         }
         return {
           status: "suspicious",
           monthDay,
           reason: suspiciousReason,
-          suspiciousStreak,
+          suspiciousStreak: failure.suspiciousStreak,
         };
       }
     }
 
     const nextHash = hashOnThisDaySnapshot(nextSnapshot);
-    const nextImagesCheckedAt = shouldReResolveImages
-      ? now
-      : (previousState?.imagesCheckedAt ?? now);
+    const nextImagesCheckedAt =
+      shouldReResolveImages && imageResolutionSucceeded
+        ? now
+        : (previousState?.imagesCheckedAt ?? 0);
 
     const isUnchanged =
       existing !== null &&
@@ -352,13 +410,17 @@ export const refreshCalendarDay = async (
       previousState.schemaVersion === CURRENT_ON_THIS_DAY_SCHEMA_VERSION;
 
     if (isUnchanged) {
-      await store.markDayCheckedUnchanged({
+      const result = await store.markDayCheckedUnchanged({
         monthDay,
         schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
         checkedAt: now,
         imagesCheckedAt: nextImagesCheckedAt,
         lastAttemptAt: now,
+        leaseToken,
       });
+      if (!result.applied) {
+        return { status: "skipped", monthDay, reason: "lease-superseded" };
+      }
       return {
         status: "unchanged",
         monthDay,
@@ -366,7 +428,7 @@ export const refreshCalendarDay = async (
       };
     }
 
-    await store.saveDaySnapshot({
+    const saved = await store.saveDaySnapshot({
       monthDay,
       schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
       data: nextSnapshot,
@@ -376,7 +438,11 @@ export const refreshCalendarDay = async (
       changedAt: now,
       imagesCheckedAt: nextImagesCheckedAt,
       lastAttemptAt: now,
+      leaseToken,
     });
+    if (!saved.applied) {
+      return { status: "skipped", monthDay, reason: "lease-superseded" };
+    }
 
     return {
       status: "refreshed",
@@ -405,7 +471,7 @@ export const refreshCalendarDay = async (
           items,
           checkedAt: now,
         });
-        await store.saveDaySnapshot({
+        const saved = await store.saveDaySnapshot({
           monthDay,
           schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
           data: degradedSnapshot,
@@ -415,11 +481,17 @@ export const refreshCalendarDay = async (
           changedAt: now,
           imagesCheckedAt: 0,
           lastAttemptAt: now,
+          leaseToken,
         });
+        if (!saved.applied) {
+          return { status: "skipped", monthDay, reason: "lease-superseded" };
+        }
         return {
           status: "degraded",
           monthDay,
           snapshot: degradedSnapshot,
+          isRateLimited,
+          ...(retryAfterSeconds != null ? { retryAfterSeconds } : {}),
         };
       }
     }
@@ -429,6 +501,7 @@ export const refreshCalendarDay = async (
       lastAttemptAt: now,
       lastError: message,
       suspicious: false,
+      leaseToken,
     });
 
     return {
@@ -436,7 +509,7 @@ export const refreshCalendarDay = async (
       monthDay,
       error: message,
       isRateLimited,
-      retryAfterSeconds,
+      ...(retryAfterSeconds != null ? { retryAfterSeconds } : {}),
     };
   }
 };
@@ -445,12 +518,14 @@ export type RollingRefreshSummary = {
   refreshed: number;
   unchanged: number;
   degraded: number;
+  skipped: number;
   suspicious: number;
   failed: number;
   refreshedDays: CalendarDay[];
   remainingStale: number;
   oldestCheckedAt: number | null;
   stoppedEarlyReason?: "budget" | "rate-limit";
+  retryAfterSeconds?: number;
 };
 
 const defaultSleep = async (ms: number): Promise<void> => {
@@ -467,6 +542,7 @@ export const runRollingRefreshWorker = async ({
   interDayPauseMs = DEFAULT_WORKER_INTER_DAY_PAUSE_MS,
   nowFn = () => Date.now(),
   sleep = defaultSleep,
+  onDayRefreshed,
 }: {
   store: OnThisDayRefreshStore;
   provider?: OnThisDayProvider;
@@ -478,6 +554,7 @@ export const runRollingRefreshWorker = async ({
   interDayPauseMs?: number;
   nowFn?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  onDayRefreshed?: (day: CalendarDay) => void;
 }): Promise<RollingRefreshSummary> => {
   const startMs = nowFn();
   const deadlineMs = startMs + budgetSeconds * 1000;
@@ -487,10 +564,12 @@ export const runRollingRefreshWorker = async ({
   let refreshed = 0;
   let unchanged = 0;
   let degraded = 0;
+  let skipped = 0;
   let suspicious = 0;
   let failed = 0;
   let consecutiveRateLimits = 0;
   let stoppedEarlyReason: RollingRefreshSummary["stoppedEarlyReason"];
+  let pendingRetryAfterSeconds: number | undefined;
   const refreshedDays: CalendarDay[] = [];
 
   for (let index = 0; index < queue.length; index += 1) {
@@ -513,30 +592,40 @@ export const runRollingRefreshWorker = async ({
       refreshed += 1;
       consecutiveRateLimits = 0;
       refreshedDays.push(day);
+      onDayRefreshed?.(day);
     } else if (result.status === "unchanged") {
       unchanged += 1;
       consecutiveRateLimits = 0;
-    } else if (result.status === "degraded") {
-      degraded += 1;
-      consecutiveRateLimits = 0;
-      refreshedDays.push(day);
+    } else if (result.status === "skipped") {
+      skipped += 1;
+      continue;
     } else if (result.status === "suspicious") {
       suspicious += 1;
       consecutiveRateLimits = 0;
     } else {
-      failed += 1;
+      if (result.status === "degraded") {
+        degraded += 1;
+        refreshedDays.push(day);
+        onDayRefreshed?.(day);
+      } else {
+        failed += 1;
+      }
+
       if (result.isRateLimited) {
         consecutiveRateLimits += 1;
+        const requestedBackoffSeconds = result.retryAfterSeconds ?? 5;
         if (consecutiveRateLimits >= MAX_CONSECUTIVE_RATE_LIMITS) {
           stoppedEarlyReason = "rate-limit";
+          pendingRetryAfterSeconds = requestedBackoffSeconds;
           break;
         }
         const retryWaitMs = Math.max(
           interDayPauseMs,
-          (result.retryAfterSeconds ?? 5) * 1000,
+          requestedBackoffSeconds * 1000,
         );
         if (nowFn() + retryWaitMs >= deadlineMs) {
           stoppedEarlyReason = "rate-limit";
+          pendingRetryAfterSeconds = requestedBackoffSeconds;
           break;
         }
         await sleep(retryWaitMs);
@@ -571,11 +660,15 @@ export const runRollingRefreshWorker = async ({
     refreshed,
     unchanged,
     degraded,
+    skipped,
     suspicious,
     failed,
     refreshedDays,
     remainingStale: postSelection.queue.length,
     oldestCheckedAt: postSelection.oldestCheckedAt,
     ...(stoppedEarlyReason ? { stoppedEarlyReason } : {}),
+    ...(pendingRetryAfterSeconds != null
+      ? { retryAfterSeconds: pendingRetryAfterSeconds }
+      : {}),
   };
 };

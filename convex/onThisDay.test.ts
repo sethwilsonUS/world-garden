@@ -3,6 +3,8 @@ import { createPublicAudioWriteAttestation } from "../lib/public-audio-write-att
 import {
   claimRefreshLease,
   getDaySnapshot,
+  getLegacySnapshotForMonthDay,
+  insertDaySnapshotIfMissing,
   listRefreshStates,
   markDayCheckedUnchanged,
   recordRefreshFailure,
@@ -16,7 +18,7 @@ afterEach(() => {
 });
 
 describe("Convex On This Day storage", () => {
-  it("inserts a unique living snapshot and refresh state per monthDay", async () => {
+  it("inserts a unique living snapshot when leaseToken matches", async () => {
     process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
     const writeArgs = {
       monthDay: "03-05",
@@ -33,6 +35,7 @@ describe("Convex On This Day storage", () => {
       changedAt: 1_780_000_000_000,
       imagesCheckedAt: 1_780_000_000_000,
       lastAttemptAt: 1_780_000_000_000,
+      leaseToken: "lease-1",
     };
     const attestation = await createPublicAudioWriteAttestation({
       pipeline: "on-this-day",
@@ -40,21 +43,33 @@ describe("Convex On This Day storage", () => {
       args: writeArgs,
     });
     const insert = vi.fn(async (table: string) => `${table}-id`);
+    const patch = vi.fn(async () => undefined);
     const handler = registeredInvoker(saveDaySnapshot);
 
     await expect(
       handler(
         {
           db: {
-            query: vi.fn(() => ({
-              withIndex: vi.fn(() => ({ first: vi.fn(async () => null) })),
+            query: vi.fn((table: string) => ({
+              withIndex: vi.fn(() => ({
+                first: vi.fn(async () =>
+                  table === "onThisDayRefreshState"
+                    ? { _id: "state-1", refreshLeaseToken: "lease-1" }
+                    : null,
+                ),
+              })),
             })),
             insert,
+            patch,
           },
         },
         { ...writeArgs, attestation },
       ),
-    ).resolves.toBe("onThisDayDays-id");
+    ).resolves.toEqual({
+      applied: true,
+      superseded: false,
+      id: "onThisDayDays-id",
+    });
 
     expect(insert).toHaveBeenCalledWith(
       "onThisDayDays",
@@ -64,76 +79,187 @@ describe("Convex On This Day storage", () => {
         contentHash: "hash-a",
       }),
     );
-    expect(insert).toHaveBeenCalledWith(
-      "onThisDayRefreshState",
+    expect(patch).toHaveBeenCalledWith(
+      "state-1",
       expect.objectContaining({
-        monthDay: "03-05",
         degraded: false,
         suspiciousStreak: 0,
+        refreshLeaseToken: undefined,
+        refreshLeaseUntil: undefined,
       }),
     );
   });
 
-  it("overwrites the existing Calendar Day row idempotently on refresh", async () => {
+  it("rejects stale saveDaySnapshot, markDayCheckedUnchanged, and recordRefreshFailure from superseded leases", async () => {
+    process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
+    const patch = vi.fn();
+    const insert = vi.fn();
+    const dbWithOtherOwner = {
+      query: vi.fn((table: string) => ({
+        withIndex: vi.fn(() => ({
+          first: vi.fn(async () =>
+            table === "onThisDayRefreshState"
+              ? {
+                  _id: "state-1",
+                  refreshLeaseToken: "worker-b-token",
+                  suspiciousStreak: 1,
+                }
+              : { _id: "day-1" },
+          ),
+        })),
+      })),
+      patch,
+      insert,
+    };
+
+    const saveArgs = {
+      monthDay: "03-05",
+      schemaVersion: 2,
+      data: { monthDay: "03-05" },
+      contentHash: "hash-stale",
+      degraded: false,
+      checkedAt: 1000,
+      changedAt: 1000,
+      imagesCheckedAt: 1000,
+      lastAttemptAt: 1000,
+      leaseToken: "worker-a-stale-token",
+    };
+    const saveAtt = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "save-record",
+      args: saveArgs,
+    });
+    await expect(
+      registeredInvoker(saveDaySnapshot)(
+        { db: dbWithOtherOwner },
+        { ...saveArgs, attestation: saveAtt },
+      ),
+    ).resolves.toEqual({ applied: false, superseded: true });
+
+    const touchArgs = {
+      monthDay: "03-05",
+      schemaVersion: 2,
+      checkedAt: 1000,
+      imagesCheckedAt: 1000,
+      lastAttemptAt: 1000,
+      leaseToken: "worker-a-stale-token",
+    };
+    const touchAtt = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "finalize-job",
+      args: touchArgs,
+    });
+    await expect(
+      registeredInvoker(markDayCheckedUnchanged)(
+        { db: dbWithOtherOwner },
+        { ...touchArgs, attestation: touchAtt },
+      ),
+    ).resolves.toEqual({ applied: false, superseded: true });
+
+    const failArgs = {
+      monthDay: "03-05",
+      lastAttemptAt: 1000,
+      lastError: "Late error",
+      suspicious: true,
+      leaseToken: "worker-a-stale-token",
+    };
+    const failAtt = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "upsert-job",
+      args: failArgs,
+    });
+    await expect(
+      registeredInvoker(recordRefreshFailure)(
+        { db: dbWithOtherOwner },
+        { ...failArgs, attestation: failAtt },
+      ),
+    ).resolves.toEqual({
+      applied: false,
+      superseded: true,
+      suspiciousStreak: 1,
+    });
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("insertDaySnapshotIfMissing inserts only when missing and returns existing data otherwise", async () => {
     process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
     const writeArgs = {
       monthDay: "03-05",
       schemaVersion: 2,
-      data: {
-        schemaVersion: 2,
-        provider: "wikipedia-rest-v1",
-        monthDay: "03-05",
-        categories: { selected: [{ id: "fresh" }] },
-      },
-      contentHash: "hash-b",
-      degraded: false,
-      checkedAt: 1_780_000_100_000,
-      changedAt: 1_780_000_100_000,
-      imagesCheckedAt: 1_780_000_000_000,
-      lastAttemptAt: 1_780_000_100_000,
+      data: { monthDay: "03-05", provider: "featured-fallback" },
+      contentHash: "cold-hash",
+      degraded: true,
+      checkedAt: 2000,
+      changedAt: 2000,
+      imagesCheckedAt: 0,
+      lastAttemptAt: 2000,
     };
     const attestation = await createPublicAudioWriteAttestation({
       pipeline: "on-this-day",
       operation: "save-record",
       args: writeArgs,
     });
-    const patch = vi.fn(async () => undefined);
-    const insert = vi.fn();
-    const handler = registeredInvoker(saveDaySnapshot);
+    const handler = registeredInvoker(insertDaySnapshotIfMissing);
 
-    await expect(
-      handler(
-        {
-          db: {
-            query: vi.fn((table: string) => ({
-              withIndex: vi.fn(() => ({
-                first: vi.fn(async () => ({ _id: `${table}-existing` })),
-              })),
+    // Already published -> returns existing without overwriting.
+    const insertExisting = vi.fn();
+    const patchExisting = vi.fn();
+    const resExisting = await handler(
+      {
+        db: {
+          query: vi.fn((table: string) => ({
+            withIndex: vi.fn(() => ({
+              first: vi.fn(async () =>
+                table === "onThisDayDays"
+                  ? {
+                      monthDay: "03-05",
+                      schemaVersion: 2,
+                      contentHash: "full-hash",
+                      data: { monthDay: "03-05", provider: "wikipedia-rest-v1" },
+                    }
+                  : {
+                      monthDay: "03-05",
+                      schemaVersion: 2,
+                      degraded: false,
+                      checkedAt: 1900,
+                      changedAt: 1900,
+                      imagesCheckedAt: 1900,
+                      suspiciousStreak: 0,
+                    },
+              ),
             })),
-            patch,
-            insert,
-          },
+          })),
+          insert: insertExisting,
+          patch: patchExisting,
         },
-        { ...writeArgs, attestation },
-      ),
-    ).resolves.toBe("onThisDayDays-existing");
+      },
+      { ...writeArgs, attestation },
+    );
 
-    expect(insert).not.toHaveBeenCalled();
-    expect(patch).toHaveBeenCalledWith(
-      "onThisDayDays-existing",
-      expect.objectContaining({
-        contentHash: "hash-b",
-        data: writeArgs.data,
-      }),
+    expect(resExisting).toMatchObject({
+      inserted: false,
+      existing: { contentHash: "full-hash" },
+    });
+    expect(insertExisting).not.toHaveBeenCalled();
+    expect(patchExisting).not.toHaveBeenCalled();
+
+    // Missing -> inserts day and state.
+    const insertMissing = vi.fn(async () => "new-id");
+    const resMissing = await handler(
+      {
+        db: {
+          query: vi.fn(() => ({
+            withIndex: vi.fn(() => ({ first: vi.fn(async () => null) })),
+          })),
+          insert: insertMissing,
+        },
+      },
+      { ...writeArgs, attestation },
     );
-    expect(patch).toHaveBeenCalledWith(
-      "onThisDayRefreshState-existing",
-      expect.objectContaining({
-        checkedAt: writeArgs.checkedAt,
-        changedAt: writeArgs.changedAt,
-        suspiciousStreak: 0,
-      }),
-    );
+    expect(resMissing).toEqual({ inserted: true });
+    expect(insertMissing).toHaveBeenCalledTimes(2);
   });
 
   it("rejects unattested writes", async () => {
@@ -149,6 +275,7 @@ describe("Convex On This Day storage", () => {
           checkedAt: 1000,
           imagesCheckedAt: 1000,
           lastAttemptAt: 1000,
+          leaseToken: "lease-1",
           attestation: {
             issuedAt: Date.now(),
             expiresAt: Date.now() + 60_000,
@@ -160,106 +287,24 @@ describe("Convex On This Day storage", () => {
     ).rejects.toThrow("valid server attestation");
   });
 
-  it("patches checkedAt without rewriting snapshot data when unchanged", async () => {
+  it("enforces exclusive lease and atomic retry cooldown in claimRefreshLease", async () => {
     process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
-    const writeArgs = {
-      monthDay: "03-05",
-      schemaVersion: 2,
-      checkedAt: 2_000,
-      imagesCheckedAt: 1_500,
-      lastAttemptAt: 2_000,
-    };
-    const attestation = await createPublicAudioWriteAttestation({
-      pipeline: "on-this-day",
-      operation: "finalize-job",
-      args: writeArgs,
-    });
-    const patch = vi.fn(async () => undefined);
-    const handler = registeredInvoker(markDayCheckedUnchanged);
-
-    await handler(
-      {
-        db: {
-          query: vi.fn(() => ({
-            withIndex: vi.fn(() => ({
-              first: vi.fn(async () => ({ _id: "state-1" })),
-            })),
-          })),
-          patch,
-        },
-      },
-      { ...writeArgs, attestation },
-    );
-
-    expect(patch).toHaveBeenCalledWith(
-      "state-1",
-      expect.objectContaining({
-        checkedAt: 2_000,
-        imagesCheckedAt: 1_500,
-        suspiciousStreak: 0,
-      }),
-    );
-  });
-
-  it("increments suspiciousStreak on suspicious failures without touching snapshots", async () => {
-    process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
-    const writeArgs = {
-      monthDay: "03-05",
-      lastAttemptAt: 3_000,
-      lastError: "Suspicious shrink in events",
-      suspicious: true,
-    };
-    const attestation = await createPublicAudioWriteAttestation({
-      pipeline: "on-this-day",
-      operation: "upsert-job",
-      args: writeArgs,
-    });
-    const patch = vi.fn(async () => undefined);
-    const handler = registeredInvoker(recordRefreshFailure);
-
-    const result = await handler(
-      {
-        db: {
-          query: vi.fn(() => ({
-            withIndex: vi.fn(() => ({
-              first: vi.fn(async () => ({
-                _id: "state-1",
-                suspiciousStreak: 2,
-              })),
-            })),
-          })),
-          patch,
-        },
-      },
-      { ...writeArgs, attestation },
-    );
-
-    expect(result).toEqual({ id: "state-1", suspiciousStreak: 3 });
-    expect(patch).toHaveBeenCalledWith(
-      "state-1",
-      expect.objectContaining({
-        lastError: "Suspicious shrink in events",
-        suspiciousStreak: 3,
-      }),
-    );
-  });
-
-  it("enforces exclusive lease semantics in claimRefreshLease", async () => {
-    process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
-    const writeArgs = {
-      monthDay: "03-05",
-      now: 10_000,
-      ttlMs: 120_000,
-    };
-    const attestation = await createPublicAudioWriteAttestation({
-      pipeline: "on-this-day",
-      operation: "claim-job",
-      args: writeArgs,
-    });
-    const patch = vi.fn(async () => undefined);
     const handler = registeredInvoker(claimRefreshLease);
 
-    // Active lease blocks second caller.
+    // Inside retry cooldown -> rejected atomically even if lease is expired.
+    const cooldownArgs = {
+      monthDay: "03-05",
+      now: 100_000,
+      ttlMs: 120_000,
+      leaseToken: "tok-1",
+      minRetryIntervalMs: 60_000,
+    };
+    const cooldownAtt = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "claim-job",
+      args: cooldownArgs,
+    });
+    const patchCooldown = vi.fn();
     await expect(
       handler(
         {
@@ -268,19 +313,33 @@ describe("Convex On This Day storage", () => {
               withIndex: vi.fn(() => ({
                 first: vi.fn(async () => ({
                   _id: "state-1",
-                  refreshLeaseUntil: 20_000,
+                  refreshLeaseUntil: 50_000,
+                  lastAttemptAt: 70_000,
                 })),
               })),
             })),
-            patch,
+            patch: patchCooldown,
           },
         },
-        { ...writeArgs, attestation },
+        { ...cooldownArgs, attestation: cooldownAtt },
       ),
     ).resolves.toBe(false);
-    expect(patch).not.toHaveBeenCalled();
+    expect(patchCooldown).not.toHaveBeenCalled();
 
-    // Expired lease can be claimed.
+    // Outside cooldown and expired lease -> claims with token.
+    const claimArgs = {
+      monthDay: "03-05",
+      now: 200_000,
+      ttlMs: 120_000,
+      leaseToken: "tok-2",
+      minRetryIntervalMs: 60_000,
+    };
+    const claimAtt = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "claim-job",
+      args: claimArgs,
+    });
+    const patchClaim = vi.fn(async () => undefined);
     await expect(
       handler(
         {
@@ -289,23 +348,27 @@ describe("Convex On This Day storage", () => {
               withIndex: vi.fn(() => ({
                 first: vi.fn(async () => ({
                   _id: "state-1",
-                  refreshLeaseUntil: 5_000,
+                  refreshLeaseUntil: 50_000,
+                  lastAttemptAt: 70_000,
                 })),
               })),
             })),
-            patch,
+            patch: patchClaim,
           },
         },
-        { ...writeArgs, attestation },
+        { ...claimArgs, attestation: claimAtt },
       ),
     ).resolves.toBe(true);
-    expect(patch).toHaveBeenCalledWith(
+    expect(patchClaim).toHaveBeenCalledWith(
       "state-1",
-      expect.objectContaining({ refreshLeaseUntil: 130_000 }),
+      expect.objectContaining({
+        refreshLeaseUntil: 320_000,
+        refreshLeaseToken: "tok-2",
+      }),
     );
   });
 
-  it("reads day snapshot paired with its refresh state and lists states", async () => {
+  it("reads day snapshot, lists refresh states, and reads legacy fallback rows", async () => {
     const getHandler = registeredInvoker(getDaySnapshot);
     const day = await getHandler(
       {
@@ -367,6 +430,26 @@ describe("Convex On This Day storage", () => {
       {},
     );
     expect(states).toHaveLength(1);
-    expect(states[0]?.monthDay).toBe("03-05");
+
+    const legacyHandler = registeredInvoker(getLegacySnapshotForMonthDay);
+    const legacy = await legacyHandler(
+      {
+        db: {
+          query: vi.fn(() => ({
+            withIndex: vi.fn(() => ({
+              order: vi.fn(() => ({
+                first: vi.fn(async () => ({
+                  feedDate: "2026-03-05",
+                  monthDay: "03-05",
+                  generatedAt: 500,
+                })),
+              })),
+            })),
+          })),
+        },
+      },
+      { monthDay: "03-05" },
+    );
+    expect(legacy).toMatchObject({ monthDay: "03-05", generatedAt: 500 });
   });
 });

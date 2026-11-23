@@ -4,6 +4,7 @@ import {
   onThisDayPath,
   parseCalendarDayKey,
   parseCalendarDaySlug,
+  type CalendarDay,
 } from "@/lib/calendar-day";
 import { DEFAULT_WORKER_BUDGET_SECONDS } from "@/lib/on-this-day-refresh";
 import {
@@ -24,6 +25,15 @@ const parseBudgetSeconds = (raw: string | null): number | null => {
   const parsed = Number(raw);
   if (!Number.isSafeInteger(parsed)) return null;
   return Math.max(MIN_BUDGET_SECONDS, Math.min(MAX_BUDGET_SECONDS, parsed));
+};
+
+const revalidateRefreshedDays = (days: readonly CalendarDay[]): void => {
+  if (days.length === 0) return;
+  revalidatePath("/on-this-day");
+  revalidatePath("/api/on-this-day");
+  for (const day of days) {
+    revalidatePath(onThisDayPath(day));
+  }
 };
 
 export const GET = async (request: NextRequest) => {
@@ -69,12 +79,16 @@ export const GET = async (request: NextRequest) => {
         force,
       });
       if (result.status === "refreshed" || result.status === "degraded") {
-        revalidatePath("/on-this-day");
-        revalidatePath("/api/on-this-day");
-        revalidatePath(onThisDayPath(parsedDay));
+        revalidateRefreshedDays([parsedDay]);
       }
+      const status =
+        result.status === "failed"
+          ? 502
+          : result.status === "skipped"
+            ? 409
+            : 200;
       return NextResponse.json(result, {
-        status: result.status === "failed" ? 502 : 200,
+        status,
         headers: NO_CACHE_HEADERS,
       });
     } catch (error) {
@@ -94,27 +108,34 @@ export const GET = async (request: NextRequest) => {
     );
   }
 
+  const committedDays: CalendarDay[] = [];
   try {
-    const summary = await runOnThisDayRollingRefresh({ budgetSeconds });
-    if (summary.refreshedDays.length > 0) {
-      revalidatePath("/on-this-day");
-      revalidatePath("/api/on-this-day");
-      for (const day of summary.refreshedDays) {
-        revalidatePath(onThisDayPath(day));
-      }
-    }
+    const summary = await runOnThisDayRollingRefresh({
+      budgetSeconds,
+      onDayRefreshed: (day) => {
+        committedDays.push(day);
+      },
+    });
+
+    const daysToRevalidate =
+      committedDays.length > 0 ? committedDays : summary.refreshedDays;
+    revalidateRefreshedDays(daysToRevalidate);
 
     return NextResponse.json(
       {
         refreshed: summary.refreshed,
         unchanged: summary.unchanged,
         degraded: summary.degraded,
+        skipped: summary.skipped,
         suspicious: summary.suspicious,
         failed: summary.failed,
         remainingStale: summary.remainingStale,
         oldestCheckedAt: summary.oldestCheckedAt,
         ...(summary.stoppedEarlyReason
           ? { stoppedEarlyReason: summary.stoppedEarlyReason }
+          : {}),
+        ...(summary.retryAfterSeconds != null
+          ? { retryAfterSeconds: summary.retryAfterSeconds }
           : {}),
       },
       {
@@ -123,6 +144,8 @@ export const GET = async (request: NextRequest) => {
       },
     );
   } catch (error) {
+    // Revalidate any days that already committed before a later day failed.
+    revalidateRefreshedDays(committedDays);
     console.error("[/api/on-this-day/cron] rolling refresh failed", error);
     return NextResponse.json(
       { error: "On This Day rolling refresh failed." },

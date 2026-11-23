@@ -5,6 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OnThisDayExplorer } from "./OnThisDayExplorer";
 import { OnThisDaySessionProvider } from "./OnThisDaySessionProvider";
+import type {
+  OnThisDayCategory,
+  OnThisDayOrder,
+  OnThisDayPageResponse,
+} from "@/lib/on-this-day-contracts";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -35,20 +40,22 @@ const availableCategories = {
   holidays: true,
 };
 
-const responseFor = (url: string) => {
+const responseFor = (url: string): OnThisDayPageResponse => {
   const parsed = new URL(url, "https://curiogarden.org");
   const calendarDay = parsed.searchParams.get("day") ?? "07-30";
-  const category = parsed.searchParams.get("category") ?? "selected";
+  const category = (parsed.searchParams.get("category") ??
+    "selected") as OnThisDayCategory;
   const offset = Number(parsed.searchParams.get("offset") ?? 0);
-  const order = parsed.searchParams.get("order") ?? "newest";
-  const total = counts[category as keyof typeof counts];
+  const order = (parsed.searchParams.get("order") ??
+    "newest") as OnThisDayOrder;
+  const total = counts[category];
   const length = Math.min(25, total - offset);
   const items = Array.from({ length }, (_, index) => {
     const sequence = offset + index;
     return {
       id: `${calendarDay}-${category}-${order}-${sequence}`,
       year: order === "newest" ? 2000 - sequence : 1900 + sequence,
-      text: `${category} item ${sequence + 1}`,
+      text: `${category} item ${sequence + 1} (${calendarDay})`,
       pages: [],
     };
   });
@@ -398,7 +405,7 @@ describe("OnThisDayExplorer", () => {
     expect(document.activeElement).toBe(tabs[0]);
   });
 
-  it("caches days independently across navigation and pushes picker selections preserving tab and sort", async () => {
+  it("caches days independently across navigation, preserves day-specific items on return, and pushes picker selections preserving tab and sort", async () => {
     searchParamsRef.current = new URLSearchParams(
       "category=births&order=oldest",
     );
@@ -416,6 +423,9 @@ describe("OnThisDayExplorer", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain("day=07-30");
     expect(fetchMock.mock.calls[0]?.[0]).toContain("category=births");
     expect(fetchMock.mock.calls[0]?.[0]).toContain("order=oldest");
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "On This Day: July 30",
+    );
 
     // Open calendar picker and select July 31.
     const pickerBtn = container.querySelector<HTMLButtonElement>(
@@ -430,6 +440,133 @@ describe("OnThisDayExplorer", () => {
     expect(pushMock).toHaveBeenCalledWith(
       "/on-this-day/july-31?category=births&order=oldest",
       { scroll: false },
+    );
+
+    // Navigate to July 31 within the same mounted session provider.
+    pathnameRef.current = "/on-this-day/july-31";
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer initialDay={{ month: 7, day: 31 }} />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    await act(async () => undefined);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toContain("day=07-31");
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "On This Day: July 31",
+    );
+    expect(container.textContent).toContain("births item 1 (07-31)");
+
+    // Return to July 30 -> served from day-keyed cache with zero additional requests.
+    pathnameRef.current = "/on-this-day/july-30";
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    await act(async () => undefined);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "On This Day: July 30",
+    );
+    expect(container.textContent).toContain("births item 1 (07-30)");
+  });
+
+  it("replaces stale cached day entries when a newer server initialResponse arrives", async () => {
+    const older = {
+      ...responseFor("/api/on-this-day?day=07-30&category=selected"),
+      changedAt: Date.UTC(2026, 10, 19, 12, 0, 0),
+      items: [
+        { id: "old-1", year: 1990, text: "Older cached highlight", pages: [] },
+      ],
+    };
+    const newer = {
+      ...older,
+      changedAt: Date.UTC(2026, 10, 21, 12, 0, 0),
+      items: [
+        { id: "new-1", year: 2025, text: "Freshly updated highlight", pages: [] },
+      ],
+    };
+
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer
+            initialDay={{ month: 7, day: 30 }}
+            initialResponse={older}
+          />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    expect(container.textContent).toContain("Older cached highlight");
+
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer
+            initialDay={{ month: 7, day: 30 }}
+            initialResponse={newer}
+          />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    expect(container.textContent).toContain("Freshly updated highlight");
+    expect(container.textContent).not.toContain("Older cached highlight");
+  });
+
+  it("falls back to an available tab stop when navigating to a highlights-only day while Events is active", async () => {
+    searchParamsRef.current = new URLSearchParams("category=events");
+    window.history.replaceState(null, "", "/on-this-day/july-30?category=events");
+    const replaceStateSpy = vi.spyOn(window.history, "replaceState");
+
+    fetchMock.mockImplementation(async (input) =>
+      Response.json({
+        ...responseFor(String(input)),
+        degraded: true,
+        provider: "featured-fallback",
+        counts: {
+          selected: 1,
+          events: 0,
+          births: 0,
+          deaths: 0,
+          holidays: 0,
+        },
+        availableCategories: {
+          selected: true,
+          events: false,
+          births: false,
+          deaths: false,
+          holidays: false,
+        },
+      }),
+    );
+
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
+    await act(async () => undefined);
+
+    const highlightsTab = container.querySelector<HTMLButtonElement>(
+      "#on-this-day-tab-selected",
+    )!;
+    const eventsTab = container.querySelector<HTMLButtonElement>(
+      "#on-this-day-tab-events",
+    )!;
+    expect(eventsTab.disabled).toBe(true);
+    expect(highlightsTab.getAttribute("aria-selected")).toBe("true");
+    expect(highlightsTab.tabIndex).toBe(0);
+    expect(replaceStateSpy).toHaveBeenCalledWith(
+      null,
+      "",
+      "/on-this-day/july-30",
     );
   });
 });

@@ -9,6 +9,11 @@ import {
   parseCalendarDaySlug,
 } from "@/lib/calendar-day";
 import { getInitialOnThisDayPageResponse } from "@/lib/on-this-day-page-data";
+import {
+  buildOnThisDayHref,
+  parseOnThisDayCategory,
+  parseOnThisDayOrder,
+} from "@/lib/on-this-day-url";
 
 export const revalidate = 3600;
 
@@ -18,11 +23,18 @@ export async function generateStaticParams() {
 
 type OnThisDayCalendarPageProps = {
   params: Promise<{ day: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const firstQueryParam = (
+  value: string | string[] | undefined,
+): string | undefined => (Array.isArray(value) ? value[0] : value);
 
 export async function generateMetadata({
   params,
-}: OnThisDayCalendarPageProps): Promise<Metadata> {
+}: {
+  params: Promise<{ day: string }>;
+}): Promise<Metadata> {
   const { day } = await params;
   const parsed = parseCalendarDaySlug(day);
   if (!parsed) {
@@ -55,6 +67,7 @@ export async function generateMetadata({
 
 export default async function OnThisDayCalendarPage({
   params,
+  searchParams,
 }: OnThisDayCalendarPageProps) {
   const { day } = await params;
   const parsed = parseCalendarDaySlug(day);
@@ -63,7 +76,17 @@ export default async function OnThisDayCalendarPage({
   }
 
   if (!isCanonicalCalendarDaySlug(day, parsed)) {
-    permanentRedirect(onThisDayPath(parsed));
+    const resolvedSearch = searchParams ? await searchParams : undefined;
+    const category = parseOnThisDayCategory(
+      firstQueryParam(resolvedSearch?.category),
+    );
+    const order = parseOnThisDayOrder(
+      firstQueryParam(resolvedSearch?.order),
+      category,
+    );
+    permanentRedirect(
+      buildOnThisDayHref(onThisDayPath(parsed), { category, order }),
+    );
   }
 
   const initialResponse = await getInitialOnThisDayPageResponse(parsed);

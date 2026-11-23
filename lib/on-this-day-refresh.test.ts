@@ -72,19 +72,53 @@ const makeFeedPayload = ({
   };
 };
 
-const createMemoryStore = (): {
-  store: OnThisDayRefreshStore;
-  days: Map<string, StoredOnThisDayDay>;
-  states: Map<string, OnThisDayRefreshState>;
-  saveSpy: ReturnType<typeof vi.fn>;
-  touchSpy: ReturnType<typeof vi.fn>;
-  failureSpy: ReturnType<typeof vi.fn>;
-} => {
+const createMemoryStore = () => {
   const days = new Map<string, StoredOnThisDayDay>();
   const states = new Map<string, OnThisDayRefreshState>();
+  const leaseTokens = new Map<string, string>();
+
+  const claimSpy = vi.fn(
+    async (
+      args: Parameters<OnThisDayRefreshStore["claimRefreshLease"]>[0],
+    ) => {
+      const existing = states.get(args.monthDay);
+      if (
+        existing?.refreshLeaseUntil != null &&
+        existing.refreshLeaseUntil > args.now
+      ) {
+        return false;
+      }
+      if (
+        args.minRetryIntervalMs != null &&
+        existing?.lastAttemptAt != null &&
+        args.now - existing.lastAttemptAt < args.minRetryIntervalMs
+      ) {
+        return false;
+      }
+      const nextState: OnThisDayRefreshState = existing
+        ? { ...existing, refreshLeaseUntil: args.now + args.ttlMs }
+        : {
+            monthDay: args.monthDay,
+            schemaVersion: 0,
+            degraded: false,
+            checkedAt: 0,
+            changedAt: 0,
+            imagesCheckedAt: 0,
+            suspiciousStreak: 0,
+            refreshLeaseUntil: args.now + args.ttlMs,
+          };
+      states.set(args.monthDay, nextState);
+      leaseTokens.set(args.monthDay, args.leaseToken);
+      return true;
+    },
+  );
 
   const saveSpy = vi.fn(
     async (args: Parameters<OnThisDayRefreshStore["saveDaySnapshot"]>[0]) => {
+      if (leaseTokens.get(args.monthDay) !== args.leaseToken) {
+        return { applied: false, superseded: true };
+      }
+      leaseTokens.delete(args.monthDay);
       const state: OnThisDayRefreshState = {
         monthDay: args.monthDay,
         schemaVersion: args.schemaVersion,
@@ -103,6 +137,7 @@ const createMemoryStore = (): {
         data: args.data,
         state,
       });
+      return { applied: true, superseded: false };
     },
   );
 
@@ -110,6 +145,10 @@ const createMemoryStore = (): {
     async (
       args: Parameters<OnThisDayRefreshStore["markDayCheckedUnchanged"]>[0],
     ) => {
+      if (leaseTokens.get(args.monthDay) !== args.leaseToken) {
+        return { applied: false, superseded: true };
+      }
+      leaseTokens.delete(args.monthDay);
       const existing = states.get(args.monthDay);
       const nextState: OnThisDayRefreshState = {
         monthDay: args.monthDay,
@@ -126,6 +165,7 @@ const createMemoryStore = (): {
       if (storedDay) {
         days.set(args.monthDay, { ...storedDay, state: nextState });
       }
+      return { applied: true, superseded: false };
     },
   );
 
@@ -134,6 +174,14 @@ const createMemoryStore = (): {
       args: Parameters<OnThisDayRefreshStore["recordRefreshFailure"]>[0],
     ) => {
       const existing = states.get(args.monthDay);
+      if (leaseTokens.get(args.monthDay) !== args.leaseToken) {
+        return {
+          applied: false,
+          superseded: true,
+          suspiciousStreak: existing?.suspiciousStreak ?? 0,
+        };
+      }
+      leaseTokens.delete(args.monthDay);
       const nextStreak = args.suspicious
         ? (existing?.suspiciousStreak ?? 0) + 1
         : (existing?.suspiciousStreak ?? 0);
@@ -153,7 +201,7 @@ const createMemoryStore = (): {
       if (storedDay) {
         days.set(args.monthDay, { ...storedDay, state: nextState });
       }
-      return { suspiciousStreak: nextStreak };
+      return { applied: true, superseded: false, suspiciousStreak: nextStreak };
     },
   );
 
@@ -163,10 +211,10 @@ const createMemoryStore = (): {
     saveDaySnapshot: saveSpy,
     markDayCheckedUnchanged: touchSpy,
     recordRefreshFailure: failureSpy,
-    claimRefreshLease: async () => true,
+    claimRefreshLease: claimSpy,
   };
 
-  return { store, days, states, saveSpy, touchSpy, failureSpy };
+  return { store, days, states, leaseTokens, claimSpy, saveSpy, touchSpy, failureSpy };
 };
 
 describe("refreshCalendarDay", () => {
@@ -202,7 +250,6 @@ describe("refreshCalendarDay", () => {
     expect(saveSpy).toHaveBeenCalledTimes(1);
     expect(resolveImages).toHaveBeenCalledTimes(1);
 
-    // Same payload 2 days later -> unchanged, reuses image metadata, bumps checkedAt only.
     const t1 = t0 + 2 * 24 * 60 * 60 * 1000;
     const second = await refreshCalendarDay(
       { month: 3, day: 5 },
@@ -215,26 +262,102 @@ describe("refreshCalendarDay", () => {
     expect(states.get("03-05")?.checkedAt).toBe(t1);
     expect(states.get("03-05")?.changedAt).toBe(t0);
 
-    // After 90 days -> forces full image re-resolution even when payload text is unchanged.
+    // Failed 90-day re-resolution preserves prior image metadata and does NOT advance imagesCheckedAt.
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
     const t2 = t0 + IMAGE_RE_RESOLVE_MAX_AGE_MS + 1000;
-    const third = await refreshCalendarDay(
-      { month: 3, day: 5 },
-      { store, provider, resolveImages, now: t2 },
-    );
-    expect(third.status).toBe("unchanged");
-    expect(resolveImages).toHaveBeenCalledTimes(2);
-    expect(states.get("03-05")?.imagesCheckedAt).toBe(t2);
+    try {
+      const failedRecheck = await refreshCalendarDay(
+        { month: 3, day: 5 },
+        {
+          store,
+          provider,
+          resolveImages: vi.fn(async () => {
+            throw new Error("Commons unavailable");
+          }),
+          now: t2,
+        },
+      );
+      expect(failedRecheck.status).toBe("unchanged");
+      expect(states.get("03-05")?.imagesCheckedAt).toBe(t0);
+    } finally {
+      warnSpy.mockRestore();
+    }
 
-    // Updated content -> saves replacement and updates changedAt.
-    payload = makeFeedPayload({ prefix: "Updated" });
+    // Successful 90-day re-resolution advances imagesCheckedAt.
     const t3 = t2 + 1000;
-    const fourth = await refreshCalendarDay(
+    const third = await refreshCalendarDay(
       { month: 3, day: 5 },
       { store, provider, resolveImages, now: t3 },
     );
+    expect(third.status).toBe("unchanged");
+    expect(resolveImages).toHaveBeenCalledTimes(2);
+    expect(states.get("03-05")?.imagesCheckedAt).toBe(t3);
+
+    // Updated content -> saves replacement and updates changedAt.
+    payload = makeFeedPayload({ prefix: "Updated" });
+    const t4 = t3 + 1000;
+    const fourth = await refreshCalendarDay(
+      { month: 3, day: 5 },
+      { store, provider, resolveImages, now: t4 },
+    );
     expect(fourth.status).toBe("refreshed");
     expect(saveSpy).toHaveBeenCalledTimes(2);
-    expect(states.get("03-05")?.changedAt).toBe(t3);
+    expect(states.get("03-05")?.changedAt).toBe(t4);
+  });
+
+  it("skips when another worker already holds the lease and detects superseded completions", async () => {
+    const { store, states, leaseTokens } = createMemoryStore();
+    const now = Date.UTC(2026, 2, 5, 12, 0, 0);
+    states.set("03-05", {
+      monthDay: "03-05",
+      schemaVersion: 2,
+      degraded: false,
+      checkedAt: now - 1000,
+      changedAt: now - 1000,
+      imagesCheckedAt: now - 1000,
+      suspiciousStreak: 0,
+      refreshLeaseUntil: now + 60_000,
+    });
+    leaseTokens.set("03-05", "other-worker");
+
+    const provider: OnThisDayProvider = {
+      fetchAll: vi.fn(async () => makeFeedPayload()),
+    };
+    const held = await refreshCalendarDay(
+      { month: 3, day: 5 },
+      { store, provider, now, force: true },
+    );
+    expect(held).toEqual({
+      status: "skipped",
+      monthDay: "03-05",
+      reason: "lease-held",
+    });
+    expect(provider.fetchAll).not.toHaveBeenCalled();
+
+    // Simulate lease superseding mid-fetch.
+    states.get("03-05")!.refreshLeaseUntil = now - 1;
+    const supersededProvider: OnThisDayProvider = {
+      fetchAll: vi.fn(async () => {
+        leaseTokens.set("03-05", "newer-owner");
+        return makeFeedPayload({ prefix: "Late" });
+      }),
+    };
+    const superseded = await refreshCalendarDay(
+      { month: 3, day: 5 },
+      {
+        store,
+        provider: supersededProvider,
+        resolveImages: async () => new Map(),
+        now,
+      },
+    );
+    expect(superseded).toEqual({
+      status: "skipped",
+      monthDay: "03-05",
+      reason: "lease-superseded",
+    });
   });
 
   it("rejects suspicious shrinks without overwriting good snapshots, increments streak, and allows force override", async () => {
@@ -250,11 +373,15 @@ describe("refreshCalendarDay", () => {
       const t0 = Date.UTC(2026, 2, 5, 1, 0, 0);
       await refreshCalendarDay(
         { month: 3, day: 5 },
-        { store, provider: goodProvider, resolveImages: async () => new Map(), now: t0 },
+        {
+          store,
+          provider: goodProvider,
+          resolveImages: async () => new Map(),
+          now: t0,
+        },
       );
       const originalHash = days.get("03-05")?.contentHash;
 
-      // Shrink events from 20 -> 5 (>50% drop).
       const shrunkProvider: OnThisDayProvider = {
         fetchAll: vi.fn(async () => makeFeedPayload({ eventsCount: 5 })),
       };
@@ -277,7 +404,6 @@ describe("refreshCalendarDay", () => {
       expect(warnSpy).toHaveBeenCalledTimes(2);
       expect(errorSpy).toHaveBeenCalledTimes(1);
 
-      // Force bypasses the suspicion guard and resets the streak.
       const forced = await refreshCalendarDay(
         { month: 3, day: 5 },
         {
@@ -296,35 +422,39 @@ describe("refreshCalendarDay", () => {
     }
   });
 
-  it("never overwrites a good snapshot with a degraded fallback, and only creates degraded snapshots for UTC today", async () => {
+  it("never overwrites a good snapshot with a degraded fallback, and preserves rate-limit metadata on degraded fallback", async () => {
     const { store, days } = createMemoryStore();
-    const now = Date.UTC(2026, 10, 23, 12, 0, 0); // 11-23 UTC
-    const failingProvider: OnThisDayProvider = {
+    const now = Date.UTC(2026, 10, 23, 12, 0, 0);
+    const rateLimitedProvider: OnThisDayProvider = {
       fetchAll: vi.fn(async () => {
-        throw new Error("Upstream down");
+        throw new OnThisDayUpstreamError("rate limited", {
+          status: 429,
+          retryAfterSeconds: 30,
+        });
       }),
     };
     const getFeaturedItems = vi.fn(async () => [
       { year: 1963, text: "Doctor Who premiered.", pages: [] },
     ]);
 
-    // Non-today day with no snapshot -> fails cleanly (no degraded snapshot).
     const otherDay = await refreshCalendarDay(
       { month: 3, day: 5 },
-      { store, provider: failingProvider, getFeaturedItems, now },
+      { store, provider: rateLimitedProvider, getFeaturedItems, now },
     );
     expect(otherDay.status).toBe("failed");
     expect(days.has("03-05")).toBe(false);
 
-    // UTC today with no snapshot -> saves degraded snapshot.
     const todayDegraded = await refreshCalendarDay(
       { month: 11, day: 23 },
-      { store, provider: failingProvider, getFeaturedItems, now },
+      { store, provider: rateLimitedProvider, getFeaturedItems, now },
     );
-    expect(todayDegraded.status).toBe("degraded");
+    expect(todayDegraded).toMatchObject({
+      status: "degraded",
+      isRateLimited: true,
+      retryAfterSeconds: 30,
+    });
     expect(days.get("11-23")?.state?.degraded).toBe(true);
 
-    // Once a real snapshot exists for UTC today, a subsequent failure preserves it.
     const workingProvider: OnThisDayProvider = {
       fetchAll: vi.fn(async () => makeFeedPayload()),
     };
@@ -342,7 +472,12 @@ describe("refreshCalendarDay", () => {
 
     const failedLater = await refreshCalendarDay(
       { month: 11, day: 23 },
-      { store, provider: failingProvider, getFeaturedItems, now: now + 2000 },
+      {
+        store,
+        provider: rateLimitedProvider,
+        getFeaturedItems,
+        now: now + 2000,
+      },
     );
     expect(failedLater.status).toBe("failed");
     expect(days.get("11-23")?.contentHash).toBe(goodHash);
@@ -350,9 +485,9 @@ describe("refreshCalendarDay", () => {
   });
 });
 
-describe("selectRefreshQueue and safety net", () => {
+describe("selectRefreshQueue and rolling worker", () => {
   it("orders missing, degraded, schema-behind, today ±1 (>20h), unenriched, then stale (>6d) oldest-first", () => {
-    const now = Date.UTC(2026, 2, 5, 12, 0, 0); // 03-05 UTC
+    const now = Date.UTC(2026, 2, 5, 12, 0, 0);
     const freshRow = (monthDay: string): OnThisDayRefreshState => ({
       monthDay,
       schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
@@ -366,18 +501,12 @@ describe("selectRefreshQueue and safety net", () => {
     const rows = ALL_CALENDAR_DAYS.map((day) => freshRow(calendarDayKey(day)));
     const byKey = new Map(rows.map((row) => [row.monthDay, row]));
 
-    // Remove 05-01 (missing)
     byKey.delete("05-01");
-    // Mark 06-10 degraded
     byKey.get("06-10")!.degraded = true;
-    // Mark 07-15 schema behind
     byKey.get("07-15")!.schemaVersion = 1;
-    // Mark today (03-05) older than 20h, tomorrow (03-06) fresh, yesterday (03-04) older than 20h
     byKey.get("03-05")!.checkedAt = now - TODAY_WINDOW_MAX_AGE_MS - 1000;
     byKey.get("03-04")!.checkedAt = now - TODAY_WINDOW_MAX_AGE_MS - 1000;
-    // Mark 08-20 cold-built (imagesCheckedAt = 0)
     byKey.get("08-20")!.imagesCheckedAt = 0;
-    // Mark 09-01 and 10-01 stale (>6d), with 10-01 older than 09-01
     byKey.get("09-01")!.checkedAt = now - FRESHNESS_TARGET_MS - 10_000;
     byKey.get("10-01")!.checkedAt = now - FRESHNESS_TARGET_MS - 100_000;
 
@@ -434,14 +563,51 @@ describe("selectRefreshQueue and safety net", () => {
     ).toBe(true);
   });
 
-  it("stops the rolling worker early after two consecutive HTTP 429 rate limits", async () => {
+  it("applies 429 backoff even after UTC-today degraded fallback and propagates retryAfterSeconds", async () => {
+    const { store } = createMemoryStore();
+    const sleep = vi.fn(async () => undefined);
+    const onDayRefreshed = vi.fn();
+    const now = Date.UTC(2026, 10, 23, 12, 0, 0);
+    const provider: OnThisDayProvider = {
+      fetchAll: vi.fn(async () => {
+        throw new OnThisDayUpstreamError("rate limited", {
+          status: 429,
+          retryAfterSeconds: 12,
+        });
+      }),
+    };
+    const getFeaturedItems = vi.fn(async () => [
+      { year: 1963, text: "Doctor Who premiered.", pages: [] },
+    ]);
+
+    const summary = await runRollingRefreshWorker({
+      store,
+      provider,
+      getFeaturedItems,
+      budgetSeconds: 240,
+      interDayPauseMs: 0,
+      nowFn: () => now,
+      sleep,
+      onDayRefreshed,
+    });
+
+    // First day (UTC today 11-23) becomes degraded with 429 -> sleeps 12s -> second day fails with 429 -> stops early.
+    expect(summary.degraded).toBe(1);
+    expect(summary.failed).toBe(1);
+    expect(summary.stoppedEarlyReason).toBe("rate-limit");
+    expect(summary.retryAfterSeconds).toBe(12);
+    expect(sleep).toHaveBeenCalledWith(12_000);
+    expect(onDayRefreshed).toHaveBeenCalledWith({ month: 11, day: 23 });
+  });
+
+  it("propagates long Retry-After when it exceeds the remaining budget", async () => {
     const { store } = createMemoryStore();
     const sleep = vi.fn(async () => undefined);
     const provider: OnThisDayProvider = {
       fetchAll: vi.fn(async () => {
         throw new OnThisDayUpstreamError("rate limited", {
           status: 429,
-          retryAfterSeconds: 12,
+          retryAfterSeconds: 600,
         });
       }),
     };
@@ -454,10 +620,9 @@ describe("selectRefreshQueue and safety net", () => {
       sleep,
     });
 
-    expect(summary.failed).toBe(2);
     expect(summary.stoppedEarlyReason).toBe("rate-limit");
-    expect(sleep).toHaveBeenCalledWith(12_000);
-    expect(summary.remainingStale).toBe(366);
+    expect(summary.retryAfterSeconds).toBe(600);
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it("produces stable hashes that ignore checkedAt timestamps", () => {

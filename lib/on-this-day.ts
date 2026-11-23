@@ -248,15 +248,7 @@ const extractReusableImageMetadata = (
   return reused;
 };
 
-export const buildOnThisDaySnapshot = async ({
-  day,
-  provider = wikipediaRestOnThisDayProvider,
-  resolveImages = resolveImagesWithWikimedia,
-  previousSnapshot = null,
-  reResolveImages = false,
-  skipImageResolution = false,
-  checkedAt = Date.now(),
-}: {
+export type BuildOnThisDaySnapshotOptions = {
   day: CalendarDay;
   provider?: OnThisDayProvider;
   resolveImages?: OnThisDayImageResolver;
@@ -264,7 +256,22 @@ export const buildOnThisDaySnapshot = async ({
   reResolveImages?: boolean;
   skipImageResolution?: boolean;
   checkedAt?: number;
-}): Promise<OnThisDaySnapshot> => {
+};
+
+export type BuiltOnThisDaySnapshot = {
+  snapshot: OnThisDaySnapshot;
+  imageResolutionSucceeded: boolean;
+};
+
+export const buildOnThisDaySnapshotWithMeta = async ({
+  day,
+  provider = wikipediaRestOnThisDayProvider,
+  resolveImages = resolveImagesWithWikimedia,
+  previousSnapshot = null,
+  reResolveImages = false,
+  skipImageResolution = false,
+  checkedAt = Date.now(),
+}: BuildOnThisDaySnapshotOptions): Promise<BuiltOnThisDaySnapshot> => {
   const monthDay = calendarDayKey(day);
   const [month, dayPart] = monthDay.split("-");
   const payload = await provider.fetchAll({ month, day: dayPart });
@@ -313,10 +320,13 @@ export const buildOnThisDaySnapshot = async ({
     }
   }
 
+  // Always retain previous metadata as a fallback so a failed scheduled
+  // re-resolution never degrades already-resolved alt text or attribution.
+  const previousMetadata = extractReusableImageMetadata(previousSnapshot);
   const reusedMetadata =
     reResolveImages || skipImageResolution
       ? new Map<string, OnThisDayResolvedImage>()
-      : extractReusableImageMetadata(previousSnapshot);
+      : previousMetadata;
 
   const requests = skipImageResolution
     ? []
@@ -328,12 +338,16 @@ export const buildOnThisDaySnapshot = async ({
         }));
 
   let fetchedMetadata = new Map<string, OnThisDayResolvedImage>();
+  let imageResolutionSucceeded = !skipImageResolution;
   if (requests.length > 0) {
     try {
       fetchedMetadata = await resolveImages(requests);
-    } catch {
-      // A usable source-page fallback is attached below. Metadata enrichment
-      // must never discard an otherwise valid historical event.
+    } catch (error) {
+      imageResolutionSucceeded = false;
+      console.warn(
+        `[on-this-day] Image metadata resolution failed for ${monthDay}; preserving prior metadata or source fallbacks.`,
+        error,
+      );
     }
   }
 
@@ -344,8 +358,9 @@ export const buildOnThisDaySnapshot = async ({
       if (!candidate) continue;
       const repository = getWikimediaMediaRepositoryFromUrl(candidate.source);
       const resolved =
+        fetchedMetadata.get(event.image.source) ??
         reusedMetadata.get(event.image.source) ??
-        fetchedMetadata.get(event.image.source);
+        previousMetadata.get(event.image.source);
       if (resolved?.altText) event.image.altText = resolved.altText;
       event.image.attribution =
         resolved?.attribution ??
@@ -359,21 +374,29 @@ export const buildOnThisDaySnapshot = async ({
   }
 
   return {
-    schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
-    provider: "wikipedia-rest-v1",
-    monthDay,
-    checkedAt,
-    sourceUrl: wikipediaCalendarUrl(day),
-    categories,
-    counts: Object.fromEntries(
-      ON_THIS_DAY_CATEGORIES.map((category) => [
-        category,
-        categories[category].length,
-      ]),
-    ) as OnThisDayCategoryMap<number>,
-    availableCategories: emptyCategoryMap(() => true),
+    snapshot: {
+      schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+      provider: "wikipedia-rest-v1",
+      monthDay,
+      checkedAt,
+      sourceUrl: wikipediaCalendarUrl(day),
+      categories,
+      counts: Object.fromEntries(
+        ON_THIS_DAY_CATEGORIES.map((category) => [
+          category,
+          categories[category].length,
+        ]),
+      ) as OnThisDayCategoryMap<number>,
+      availableCategories: emptyCategoryMap(() => true),
+    },
+    imageResolutionSucceeded,
   };
 };
+
+export const buildOnThisDaySnapshot = async (
+  options: BuildOnThisDaySnapshotOptions,
+): Promise<OnThisDaySnapshot> =>
+  (await buildOnThisDaySnapshotWithMeta(options)).snapshot;
 
 export const hashOnThisDaySnapshot = (snapshot: OnThisDaySnapshot): string =>
   createHash("sha256")

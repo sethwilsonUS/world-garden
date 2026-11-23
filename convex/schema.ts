@@ -632,6 +632,19 @@ export default defineSchema({
     .index("by_feedDate", ["feedDate"])
     .index("by_updatedAt", ["updatedAt"]),
 
+  // Retained as a read-only rollout fallback until all 366 days are backfilled
+  // into `onThisDayDays`. Remove in the post-backfill cleanup follow-up.
+  onThisDaySnapshots: defineTable({
+    feedDate: v.string(),
+    monthDay: v.string(),
+    data: v.any(),
+    generatedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_feedDate", ["feedDate"])
+    .index("by_monthDay_updatedAt", ["monthDay", "updatedAt"]),
+
   onThisDayDays: defineTable({
     monthDay: v.string(),
     schemaVersion: v.number(),
@@ -652,6 +665,7 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     suspiciousStreak: v.number(),
     refreshLeaseUntil: v.optional(v.number()),
+    refreshLeaseToken: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

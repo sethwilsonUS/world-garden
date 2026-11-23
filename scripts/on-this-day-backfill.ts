@@ -4,7 +4,7 @@
  *
  * Calls the authenticated `/api/on-this-day/cron?budgetSeconds=240` endpoint
  * in a loop until `remainingStale === 0`, respecting the route's rate limit
- * (6 calls per 10 minutes) and any Retry-After headers.
+ * (6 calls per 10 minutes) and any upstream Retry-After deadlines.
  *
  * Usage:
  *   SITE_URL=https://curiogarden.org CRON_SECRET=... npm run on-this-day:backfill
@@ -18,11 +18,13 @@ type CronSummary = {
   refreshed?: number;
   unchanged?: number;
   degraded?: number;
+  skipped?: number;
   suspicious?: number;
   failed?: number;
   remainingStale?: number;
   oldestCheckedAt?: number | null;
   stoppedEarlyReason?: string;
+  retryAfterSeconds?: number;
   error?: string;
 };
 
@@ -80,7 +82,7 @@ const main = async () => {
 
     const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
-      `Pass ${pass} (${elapsedSeconds}s): refreshed=${body.refreshed ?? 0}, unchanged=${body.unchanged ?? 0}, suspicious=${body.suspicious ?? 0}, failed=${body.failed ?? 0}, remainingStale=${body.remainingStale ?? "unknown"}${body.stoppedEarlyReason ? ` (${body.stoppedEarlyReason})` : ""}`,
+      `Pass ${pass} (${elapsedSeconds}s): refreshed=${body.refreshed ?? 0}, unchanged=${body.unchanged ?? 0}, skipped=${body.skipped ?? 0}, suspicious=${body.suspicious ?? 0}, failed=${body.failed ?? 0}, remainingStale=${body.remainingStale ?? "unknown"}${body.stoppedEarlyReason ? ` (${body.stoppedEarlyReason})` : ""}`,
     );
 
     if ((body.remainingStale ?? 0) === 0) {
@@ -89,9 +91,17 @@ const main = async () => {
     }
 
     const elapsedMs = Date.now() - startedAt;
-    const pauseMs = Math.max(5_000, QUOTA_PAUSE_MS - elapsedMs);
+    const upstreamBackoffMs =
+      body.retryAfterSeconds != null && body.retryAfterSeconds > 0
+        ? (body.retryAfterSeconds + 5) * 1000
+        : 0;
+    const pauseMs = Math.max(
+      5_000,
+      QUOTA_PAUSE_MS - elapsedMs,
+      upstreamBackoffMs,
+    );
     console.log(
-      `Waiting ${Math.ceil(pauseMs / 1000)}s before next pass to stay within route quota…`,
+      `Waiting ${Math.ceil(pauseMs / 1000)}s before next pass${upstreamBackoffMs > 0 ? " (honoring upstream Retry-After)" : " to stay within route quota"}…`,
     );
     await sleep(pauseMs);
   }
