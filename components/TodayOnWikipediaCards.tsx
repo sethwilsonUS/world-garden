@@ -347,6 +347,7 @@ const FeedColumn = ({
   >
     <h3
       id={id}
+      tabIndex={-1}
       className="font-display text-lg font-semibold text-foreground"
     >
       {title}

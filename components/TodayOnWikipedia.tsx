@@ -19,13 +19,16 @@ export type { TodayOnWikipediaData } from "./TodayOnWikipediaCards";
 
 export const TodayOnWikipediaContent = ({
   data,
+  showEmptyDidYouKnow = false,
 }: {
   data: TodayOnWikipediaData;
+  showEmptyDidYouKnow?: boolean;
 }) => {
   const featured = data.tfa ?? null;
   const news = data.inTheNews ?? [];
   const trending = data.trending ?? [];
   const didYouKnow = data.didYouKnow ?? [];
+  const showDidYouKnow = didYouKnow.length > 0 || showEmptyDidYouKnow;
   const onThisDay = data.onThisDay ?? [];
   const picture = data.pictureOfDay ?? null;
   const trendingBrief = data.trendingBrief ?? null;
@@ -33,7 +36,7 @@ export const TodayOnWikipediaContent = ({
   if (
     !featured &&
     news.length === 0 &&
-    didYouKnow.length === 0 &&
+    !showDidYouKnow &&
     trending.length === 0 &&
     !picture &&
     onThisDay.length === 0 &&
@@ -44,7 +47,7 @@ export const TodayOnWikipediaContent = ({
 
   const hasPicks = Boolean(featured) || Boolean(picture) || Boolean(trendingBrief);
   const hasFeed =
-    didYouKnow.length > 0 || news.length > 0 || onThisDay.length > 0;
+    showDidYouKnow || news.length > 0 || onThisDay.length > 0;
   const dateLabel = formatUtcCalendarDate(data.feedDate);
 
   return (
@@ -87,7 +90,7 @@ export const TodayOnWikipediaContent = ({
           data-today-feed=""
           className="mt-4 grid grid-cols-1 items-stretch gap-4 md:grid-cols-3"
         >
-          {didYouKnow.length > 0 ? <DidYouKnowCard items={didYouKnow} /> : null}
+          {showDidYouKnow ? <DidYouKnowCard items={didYouKnow} /> : null}
           {news.length > 0 ? <NewsCard news={news} /> : null}
           <OnThisDayCard items={onThisDay} />
         </div>
@@ -152,6 +155,20 @@ export const TodayOnWikipedia = () => {
     };
   }, []);
 
+  // The legacy /did-you-know link redirects here before the feed has loaded.
+  const isDidYouKnowLanding =
+    !loading && window.location.hash === "#today-dyk-heading";
+  useEffect(() => {
+    if (
+      !isDidYouKnowLanding ||
+      document.activeElement !== document.body ||
+      window.scrollY > 0
+    ) return;
+    const heading = document.getElementById("today-dyk-heading");
+    heading?.focus({ preventScroll: true });
+    heading?.scrollIntoView({ block: "start" });
+  }, [isDidYouKnowLanding]);
+
   if (loading) {
     return (
       <section aria-label="Loading today's Wikipedia feed" className="mt-14">
@@ -175,5 +192,10 @@ export const TodayOnWikipedia = () => {
     );
   }
 
-  return data ? <TodayOnWikipediaContent data={data} /> : null;
+  return data || isDidYouKnowLanding ? (
+    <TodayOnWikipediaContent
+      data={data ?? {}}
+      showEmptyDidYouKnow={isDidYouKnowLanding}
+    />
+  ) : null;
 };

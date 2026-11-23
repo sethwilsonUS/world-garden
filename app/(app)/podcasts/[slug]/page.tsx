@@ -96,7 +96,7 @@ export default async function PodcastDetailPage({
             <li aria-hidden="true">›</li>
             <li>
               <span aria-current="page" className="[overflow-wrap:anywhere]">
-                {entry.title}
+                {entry.slug === "featured" ? "Featured articles" : "Trending brief"}
               </span>
             </li>
           </ol>
@@ -116,6 +116,7 @@ export default async function PodcastDetailPage({
 
           <div className="mt-6">
             <PodcastFeedPanel
+              headingLevel={2}
               idBase={`${entry.slug}-podcast-follow`}
               title={entry.title}
               feedUrl={feedUrl}

@@ -31,7 +31,7 @@ export default function AboutPage() {
   return (
     <div className="container mx-auto px-4 pb-20 pt-10">
       <article className="mx-auto max-w-4xl [overflow-wrap:anywhere]">
-        <header className="relative overflow-hidden rounded-[32px] border border-accent-border bg-surface-2 px-6 py-10 sm:px-10 sm:py-14">
+        <header className="relative overflow-hidden rounded-[32px] border border-accent-border bg-surface-2 px-[16px] py-10 sm:px-10 sm:py-14">
           <div
             className="pattern-leaves absolute inset-0 opacity-70"
             aria-hidden="true"
@@ -40,7 +40,7 @@ export default function AboutPage() {
             <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
               About this project
             </p>
-            <h1 className="type-hero-title mt-4 font-display font-semibold leading-[1.02] tracking-[-0.025em] text-foreground">
+            <h1 className="mt-4 font-display text-[length:var(--type-page-title)] font-semibold leading-[1.08] tracking-[-0.025em] text-foreground sm:text-[length:var(--type-hero-title)]">
               Free knowledge, made listenable.
             </h1>
             <p className="mt-6 max-w-xl text-[1.05rem] leading-[1.8] text-foreground-2">
