@@ -1221,6 +1221,167 @@ describe("on-this-day-share-card-store", () => {
       ).resolves.toBeNull();
     });
 
+    it("rejects reusing an existing creditRevisionId with different metadata and allows identical retries idempotently", async () => {
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+      const saveHandler = registeredInvoker(saveShareCard);
+
+      const originalPlates: StoredOnThisDayShareCardPlate[] = [
+        {
+          year: 2019,
+          articleTitle: "NASA Astronaut Corps",
+          imageUrl:
+            "https://upload.wikimedia.org/wikipedia/commons/a/ab/Suits.jpg",
+          licenseName: "CC BY-SA 4.0",
+          creator: "Author One",
+          sourceUrl: "https://commons.wikimedia.org/wiki/File:Suits.jpg",
+        },
+      ];
+      const existingRevisionRow = {
+        revisionId: "custom-rev-01",
+        monthDay: "10-18",
+        version: 1,
+        generatedAt: 1_780_000_000_000,
+        plates: originalPlates,
+      };
+      const existingCardRow = {
+        _id: "existing-card-id",
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-existing" as Id<"_storage">,
+        creditRevisionId: "custom-rev-01",
+      };
+
+      const makeCollisionCtx = () => {
+        const patch = vi.fn(async () => undefined);
+        const insert = vi.fn(async () => "inserted-id");
+        const deleteStorage = vi.fn(async () => undefined);
+        const ctx = {
+          db: {
+            query: vi.fn((table: string) => ({
+              withIndex: vi.fn(() => ({
+                first: vi.fn(async () => {
+                  if (table === "onThisDayShareCards") return existingCardRow;
+                  if (table === "onThisDayShareCardCreditRevisions") {
+                    return existingRevisionRow;
+                  }
+                  return null;
+                }),
+              })),
+            })),
+            insert,
+            patch,
+          },
+          storage: {
+            getUrl: vi.fn(async () => "https://storage.convex.test/new.jpg"),
+            delete: deleteStorage,
+          },
+        };
+        return { ctx, patch, insert, deleteStorage };
+      };
+
+      // 1a. Collision on plates -> throws BEFORE patching active card or deleting existing blob
+      const differentPlatesArgs = {
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-new" as Id<"_storage">,
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        byteSize: 125_000,
+        generatedAt: 1_780_000_100_000,
+        creditRevisionId: "custom-rev-01",
+        plates: [
+          {
+            ...originalPlates[0],
+            creator: "Different Creator",
+          },
+        ],
+      };
+      const differentPlatesAtt = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: differentPlatesArgs,
+      });
+      const plateCollision = makeCollisionCtx();
+      await expect(
+        saveHandler(plateCollision.ctx, {
+          ...differentPlatesArgs,
+          attestation: differentPlatesAtt,
+        }),
+      ).rejects.toThrow(
+        "Share card credit revision custom-rev-01 already exists with different metadata",
+      );
+      expect(plateCollision.patch).not.toHaveBeenCalled();
+      expect(plateCollision.insert).not.toHaveBeenCalled();
+      expect(plateCollision.deleteStorage).not.toHaveBeenCalled();
+
+      // 1b. Collision on monthDay -> throws without mutating
+      const differentDayArgs = {
+        ...differentPlatesArgs,
+        monthDay: "10-19",
+        plates: originalPlates,
+      };
+      const differentDayAtt = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: differentDayArgs,
+      });
+      const dayCollision = makeCollisionCtx();
+      await expect(
+        saveHandler(dayCollision.ctx, {
+          ...differentDayArgs,
+          attestation: differentDayAtt,
+        }),
+      ).rejects.toThrow("already exists with different metadata");
+      expect(dayCollision.patch).not.toHaveBeenCalled();
+      expect(dayCollision.deleteStorage).not.toHaveBeenCalled();
+
+      // 1c. Collision on version -> throws without mutating
+      const differentVersionArgs = {
+        ...differentPlatesArgs,
+        version: 2,
+        plates: originalPlates,
+      };
+      const differentVersionAtt = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: differentVersionArgs,
+      });
+      const versionCollision = makeCollisionCtx();
+      await expect(
+        saveHandler(versionCollision.ctx, {
+          ...differentVersionArgs,
+          attestation: differentVersionAtt,
+        }),
+      ).rejects.toThrow("already exists with different metadata");
+      expect(versionCollision.patch).not.toHaveBeenCalled();
+      expect(versionCollision.deleteStorage).not.toHaveBeenCalled();
+
+      // 2. Identical retry (same creditRevisionId, monthDay, version, plates) succeeds without duplicating revision row
+      const retryArgs = {
+        ...differentPlatesArgs,
+        plates: originalPlates,
+      };
+      const retryAtt = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: retryArgs,
+      });
+      const retryCtx = makeCollisionCtx();
+      await expect(
+        saveHandler(retryCtx.ctx, { ...retryArgs, attestation: retryAtt }),
+      ).resolves.toEqual({
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-new",
+        replaced: true,
+        rejectedStaleVersion: false,
+      });
+      expect(retryCtx.patch).toHaveBeenCalledTimes(1);
+      expect(retryCtx.insert).not.toHaveBeenCalled();
+      expect(retryCtx.deleteStorage).toHaveBeenCalledWith("storage-existing");
+    });
+
     it("rejects lower-version saveShareCard writes without overwriting existing card and cleans up stale uploaded blob", async () => {
       vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
       const handler = registeredInvoker(saveShareCard);
