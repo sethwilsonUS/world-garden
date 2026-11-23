@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { analytics } from "@/lib/analytics";
 import { ArticleLink } from "@/components/ArticleLink";
+import { RandomArticleButton } from "@/components/RandomArticleButton";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import { getBookmarkListViewState } from "@/lib/bookmarks";
 
@@ -21,35 +22,16 @@ export default function LibraryPage() {
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="max-w-3xl mx-auto">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/"
-            className="inline-flex min-h-[44px] items-center gap-1 text-muted text-sm no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to home
-          </Link>
-        </nav>
-
         <section aria-labelledby="library-heading">
           <h1
             id="library-heading"
-            className="type-page-title font-display text-[1.75rem] font-bold mb-6 text-foreground"
+            className="type-page-title font-display text-[1.75rem] font-bold text-foreground"
           >
             Library
           </h1>
+          <p className="mt-1 mb-6 text-base leading-[1.6] text-foreground-2">
+            Articles you&rsquo;ve saved to listen to later.
+          </p>
 
           {viewState === "loading" ? (
             <div className="garden-bed text-center py-12 px-6" role="status">
@@ -84,12 +66,15 @@ export default function LibraryPage() {
               <p className="text-muted text-sm mt-2">
                 Save articles while browsing and they&rsquo;ll appear here.
               </p>
-              <Link
-                href="/"
-                className="btn-primary mt-5 inline-flex min-h-[44px] max-w-full flex-wrap px-6 py-2.5 text-center text-sm no-underline"
-              >
-                Start exploring
-              </Link>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <Link
+                  href="/"
+                  className="btn-primary inline-flex min-h-[44px] max-w-full flex-wrap px-6 py-2.5 text-center text-sm no-underline"
+                >
+                  Start exploring
+                </Link>
+                <RandomArticleButton />
+              </div>
             </div>
           ) : (
             <ul className="list-none p-0 m-0" role="list">

@@ -3,12 +3,18 @@
 import { useEffect, useState } from "react";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 
+/**
+ * `label` is the accessible name and must contain `visibleLabel` so speech
+ * input users can say what they see (WCAG 2.5.3 Label in Name).
+ */
 export const CopyFeedButton = ({
   value,
   label = "Copy feed URL",
+  visibleLabel = "Copy feed URL",
 }: {
   value: string;
   label?: string;
+  visibleLabel?: string;
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -33,8 +39,7 @@ export const CopyFeedButton = ({
         type="button"
         onClick={handleCopy}
         aria-label={copied ? "Feed URL copied" : label}
-        title={copied ? "Copied" : label}
-        className="inline-flex items-center justify-center w-11 h-11 rounded-xl border border-border bg-surface-2 text-foreground hover:bg-surface cursor-pointer transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="inline-flex min-h-[44px] max-w-full cursor-pointer flex-wrap items-center justify-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-center text-sm font-medium leading-snug text-foreground transition-colors duration-200 hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         {copied ? (
           <svg
@@ -66,6 +71,7 @@ export const CopyFeedButton = ({
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
         )}
+        <span>{copied ? "Copied" : visibleLabel}</span>
       </button>
       <span className="sr-only" aria-live="polite" role="status">
         {copied ? "Feed URL copied to clipboard." : ""}

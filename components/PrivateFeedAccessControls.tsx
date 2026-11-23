@@ -172,7 +172,7 @@ export const PrivateFeedAccessControls = ({
           </h3>
         </div>
         <span
-          className={`inline-flex min-h-7 shrink-0 items-center rounded-full border px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] ${
+          className={`inline-flex min-h-7 shrink-0 items-center rounded-full border px-2.5 text-xs font-semibold ${
             feedStatus === "active"
               ? "border-accent-border bg-accent-bg text-accent"
               : "border-border bg-surface-2 text-muted"
@@ -190,12 +190,12 @@ export const PrivateFeedAccessControls = ({
         <>
           {feedUrl ? (
             <>
-              <code
-                aria-label="Private playlist feed URL"
-                className="mt-4 block overflow-x-auto rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm text-foreground"
-              >
-                {feedUrl}
-              </code>
+              <p className="mt-4 text-xs font-medium text-muted">
+                Private playlist feed URL
+              </p>
+              <p className="mt-1 break-all rounded-xl border border-border bg-surface-2 px-4 py-3 font-mono text-sm text-foreground [overflow-wrap:anywhere]">
+                <code>{feedUrl}</code>
+              </p>
               <PodcastFeedActions
                 feedUrl={feedUrl}
                 feedTitle="Personal Playlist"

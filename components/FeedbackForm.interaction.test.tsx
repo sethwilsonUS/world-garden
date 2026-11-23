@@ -204,9 +204,7 @@ describe("FeedbackForm", () => {
     await submit(container.querySelector("form") as HTMLFormElement);
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(
-      "Please shorten the email address",
-    );
+    expect(container.textContent).toContain("Please shorten the email address");
     expect(document.activeElement).toBe(email);
   });
 

@@ -6,11 +6,22 @@ import { usePersonalPlaylist } from "@/hooks/usePersonalPlaylist";
 
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
-const buttonClassName = (variant: "icon" | "labeled") =>
+/**
+ * - `icon` (default): 44px icon-only button; the name comes from aria-label.
+ * - `labeled`: icon plus the full state label ("Add to Playlist").
+ * - `compact`: icon plus a short visible label ("Playlist") from the `sm`
+ *   breakpoint up, so sighted users can tell what the button does in dense
+ *   lists without widening narrow layouts.
+ */
+type PlaylistButtonVariant = "icon" | "labeled" | "compact";
+
+const buttonClassName = (variant: PlaylistButtonVariant) =>
   `inline-flex min-h-[44px] cursor-pointer flex-wrap items-center justify-center gap-[8px] rounded-[10px] border text-center leading-snug transition-all duration-200 disabled:cursor-not-allowed ${
     variant === "labeled"
       ? "max-w-full px-[12px] py-[8px]"
-      : "h-[44px] w-[44px] shrink-0"
+      : variant === "compact"
+        ? "min-w-[44px] shrink-0 px-[10px] py-[8px] sm:px-[12px]"
+        : "h-[44px] w-[44px] shrink-0"
   }`;
 
 export const PlaylistActionButton = ({
@@ -22,7 +33,7 @@ export const PlaylistActionButton = ({
   slug: string;
   title: string;
   className?: string;
-  variant?: "icon" | "labeled";
+  variant?: PlaylistButtonVariant;
 }) => {
   if (isLocal) {
     return null;
@@ -47,7 +58,7 @@ const PlaylistActionButtonInner = ({
   slug: string;
   title: string;
   className?: string;
-  variant: "icon" | "labeled";
+  variant: PlaylistButtonVariant;
 }) => {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { addBySlug, isAdding, isAvailable, isLoaded, isInPlaylist } =
@@ -66,8 +77,19 @@ const PlaylistActionButtonInner = ({
         : isSyncPending
           ? "Connecting…"
           : "Add to Playlist";
+  const compactLabel = !isAuthLoaded
+    ? "Checking…"
+    : active
+      ? "In Playlist"
+      : disabled
+        ? "Adding…"
+        : isSyncPending
+          ? "Connecting…"
+          : "Playlist";
+  // Visible text must stay inside the accessible name (WCAG 2.5.3), so the
+  // labeled and compact variants lead with the state label.
   const accessibleName = (description: string) =>
-    variant === "labeled" ? `${visibleLabel}: ${description}` : description;
+    variant === "icon" ? description : `${visibleLabel}: ${description}`;
 
   const content = (
     <>
@@ -123,6 +145,21 @@ const PlaylistActionButtonInner = ({
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 3" />
         </svg>
+      ) : variant === "compact" ? (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          width={18}
+          height={18}
+          aria-hidden="true"
+        >
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
       ) : (
         <svg
           viewBox="0 0 24 24"
@@ -145,6 +182,10 @@ const PlaylistActionButtonInner = ({
       )}
       {variant === "labeled" ? (
         <span className="text-sm font-medium">{visibleLabel}</span>
+      ) : variant === "compact" ? (
+        <span className="hidden text-sm font-medium sm:inline">
+          {compactLabel}
+        </span>
       ) : null}
     </>
   );

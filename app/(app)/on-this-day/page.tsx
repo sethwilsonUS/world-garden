@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { OnThisDayExplorer } from "@/components/OnThisDayExplorer";
 
 export const metadata: Metadata = {
@@ -12,37 +11,13 @@ export default function OnThisDayPage() {
   return (
     <div className="on-this-day-page container mx-auto px-4 pb-20 pt-10">
       <div className="mx-auto max-w-5xl">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/"
-            className="on-this-day-back-link inline-flex min-h-11 items-center gap-1 text-sm text-muted no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to home
-          </Link>
-        </nav>
-
-        <header className="on-this-day-page-header">
-          <p className="eyebrow">A daily walk through history</p>
-          <h1 className="type-page-title font-display text-[clamp(2rem,6vw,3.75rem)] font-bold leading-none text-foreground">
+        <header className="mb-6">
+          <h1 className="type-page-title font-display text-[1.75rem] font-bold text-foreground">
             On This Day
           </h1>
-          <p className="on-this-day-page-intro mt-3 max-w-3xl text-base leading-relaxed text-muted">
-            Follow today across centuries through Wikipedia&apos;s curated
-            highlights, events, notable lives, and holidays. Choose a category,
-            then explore at your own pace.
+          <p className="mt-1 max-w-3xl text-base leading-[1.6] text-foreground-2">
+            Today across the centuries: events, notable lives, and holidays from
+            Wikipedia.
           </p>
         </header>
 

@@ -232,12 +232,12 @@ export const BadgeDetailsDialog = ({
 
             <div className="mt-5 flex flex-wrap gap-2.5">
               <span
-                className={`inline-flex items-center rounded-full border px-3 py-1.5 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.12em] ${pillClass}`}
+                className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold tabular-nums ${pillClass}`}
               >
                 Lvl {badge.level}
               </span>
               <span
-                className={`inline-flex items-center rounded-full border px-3 py-1.5 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.12em] ${pillClass}`}
+                className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold tabular-nums ${pillClass}`}
               >
                 {badge.exp} EXP
               </span>
@@ -252,9 +252,7 @@ export const BadgeDetailsDialog = ({
                 <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
                   Progress
                 </p>
-                <p className="font-mono text-xs text-muted">
-                  {progressLabel}
-                </p>
+                <p className="font-mono text-xs text-muted">{progressLabel}</p>
               </div>
 
               <div className="mt-3">
@@ -337,7 +335,7 @@ export const BadgeDetailsDialog = ({
                             Listened on {formatBadgeCreditDate(credit.earnedAt)}
                           </span>
                         </span>
-                        <span className="mt-0.5 shrink-0 text-[0.8125rem] tracking-[0.01em] text-muted transition-colors duration-200 group-hover:text-accent">
+                        <span className="mt-0.5 shrink-0 text-sm text-muted transition-colors duration-200 group-hover:text-accent">
                           View
                         </span>
                       </ArticleLink>

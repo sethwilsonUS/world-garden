@@ -147,19 +147,12 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
                   className="result-link flex min-h-[44px] min-w-0 max-w-full flex-[1_1_240px] items-center gap-[16px] no-underline"
                   onClick={() => analytics.searchResultClicked()}
                 >
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-bg font-mono text-xs font-bold text-accent"
-                    aria-hidden="true"
-                  >
-                    {index + 1}
-                  </span>
-
                   <div className="min-w-0 flex-1">
                     <span className="block [overflow-wrap:anywhere] font-display text-base font-semibold text-foreground">
                       {result.title}
                     </span>
                     {result.description && (
-                      <span className="mt-0.5 block [overflow-wrap:anywhere] text-[0.8125rem] leading-normal text-muted">
+                      <span className="mt-0.5 block [overflow-wrap:anywhere] text-sm leading-normal text-muted">
                         {result.description}
                       </span>
                     )}
@@ -175,7 +168,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
                     width={18}
                     height={18}
                     aria-hidden="true"
-                    className="shrink-0 text-accent opacity-60"
+                    className="shrink-0 text-accent"
                   >
                     <path d="M9 5l7 7-7 7" />
                   </svg>
@@ -183,6 +176,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
                 <PlaylistActionButton
                   slug={result.title.replace(/ /g, "_")}
                   title={result.title}
+                  variant="compact"
                 />
               </div>
             </li>

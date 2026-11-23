@@ -124,9 +124,7 @@ describe("DashboardBadgeCard dialog", () => {
     const articleLink = dialog.querySelector<HTMLAnchorElement>("a[href]")!;
 
     expect(dialog.getAttribute("aria-modal")).toBe("true");
-    expect(
-      dialog.querySelector("section[aria-live=\"polite\"]"),
-    ).not.toBeNull();
+    expect(dialog.querySelector('section[aria-live="polite"]')).not.toBeNull();
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.activeElement).toBe(closeButton);
     expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
@@ -168,7 +166,9 @@ describe("DashboardBadgeCard dialog", () => {
     await openDialog();
 
     expect(document.body.textContent).toContain("Roman Empire");
-    expect(document.body.textContent).not.toContain("Loading credited articles");
+    expect(document.body.textContent).not.toContain(
+      "Loading credited articles",
+    );
   });
 
   it("shows live loading, mismatch, and resolved credit states", async () => {

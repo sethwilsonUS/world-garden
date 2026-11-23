@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 export type TimelineOrder = "oldest" | "newest";
 
@@ -132,7 +128,10 @@ export const AccessibleTimeline = ({
           )}
         </p>
       ) : null}
-      <ol className="context-timeline-list timeline-list">
+      {/* The shared timeline CSS draws a marker dot and axis line on every
+          descendant <li>. Reset nested lists (e.g. related-article chips) so
+          only real timeline entries get markers. */}
+      <ol className="context-timeline-list timeline-list [&_li_li]:block! [&_li_li]:before:hidden! [&_li_li]:after:hidden!">
         {visibleItems.map((item) => (
           <li key={item.id}>
             <div className="context-timeline-date timeline-date">

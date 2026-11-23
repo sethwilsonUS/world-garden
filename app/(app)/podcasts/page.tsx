@@ -36,8 +36,8 @@ export const metadata: Metadata = {
   },
 };
 
-const PodcastAccordionSection = ({
-  accordionId,
+const PodcastFeedSection = ({
+  sectionId,
   badge,
   title,
   description,
@@ -45,7 +45,7 @@ const PodcastAccordionSection = ({
   slug,
   children,
 }: {
-  accordionId: string;
+  sectionId: string;
   badge: string;
   title: string;
   description: string;
@@ -53,96 +53,58 @@ const PodcastAccordionSection = ({
   slug: string;
   children: ReactNode;
 }) => (
-  <section aria-labelledby={`${accordionId}-heading`}>
-    <details open className="garden-bed p-5 sm:p-6 group">
-      <summary className="min-h-[44px] list-none cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-[1_1_240px] [overflow-wrap:anywhere]">
-            <div className="mb-5 inline-flex max-w-full flex-wrap items-center gap-2 break-words rounded-full border border-accent-border bg-accent-bg px-3.5 py-[6px] text-[0.8125rem] font-semibold leading-snug tracking-[0.01em] text-accent [overflow-wrap:anywhere]">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.75}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                width={15}
-                height={15}
-                aria-hidden="true"
-              >
-                <path d="M12 3a6 6 0 0 0-6 6v3a6 6 0 1 0 12 0V9a6 6 0 0 0-6-6Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <path d="M12 19v3" />
-              </svg>
-              {badge}
-            </div>
+  <section
+    id={sectionId}
+    aria-labelledby={`${sectionId}-heading`}
+    className="garden-bed scroll-mt-24 p-5 sm:p-6"
+  >
+    <h2
+      id={`${sectionId}-heading`}
+      className="type-section-title-lg font-display text-[1.5rem] sm:text-[1.75rem] font-semibold text-foreground leading-[1.15] [overflow-wrap:anywhere]"
+    >
+      {title}
+    </h2>
+    <p className="mt-1 text-sm font-medium text-accent">{badge}</p>
+    <p className="mt-3 text-base leading-[1.7] text-foreground-2">
+      {description}
+    </p>
 
-            <h2
-              id={`${accordionId}-heading`}
-              className="type-section-title-lg font-display text-[1.5rem] sm:text-[1.8rem] font-semibold text-foreground leading-[1.12]"
-            >
-              {title}
-            </h2>
+    {/* Subscribe first: most visitors come here to follow a feed. */}
+    <div className="mt-5">
+      <PodcastFeedPanel
+        idBase={`${sectionId}-feed`}
+        title={title}
+        feedUrl={feedUrl}
+      />
+    </div>
 
-            <p className="text-[1rem] leading-[1.75] text-foreground-2 mt-3">
-              {description}
-            </p>
-          </div>
-
-          <span
-            aria-hidden="true"
-            className="mt-1 inline-flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full border border-border bg-surface-2 text-foreground transition-transform duration-200 group-open:rotate-180"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={18}
-              height={18}
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </span>
-        </div>
-      </summary>
-
-      <div className="mt-8 space-y-8">
-        <section aria-labelledby={`${accordionId}-episodes-heading`}>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h3
-              id={`${accordionId}-episodes-heading`}
-              className="font-display text-[1.2rem] font-semibold text-foreground"
-            >
-              Recent episodes
-            </h3>
-            <Link
-              href={`/podcasts/${slug}`}
-              className="inline-flex min-h-[44px] max-w-full items-center text-sm text-accent no-underline"
-              aria-label={`View all episodes for ${title}`}
-            >
-              View full archive
-            </Link>
-          </div>
-          {children}
-        </section>
-
-        <PodcastFeedPanel
-          idBase={`${accordionId}-feed`}
-          title={title}
-          feedUrl={feedUrl}
-        />
+    <section aria-labelledby={`${sectionId}-episodes-heading`} className="mt-6">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3">
+        <h3
+          id={`${sectionId}-episodes-heading`}
+          className="font-display text-[1.125rem] font-semibold text-foreground"
+        >
+          Recent episodes
+        </h3>
+        <Link
+          href={`/podcasts/${slug}`}
+          className="inline-flex min-h-[44px] max-w-full items-center text-sm text-accent underline"
+          aria-label={`View full archive of ${title}`}
+        >
+          View full archive
+        </Link>
       </div>
-    </details>
+      {children}
+    </section>
   </section>
 );
 
+const RECENT_EPISODE_COUNT = 3;
+
 export default async function PodcastsPage() {
   const [featuredEpisodes, trendingEpisodes] = await Promise.all([
-    getFeaturedEpisodes(5),
-    getTrendingEpisodes(5),
+    getFeaturedEpisodes(RECENT_EPISODE_COUNT),
+    getTrendingEpisodes(RECENT_EPISODE_COUNT),
   ]);
   const featuredEntry = getPodcastDirectoryEntry("featured");
   const trendingEntry = getPodcastDirectoryEntry("trending");
@@ -154,57 +116,55 @@ export default async function PodcastsPage() {
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="max-w-4xl mx-auto">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/"
-            className="inline-flex min-h-[44px] items-center gap-1 text-muted text-sm no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to home
-          </Link>
-        </nav>
-
         <section aria-labelledby="podcasts-heading">
           <h1
             id="podcasts-heading"
-            className="type-page-title font-display text-[2rem] sm:text-[2.45rem] font-bold mb-4 text-foreground leading-[1.05]"
+            className="type-page-title font-display text-[1.75rem] font-bold text-foreground"
           >
             Podcasts
           </h1>
-
-          <p className="text-[1.04rem] leading-[1.78] text-foreground-2 max-w-3xl">
-            Curio Garden publishes multiple public podcast feeds. One turns
-            Wikipedia&apos;s featured article into a full listening session. The
-            other is a daily audio briefing on what is trending across Wikipedia
-            and why.
+          <p className="mt-1 max-w-3xl text-base leading-[1.6] text-foreground-2">
+            Two free feeds: Wikipedia&apos;s featured article as a full
+            listening session, and a daily AI briefing on what&apos;s trending.
           </p>
 
-          <div className="mt-8 space-y-6">
-            <PodcastAccordionSection
-              accordionId="featured-podcast"
+          <nav aria-label="Podcast feeds" className="mt-4">
+            <ul className="m-0 flex list-none flex-wrap gap-x-5 p-0">
+              <li>
+                <a
+                  href="#featured-podcast"
+                  className="inline-flex min-h-[44px] items-center text-sm text-accent underline"
+                >
+                  {featuredEntry.title}
+                </a>
+              </li>
+              <li>
+                <a
+                  href="#trending-podcast"
+                  className="inline-flex min-h-[44px] items-center text-sm text-accent underline"
+                >
+                  {trendingEntry.title}
+                </a>
+              </li>
+            </ul>
+          </nav>
+
+          <div className="mt-4 space-y-6">
+            <PodcastFeedSection
+              sectionId="featured-podcast"
               {...featuredEntry}
               feedUrl={getAbsoluteFeedUrl(featuredEntry.feedPath)}
             >
-              <ul className="list-none p-0 m-0 space-y-3" role="list">
+              <ul className="list-none p-0 m-0 space-y-2" role="list">
                 {featuredEpisodes.map((episode) => {
                   const description = getFeaturedEpisodeSummary(episode);
                   return (
                     <li key={episode._id}>
                       <PodcastEpisodeCard
+                        headingId={`featured-episode-${episode._id}`}
+                        headingLevel={4}
+                        compact
                         artworkSrc={getFeaturedEpisodeArtworkUrl(episode)}
-                        artworkAlt={`Artwork for ${episode.title}`}
                         audioUrl={episode.audioUrl}
                         durationSeconds={episode.durationSeconds}
                         title={episode.title}
@@ -216,13 +176,13 @@ export default async function PodcastsPage() {
                               articleTitle={episode.title}
                               href={`/article/${encodeURIComponent(episode.slug)}`}
                               className="btn-secondary text-sm no-underline"
-                              aria-label={`View the Wikipedia article for ${episode.title}`}
+                              aria-label={`View article: ${episode.title}`}
                             >
                               View article
                             </ArticleLink>
                             <AudioDownloadButton
                               href={`/api/podcast/media/${episode._id}?download=1`}
-                              ariaLabel={`Download the podcast audio for ${episode.title}`}
+                              ariaLabel={`Download audio for ${episode.title}`}
                               label="Download"
                               className="no-underline"
                             />
@@ -233,22 +193,24 @@ export default async function PodcastsPage() {
                   );
                 })}
               </ul>
-            </PodcastAccordionSection>
+            </PodcastFeedSection>
 
-            <PodcastAccordionSection
-              accordionId="trending-podcast"
+            <PodcastFeedSection
+              sectionId="trending-podcast"
               {...trendingEntry}
               feedUrl={getAbsoluteFeedUrl(trendingEntry.feedPath)}
             >
-              <ul className="list-none p-0 m-0 space-y-3" role="list">
+              <ul className="list-none p-0 m-0 space-y-2" role="list">
                 {trendingEpisodes.map((episode) => {
                   const title = getTrendingEpisodeTitle(episode);
                   const description = getTrendingEpisodeSummary(episode);
                   return (
                     <li key={episode._id}>
                       <PodcastEpisodeCard
+                        headingId={`trending-episode-${episode._id}`}
+                        headingLevel={4}
+                        compact
                         artworkSrc={getTrendingEpisodeArtworkUrl(episode)}
-                        artworkAlt={`Artwork for ${title}`}
                         audioUrl={episode.audioUrl}
                         durationSeconds={episode.durationSeconds}
                         title={title}
@@ -259,13 +221,13 @@ export default async function PodcastsPage() {
                             <Link
                               href="/trending"
                               className="btn-secondary text-sm no-underline"
-                              aria-label={`Open the trending page for ${title}`}
+                              aria-label={`Open trending page for ${title}`}
                             >
                               Open trending
                             </Link>
                             <AudioDownloadButton
                               href={`/api/podcast/media/trending/${episode._id}?download=1`}
-                              ariaLabel={`Download the podcast audio for ${title}`}
+                              ariaLabel={`Download audio for ${title}`}
                               label="Download"
                               className="no-underline"
                             />
@@ -276,7 +238,7 @@ export default async function PodcastsPage() {
                   );
                 })}
               </ul>
-            </PodcastAccordionSection>
+            </PodcastFeedSection>
           </div>
         </section>
       </div>

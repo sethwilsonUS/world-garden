@@ -58,11 +58,14 @@ describe("PrivateFeedAccessControls", () => {
     );
     expect(container.textContent).toContain("private-token");
     const copyButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Copy Personal Playlist feed URL"]',
+      'button[aria-label="Copy feed URL for Personal Playlist"]',
     );
     expect(copyButton).toBeInstanceOf(HTMLButtonElement);
-    expect(copyButton?.className).toContain("w-11");
-    expect(copyButton?.className).toContain("h-11");
+    // Visible text is part of the accessible name (WCAG 2.5.3).
+    expect(copyButton?.textContent?.trim()).toBe("Copy feed URL");
+    expect(copyButton?.className).toContain("min-h-[44px]");
+    // The feed URL wraps rather than scrolling horizontally (WCAG 2.1.1).
+    expect(container.innerHTML).not.toContain("overflow-x-auto");
     expect(findButton(container, "Apple Podcasts")).toBeTruthy();
     expect(findButton(container, "Replace URL").className).toContain(
       "min-h-11",

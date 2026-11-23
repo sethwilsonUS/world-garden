@@ -31,16 +31,6 @@ export default function AboutPage() {
   return (
     <div className="container mx-auto px-4 pb-20 pt-10">
       <article className="mx-auto max-w-4xl [overflow-wrap:anywhere]">
-        <nav aria-label="Back navigation" className="mb-8">
-          <Link
-            href="/"
-            className="inline-flex min-h-11 max-w-full items-center gap-1 text-sm text-muted no-underline"
-          >
-            <span aria-hidden="true">←</span>
-            Back to the garden
-          </Link>
-        </nav>
-
         <header className="relative overflow-hidden rounded-[32px] border border-accent-border bg-surface-2 px-6 py-10 sm:px-10 sm:py-14">
           <div
             className="pattern-leaves absolute inset-0 opacity-70"

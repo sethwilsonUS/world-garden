@@ -1727,13 +1727,13 @@ fieldset {
   list-style: none;
 }
 
-.context-timeline-list li {
+.context-timeline-list > li {
   display: grid;
   grid-template-columns: minmax(6ch, 8rem) 16px minmax(0, 1fr);
   column-gap: 12px;
 }
 
-.context-timeline-list li::before {
+.context-timeline-list > li::before {
   content: "";
   z-index: 1;
   grid-column: 2;
@@ -1747,7 +1747,7 @@ fieldset {
   background: #a45b13;
 }
 
-.context-timeline-list li::after {
+.context-timeline-list > li::after {
   content: "";
   grid-column: 2;
   grid-row: 1;
@@ -1763,7 +1763,7 @@ fieldset {
   grid-row: 1;
   color: var(--color-muted);
   font-family: var(--font-mono);
-  font-size: 0.65625rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   line-height: 1.5;
   padding-block: 10px;
@@ -1780,13 +1780,13 @@ fieldset {
 
 .context-timeline-copy strong {
   color: var(--color-foreground);
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
 }
 
 .context-timeline-copy p {
   margin: 4px 0 0;
   color: var(--color-foreground-2);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   line-height: 1.6;
 }
 
@@ -1797,18 +1797,18 @@ fieldset {
 }
 
 @container timeline (max-width: 44rem) {
-  .context-timeline-list li {
+  .context-timeline-list > li {
     grid-template-columns: 16px minmax(0, 1fr);
     column-gap: 10px;
   }
 
-  .context-timeline-list li::before,
-  .context-timeline-list li::after {
+  .context-timeline-list > li::before,
+  .context-timeline-list > li::after {
     grid-column: 1;
     grid-row: 1 / span 2;
   }
 
-  .context-timeline-list li::before {
+  .context-timeline-list > li::before {
     margin-top: calc(8px + 0.35em);
   }
 
@@ -1917,7 +1917,7 @@ fieldset {
   border-radius: 999px;
   background: var(--color-surface-3);
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   text-align: center;
 }
 
@@ -3004,7 +3004,7 @@ fieldset {
   }
 
   .context-lane-heading::before,
-  .context-timeline-list li::before {
+  .context-timeline-list > li::before {
     background: Highlight;
   }
 

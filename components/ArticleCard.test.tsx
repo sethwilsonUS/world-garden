@@ -51,4 +51,29 @@ describe("ArticleCard", () => {
     expect(markup).not.toContain('data-adaptive-image-mode="backdrop"');
     expect(markup).not.toContain('loading="lazy"');
   });
+
+  it("clamps the extract, keeps the link name to the title, and avoids dimmed metadata", () => {
+    const extract =
+      "A long extract that would otherwise print in full on every trending card. ".repeat(
+        6,
+      );
+    const markup = renderToStaticMarkup(
+      createElement(ArticleCard, {
+        article: { title: "Rivendell", extract, views: 144000 },
+      }),
+    );
+
+    const link = markup.match(/<a\b[^>]*>([\s\S]*?)<\/a>/);
+    expect(link?.[1]).toBe("Rivendell");
+    expect(link?.[0]).toContain("after:absolute");
+    expect(markup).toMatch(
+      /<p class="[^"]*\bline-clamp-3\b[^"]*">A long extract/,
+    );
+    expect(markup).toContain("144K views yesterday");
+    expect(markup).toContain("144 thousand views yesterday");
+    expect(markup).not.toMatch(/views yesterday[\s\S]*opacity-/);
+    expect(markup).not.toMatch(
+      /class="[^"]*opacity-[0-9]+[^"]*"><span aria-hidden="true">144K/,
+    );
+  });
 });

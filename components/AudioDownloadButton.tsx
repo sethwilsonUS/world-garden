@@ -23,16 +23,17 @@ type AudioDownloadButtonAsLink = SharedProps & {
 };
 
 type AudioDownloadButtonProps =
-  | AudioDownloadButtonAsButton
-  | AudioDownloadButtonAsLink;
+  AudioDownloadButtonAsButton | AudioDownloadButtonAsLink;
 
 const baseClassName =
-  "inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[8px] break-words rounded-xl border border-border bg-surface-2 px-[20px] py-[10px] text-center text-sm font-semibold leading-snug text-foreground-2 transition-colors duration-200 [overflow-wrap:anywhere]";
+  "inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[8px] break-words rounded-xl border border-border bg-surface-2 px-[20px] py-[10px] text-center text-sm font-semibold leading-snug transition-colors duration-200 [overflow-wrap:anywhere]";
 
 const interactiveClassName =
-  "cursor-pointer hover:border-accent-border hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "cursor-pointer text-foreground-2 hover:border-accent-border hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-const disabledClassName = "cursor-not-allowed opacity-70";
+// Dim disabled state with a color token, never opacity, so text keeps a
+// predictable contrast ratio.
+const disabledClassName = "cursor-not-allowed border-dashed text-muted";
 
 const DownloadIcon = ({ className = "shrink-0" }: { className?: string }) => (
   <svg

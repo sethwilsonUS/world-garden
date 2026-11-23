@@ -104,28 +104,6 @@ export default function TrendingPage() {
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="max-w-5xl mx-auto">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/"
-            className="inline-flex min-h-11 items-center gap-1 text-muted text-sm no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to home
-          </Link>
-        </nav>
-
         <section aria-labelledby="trending-heading">
           <div className="mb-8">
             <h1
@@ -134,7 +112,7 @@ export default function TrendingPage() {
             >
               Trending today
             </h1>
-            <p className="text-muted text-sm mt-1">
+            <p className="mt-1 text-base leading-[1.6] text-foreground-2">
               The most-read Wikipedia articles right now, filtered for safe
               content.
             </p>
@@ -147,22 +125,10 @@ export default function TrendingPage() {
           </div>
 
           {briefLoading ? (
-            <div className="garden-bed p-6 mb-8" aria-busy="true">
-              <div
-                className="skeleton mb-3"
-                style={{ width: "34%", height: "18px" }}
-              />
-              <div
-                className="skeleton mb-2"
-                style={{ width: "100%", height: "14px" }}
-              />
-              <div
-                className="skeleton mb-4"
-                style={{ width: "86%", height: "14px" }}
-              />
+            <div aria-hidden="true" className="mb-6">
               <div
                 className="skeleton"
-                style={{ width: "220px", height: "56px" }}
+                style={{ width: "min(100%, 28rem)", height: "20px" }}
               />
             </div>
           ) : brief ? (
@@ -255,44 +221,16 @@ export default function TrendingPage() {
             </section>
           ) : briefState?.enabled &&
             (briefState.status === "missing" ||
-              briefState.status === "pending") ? (
-            <section
-              aria-labelledby="daily-brief-heading"
-              className="garden-bed p-6 mb-8"
-            >
-              <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-2">
-                Daily audio briefing
-              </p>
-              <h2
-                id="daily-brief-heading"
-                className="font-display text-[1.35rem] font-semibold text-foreground leading-[1.2]"
-              >
-                Today&apos;s audio brief is still being prepared
-              </h2>
-              <p className="text-sm text-muted mt-2 leading-[1.7] max-w-3xl">
-                Check back soon. The daily briefing is prepared in the
-                background and will appear here when it is ready.
-              </p>
-            </section>
-          ) : briefState?.enabled && briefState.status === "failed" ? (
-            <section
-              aria-labelledby="daily-brief-heading"
-              className="garden-bed p-6 mb-8"
-            >
-              <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-2">
-                Daily audio briefing
-              </p>
-              <h2
-                id="daily-brief-heading"
-                className="font-display text-[1.35rem] font-semibold text-foreground leading-[1.2]"
-              >
-                Today&apos;s audio brief couldn&apos;t be published yet
-              </h2>
-              <p className="text-sm text-muted mt-2 leading-[1.7] max-w-3xl">
-                The briefing is temporarily unavailable. Curio Garden will try
-                to publish it again in the background.
-              </p>
-            </section>
+              briefState.status === "pending" ||
+              briefState.status === "failed") ? (
+            <p className="mb-6 text-sm leading-[1.6] text-muted">
+              {briefState.status === "failed"
+                ? "Today\u2019s audio brief couldn\u2019t be published yet; Curio Garden will retry in the background."
+                : "Today\u2019s audio brief is still being prepared."}{" "}
+              <Link href="/podcasts/trending" className="text-accent underline">
+                Listen to earlier briefs
+              </Link>
+            </p>
           ) : null}
 
           {loading ? (

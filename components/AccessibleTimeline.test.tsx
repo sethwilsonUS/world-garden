@@ -55,8 +55,9 @@ describe("AccessibleTimeline", () => {
       "3 events, oldest first",
     );
     expect(
-      Array.from(container.querySelectorAll("li strong"), (item) =>
-        item.textContent,
+      Array.from(
+        container.querySelectorAll("li strong"),
+        (item) => item.textContent,
       ),
     ).toEqual(["First event", "Second event", "Third event"]);
 
@@ -75,8 +76,9 @@ describe("AccessibleTimeline", () => {
     expect(button.textContent).toBe("Oldest first");
     expect(document.activeElement).toBe(button);
     expect(
-      Array.from(container.querySelectorAll("li strong"), (item) =>
-        item.textContent,
+      Array.from(
+        container.querySelectorAll("li strong"),
+        (item) => item.textContent,
       ),
     ).toEqual(["Third event", "First event"]);
   });
@@ -94,5 +96,34 @@ describe("AccessibleTimeline", () => {
 
     expect(container.querySelector('[role="status"]')).toBeNull();
     expect(container.querySelector("ol.timeline-list")).not.toBeNull();
+  });
+
+  it("keeps timeline markers off nested lists such as related-article chips", async () => {
+    await act(async () =>
+      root.render(
+        <AccessibleTimeline
+          defaultOrder="oldest"
+          showSort={false}
+          items={[
+            {
+              id: "with-chips",
+              start: { display: "1969", dateTime: "1969", sortKey: 1969 },
+              content: (
+                <ul aria-label="Related articles">
+                  <li>Apollo 11</li>
+                  <li>Moon landing</li>
+                </ul>
+              ),
+            },
+          ]}
+        />,
+      ),
+    );
+
+    const timeline = container.querySelector("ol.context-timeline-list");
+    expect(timeline?.className).toContain("[&_li_li]:before:hidden!");
+    expect(timeline?.className).toContain("[&_li_li]:after:hidden!");
+    expect(timeline?.className).toContain("[&_li_li]:block!");
+    expect(timeline?.querySelectorAll(":scope > li")).toHaveLength(1);
   });
 });

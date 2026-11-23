@@ -83,74 +83,40 @@ export default async function PodcastDetailPage({
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="max-w-4xl mx-auto">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/podcasts"
-            className="inline-flex min-h-[44px] items-center gap-1 text-muted text-sm no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to podcasts
-          </Link>
+        <nav aria-label="Breadcrumb" className="mb-3">
+          <ol className="m-0 flex list-none flex-wrap items-center gap-x-2 p-0 text-sm text-muted">
+            <li>
+              <Link
+                href="/podcasts"
+                className="inline-flex min-h-[44px] items-center text-accent underline"
+              >
+                Podcasts
+              </Link>
+            </li>
+            <li aria-hidden="true">›</li>
+            <li>
+              <span aria-current="page" className="[overflow-wrap:anywhere]">
+                {entry.title}
+              </span>
+            </li>
+          </ol>
         </nav>
 
         <section aria-labelledby="podcast-detail-heading">
-          <div className="mb-5 inline-flex max-w-full flex-wrap items-center gap-2 break-words rounded-full border border-accent-border bg-accent-bg px-3.5 py-[6px] text-[0.8125rem] font-semibold leading-snug tracking-[0.01em] text-accent [overflow-wrap:anywhere]">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.75}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={15}
-              height={15}
-              aria-hidden="true"
-            >
-              <path d="M12 3a6 6 0 0 0-6 6v3a6 6 0 1 0 12 0V9a6 6 0 0 0-6-6Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <path d="M12 19v3" />
-            </svg>
-            {entry.badge}
-          </div>
-
           <h1
             id="podcast-detail-heading"
-            className="type-page-title font-display text-[2rem] sm:text-[2.45rem] font-bold mb-4 text-foreground leading-[1.05]"
+            className="type-page-title font-display text-[1.75rem] font-bold text-foreground [overflow-wrap:anywhere]"
           >
             {entry.title}
           </h1>
-
-          <p className="text-[1.04rem] leading-[1.78] text-foreground-2 max-w-3xl">
+          <p className="mt-1 text-sm font-medium text-accent">{entry.badge}</p>
+          <p className="mt-2 max-w-3xl text-base leading-[1.7] text-foreground-2">
             {entry.description}
           </p>
 
-          <div className="garden-bed p-5 sm:p-6 mt-6">
-            <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-3">
-              Follow this show
-            </p>
-            <p className="text-sm text-foreground-2 leading-[1.7] mb-5 max-w-2xl">
-              Subscribe directly from this page, copy the RSS feed for another
-              app, or use Apple Podcasts&apos;{" "}
-              <span className="font-medium text-foreground">
-                Follow a Show by URL
-              </span>{" "}
-              flow.
-            </p>
+          <div className="mt-6">
             <PodcastFeedPanel
               idBase={`${entry.slug}-podcast-follow`}
-              heading="Add to your podcast app"
               title={entry.title}
               feedUrl={feedUrl}
             />
@@ -175,7 +141,7 @@ export default async function PodcastDetailPage({
                   </p>
                 </div>
               ) : (
-                <ul className="list-none p-0 m-0 space-y-3" role="list">
+                <ul className="list-none p-0 m-0 space-y-2" role="list">
                   {featuredEpisodes.map((featuredEpisode) => {
                     const description =
                       getFeaturedEpisodeSummary(featuredEpisode);
@@ -183,10 +149,10 @@ export default async function PodcastDetailPage({
                     return (
                       <li key={featuredEpisode._id}>
                         <PodcastEpisodeCard
+                          headingId={`featured-episode-${featuredEpisode._id}`}
                           artworkSrc={getFeaturedEpisodeArtworkUrl(
                             featuredEpisode,
                           )}
-                          artworkAlt={`Artwork for ${featuredEpisode.title}`}
                           audioUrl={featuredEpisode.audioUrl}
                           durationSeconds={featuredEpisode.durationSeconds}
                           title={featuredEpisode.title}
@@ -200,13 +166,13 @@ export default async function PodcastDetailPage({
                                 articleTitle={featuredEpisode.title}
                                 href={`/article/${encodeURIComponent(featuredEpisode.slug)}`}
                                 className="btn-secondary text-sm no-underline"
-                                aria-label={`View the Wikipedia article for ${featuredEpisode.title}`}
+                                aria-label={`View article: ${featuredEpisode.title}`}
                               >
                                 View article
                               </ArticleLink>
                               <AudioDownloadButton
                                 href={`/api/podcast/media/${featuredEpisode._id}?download=1`}
-                                ariaLabel={`Download the podcast audio for ${featuredEpisode.title}`}
+                                ariaLabel={`Download audio for ${featuredEpisode.title}`}
                                 label="Download"
                                 className="no-underline"
                               />
@@ -228,7 +194,7 @@ export default async function PodcastDetailPage({
                 </p>
               </div>
             ) : (
-              <ul className="list-none p-0 m-0 space-y-3" role="list">
+              <ul className="list-none p-0 m-0 space-y-2" role="list">
                 {trendingEpisodes.map((trendingEpisode) => {
                   const title = getTrendingEpisodeTitle(trendingEpisode);
                   const description =
@@ -237,10 +203,10 @@ export default async function PodcastDetailPage({
                   return (
                     <li key={trendingEpisode._id}>
                       <PodcastEpisodeCard
+                        headingId={`trending-episode-${trendingEpisode._id}`}
                         artworkSrc={getTrendingEpisodeArtworkUrl(
                           trendingEpisode,
                         )}
-                        artworkAlt={`Artwork for ${title}`}
                         audioUrl={trendingEpisode.audioUrl}
                         durationSeconds={trendingEpisode.durationSeconds}
                         title={title}
@@ -253,13 +219,13 @@ export default async function PodcastDetailPage({
                             <Link
                               href="/trending"
                               className="btn-secondary text-sm no-underline"
-                              aria-label={`Open the trending page for ${title}`}
+                              aria-label={`Open trending page for ${title}`}
                             >
                               Open trending
                             </Link>
                             <AudioDownloadButton
                               href={`/api/podcast/media/trending/${trendingEpisode._id}?download=1`}
-                              ariaLabel={`Download the podcast audio for ${title}`}
+                              ariaLabel={`Download audio for ${title}`}
                               label="Download"
                               className="no-underline"
                             />

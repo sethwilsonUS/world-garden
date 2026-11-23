@@ -34,16 +34,14 @@ export const SectionShell = ({
 }) => {
   return (
     <section aria-labelledby="dashboard-heading" className="mb-8">
-      <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
-        {eyebrow}
-      </p>
+      <p className="text-sm font-medium text-muted">{eyebrow}</p>
       <h1
         id="dashboard-heading"
-        className="type-page-title mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]"
+        className="type-page-title mt-1 font-display text-[1.75rem] font-bold text-foreground"
       >
         {title}
       </h1>
-      <p className="mt-4 max-w-3xl text-[1.04rem] leading-[1.78] text-foreground-2">
+      <p className="mt-1 max-w-3xl text-base leading-[1.6] text-foreground-2">
         {description}
       </p>
       <div className="mt-8">{children}</div>
@@ -122,7 +120,7 @@ const FeatureCard = ({
           </h2>
         </div>
         <span
-          className={`inline-flex max-w-full flex-wrap rounded-full border px-2.5 py-1 text-[0.68rem] font-semibold uppercase leading-snug tracking-[0.12em] ${
+          className={`inline-flex max-w-full flex-wrap rounded-full border px-2.5 py-1 text-xs font-semibold leading-snug ${
             accent
               ? "border-accent-border bg-accent-bg text-accent"
               : "border-border bg-surface text-muted"
@@ -608,31 +606,7 @@ export const LocalModeDashboard = () => {
 export const DashboardHubFrame = ({ children }: { children: ReactNode }) => {
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
-      <div className="mx-auto max-w-[1408px]">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-muted text-sm no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to home
-          </Link>
-        </nav>
-
-        {children}
-      </div>
+      <div className="mx-auto max-w-[1408px]">{children}</div>
     </div>
   );
 };
