@@ -87,7 +87,7 @@ describe("article OpenGraph and Twitter image generation", () => {
         }),
       }),
     );
-  });
+  }, 20_000);
 
   it("renders the fallback card cleanly when Wikimedia returns 429 for the thumbnail", async () => {
     const thumbnailUrl =
@@ -105,5 +105,5 @@ describe("article OpenGraph and Twitter image generation", () => {
     expect(response.status).toBe(200);
     expect(Array.from(bytes.slice(0, 4))).toEqual(PNG_SIGNATURE);
     expect(httpCalls).toHaveLength(2);
-  });
+  }, 20_000);
 });

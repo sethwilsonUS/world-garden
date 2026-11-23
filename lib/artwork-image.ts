@@ -1,14 +1,15 @@
 export const ARTWORK_IMAGE_USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 export const ARTWORK_IMAGE_TIMEOUT_MS = 8_000;
+export const MAX_ARTWORK_IMAGE_BYTES = 15 * 1024 * 1024;
 
-const MAX_ARTWORK_IMAGE_BYTES = 15 * 1024 * 1024;
 const ARTWORK_IMAGE_ACCEPT =
   "image/png, image/jpeg, image/gif, image/webp, image/*;q=0.8";
 
 export type FetchArtworkImageOptions = {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  maxBytes?: number;
   signal?: AbortSignal;
 };
 
@@ -31,6 +32,73 @@ const normalizeHttpImageUrl = (value: string): string | null => {
   }
 };
 
+const cancelRejectedResponse = async (
+  response: Response,
+  controller: AbortController,
+): Promise<void> => {
+  try {
+    await response.body?.cancel();
+  } catch (error: unknown) {
+    console.warn(
+      "[artwork] Failed to cancel rejected image response body:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  controller.abort();
+};
+
+const readBoundedImageBytes = async (
+  response: Response,
+  maxBytes: number,
+  controller: AbortController,
+): Promise<Uint8Array | null> => {
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > maxBytes) {
+      controller.abort();
+      return null;
+    }
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch (error: unknown) {
+          console.warn(
+            "[artwork] Failed to cancel oversized image stream:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        controller.abort();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (totalBytes === 0) return null;
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined;
+};
+
 /**
  * Fetch a remote image server-side with Curio Garden's descriptive User-Agent
  * and a bounded timeout, returning a data URL suitable for `ImageResponse`.
@@ -44,6 +112,7 @@ export const fetchArtworkImageDataUrl = async (
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? ARTWORK_IMAGE_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? MAX_ARTWORK_IMAGE_BYTES;
   const controller = new AbortController();
   const requestSignal = options.signal
     ? AbortSignal.any([options.signal, controller.signal])
@@ -59,27 +128,29 @@ export const fetchArtworkImageDataUrl = async (
       },
       signal: requestSignal,
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      await cancelRejectedResponse(response, controller);
+      return null;
+    }
 
     const contentType = response.headers
       .get("content-type")
       ?.split(";")[0]
       ?.trim()
       .toLocaleLowerCase("en-US");
-    if (!contentType?.startsWith("image/")) return null;
+    if (!contentType?.startsWith("image/")) {
+      await cancelRejectedResponse(response, controller);
+      return null;
+    }
 
     const declaredLength = Number(response.headers.get("content-length"));
-    if (
-      Number.isFinite(declaredLength) &&
-      declaredLength > MAX_ARTWORK_IMAGE_BYTES
-    ) {
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      await cancelRejectedResponse(response, controller);
       return null;
     }
 
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length === 0 || bytes.length > MAX_ARTWORK_IMAGE_BYTES) {
-      return null;
-    }
+    const bytes = await readBoundedImageBytes(response, maxBytes, controller);
+    if (!bytes) return null;
 
     return `data:${contentType};base64,${toBase64(bytes)}`;
   } catch (error: unknown) {

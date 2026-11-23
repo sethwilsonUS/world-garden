@@ -145,4 +145,80 @@ describe("fetchArtworkImageDataUrl", () => {
 
     await expect(pending).rejects.toThrow("Caller aborted");
   });
+
+  it.each([
+    ["HTTP 429 response", 429, { "content-type": "text/plain" }],
+    ["non-image content type", 200, { "content-type": "text/html" }],
+    [
+      "oversized declared content-length",
+      200,
+      {
+        "content-type": "image/png",
+        "content-length": String(20 * 1024 * 1024),
+      },
+    ],
+  ])(
+    "cancels the response body and aborts the request on %s",
+    async (_label, status, headers) => {
+      let bodyCancelled = false;
+      let requestSignal: AbortSignal | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(SAMPLE_PNG_BYTES);
+        },
+        cancel() {
+          bodyCancelled = true;
+        },
+      });
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async (_input, init) => {
+          requestSignal = init?.signal ?? undefined;
+          return new Response(stream, { status, headers });
+        });
+
+      const result = await fetchArtworkImageDataUrl(
+        "https://upload.wikimedia.org/wikipedia/commons/a/ab/Rejected.png",
+        { fetchImpl: fetchMock },
+      );
+
+      expect(result).toBeNull();
+      expect(bodyCancelled).toBe(true);
+      expect(requestSignal?.aborted).toBe(true);
+    },
+  );
+
+  it("stops streaming and cancels as soon as an unlabelled body exceeds maxBytes", async () => {
+    let chunksPulled = 0;
+    let streamCancelled = false;
+    let requestSignal: AbortSignal | undefined;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(streamController) {
+        chunksPulled += 1;
+        streamController.enqueue(new Uint8Array(64));
+      },
+      cancel() {
+        streamCancelled = true;
+      },
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_input, init) => {
+        requestSignal = init?.signal ?? undefined;
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      });
+
+    const result = await fetchArtworkImageDataUrl(
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Huge.png",
+      { fetchImpl: fetchMock, maxBytes: 100 },
+    );
+
+    expect(result).toBeNull();
+    expect(streamCancelled).toBe(true);
+    expect(requestSignal?.aborted).toBe(true);
+    expect(chunksPulled).toBeLessThanOrEqual(3);
+  });
 });

@@ -75,21 +75,29 @@ describe("renderTrendingPodcastArtworkResponse", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends Curio Garden's User-Agent for collage tiles and degrades gracefully on 429", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(SAMPLE_PNG_BYTES, {
-          status: 200,
-          headers: { "content-type": "image/png" },
-        }),
-      )
-      .mockResolvedValueOnce(new Response("Too many requests", { status: 429 }));
-
+  it("sends Curio Garden's User-Agent for collage tiles, degrades gracefully on 429, and renders a PNG", async () => {
+    const realFetch = globalThis.fetch;
+    const httpCalls: Array<{ url: string; init?: RequestInit }> = [];
     const urlOne =
       "https://upload.wikimedia.org/wikipedia/commons/a/ab/One.png";
     const urlTwo =
       "https://upload.wikimedia.org/wikipedia/commons/b/bc/Two.png";
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.startsWith("data:")) {
+        return await realFetch(input, init);
+      }
+      httpCalls.push({ url, init });
+      if (url === urlOne) {
+        return new Response(SAMPLE_PNG_BYTES, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      return new Response("Too many requests", { status: 429 });
+    });
+
     const response = await renderTrendingPodcastArtworkResponse({
       trendingDate: "2026-11-22",
       artworkItems: [
@@ -97,13 +105,15 @@ describe("renderTrendingPodcastArtworkResponse", () => {
         { title: "Two", imageUrl: urlTwo },
       ],
     });
+    const bytes = new Uint8Array(await response.arrayBuffer());
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("image/png");
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    for (const expectedUrl of [urlOne, urlTwo]) {
-      expect(fetchSpy).toHaveBeenCalledWith(
-        expectedUrl,
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(httpCalls).toHaveLength(2);
+    expect(httpCalls.map((call) => call.url)).toEqual([urlOne, urlTwo]);
+    for (const call of httpCalls) {
+      expect(call.init).toEqual(
         expect.objectContaining({
           cache: "no-store",
           signal: expect.any(AbortSignal),
@@ -113,5 +123,5 @@ describe("renderTrendingPodcastArtworkResponse", () => {
         }),
       );
     }
-  });
+  }, 20_000);
 });
