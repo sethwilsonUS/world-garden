@@ -2,7 +2,7 @@
 
 The home page leads with article search. Its listening sample lives in “How Curio Garden works.” On article pages, playback starts under the title, and the full summary is available through a disclosure. Now Playing stays available while the listener searches or opens another article. It keeps the article title visible when collapsed and adds the section name when space permits. Jump to section returns to the playing article and focuses its section control. The browser remembers the collapsed setting.
 
-The home sample offers native audio controls while the page loads. The theme switch is in the site footer. The expanded player’s Keyboard shortcuts disclosure lists Space for play/pause, Left and Right Arrow for seeking ten seconds, and Shift+N for the next section during Play all. Listeners can turn those shortcuts off there.
+The home sample offers native audio controls while the page loads. The theme switch is in the site footer. The Keyboard shortcuts disclosure stays available in the compact player. Space plays or pauses, Left and Right Arrow seek ten seconds, and Shift+N advances during Play all. These shortcuts work while reading the playing article. On other pages, focus must be inside Now Playing. Listeners can turn the shortcuts off in the disclosure.
 
 ## Conventions for future changes
 

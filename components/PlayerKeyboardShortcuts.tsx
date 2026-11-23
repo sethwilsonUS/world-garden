@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useState, type RefObject } from "react";
 
 const PREFERENCE_KEY = "curio-player-keyboard-shortcuts";
 export const SKIP_SECONDS = 10;
@@ -48,7 +48,10 @@ function shortcutAction(
   }
 }
 
-export function PlayerKeyboardShortcuts(actions: PlayerShortcutActions) {
+export function PlayerKeyboardShortcuts({
+  scopeRef,
+  ...actions
+}: PlayerShortcutActions & { scopeRef?: RefObject<HTMLElement | null> }) {
   const [enabled, setEnabled] = useState(readShortcutsEnabled);
   const handleKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -91,9 +94,10 @@ export function PlayerKeyboardShortcuts(actions: PlayerShortcutActions) {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => handleKeyDown(event);
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [enabled]);
+    const scope = scopeRef ? scopeRef.current : document.documentElement;
+    scope?.addEventListener("keydown", onKeyDown);
+    return () => scope?.removeEventListener("keydown", onKeyDown);
+  }, [enabled, scopeRef]);
 
   function changePreference(next: boolean) {
     setEnabled(next);
@@ -105,13 +109,14 @@ export function PlayerKeyboardShortcuts(actions: PlayerShortcutActions) {
   }
 
   return (
-    <details className="text-sm text-foreground-2">
+    <details className="max-w-full text-sm text-foreground-2 open:w-full">
       <summary className="min-h-11 w-fit cursor-pointer content-center rounded-lg px-2 font-semibold">
         Keyboard shortcuts
       </summary>
       <p className="px-2">
-        Use these keys while reading. Text fields, dialogs, and focused controls
-        keep their usual keys.
+        Use these keys on the article you’re listening to. On other pages, focus
+        a Now Playing control first. Text fields and dialogs keep their usual
+        keys.
       </p>
       <ul className="list-disc space-y-1 pl-6">
         <li>

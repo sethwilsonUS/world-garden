@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { parseCanonicalArticlePath } from "@/lib/article-route";
 import { useArticleAudioController } from "@/hooks/useArticleAudioController";
 import { useHistory } from "@/hooks/useHistory";
 import { NowPlayingBar } from "./NowPlayingBar";
@@ -42,6 +43,7 @@ function PlaybackSession({
   const { slug, article } = source;
   const { updateProgress } = useHistory();
   const router = useRouter();
+  const pathname = usePathname();
   const claimPlayback = useCallback(
     () => claim({ slug, article }),
     [claim, slug, article],
@@ -129,6 +131,9 @@ function PlaybackSession({
       {ownsPlayback && (
         <NowPlayingBar
           articleTitle={article.title}
+          isPlayingArticlePage={
+            page !== null && parseCanonicalArticlePath(pathname)?.slug === slug
+          }
           sectionTitle={sectionTitle}
           returnFocusRef={page?.playAllButtonRef}
           error={page || status !== "error" ? null : state.error}

@@ -55,6 +55,26 @@ describe("PlayerKeyboardShortcuts", () => {
     expect(actions.onNextSection).toHaveBeenCalledOnce();
   });
 
+  it("scopes shortcuts to the player when navigating away and restores the article scope on return", () => {
+    const play = document.createElement("button");
+    container.appendChild(play);
+    for (const scopeRef of [{ current: container }, undefined]) {
+      act(() => root.render(<PlayerKeyboardShortcuts {...actions} scopeRef={scopeRef} />));
+      for (const [key, options] of [
+        [" ", {}],
+        ["ArrowLeft", {}],
+        ["ArrowRight", {}],
+        ["N", { shiftKey: true }],
+      ] as const) {
+        expect(press(key, document.body, options)).toBe(scopeRef === undefined);
+      }
+      play.focus();
+      expect(press("ArrowRight", play)).toBe(true);
+      expect(press("N", play, { shiftKey: true })).toBe(true);
+      expect(press(" ", play)).toBe(false);
+    }
+  });
+
   it("intercepts only available actions and releases keys when the player closes", () => {
     act(() =>
       root.render(

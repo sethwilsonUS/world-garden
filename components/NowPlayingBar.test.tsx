@@ -38,6 +38,7 @@ type BarProps = ComponentProps<typeof NowPlayingBar>;
 const makeProps = (overrides: Partial<BarProps> = {}): BarProps => ({
   returnFocusRef: { current: null },
   articleTitle: "Example article",
+  isPlayingArticlePage: true,
   sectionTitle: "History",
   playback: playback(),
   audioProgress: { currentTime: 30, duration: 120 },
@@ -251,6 +252,10 @@ describe("NowPlayingBar", () => {
     expect(document.activeElement).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(panel?.hidden).toBe(true);
+    const help = container.querySelector("details")!;
+    expect(help.closest("[hidden]")).toBeNull();
+    expect(help.querySelector("summary")?.textContent).toBe("Keyboard shortcuts");
+    expect(help.querySelector("input[type=checkbox]")).toBeTruthy();
     expect(panel?.contains(button(container, "Stop audio"))).toBe(true);
     expect(
       panel?.contains(container.querySelector("input[type='range']")),

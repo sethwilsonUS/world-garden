@@ -46,6 +46,7 @@ type NowPlayingBarProps = {
   error?: string | null;
   onRetry?: () => void;
   articleTitle: string;
+  isPlayingArticlePage: boolean;
   /** Title of the section that is loaded, e.g. "Summary" or "History". */
   sectionTitle: string | null;
   playback: AudioPlaybackState;
@@ -157,6 +158,7 @@ export const NowPlayingBar = ({
   error,
   onRetry,
   articleTitle,
+  isPlayingArticlePage,
   sectionTitle,
   playback,
   audioProgress,
@@ -306,9 +308,9 @@ export const NowPlayingBar = ({
         data-now-playing-bar
         className="fixed inset-x-0 bottom-0 z-50 max-h-[60dvh] overflow-y-auto border-t border-border bg-surface-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.18)] [overflow-wrap:anywhere]"
       >
-        <div className="@container mx-auto flex max-w-3xl flex-col gap-1 px-3 sm:px-4">
+        <div className="@container mx-auto flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 px-3 sm:px-4">
           <div
-            className={`flex min-w-0 gap-2 ${minimized ? "items-center" : "items-start"}`}
+            className={`flex min-w-0 gap-2 ${minimized ? "flex-[1_1_17em] items-center" : "w-full items-start"}`}
           >
             <div className="min-w-0 flex-1">
               <p className="m-0 line-clamp-2 text-sm font-semibold leading-snug text-foreground sm:text-base">
@@ -372,7 +374,7 @@ export const NowPlayingBar = ({
             </button>
           </div>
 
-          <div id={controlsId} hidden={minimized}>
+          <div id={controlsId} hidden={minimized} className="w-full">
             <div
               role="group"
               aria-label="Playback controls"
@@ -460,14 +462,13 @@ export const NowPlayingBar = ({
                 {duration > 0 ? formatTime(duration) : "--:--"}
               </span>
             </div>
-            <PlayerKeyboardShortcuts
-              onTogglePlayback={
-                error || isLoading ? undefined : onTogglePlayback
-              }
-              onSkipBy={canSeek ? onSkipBy : undefined}
-              onNextSection={isPlayingAll ? onSkipSection : undefined}
-            />
           </div>
+          <PlayerKeyboardShortcuts
+            scopeRef={isPlayingArticlePage ? undefined : barRef}
+            onTogglePlayback={error || isLoading ? undefined : onTogglePlayback}
+            onSkipBy={canSeek ? onSkipBy : undefined}
+            onNextSection={isPlayingAll ? onSkipSection : undefined}
+          />
         </div>
       </section>
     </>

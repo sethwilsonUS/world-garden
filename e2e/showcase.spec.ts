@@ -1486,7 +1486,15 @@ test("Now playing can be minimized at double text size with the keyboard", async
   await expect(disclosure).toHaveAttribute("aria-expanded", "false");
   await expectVisibleFocusIndicator(disclosure);
   await expect(player.getByRole("slider")).toHaveCount(0);
-  await expect(player.getByRole("button")).toHaveCount(2);
+  const shortcutHelp = player.getByText("Keyboard shortcuts", { exact: true });
+  await expect(shortcutHelp).toBeVisible();
+  await shortcutHelp.press("Enter");
+  const enableShortcuts = player.getByRole("checkbox", { name: "Enable player shortcuts" });
+  await enableShortcuts.uncheck();
+  await expect(enableShortcuts).not.toBeChecked();
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await shortcutHelp.press("Enter");
+  await disclosure.focus();
   const articleTitle = player.getByText("Ada Lovelace", { exact: true });
   const sectionTitle = player.locator("p").filter({ hasText: /Recognition$/ });
   expect((await articleTitle.boundingBox())!.width).toBeGreaterThan(20);
@@ -1501,7 +1509,7 @@ test("Now playing can be minimized at double text size with the keyboard", async
       ),
     )
     .toBe(`${Math.ceil(compactHeight)}px`);
-  for (const control of [disclosure, pause]) {
+  for (const control of [disclosure, pause, shortcutHelp]) {
     const box = (await control.boundingBox())!;
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -1746,6 +1754,12 @@ test("Play all advances away from the article and keeps reading shortcuts out of
   await expect(
     player.getByRole("button", { name: "Pause Summary" }),
   ).toBeVisible();
+  await page.getByRole("heading", { name: "Ada Lovelace", exact: true }).click();
+  await page.keyboard.press("Space");
+  await expect(player.getByRole("button", { name: "Play Summary" })).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(player.getByRole("button", { name: "Pause Summary" })).toBeVisible();
+
   const search = page.getByRole("searchbox", { name: "Search articles" });
   await search.fill("Ada");
   await search.press("Shift+N");
@@ -1753,14 +1767,17 @@ test("Play all advances away from the article and keeps reading shortcuts out of
   await search.press("Enter");
   const heading = page.getByRole("heading", { name: /Results for/ });
   await heading.click();
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   await page.keyboard.press("Space");
-  await expect(
-    player.getByRole("button", { name: "Play Summary" }),
-  ).toBeVisible();
-  await page.keyboard.press("Space");
-  await expect(
-    player.getByRole("button", { name: "Pause Summary" }),
-  ).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(scrollBefore);
+  await page.keyboard.press("Shift+N");
+  const pause = player.getByRole("button", { name: "Pause Summary" });
+  await expect(pause).toBeVisible();
+  await pause.press("Space");
+  const play = player.getByRole("button", { name: "Play Summary" });
+  await expect(play).toBeFocused();
+  await play.press("Space");
+  await expect(pause).toBeFocused();
   await page.locator("audio").dispatchEvent("ended");
   await expect(
     player.getByRole("button", { name: "Pause Early life" }),
