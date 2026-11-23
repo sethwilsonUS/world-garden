@@ -4,8 +4,21 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OnThisDayExplorer } from "./OnThisDayExplorer";
+import { OnThisDaySessionProvider } from "./OnThisDaySessionProvider";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+const { pushMock, pathnameRef, searchParamsRef } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+  pathnameRef: { current: "/on-this-day/july-30" },
+  searchParamsRef: { current: new URLSearchParams() },
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock }),
+  usePathname: () => pathnameRef.current,
+  useSearchParams: () => searchParamsRef.current,
+}));
 
 const counts = {
   selected: 1,
@@ -24,6 +37,7 @@ const availableCategories = {
 
 const responseFor = (url: string) => {
   const parsed = new URL(url, "https://curiogarden.org");
+  const calendarDay = parsed.searchParams.get("day") ?? "07-30";
   const category = parsed.searchParams.get("category") ?? "selected";
   const offset = Number(parsed.searchParams.get("offset") ?? 0);
   const order = parsed.searchParams.get("order") ?? "newest";
@@ -32,17 +46,18 @@ const responseFor = (url: string) => {
   const items = Array.from({ length }, (_, index) => {
     const sequence = offset + index;
     return {
-      id: `${category}-${order}-${sequence}`,
+      id: `${calendarDay}-${category}-${order}-${sequence}`,
       year: order === "newest" ? 2000 - sequence : 1900 + sequence,
       text: `${category} item ${sequence + 1}`,
       pages: [],
     };
   });
   return {
-    requestedDate: "2026-07-30",
-    snapshotDate: "2026-07-30",
-    snapshotIsStale: false,
-    provider: "wikifeeds-v1",
+    calendarDay,
+    checkedAt: Date.UTC(2026, 10, 20, 12, 0, 0),
+    changedAt: Date.UTC(2026, 10, 19, 12, 0, 0),
+    degraded: false,
+    provider: "wikipedia-rest-v1",
     sourceUrl: "https://en.wikipedia.org/wiki/July_30",
     category,
     order,
@@ -66,6 +81,10 @@ describe("OnThisDayExplorer", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    pathnameRef.current = "/on-this-day/july-30";
+    searchParamsRef.current = new URLSearchParams();
+    window.history.replaceState(null, "", "/on-this-day/july-30");
+    pushMock.mockReset();
     fetchMock.mockReset();
     fetchMock.mockImplementation(async (input) =>
       Response.json(responseFor(String(input))),
@@ -80,7 +99,7 @@ describe("OnThisDayExplorer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses Wikimedia's human-authored description as the image alternative", async () => {
+  it("uses Wikimedia's human-authored description as the image alternative and shows quiet freshness copy", async () => {
     fetchMock.mockImplementationOnce(async (input) => {
       const response = responseFor(String(input));
       return Response.json({
@@ -104,16 +123,33 @@ describe("OnThisDayExplorer", () => {
       });
     });
 
-    await act(async () => root.render(<OnThisDayExplorer />));
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
     await act(async () => undefined);
 
+    expect(container.querySelector("h1")?.textContent).toBe(
+      "On This Day: July 30",
+    );
     expect(container.querySelector("img")?.getAttribute("alt")).toBe(
       "Apollo 11 astronauts in a life raft after their Pacific splashdown.",
     );
+    expect(container.querySelector(".on-this-day-source-note")?.textContent).toContain(
+      "Lists from Wikipedia, last checked Nov 20, 2026.",
+    );
+    expect(container.textContent).not.toContain("(UTC)");
   });
 
-  it("uses manual keyboard tabs and progressively reveals a cached category", async () => {
-    await act(async () => root.render(<OnThisDayExplorer />));
+  it("uses manual keyboard tabs, updates URL via replaceState, and progressively reveals a cached category", async () => {
+    const replaceStateSpy = vi.spyOn(window.history, "replaceState");
+
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
     await act(async () => undefined);
 
     const tabs = Array.from(
@@ -155,6 +191,11 @@ describe("OnThisDayExplorer", () => {
     );
     await act(async () => undefined);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(replaceStateSpy).toHaveBeenCalledWith(
+      null,
+      "",
+      "/on-this-day/july-30?category=events",
+    );
     expect(container.querySelector("#on-this-day-live-status")).toBe(
       persistentStatus,
     );
@@ -174,14 +215,21 @@ describe("OnThisDayExplorer", () => {
     );
     expect(document.activeElement).toBe(showMore);
 
-    tabs[0].click();
-    tabs[1].click();
-    await act(async () => undefined);
+    await act(async () => {
+      tabs[0].click();
+      tabs[1].click();
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps focus on the sort control while requesting the opposite end", async () => {
-    await act(async () => root.render(<OnThisDayExplorer />));
+  it("keeps focus on the sort control while requesting the opposite end and syncs non-default sort to URL", async () => {
+    const replaceStateSpy = vi.spyOn(window.history, "replaceState");
+
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
     await act(async () => undefined);
     const eventsTab = container.querySelector<HTMLButtonElement>(
       "#on-this-day-tab-events",
@@ -208,8 +256,13 @@ describe("OnThisDayExplorer", () => {
     expect(container.querySelector("ol.timeline-list time")?.textContent).toBe(
       "2000",
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+    expect(container.querySelector("#on-this-day-live-status")?.textContent).toBe(
       "Loading events…",
+    );
+    expect(replaceStateSpy).toHaveBeenLastCalledWith(
+      null,
+      "",
+      "/on-this-day/july-30?category=events&order=oldest",
     );
 
     await act(async () => resolveOldestRequest?.());
@@ -224,7 +277,11 @@ describe("OnThisDayExplorer", () => {
   });
 
   it("preserves loaded items and offers a retry after a pagination failure", async () => {
-    await act(async () => root.render(<OnThisDayExplorer />));
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
     await act(async () => undefined);
     const eventsTab = container.querySelector<HTMLButtonElement>(
       "#on-this-day-tab-events",
@@ -260,7 +317,11 @@ describe("OnThisDayExplorer", () => {
   });
 
   it("aborts an obsolete category request when returning to cached results", async () => {
-    await act(async () => root.render(<OnThisDayExplorer />));
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
     await act(async () => undefined);
     let aborted = false;
     fetchMock.mockImplementationOnce(
@@ -288,10 +349,12 @@ describe("OnThisDayExplorer", () => {
     expect(container.textContent).toContain("selected item 1");
   });
 
-  it("exposes selected-only fallback categories as unavailable native tabs", async () => {
+  it("shows degraded status message and disables unavailable tabs", async () => {
     fetchMock.mockImplementationOnce(async (input) =>
       Response.json({
         ...responseFor(String(input)),
+        degraded: true,
+        provider: "featured-fallback",
         counts: {
           selected: 1,
           events: 0,
@@ -308,8 +371,16 @@ describe("OnThisDayExplorer", () => {
         },
       }),
     );
-    await act(async () => root.render(<OnThisDayExplorer />));
+    await act(async () =>
+      root.render(
+        <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />,
+      ),
+    );
     await act(async () => undefined);
+
+    expect(
+      container.querySelector(".on-this-day-degraded-status")?.textContent,
+    ).toBe("Only highlights are available for this day right now.");
 
     const tabs = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
@@ -325,5 +396,40 @@ describe("OnThisDayExplorer", () => {
       ),
     );
     expect(document.activeElement).toBe(tabs[0]);
+  });
+
+  it("caches days independently across navigation and pushes picker selections preserving tab and sort", async () => {
+    searchParamsRef.current = new URLSearchParams(
+      "category=births&order=oldest",
+    );
+
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer initialDay={{ month: 7, day: 30 }} />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    await act(async () => undefined);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("day=07-30");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("category=births");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("order=oldest");
+
+    // Open calendar picker and select July 31.
+    const pickerBtn = container.querySelector<HTMLButtonElement>(
+      ".on-this-day-nav-picker",
+    )!;
+    act(() => pickerBtn.click());
+    const july31 = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="July 31"]',
+    )!;
+    act(() => july31.click());
+
+    expect(pushMock).toHaveBeenCalledWith(
+      "/on-this-day/july-31?category=births&order=oldest",
+      { scroll: false },
+    );
   });
 });

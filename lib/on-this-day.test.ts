@@ -1,12 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildFeaturedOnThisDayFallback,
   buildOnThisDaySnapshot,
+  hashOnThisDaySnapshot,
+  OnThisDayUpstreamError,
   paginateOnThisDaySnapshot,
-  WIKIFEEDS_REQUEST_TIMEOUT_MS,
-  wikifeedsOnThisDayProvider,
+  WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS,
+  wikipediaRestOnThisDayProvider,
   type OnThisDayProvider,
 } from "./on-this-day";
-import type { OnThisDaySnapshot } from "./on-this-day-contracts";
+import {
+  CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+  type OnThisDaySnapshot,
+} from "./on-this-day-contracts";
 
 const provider: OnThisDayProvider = {
   fetchAll: vi.fn(async () => ({
@@ -67,19 +73,19 @@ describe("On This Day snapshot", () => {
     );
 
     const snapshot = await buildOnThisDaySnapshot({
-      feedDate: "2026-07-24",
+      day: { month: 7, day: 24 },
       provider,
       resolveImages,
-      generatedAt: 1_779_000_000_000,
+      checkedAt: 1_779_000_000_000,
     });
 
     expect(provider.fetchAll).toHaveBeenCalledWith({ month: "07", day: "24" });
     expect(snapshot).toMatchObject({
-      schemaVersion: 1,
-      provider: "wikifeeds-v1",
-      feedDate: "2026-07-24",
+      schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+      provider: "wikipedia-rest-v1",
       monthDay: "07-24",
-      generatedAt: 1_779_000_000_000,
+      checkedAt: 1_779_000_000_000,
+      sourceUrl: "https://en.wikipedia.org/wiki/July_24",
       counts: {
         selected: 1,
         events: 1,
@@ -126,14 +132,106 @@ describe("On This Day snapshot", () => {
     ]);
 
     const rebuilt = await buildOnThisDaySnapshot({
-      feedDate: "2026-07-24",
+      day: { month: 7, day: 24 },
       provider,
       resolveImages,
-      generatedAt: 1_779_000_000_100,
+      checkedAt: 1_779_000_000_100,
     });
     expect(rebuilt.categories.selected[0].id).toBe(
       snapshot.categories.selected[0].id,
     );
+    expect(hashOnThisDaySnapshot(rebuilt)).toBe(
+      hashOnThisDaySnapshot(snapshot),
+    );
+  });
+
+  it("reuses unchanged image metadata from the previous snapshot unless reResolveImages is set", async () => {
+    const firstResolve = vi.fn(async () =>
+      new Map([
+        [
+          "https://upload.wikimedia.org/apollo.jpg",
+          {
+            altText: "Cached Apollo alt text",
+            attribution: {
+              sourceTitle: "File:Apollo.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+              creator: "NASA",
+              licenseName: "Public domain",
+            },
+          },
+        ],
+      ]),
+    );
+
+    const previousSnapshot = await buildOnThisDaySnapshot({
+      day: { month: 7, day: 24 },
+      provider,
+      resolveImages: firstResolve,
+      checkedAt: 1_000,
+    });
+
+    const secondResolve = vi.fn(async () => new Map());
+    const reused = await buildOnThisDaySnapshot({
+      day: { month: 7, day: 24 },
+      provider,
+      resolveImages: secondResolve,
+      previousSnapshot,
+      checkedAt: 2_000,
+    });
+
+    expect(secondResolve).not.toHaveBeenCalled();
+    expect(reused.categories.selected[0].image?.altText).toBe(
+      "Cached Apollo alt text",
+    );
+    expect(reused.categories.selected[0].image?.attribution?.creator).toBe(
+      "NASA",
+    );
+
+    const forcedResolve = vi.fn(async () =>
+      new Map([
+        [
+          "https://upload.wikimedia.org/apollo.jpg",
+          {
+            altText: "Refreshed Apollo alt text",
+            attribution: {
+              sourceTitle: "File:Apollo.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+              creator: "NASA Archive",
+              licenseName: "Public domain",
+            },
+          },
+        ],
+      ]),
+    );
+    const reResolved = await buildOnThisDaySnapshot({
+      day: { month: 7, day: 24 },
+      provider,
+      resolveImages: forcedResolve,
+      previousSnapshot,
+      reResolveImages: true,
+      checkedAt: 3_000,
+    });
+
+    expect(forcedResolve).toHaveBeenCalledTimes(1);
+    expect(reResolved.categories.selected[0].image?.altText).toBe(
+      "Refreshed Apollo alt text",
+    );
+  });
+
+  it("skips image metadata lookup during fast cold builds and attaches source fallbacks", async () => {
+    const resolveImages = vi.fn();
+    const snapshot = await buildOnThisDaySnapshot({
+      day: { month: 7, day: 24 },
+      provider,
+      resolveImages,
+      skipImageResolution: true,
+    });
+
+    expect(resolveImages).not.toHaveBeenCalled();
+    expect(snapshot.categories.selected[0].image?.attribution).toEqual({
+      sourceTitle: "File:apollo.jpg",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File%3Aapollo.jpg",
+    });
   });
 
   it("decodes Wikimedia HTML entities in event and article text", async () => {
@@ -154,7 +252,7 @@ describe("On This Day snapshot", () => {
     };
 
     const snapshot = await buildOnThisDaySnapshot({
-      feedDate: "2026-07-30",
+      day: { month: 7, day: 30 },
       provider: encodedProvider,
     });
 
@@ -164,7 +262,7 @@ describe("On This Day snapshot", () => {
     });
   });
 
-  it("bounds live Wikifeeds requests so a visitor cannot wait indefinitely", async () => {
+  it("targets en.wikipedia.org rest_v1 and bounds live requests with a timeout", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(
       async (_input: string | URL | Request, init?: RequestInit) =>
@@ -177,7 +275,7 @@ describe("On This Day snapshot", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     try {
-      const request = wikifeedsOnThisDayProvider.fetchAll({
+      const request = wikipediaRestOnThisDayProvider.fetchAll({
         month: "07",
         day: "30",
       });
@@ -185,14 +283,42 @@ describe("On This Day snapshot", () => {
         name: "AbortError",
       });
 
-      await vi.advanceTimersByTimeAsync(WIKIFEEDS_REQUEST_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(
+        WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS,
+      );
       await rejection;
       expect(fetchMock).toHaveBeenCalledWith(
-        "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all/07/30",
+        "https://en.wikipedia.org/api/rest_v1/feed/onthisday/all/07/30",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     } finally {
       vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces HTTP 429 status and Retry-After seconds from Wikipedia", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("Too many requests", {
+          status: 429,
+          headers: { "Retry-After": "45" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await expect(
+        wikipediaRestOnThisDayProvider.fetchAll({ month: "03", day: "05" }),
+      ).rejects.toMatchObject({
+        name: "OnThisDayUpstreamError",
+        status: 429,
+        retryAfterSeconds: 45,
+      });
+      expect(new OnThisDayUpstreamError("rate limited", { status: 429 })).toBeInstanceOf(
+        Error,
+      );
+    } finally {
       vi.unstubAllGlobals();
     }
   });
@@ -209,11 +335,10 @@ describe("On This Day snapshot", () => {
       { id: "holiday-a", text: "Second source holiday", pages: [] },
     ];
     const snapshot = {
-      schemaVersion: 1,
-      provider: "wikifeeds-v1",
-      feedDate: "2026-07-24",
+      schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+      provider: "wikipedia-rest-v1",
       monthDay: "07-24",
-      generatedAt: 1,
+      checkedAt: 5_000,
       sourceUrl: "https://en.wikipedia.org/wiki/July_24",
       categories: {
         selected: [],
@@ -239,16 +364,19 @@ describe("On This Day snapshot", () => {
     } satisfies OnThisDaySnapshot;
 
     const newest = paginateOnThisDaySnapshot(snapshot, {
-      requestedDate: "2026-07-24",
       category: "events",
       order: "newest",
       offset: 0,
       limit: 25,
+      checkedAt: 6_000,
+      changedAt: 4_000,
+      degraded: false,
     });
     expect(newest).toMatchObject({
-      requestedDate: "2026-07-24",
-      snapshotDate: "2026-07-24",
-      snapshotIsStale: false,
+      calendarDay: "07-24",
+      checkedAt: 6_000,
+      changedAt: 4_000,
+      degraded: false,
       total: 30,
       nextOffset: 25,
     });
@@ -257,7 +385,6 @@ describe("On This Day snapshot", () => {
       1929, 1928,
     ]);
     const oldest = paginateOnThisDaySnapshot(snapshot, {
-      requestedDate: "2026-07-24",
       category: "events",
       order: "oldest",
       offset: 25,
@@ -269,7 +396,6 @@ describe("On This Day snapshot", () => {
     expect(oldest.nextOffset).toBeNull();
 
     const holidayPage = paginateOnThisDaySnapshot(snapshot, {
-      requestedDate: "2026-07-24",
       category: "holidays",
       order: "oldest",
       offset: 0,
@@ -284,7 +410,7 @@ describe("On This Day snapshot", () => {
 
   it("keeps valid events with source-page attribution when metadata resolution fails", async () => {
     const snapshot = await buildOnThisDaySnapshot({
-      feedDate: "2026-07-24",
+      day: { month: 7, day: 24 },
       provider,
       resolveImages: vi.fn(async () => {
         throw new Error("Wikimedia metadata is temporarily unavailable");
@@ -294,24 +420,22 @@ describe("On This Day snapshot", () => {
     expect(snapshot.categories.selected).toHaveLength(1);
     expect(snapshot.categories.selected[0].image?.attribution).toEqual({
       sourceTitle: "File:apollo.jpg",
-      sourceUrl:
-        "https://commons.wikimedia.org/wiki/File%3Aapollo.jpg",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File%3Aapollo.jpg",
     });
   });
 
-  it("discards malformed items but rejects an incomplete category contract", async () => {
+  it("discards malformed items, rejects incomplete categories, and builds degraded fallbacks", async () => {
     const malformedProvider: OnThisDayProvider = {
-      fetchAll: vi.fn(async () =>
-        ({
-          selected: [null, { text: 42, pages: [null] }],
-          events: [],
-          births: [],
-          deaths: [],
-          holidays: [],
-        })),
+      fetchAll: vi.fn(async () => ({
+        selected: [null, { text: 42, pages: [null] }],
+        events: [],
+        births: [],
+        deaths: [],
+        holidays: [],
+      })),
     };
     const malformed = await buildOnThisDaySnapshot({
-      feedDate: "2026-07-24",
+      day: { month: 7, day: 24 },
       provider: malformedProvider,
     });
     expect(malformed.counts.selected).toBe(0);
@@ -321,9 +445,23 @@ describe("On This Day snapshot", () => {
     };
     await expect(
       buildOnThisDaySnapshot({
-        feedDate: "2026-07-24",
+        day: { month: 7, day: 24 },
         provider: incompleteProvider,
       }),
     ).rejects.toThrow("missing the events category");
+
+    const degraded = buildFeaturedOnThisDayFallback({
+      day: { month: 7, day: 24 },
+      items: [{ year: 1969, text: "Apollo 11 returned.", pages: [] }],
+      checkedAt: 10_000,
+    });
+    expect(degraded.provider).toBe("featured-fallback");
+    expect(degraded.availableCategories).toEqual({
+      selected: true,
+      events: false,
+      births: false,
+      deaths: false,
+      holidays: false,
+    });
   });
 });

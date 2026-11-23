@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import {
-  buildWikimediaSourceFallback,
-  fetchWikimediaMediaDetails,
-  getWikimediaFileTitleFromUrl,
-  getWikimediaMediaRepositoryFromUrl,
-  type WikimediaMediaAttribution,
-  type WikimediaMediaRequest,
-} from "@/lib/wikimedia-media";
+  calendarDayKey,
+  wikipediaCalendarUrl,
+  type CalendarDay,
+} from "@/lib/calendar-day";
 import {
+  decodeHtmlEntities,
+  type WikipediaOnThisDayItem,
+} from "@/lib/featured-article";
+import {
+  CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
   ON_THIS_DAY_CATEGORIES,
   type OnThisDayArticleRef,
   type OnThisDayCategory,
@@ -19,15 +21,19 @@ import {
   type OnThisDaySnapshot,
 } from "@/lib/on-this-day-contracts";
 import {
-  decodeHtmlEntities,
-  type WikipediaOnThisDayItem,
-} from "@/lib/featured-article";
+  buildWikimediaSourceFallback,
+  fetchWikimediaMediaDetails,
+  getWikimediaFileTitleFromUrl,
+  getWikimediaMediaRepositoryFromUrl,
+  type WikimediaMediaAttribution,
+  type WikimediaMediaRequest,
+} from "@/lib/wikimedia-media";
 
-const WIKIFEEDS_ON_THIS_DAY =
-  "https://api.wikimedia.org/feed/v1/wikipedia/en/onthisday/all";
+export const WIKIPEDIA_REST_ON_THIS_DAY =
+  "https://en.wikipedia.org/api/rest_v1/feed/onthisday/all";
 const USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
-export const WIKIFEEDS_REQUEST_TIMEOUT_MS = 10_000;
+export const WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS = 10_000;
 
 type FeedThumbnail = {
   source?: string;
@@ -62,6 +68,40 @@ export type OnThisDayImageResolver = (
   requests: WikimediaMediaRequest[],
 ) => Promise<Map<string, OnThisDayResolvedImage>>;
 
+export class OnThisDayUpstreamError extends Error {
+  readonly status: number;
+  readonly retryAfterSeconds?: number;
+
+  constructor(
+    message: string,
+    {
+      status,
+      retryAfterSeconds,
+    }: { status: number; retryAfterSeconds?: number },
+  ) {
+    super(message);
+    this.name = "OnThisDayUpstreamError";
+    this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+const parseRetryAfterSeconds = (
+  headerValue: string | null,
+  nowMs = Date.now(),
+): number | undefined => {
+  if (!headerValue) return undefined;
+  const trimmed = headerValue.trim();
+  if (/^\d+$/u.test(trimmed)) {
+    return Math.max(0, Number(trimmed));
+  }
+  const parsedDate = Date.parse(trimmed);
+  if (!Number.isNaN(parsedDate)) {
+    return Math.max(0, Math.ceil((parsedDate - nowMs) / 1000));
+  }
+  return undefined;
+};
+
 const parseOnThisDayFeedPayload = (value: unknown): OnThisDayFeedPayload => {
   if (!isFeedRecord(value)) return {};
   const payload: OnThisDayFeedPayload = {};
@@ -72,21 +112,33 @@ const parseOnThisDayFeedPayload = (value: unknown): OnThisDayFeedPayload => {
   return payload;
 };
 
-export const wikifeedsOnThisDayProvider: OnThisDayProvider = {
+export const wikipediaRestOnThisDayProvider: OnThisDayProvider = {
   async fetchAll({ month, day }) {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
-      WIKIFEEDS_REQUEST_TIMEOUT_MS,
+      WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS,
     );
     try {
-      const response = await fetch(`${WIKIFEEDS_ON_THIS_DAY}/${month}/${day}`, {
-        headers: { "User-Agent": USER_AGENT },
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `${WIKIPEDIA_REST_ON_THIS_DAY}/${month}/${day}`,
+        {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": USER_AGENT,
+          },
+          signal: controller.signal,
+        },
+      );
       if (!response.ok) {
-        throw new Error(
-          `Wikimedia On This Day returned ${response.status} for ${month}-${day}`,
+        throw new OnThisDayUpstreamError(
+          `Wikipedia On This Day returned ${response.status} for ${month}-${day}`,
+          {
+            status: response.status,
+            retryAfterSeconds: parseRetryAfterSeconds(
+              response.headers.get("retry-after"),
+            ),
+          },
         );
       }
       return parseOnThisDayFeedPayload(await response.json());
@@ -115,32 +167,6 @@ const normalizeText = (value: unknown): string =>
   )
     .replace(/\s+/gu, " ")
     .trim();
-
-const parseFeedDate = (
-  feedDate: string,
-): { month: string; day: string; monthDay: string } => {
-  const match = feedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
-  if (!match) throw new Error("On This Day feed date must use YYYY-MM-DD.");
-  const date = new Date(`${feedDate}T00:00:00Z`);
-  if (
-    Number.isNaN(date.getTime()) ||
-    date.getUTCFullYear() !== Number(match[1]) ||
-    date.getUTCMonth() + 1 !== Number(match[2]) ||
-    date.getUTCDate() !== Number(match[3])
-  ) {
-    throw new Error("On This Day feed date is not a valid calendar date.");
-  }
-  return { month: match[2], day: match[3], monthDay: `${match[2]}-${match[3]}` };
-};
-
-const wikipediaCalendarUrl = (month: string, day: string): string => {
-  const date = new Date(`2000-${month}-${day}T00:00:00Z`);
-  const monthName = date.toLocaleDateString("en-US", {
-    month: "long",
-    timeZone: "UTC",
-  });
-  return `https://en.wikipedia.org/wiki/${monthName}_${Number(day)}`;
-};
 
 const normalizePage = (page: FeedPage): OnThisDayArticleRef | null => {
   const title = normalizeText(page.titles?.normalized ?? page.title).replace(
@@ -203,26 +229,54 @@ const emptyCategoryMap = <T>(value: () => T): OnThisDayCategoryMap<T> =>
     ON_THIS_DAY_CATEGORIES.map((category) => [category, value()]),
   ) as OnThisDayCategoryMap<T>;
 
+const extractReusableImageMetadata = (
+  previousSnapshot: OnThisDaySnapshot | null | undefined,
+): Map<string, OnThisDayResolvedImage> => {
+  const reused = new Map<string, OnThisDayResolvedImage>();
+  if (!previousSnapshot) return reused;
+
+  for (const events of Object.values(previousSnapshot.categories)) {
+    for (const event of events) {
+      if (!event.image?.source || !event.image.attribution) continue;
+      if (reused.has(event.image.source)) continue;
+      reused.set(event.image.source, {
+        attribution: event.image.attribution,
+        ...(event.image.altText ? { altText: event.image.altText } : {}),
+      });
+    }
+  }
+  return reused;
+};
+
 export const buildOnThisDaySnapshot = async ({
-  feedDate,
-  provider = wikifeedsOnThisDayProvider,
+  day,
+  provider = wikipediaRestOnThisDayProvider,
   resolveImages = resolveImagesWithWikimedia,
-  generatedAt = Date.now(),
+  previousSnapshot = null,
+  reResolveImages = false,
+  skipImageResolution = false,
+  checkedAt = Date.now(),
 }: {
-  feedDate: string;
+  day: CalendarDay;
   provider?: OnThisDayProvider;
   resolveImages?: OnThisDayImageResolver;
-  generatedAt?: number;
+  previousSnapshot?: OnThisDaySnapshot | null;
+  reResolveImages?: boolean;
+  skipImageResolution?: boolean;
+  checkedAt?: number;
 }): Promise<OnThisDaySnapshot> => {
-  const { month, day, monthDay } = parseFeedDate(feedDate);
-  const payload = await provider.fetchAll({ month, day });
+  const monthDay = calendarDayKey(day);
+  const [month, dayPart] = monthDay.split("-");
+  const payload = await provider.fetchAll({ month, day: dayPart });
   const categories = emptyCategoryMap<OnThisDayEvent[]>(() => []);
   const candidates = new Map<string, ImageCandidate>();
 
   for (const category of ON_THIS_DAY_CATEGORIES) {
     const feedEvents = payload[category];
     if (!Array.isArray(feedEvents)) {
-      throw new Error(`Wikimedia On This Day is missing the ${category} category.`);
+      throw new Error(
+        `Wikipedia On This Day is missing the ${category} category.`,
+      );
     }
     for (const rawEvent of feedEvents) {
       if (!isFeedRecord(rawEvent)) continue;
@@ -259,26 +313,39 @@ export const buildOnThisDaySnapshot = async ({
     }
   }
 
-  const requests = [...candidates.values()].map(({ source, sourceTitle }) => ({
-    imageUrl: source,
-    sourceTitle,
-  }));
-  let imageMetadata = new Map<string, OnThisDayResolvedImage>();
+  const reusedMetadata =
+    reResolveImages || skipImageResolution
+      ? new Map<string, OnThisDayResolvedImage>()
+      : extractReusableImageMetadata(previousSnapshot);
+
+  const requests = skipImageResolution
+    ? []
+    : [...candidates.values()]
+        .filter(({ source }) => !reusedMetadata.has(source))
+        .map(({ source, sourceTitle }) => ({
+          imageUrl: source,
+          sourceTitle,
+        }));
+
+  let fetchedMetadata = new Map<string, OnThisDayResolvedImage>();
   if (requests.length > 0) {
     try {
-      imageMetadata = await resolveImages(requests);
+      fetchedMetadata = await resolveImages(requests);
     } catch {
       // A usable source-page fallback is attached below. Metadata enrichment
       // must never discard an otherwise valid historical event.
     }
   }
+
   for (const events of Object.values(categories)) {
     for (const event of events) {
       if (!event.image) continue;
       const candidate = candidates.get(event.image.source);
       if (!candidate) continue;
       const repository = getWikimediaMediaRepositoryFromUrl(candidate.source);
-      const resolved = imageMetadata.get(event.image.source);
+      const resolved =
+        reusedMetadata.get(event.image.source) ??
+        fetchedMetadata.get(event.image.source);
       if (resolved?.altText) event.image.altText = resolved.altText;
       event.image.attribution =
         resolved?.attribution ??
@@ -292,34 +359,53 @@ export const buildOnThisDaySnapshot = async ({
   }
 
   return {
-    schemaVersion: 1,
-    provider: "wikifeeds-v1",
-    feedDate,
+    schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+    provider: "wikipedia-rest-v1",
     monthDay,
-    generatedAt,
-    sourceUrl: wikipediaCalendarUrl(month, day),
+    checkedAt,
+    sourceUrl: wikipediaCalendarUrl(day),
     categories,
     counts: Object.fromEntries(
-      ON_THIS_DAY_CATEGORIES.map((category) => [category, categories[category].length]),
+      ON_THIS_DAY_CATEGORIES.map((category) => [
+        category,
+        categories[category].length,
+      ]),
     ) as OnThisDayCategoryMap<number>,
     availableCategories: emptyCategoryMap(() => true),
   };
 };
 
+export const hashOnThisDaySnapshot = (snapshot: OnThisDaySnapshot): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        schemaVersion: snapshot.schemaVersion,
+        provider: snapshot.provider,
+        monthDay: snapshot.monthDay,
+        availableCategories: snapshot.availableCategories,
+        categories: snapshot.categories,
+      }),
+    )
+    .digest("hex");
+
 export const paginateOnThisDaySnapshot = (
   snapshot: OnThisDaySnapshot,
   {
-    requestedDate,
     category,
     order,
     offset,
     limit,
+    checkedAt = snapshot.checkedAt,
+    changedAt = snapshot.checkedAt,
+    degraded = snapshot.provider === "featured-fallback",
   }: {
-    requestedDate: string;
     category: OnThisDayCategory;
     order: OnThisDayOrder;
     offset: number;
     limit: number;
+    checkedAt?: number;
+    changedAt?: number;
+    degraded?: boolean;
   },
 ): OnThisDayPageResponse => {
   const resolvedOrder = category === "holidays" ? "newest" : order;
@@ -343,9 +429,10 @@ export const paginateOnThisDaySnapshot = (
       : null;
 
   return {
-    requestedDate,
-    snapshotDate: snapshot.feedDate,
-    snapshotIsStale: requestedDate !== snapshot.feedDate,
+    calendarDay: snapshot.monthDay,
+    checkedAt,
+    changedAt,
+    degraded,
     provider: snapshot.provider,
     sourceUrl: snapshot.sourceUrl,
     category,
@@ -361,15 +448,15 @@ export const paginateOnThisDaySnapshot = (
 };
 
 export const buildFeaturedOnThisDayFallback = ({
-  feedDate,
+  day,
   items,
-  generatedAt = Date.now(),
+  checkedAt = Date.now(),
 }: {
-  feedDate: string;
+  day: CalendarDay;
   items: WikipediaOnThisDayItem[];
-  generatedAt?: number;
+  checkedAt?: number;
 }): OnThisDaySnapshot => {
-  const { month, day, monthDay } = parseFeedDate(feedDate);
+  const monthDay = calendarDayKey(day);
   const categories = emptyCategoryMap<OnThisDayEvent[]>(() => []);
 
   for (const item of items) {
@@ -404,15 +491,17 @@ export const buildFeaturedOnThisDayFallback = ({
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
     provider: "featured-fallback",
-    feedDate,
     monthDay,
-    generatedAt,
-    sourceUrl: wikipediaCalendarUrl(month, day),
+    checkedAt,
+    sourceUrl: wikipediaCalendarUrl(day),
     categories,
     counts: Object.fromEntries(
-      ON_THIS_DAY_CATEGORIES.map((category) => [category, categories[category].length]),
+      ON_THIS_DAY_CATEGORIES.map((category) => [
+        category,
+        categories[category].length,
+      ]),
     ) as OnThisDayCategoryMap<number>,
     availableCategories: {
       selected: true,

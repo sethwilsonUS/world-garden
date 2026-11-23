@@ -1,133 +1,361 @@
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import {
+  calendarDayFromUtcDate,
+  calendarDayKey,
+  formatUtcDateIso,
+  isSameCalendarDay,
+  type CalendarDay,
+} from "@/lib/calendar-day";
+import type { WikipediaOnThisDayItem } from "@/lib/featured-article";
+import {
   buildFeaturedOnThisDayFallback,
   buildOnThisDaySnapshot,
+  hashOnThisDaySnapshot,
 } from "@/lib/on-this-day";
-import type { OnThisDaySnapshot } from "@/lib/on-this-day-contracts";
+import {
+  CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+  type OnThisDayRefreshState,
+  type OnThisDaySnapshot,
+} from "@/lib/on-this-day-contracts";
+import {
+  REFRESH_LEASE_TTL_MS,
+  refreshCalendarDay,
+  runRollingRefreshWorker,
+  shouldTriggerSafetyNetRefresh,
+  type OnThisDayRefreshStore,
+  type RefreshCalendarDayResult,
+  type RollingRefreshSummary,
+  type StoredOnThisDayDay,
+} from "@/lib/on-this-day-refresh";
 import { createPublicAudioWriteAttestation } from "@/lib/public-audio-write-attestation";
 import { getTodayWikipediaData } from "@/lib/today-snapshot";
 
-type OnThisDaySnapshotRecord = {
-  feedDate: string;
-  monthDay: string;
-  data: OnThisDaySnapshot;
-  generatedAt: number;
-  createdAt: number;
-  updatedAt: number;
+const LOCAL_CACHE_MAX_ENTRIES = 10;
+const LOCAL_CACHE_TTL_MS = 60 * 60 * 1000;
+
+type LocalCacheEntry = {
+  snapshot: OnThisDaySnapshot;
+  checkedAt: number;
+  changedAt: number;
+  expiresAt: number;
 };
 
-const shouldUseSnapshotCache = (): boolean =>
+const localCache = new Map<string, LocalCacheEntry>();
+
+export const clearLocalOnThisDayCache = (): void => {
+  localCache.clear();
+};
+
+export const shouldUseOnThisDaySnapshotCache = (): boolean =>
   process.env.NEXT_PUBLIC_LOCAL_MODE !== "true" &&
   Boolean(process.env.NEXT_PUBLIC_CONVEX_URL);
 
-export const resolveOnThisDayFeedDate = (now = new Date()): string =>
-  `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
-
-const getMonthDay = (feedDate: string): string => {
-  const match = feedDate.match(/^\d{4}-(\d{2})-(\d{2})$/u);
-  if (!match) throw new Error("On This Day date must use YYYY-MM-DD.");
-  return `${match[1]}-${match[2]}`;
-};
-
-const getExactSnapshot = async (
-  feedDate: string,
-): Promise<OnThisDaySnapshot | null> => {
-  if (!shouldUseSnapshotCache()) return null;
-  const record = (await fetchQuery(
-    anyApi.onThisDay.getOnThisDaySnapshotByDate,
-    { feedDate },
-  )) as OnThisDaySnapshotRecord | null;
-  return record?.data ?? null;
-};
-
-const getLatestMonthDaySnapshot = async (
-  monthDay: string,
-): Promise<OnThisDaySnapshot | null> => {
-  if (!shouldUseSnapshotCache()) return null;
-  const record = (await fetchQuery(
-    anyApi.onThisDay.getLatestOnThisDaySnapshotForMonthDay,
-    { monthDay },
-  )) as OnThisDaySnapshotRecord | null;
-  return record?.data ?? null;
-};
-
-const getFeaturedFallback = async (
-  feedDate: string,
-): Promise<OnThisDaySnapshot | null> => {
+const getFeaturedItemsForUtcDate = async (
+  feedDateIso: string,
+): Promise<WikipediaOnThisDayItem[] | null> => {
   const today = await getTodayWikipediaData({
     allowLiveFallback: false,
-    feedDateIso: feedDate,
+    feedDateIso,
   });
   if (!today || today.onThisDay.length === 0) return null;
-  return buildFeaturedOnThisDayFallback({
-    feedDate,
-    items: today.onThisDay,
-  });
+  return today.onThisDay;
 };
 
-export const getOnThisDaySnapshot = async ({
-  requestedDate,
-  allowLiveFallback = false,
-  now = new Date(),
-}: {
-  requestedDate?: string;
-  allowLiveFallback?: boolean;
-  now?: Date;
-} = {}): Promise<OnThisDaySnapshot | null> => {
-  const currentDate = resolveOnThisDayFeedDate(now);
-  const feedDate = requestedDate ?? currentDate;
-  const exact = await getExactSnapshot(feedDate);
-  if (exact) return exact;
+export const createConvexOnThisDayStore = (): OnThisDayRefreshStore => ({
+  async getDaySnapshot(monthDay) {
+    if (!shouldUseOnThisDaySnapshotCache()) return null;
+    const record = (await fetchQuery(anyApi.onThisDay.getDaySnapshot, {
+      monthDay,
+    })) as StoredOnThisDayDay | null;
+    return record ?? null;
+  },
 
-  if (feedDate !== currentDate) return null;
+  async listRefreshStates() {
+    if (!shouldUseOnThisDaySnapshotCache()) return [];
+    const rows = (await fetchQuery(
+      anyApi.onThisDay.listRefreshStates,
+      {},
+    )) as OnThisDayRefreshState[] | null;
+    return rows ?? [];
+  },
 
-  if (allowLiveFallback) {
-    try {
-      return await buildOnThisDaySnapshot({ feedDate });
-    } catch {
-      const featured = await getFeaturedFallback(feedDate).catch(() => null);
-      if (featured) return featured;
+  async saveDaySnapshot(writeArgs) {
+    if (!shouldUseOnThisDaySnapshotCache()) return;
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "save-record",
+      args: writeArgs,
+    });
+    await fetchMutation(anyApi.onThisDay.saveDaySnapshot, {
+      ...writeArgs,
+      attestation,
+    });
+  },
+
+  async markDayCheckedUnchanged(writeArgs) {
+    if (!shouldUseOnThisDaySnapshotCache()) return;
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "finalize-job",
+      args: writeArgs,
+    });
+    await fetchMutation(anyApi.onThisDay.markDayCheckedUnchanged, {
+      ...writeArgs,
+      attestation,
+    });
+  },
+
+  async recordRefreshFailure(writeArgs) {
+    if (!shouldUseOnThisDaySnapshotCache()) {
+      return { suspiciousStreak: writeArgs.suspicious ? 1 : 0 };
     }
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "upsert-job",
+      args: writeArgs,
+    });
+    const result = (await fetchMutation(
+      anyApi.onThisDay.recordRefreshFailure,
+      {
+        ...writeArgs,
+        attestation,
+      },
+    )) as { suspiciousStreak?: number } | null;
+    return { suspiciousStreak: result?.suspiciousStreak ?? 0 };
+  },
+
+  async claimRefreshLease(writeArgs) {
+    if (!shouldUseOnThisDaySnapshotCache()) return false;
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "claim-job",
+      args: writeArgs,
+    });
+    const claimed = (await fetchMutation(anyApi.onThisDay.claimRefreshLease, {
+      ...writeArgs,
+      attestation,
+    })) as boolean;
+    return Boolean(claimed);
+  },
+});
+
+const getLocalCachedDay = async (
+  day: CalendarDay,
+  now: number,
+): Promise<OnThisDayDayRecord> => {
+  const key = calendarDayKey(day);
+  const existing = localCache.get(key);
+  if (existing && now < existing.expiresAt) {
+    localCache.delete(key);
+    localCache.set(key, existing);
+    return {
+      snapshot: existing.snapshot,
+      checkedAt: existing.checkedAt,
+      changedAt: existing.changedAt,
+      degraded: existing.snapshot.provider === "featured-fallback",
+      needsSafetyNetRefresh: false,
+    };
   }
+  if (existing) localCache.delete(key);
 
-  return getLatestMonthDaySnapshot(getMonthDay(feedDate));
-};
+  const snapshot = await buildOnThisDaySnapshot({
+    day,
+    checkedAt: now,
+  });
+  if (localCache.size >= LOCAL_CACHE_MAX_ENTRIES) {
+    const oldestKey = localCache.keys().next().value;
+    if (oldestKey !== undefined) localCache.delete(oldestKey);
+  }
+  localCache.set(key, {
+    snapshot,
+    checkedAt: now,
+    changedAt: now,
+    expiresAt: now + LOCAL_CACHE_TTL_MS,
+  });
 
-const saveOnThisDaySnapshot = async (
-  data: OnThisDaySnapshot,
-): Promise<void> => {
-  if (!shouldUseSnapshotCache()) return;
-  const writeArgs = {
-    feedDate: data.feedDate,
-    monthDay: data.monthDay,
-    data,
-    generatedAt: data.generatedAt,
+  return {
+    snapshot,
+    checkedAt: now,
+    changedAt: now,
+    degraded: false,
+    needsSafetyNetRefresh: false,
   };
-  const attestation = await createPublicAudioWriteAttestation({
-    pipeline: "on-this-day",
-    operation: "save-record",
-    args: writeArgs,
-  });
-  await fetchMutation(anyApi.onThisDay.saveOnThisDaySnapshot, {
-    ...writeArgs,
-    attestation,
+};
+
+export type OnThisDayDayRecord = {
+  snapshot: OnThisDaySnapshot;
+  checkedAt: number;
+  changedAt: number;
+  degraded: boolean;
+  needsSafetyNetRefresh: boolean;
+};
+
+export const getOnThisDayDayRecord = async ({
+  day,
+  allowColdBuild = true,
+  now = Date.now(),
+}: {
+  day: CalendarDay;
+  allowColdBuild?: boolean;
+  now?: number;
+}): Promise<OnThisDayDayRecord | null> => {
+  if (!shouldUseOnThisDaySnapshotCache()) {
+    if (!allowColdBuild) return null;
+    return await getLocalCachedDay(day, now);
+  }
+
+  const store = createConvexOnThisDayStore();
+  const monthDay = calendarDayKey(day);
+  const stored = await store.getDaySnapshot(monthDay);
+
+  if (stored?.data) {
+    const state = stored.state;
+    const degraded =
+      state?.degraded ?? stored.data.provider === "featured-fallback";
+    const checkedAt = state?.checkedAt || stored.data.checkedAt || now;
+    const changedAt = state?.changedAt || checkedAt;
+    return {
+      snapshot: stored.data,
+      checkedAt,
+      changedAt,
+      degraded,
+      needsSafetyNetRefresh: shouldTriggerSafetyNetRefresh(state, now),
+    };
+  }
+
+  if (!allowColdBuild) return null;
+
+  try {
+    const coldSnapshot = await buildOnThisDaySnapshot({
+      day,
+      skipImageResolution: true,
+      checkedAt: now,
+    });
+    await store
+      .saveDaySnapshot({
+        monthDay,
+        schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+        data: coldSnapshot,
+        contentHash: hashOnThisDaySnapshot(coldSnapshot),
+        degraded: false,
+        checkedAt: now,
+        changedAt: now,
+        imagesCheckedAt: 0,
+        lastAttemptAt: now,
+      })
+      .catch((error) => {
+        console.error(
+          `[on-this-day] Failed to persist cold snapshot for ${monthDay}`,
+          error,
+        );
+      });
+
+    return {
+      snapshot: coldSnapshot,
+      checkedAt: now,
+      changedAt: now,
+      degraded: false,
+      needsSafetyNetRefresh: false,
+    };
+  } catch (error) {
+    const utcNow = new Date(now);
+    if (isSameCalendarDay(day, calendarDayFromUtcDate(utcNow))) {
+      const items = await getFeaturedItemsForUtcDate(
+        formatUtcDateIso(utcNow),
+      ).catch(() => null);
+      if (items && items.length > 0) {
+        const degradedSnapshot = buildFeaturedOnThisDayFallback({
+          day,
+          items,
+          checkedAt: now,
+        });
+        await store
+          .saveDaySnapshot({
+            monthDay,
+            schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+            data: degradedSnapshot,
+            contentHash: hashOnThisDaySnapshot(degradedSnapshot),
+            degraded: true,
+            checkedAt: now,
+            changedAt: now,
+            imagesCheckedAt: 0,
+            lastAttemptAt: now,
+          })
+          .catch(() => undefined);
+
+        return {
+          snapshot: degradedSnapshot,
+          checkedAt: now,
+          changedAt: now,
+          degraded: true,
+          needsSafetyNetRefresh: false,
+        };
+      }
+    }
+    throw error;
+  }
+};
+
+export const triggerSafetyNetRefresh = async (
+  day: CalendarDay,
+  now = Date.now(),
+): Promise<RefreshCalendarDayResult | null> => {
+  if (!shouldUseOnThisDaySnapshotCache()) return null;
+  const store = createConvexOnThisDayStore();
+  const monthDay = calendarDayKey(day);
+  const claimed = await store
+    .claimRefreshLease({
+      monthDay,
+      now,
+      ttlMs: REFRESH_LEASE_TTL_MS,
+    })
+    .catch(() => false);
+  if (!claimed) return null;
+
+  return await refreshCalendarDay(day, {
+    store,
+    getFeaturedItems: getFeaturedItemsForUtcDate,
+    now,
   });
 };
 
-export const syncOnThisDaySnapshot = async ({
-  feedDate = resolveOnThisDayFeedDate(),
-}: {
-  feedDate?: string;
-} = {}): Promise<OnThisDaySnapshot> => {
-  let snapshot: OnThisDaySnapshot;
+export const listOnThisDayRefreshStates = async (): Promise<
+  OnThisDayRefreshState[]
+> => {
+  if (!shouldUseOnThisDaySnapshotCache()) return [];
   try {
-    snapshot = await buildOnThisDaySnapshot({ feedDate });
+    return await createConvexOnThisDayStore().listRefreshStates();
   } catch (error) {
-    const fallback = await getFeaturedFallback(feedDate).catch(() => null);
-    if (!fallback) throw error;
-    snapshot = fallback;
+    console.error("[on-this-day] failed to list refresh states", error);
+    return [];
   }
-  await saveOnThisDaySnapshot(snapshot);
-  return snapshot;
+};
+
+export const runOnThisDayRollingRefresh = async ({
+  budgetSeconds,
+}: {
+  budgetSeconds?: number;
+} = {}): Promise<RollingRefreshSummary> => {
+  const store = createConvexOnThisDayStore();
+  return await runRollingRefreshWorker({
+    store,
+    getFeaturedItems: getFeaturedItemsForUtcDate,
+    budgetSeconds,
+  });
+};
+
+export const refreshSingleOnThisDayCalendarDay = async ({
+  day,
+  force = false,
+}: {
+  day: CalendarDay;
+  force?: boolean;
+}): Promise<RefreshCalendarDayResult> => {
+  const store = createConvexOnThisDayStore();
+  return await refreshCalendarDay(day, {
+    store,
+    getFeaturedItems: getFeaturedItemsForUtcDate,
+    force,
+  });
 };

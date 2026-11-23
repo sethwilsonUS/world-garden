@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CURRENT_ON_THIS_DAY_SCHEMA_VERSION } from "./on-this-day-contracts";
 
 const fetchMutation = vi.fn();
 const fetchQuery = vi.fn();
@@ -9,9 +10,12 @@ vi.mock("convex/nextjs", () => ({ fetchMutation, fetchQuery }));
 vi.mock("convex/server", () => ({
   anyApi: {
     onThisDay: {
-      getOnThisDaySnapshotByDate: "exact",
-      getLatestOnThisDaySnapshotForMonthDay: "month-day",
-      saveOnThisDaySnapshot: "save",
+      getDaySnapshot: "getDaySnapshot",
+      listRefreshStates: "listRefreshStates",
+      saveDaySnapshot: "saveDaySnapshot",
+      markDayCheckedUnchanged: "markDayCheckedUnchanged",
+      recordRefreshFailure: "recordRefreshFailure",
+      claimRefreshLease: "claimRefreshLease",
     },
   },
 }));
@@ -21,15 +25,16 @@ vi.mock("@/lib/on-this-day", async (importOriginal) => {
 });
 vi.mock("@/lib/today-snapshot", () => ({ getTodayWikipediaData }));
 
-const archived = {
-  schemaVersion: 1 as const,
-  provider: "wikifeeds-v1" as const,
-  feedDate: "2025-07-30",
-  monthDay: "07-30",
-  generatedAt: 1,
-  sourceUrl: "https://en.wikipedia.org/wiki/July_30",
+const makeSnapshot = (monthDay: string, checkedAt = 10_000) => ({
+  schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
+  provider: "wikipedia-rest-v1" as const,
+  monthDay,
+  checkedAt,
+  sourceUrl: `https://en.wikipedia.org/wiki/${monthDay}`,
   categories: {
-    selected: [{ id: "selected-old", year: 2024, text: "Archived", pages: [] }],
+    selected: [
+      { id: `selected-${monthDay}`, year: 1999, text: `Item ${monthDay}`, pages: [] },
+    ],
     events: [],
     births: [],
     deaths: [],
@@ -43,97 +48,132 @@ const archived = {
     deaths: true,
     holidays: true,
   },
-};
+});
 
-afterEach(() => {
+afterEach(async () => {
+  const mod = await import("./on-this-day-snapshot");
+  mod.clearLocalOnThisDayCache();
   vi.clearAllMocks();
   delete process.env.NEXT_PUBLIC_LOCAL_MODE;
   delete process.env.NEXT_PUBLIC_CONVEX_URL;
+  delete process.env.TTS_QUOTA_BYPASS_SECRET;
 });
 
-describe("getOnThisDaySnapshot", () => {
-  it("returns an exact persisted edition without consulting live or archived data", async () => {
+describe("on-this-day-snapshot", () => {
+  it("caches up to 10 days with a 1-hour LRU TTL in local mode", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
+    buildOnThisDaySnapshot.mockImplementation(async ({ day, checkedAt }) =>
+      makeSnapshot(
+        `${String(day.month).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`,
+        checkedAt,
+      ),
+    );
+
+    const { getOnThisDayDayRecord } = await import("./on-this-day-snapshot");
+    const t0 = 1_000_000;
+
+    // Load 10 days
+    for (let day = 1; day <= 10; day += 1) {
+      await getOnThisDayDayRecord({ day: { month: 1, day }, now: t0 });
+    }
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(10);
+
+    // Hit day 1 -> cached (moves day 1 to MRU, day 2 is now LRU)
+    await getOnThisDayDayRecord({ day: { month: 1, day: 1 }, now: t0 + 1000 });
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(10);
+
+    // Load day 11 -> evicts day 2
+    await getOnThisDayDayRecord({ day: { month: 1, day: 11 }, now: t0 + 2000 });
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(11);
+
+    // Day 1 is still cached; day 2 must rebuild
+    await getOnThisDayDayRecord({ day: { month: 1, day: 1 }, now: t0 + 3000 });
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(11);
+    await getOnThisDayDayRecord({ day: { month: 1, day: 2 }, now: t0 + 3000 });
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(12);
+
+    // After 1 hour TTL, day 1 rebuilds
+    await getOnThisDayDayRecord({
+      day: { month: 1, day: 1 },
+      now: t0 + 60 * 60 * 1000 + 10,
+    });
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(13);
+  });
+
+  it("returns stored Convex snapshots and flags safety-net refreshes when stale", async () => {
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
-    fetchQuery.mockResolvedValue({ feedDate: archived.feedDate, data: archived });
+    const now = Date.UTC(2026, 2, 25, 12, 0, 0);
+    const oldCheckedAt = now - 15 * 24 * 60 * 60 * 1000;
 
-    const { getOnThisDaySnapshot } = await import("./on-this-day-snapshot");
-    const result = await getOnThisDaySnapshot({
-      requestedDate: "2025-07-30",
-      allowLiveFallback: true,
-      now: new Date("2026-07-30T12:00:00Z"),
+    fetchQuery.mockResolvedValue({
+      monthDay: "03-05",
+      schemaVersion: 2,
+      contentHash: "hash-1",
+      data: makeSnapshot("03-05", oldCheckedAt),
+      state: {
+        monthDay: "03-05",
+        schemaVersion: 2,
+        degraded: false,
+        checkedAt: oldCheckedAt,
+        changedAt: oldCheckedAt,
+        imagesCheckedAt: oldCheckedAt,
+        suspiciousStreak: 0,
+      },
     });
 
-    expect(result).toBe(archived);
-    expect(fetchQuery).toHaveBeenCalledTimes(1);
-    expect(fetchQuery).toHaveBeenCalledWith("exact", {
-      feedDate: "2025-07-30",
+    const { getOnThisDayDayRecord } = await import("./on-this-day-snapshot");
+    const result = await getOnThisDayDayRecord({
+      day: { month: 3, day: 5 },
+      now,
     });
+
+    expect(result?.snapshot.monthDay).toBe("03-05");
+    expect(result?.needsSafetyNetRefresh).toBe(true);
     expect(buildOnThisDaySnapshot).not.toHaveBeenCalled();
   });
 
-  it("uses only a matching month/day archive after today's live sources fail", async () => {
+  it("builds a fast cold day without image enrichment and saves imagesCheckedAt=0", async () => {
     process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
-    fetchQuery.mockImplementation(async (query: string) => {
-      if (query === "exact") return null;
-      if (query === "month-day") {
-        return { feedDate: archived.feedDate, data: archived };
-      }
-      return null;
-    });
-    buildOnThisDaySnapshot.mockRejectedValue(new Error("Wikifeeds unavailable"));
-    getTodayWikipediaData.mockResolvedValue(null);
-
-    const { getOnThisDaySnapshot } = await import("./on-this-day-snapshot");
-    const result = await getOnThisDaySnapshot({
-      requestedDate: "2026-07-30",
-      allowLiveFallback: true,
-      now: new Date("2026-07-30T12:00:00Z"),
-    });
-
-    expect(result?.feedDate).toBe("2025-07-30");
-    expect(fetchQuery).toHaveBeenCalledWith("month-day", {
-      monthDay: "07-30",
-    });
-    expect(buildOnThisDaySnapshot).toHaveBeenCalledWith({
-      feedDate: "2026-07-30",
-    });
-
+    process.env.TTS_QUOTA_BYPASS_SECRET = "test-secret";
     fetchQuery.mockResolvedValue(null);
-    const historical = await getOnThisDaySnapshot({
-      requestedDate: "2024-07-30",
-      allowLiveFallback: true,
-      now: new Date("2026-07-30T12:00:00Z"),
+    fetchMutation.mockResolvedValue("day-id");
+    const cold = makeSnapshot("03-05", 50_000);
+    buildOnThisDaySnapshot.mockResolvedValue(cold);
+
+    const { getOnThisDayDayRecord } = await import("./on-this-day-snapshot");
+    const result = await getOnThisDayDayRecord({
+      day: { month: 3, day: 5 },
+      allowColdBuild: true,
+      now: 50_000,
     });
-    expect(historical).toBeNull();
-    expect(buildOnThisDaySnapshot).toHaveBeenCalledTimes(1);
+
+    expect(buildOnThisDaySnapshot).toHaveBeenCalledWith({
+      day: { month: 3, day: 5 },
+      skipImageResolution: true,
+      checkedAt: 50_000,
+    });
+    expect(fetchMutation).toHaveBeenCalledWith(
+      "saveDaySnapshot",
+      expect.objectContaining({
+        monthDay: "03-05",
+        imagesCheckedAt: 0,
+        degraded: false,
+      }),
+    );
+    expect(result?.snapshot).toBe(cold);
   });
 
-  it("uses an exact-date selected-only fallback when the cron feed fails", async () => {
-    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
-    buildOnThisDaySnapshot.mockRejectedValue(new Error("Wikifeeds unavailable"));
-    getTodayWikipediaData.mockResolvedValue({
-      onThisDay: [
-        {
-          year: 1969,
-          text: "Apollo 11 returned to Earth.",
-          pages: [],
-        },
-      ],
-    });
+  it("only runs triggerSafetyNetRefresh when the Convex lease is claimed", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+    process.env.TTS_QUOTA_BYPASS_SECRET = "test-secret";
+    fetchMutation.mockResolvedValueOnce(false);
 
-    const { syncOnThisDaySnapshot } = await import("./on-this-day-snapshot");
-    const result = await syncOnThisDaySnapshot({ feedDate: "2026-07-30" });
-
-    expect(result.provider).toBe("featured-fallback");
-    expect(result.categories.selected).toHaveLength(1);
-    expect(result.availableCategories).toEqual({
-      selected: true,
-      events: false,
-      births: false,
-      deaths: false,
-      holidays: false,
-    });
+    const { triggerSafetyNetRefresh } = await import("./on-this-day-snapshot");
+    const skipped = await triggerSafetyNetRefresh({ month: 3, day: 5 }, 10_000);
+    expect(skipped).toBeNull();
+    expect(buildOnThisDaySnapshot).not.toHaveBeenCalled();
   });
 });

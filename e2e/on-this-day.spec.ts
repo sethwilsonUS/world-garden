@@ -14,19 +14,26 @@ const counts = {
   holidays: 2,
 };
 
-const onThisDayResponse = (requestUrl: string) => {
+const onThisDayResponse = (
+  requestUrl: string,
+  { degraded = false }: { degraded?: boolean } = {},
+) => {
   const url = new URL(requestUrl);
+  const calendarDay = url.searchParams.get("day") ?? "07-30";
   const category = url.searchParams.get("category") ?? "selected";
   const order = url.searchParams.get("order") ?? "newest";
   const offset = Number(url.searchParams.get("offset") ?? 0);
-  const total = counts[category as keyof typeof counts];
-  const length = Math.min(25, total - offset);
+  const effectiveCounts = degraded
+    ? { selected: 3, events: 0, births: 0, deaths: 0, holidays: 0 }
+    : counts;
+  const total = effectiveCounts[category as keyof typeof effectiveCounts];
+  const length = Math.min(25, Math.max(0, total - offset));
   const items = Array.from({ length }, (_, index) => {
     const sequence = offset + index;
     return {
-      id: `${category}-${order}-${sequence}`,
+      id: `${calendarDay}-${category}-${order}-${sequence}`,
       year: order === "oldest" ? 1900 + sequence : 2000 - sequence,
-      text: `${category} historical entry ${sequence + 1}.`,
+      text: `${calendarDay} ${category} historical entry ${sequence + 1}.`,
       pages: [
         {
           title: `Related article ${sequence + 1}`,
@@ -56,10 +63,11 @@ const onThisDayResponse = (requestUrl: string) => {
   });
 
   return {
-    requestedDate: "2026-07-30",
-    snapshotDate: "2026-07-30",
-    snapshotIsStale: false,
-    provider: "wikifeeds-v1",
+    calendarDay,
+    checkedAt: Date.UTC(2026, 10, 20, 12, 0, 0),
+    changedAt: Date.UTC(2026, 10, 19, 12, 0, 0),
+    degraded,
+    provider: degraded ? "featured-fallback" : "wikipedia-rest-v1",
     sourceUrl: "https://en.wikipedia.org/wiki/July_30",
     category,
     order,
@@ -67,19 +75,31 @@ const onThisDayResponse = (requestUrl: string) => {
     limit: 25,
     total,
     nextOffset: offset + length < total ? offset + length : null,
-    counts,
-    availableCategories: {
-      selected: true,
-      events: true,
-      births: true,
-      deaths: true,
-      holidays: true,
-    },
+    counts: effectiveCounts,
+    availableCategories: degraded
+      ? {
+          selected: true,
+          events: false,
+          births: false,
+          deaths: false,
+          holidays: false,
+        }
+      : {
+          selected: true,
+          events: true,
+          births: true,
+          deaths: true,
+          holidays: true,
+        },
     items,
   };
 };
 
-const mockOnThisDay = async (page: Page, requests: string[]) => {
+const mockOnThisDay = async (
+  page: Page,
+  requests: string[],
+  options: { degraded?: boolean } = {},
+) => {
   await page.route("**/api/on-this-day?**", async (route) => {
     requests.push(route.request().url());
     const url = new URL(route.request().url());
@@ -91,7 +111,7 @@ const mockOnThisDay = async (page: Page, requests: string[]) => {
     }
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify(onThisDayResponse(route.request().url())),
+      body: JSON.stringify(onThisDayResponse(route.request().url(), options)),
     });
   });
   await page.route("https://upload.wikimedia.org/**", (route) =>
@@ -148,7 +168,9 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   await expect(page.getByRole("main")).toHaveCount(1);
   await expect(page).toHaveTitle(/On This Day — Curio Garden/u);
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.getByRole("heading", { level: 1, name: "On This Day" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: /^On This Day:/u }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", {
       level: 2,
@@ -177,11 +199,15 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
     "true",
   );
   await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
-  await expect(page.locator(".on-this-day-event-image img").first()).toHaveAttribute(
+  await expect(
+    page.locator(".on-this-day-event-image img").first(),
+  ).toHaveAttribute(
     "alt",
     "A speaker addressing an audience at a historical commemoration.",
   );
-  await expect(page.getByRole("link", { name: "Related article 1" }).first()).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Related article 1" }).first(),
+  ).toBeVisible();
   const relatedItem = page.locator(".on-this-day-event-links > li").first();
   for (const marker of ["::before", "::after"]) {
     expect(
@@ -224,7 +250,9 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   await sort.focus();
   await sort.click();
   await expect(sort).toBeFocused();
-  await expect(page.locator("ol.timeline-list time").first()).toHaveText("1900");
+  await expect(page.locator("ol.timeline-list time").first()).toHaveText(
+    "1900",
+  );
 
   await page.getByRole("tab", { name: /Highlights/ }).click();
   await page.getByRole("tab", { name: /Events/ }).click();
@@ -234,7 +262,169 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
   expect(results.violations).toEqual([]);
 });
 
-test("reflows with text spacing and preserves forced-color focus", async ({
+test("walks the fixed 366-day ring via Previous/Next, keeps focus, announces changes, and preserves tab and sort", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  await mockOnThisDay(page, requests);
+
+  // Dec 31 -> Next -> Jan 1
+  await page.goto("/on-this-day/december-31");
+  await expect(page).toHaveTitle("On This Day: December 31 — Curio Garden");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "On This Day: December 31" }),
+  ).toBeVisible();
+  await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
+
+  const nextLink = page.getByRole("link", { name: /Next: January 1/u });
+  await nextLink.focus();
+  await nextLink.click();
+
+  await expect(page).toHaveURL(/\/on-this-day\/january-1$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "On This Day: January 1" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Next: January 2/u }),
+  ).toBeFocused();
+  await expect(page.locator("#on-this-day-live-status")).toHaveText(
+    "Now showing January 1, Highlights, 3 items.",
+  );
+
+  // Mar 1 -> Previous -> Feb 29 (always reachable)
+  await page.goto("/on-this-day/march-1");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "On This Day: March 1" }),
+  ).toBeVisible();
+
+  const prevLink = page.getByRole("link", { name: /Previous: February 29/u });
+  await prevLink.focus();
+  await prevLink.click();
+
+  await expect(page).toHaveURL(/\/on-this-day\/february-29$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "On This Day: February 29" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Previous: February 28/u }),
+  ).toBeFocused();
+
+  // Births + Oldest first -> Next preserves category & order in URL and state
+  await page.goto("/on-this-day/march-5");
+  await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
+  await page.getByRole("tab", { name: /Births/ }).click();
+  await expect(page.locator("ol.timeline-list > li")).toHaveCount(2);
+  await page.getByRole("button", { name: "Oldest first" }).click();
+  await expect(page).toHaveURL(
+    /\/on-this-day\/march-5\?category=births&order=oldest$/u,
+  );
+
+  const marchNext = page.getByRole("link", { name: /Next: March 6/u });
+  await marchNext.focus();
+  await marchNext.click();
+
+  await expect(page).toHaveURL(
+    /\/on-this-day\/march-6\?category=births&order=oldest$/u,
+  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "On This Day: March 6" }),
+  ).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Births/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator("ol.timeline-list time").first()).toHaveText(
+    "1900",
+  );
+  await expect(page.getByRole("link", { name: /Next: March 7/u })).toBeFocused();
+  await expect(page.locator("#on-this-day-live-status")).toHaveText(
+    "Now showing March 6, Births, 2 items.",
+  );
+});
+
+test("navigates days via the year-less calendar picker using keyboard only and passes axe", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  await mockOnThisDay(page, requests);
+  await page.goto("/on-this-day/march-5");
+  await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
+
+  const pickerTrigger = page.getByRole("button", {
+    name: "Choose a day, currently March 5",
+  });
+  await pickerTrigger.focus();
+  await page.keyboard.press("Enter");
+
+  const dialog = page.getByRole("dialog", { name: "Choose a day" });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "March 5" }),
+  ).toBeFocused();
+
+  const dialogAxe = await new AxeBuilder({ page }).analyze();
+  expect(dialogAxe.violations).toEqual([]);
+
+  // ArrowRight -> March 6, PageDown -> April 6, Enter -> navigates and restores focus
+  await page.keyboard.press("ArrowRight");
+  await expect(
+    dialog.getByRole("button", { name: "March 6" }),
+  ).toBeFocused();
+  await page.keyboard.press("PageDown");
+  await expect(
+    dialog.getByRole("button", { name: "April 6" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/\/on-this-day\/april-6$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "On This Day: April 6" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Choose a day, currently April 6" }),
+  ).toBeFocused();
+});
+
+test("opens bare /on-this-day on Reader's Today even when UTC is already tomorrow", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    timezoneId: "America/Chicago",
+  });
+  const page = await context.newPage();
+  const requests: string[] = [];
+  // 2026-11-24 01:00 UTC is 2026-11-23 19:00 CST in America/Chicago.
+  await page.clock.setFixedTime(new Date("2026-11-24T01:00:00Z"));
+  await mockOnThisDay(page, requests);
+
+  try {
+    await page.goto("/on-this-day");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "On This Day: November 23" }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/on-this-day$/u);
+    expect(requests.some((url) => url.includes("day=11-23"))).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
+
+test("shows a degraded status notice and disables unavailable categories", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  await mockOnThisDay(page, requests, { degraded: true });
+  await page.goto("/on-this-day/march-5");
+
+  await expect(
+    page.getByText("Only highlights are available for this day right now."),
+  ).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Events/ })).toBeDisabled();
+  await expect(page.getByRole("tab", { name: /Highlights/ })).toBeEnabled();
+});
+
+test("reflows with text spacing, forced colors, and open calendar dialog at 320px", async ({
   page,
 }) => {
   const requests: string[] = [];
@@ -251,9 +441,12 @@ test("reflows with text spacing and preserves forced-color focus", async ({
     ".on-this-day-source-note",
   ]) {
     expect(
-      await page.locator(selector).first().evaluate((element) =>
-        Number.parseFloat(getComputedStyle(element).fontSize),
-      ),
+      await page
+        .locator(selector)
+        .first()
+        .evaluate((element) =>
+          Number.parseFloat(getComputedStyle(element).fontSize),
+        ),
     ).toBeGreaterThanOrEqual(14);
   }
   expect(
@@ -299,7 +492,9 @@ test("reflows with text spacing and preserves forced-color focus", async ({
     .poll(() =>
       highlightsTab.evaluate((element) => {
         const style = getComputedStyle(element);
-        return style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0;
+        return (
+          style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
+        );
       }),
     )
     .toBe(true);
@@ -310,10 +505,22 @@ test("reflows with text spacing and preserves forced-color focus", async ({
         document.documentElement.clientWidth,
     ),
   ).toBe(true);
+
+  // Open the calendar dialog at 320px + 200% font size + WCAG text spacing and confirm zero overflow.
+  await page.getByRole("button", { name: /Choose a day/u }).click();
+  const dialog = page.getByRole("dialog", { name: "Choose a day" });
+  await expect(dialog).toBeVisible();
+  expect(
+    await dialog.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    ),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
   await expect(page.getByRole("tabpanel")).toBeVisible();
 });
 
-test("has no automated accessibility violations in dark mode", async ({
+test("has no automated accessibility violations in dark mode (page and calendar dialog)", async ({
   page,
 }) => {
   const requests: string[] = [];
@@ -323,6 +530,27 @@ test("has no automated accessibility violations in dark mode", async ({
   await expect(page.locator("html")).toHaveClass(/dark/u);
   await expect(page.locator("ol.timeline-list > li")).toHaveCount(3);
 
-  const results = await new AxeBuilder({ page }).analyze();
-  expect(results.violations).toEqual([]);
+  const pageResults = await new AxeBuilder({ page }).analyze();
+  expect(pageResults.violations).toEqual([]);
+
+  await page.getByRole("button", { name: /Choose a day/u }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Choose a day" }),
+  ).toBeVisible();
+  const dialogResults = await new AxeBuilder({ page }).analyze();
+  expect(dialogResults.violations).toEqual([]);
+});
+
+test("publishes all 366 On This Day calendar URLs in sitemap.xml", async ({
+  request,
+}) => {
+  const response = await request.get("/sitemap.xml");
+  expect(response.status()).toBe(200);
+  const xml = await response.text();
+  const matches = xml.match(
+    /<loc>[^<]*\/on-this-day\/[a-z]+-\d{1,2}<\/loc>/gu,
+  );
+  expect(matches).toHaveLength(366);
+  expect(xml).toContain("/on-this-day/february-29</loc>");
+  expect(xml).toContain("/on-this-day/march-5</loc>");
 });

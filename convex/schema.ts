@@ -632,16 +632,31 @@ export default defineSchema({
     .index("by_feedDate", ["feedDate"])
     .index("by_updatedAt", ["updatedAt"]),
 
-  onThisDaySnapshots: defineTable({
-    feedDate: v.string(),
+  onThisDayDays: defineTable({
     monthDay: v.string(),
+    schemaVersion: v.number(),
     data: v.any(),
-    generatedAt: v.number(),
+    contentHash: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_monthDay", ["monthDay"]),
+
+  onThisDayRefreshState: defineTable({
+    monthDay: v.string(),
+    schemaVersion: v.number(),
+    degraded: v.boolean(),
+    checkedAt: v.number(),
+    changedAt: v.number(),
+    imagesCheckedAt: v.number(),
+    lastAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    suspiciousStreak: v.number(),
+    refreshLeaseUntil: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_feedDate", ["feedDate"])
-    .index("by_monthDay_updatedAt", ["monthDay", "updatedAt"]),
+    .index("by_monthDay", ["monthDay"])
+    .index("by_checkedAt", ["checkedAt"]),
 
   didYouKnowAudio: defineTable({
     feedDate: v.string(),

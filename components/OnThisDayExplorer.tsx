@@ -1,18 +1,24 @@
 "use client";
 
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
-import { AccessibleTimeline, type TimelineOrder } from "./AccessibleTimeline";
-import { AdaptiveImageFrame } from "./AdaptiveImageFrame";
-import { ArticleLink } from "./ArticleLink";
-import { MediaAttribution } from "./MediaAttribution";
-import { formatUtcCalendarDate } from "@/lib/date-format";
+import {
+  calendarDayFromLocalDate,
+  calendarDayFromUtcDate,
+  calendarDayKey,
+  formatCalendarDay,
+  isSameCalendarDay,
+  onThisDayPath,
+  type CalendarDay,
+} from "@/lib/calendar-day";
 import {
   ON_THIS_DAY_CATEGORIES,
   type OnThisDayCategory,
@@ -20,6 +26,21 @@ import {
   type OnThisDayOrder,
   type OnThisDayPageResponse,
 } from "@/lib/on-this-day-contracts";
+import {
+  buildOnThisDayHref,
+  parseOnThisDayCategory,
+  parseOnThisDayOrder,
+} from "@/lib/on-this-day-url";
+import { AccessibleTimeline, type TimelineOrder } from "./AccessibleTimeline";
+import { AdaptiveImageFrame } from "./AdaptiveImageFrame";
+import { ArticleLink } from "./ArticleLink";
+import { CalendarDayPicker } from "./CalendarDayPicker";
+import { MediaAttribution } from "./MediaAttribution";
+import { OnThisDayDayNav } from "./OnThisDayDayNav";
+import {
+  useOnThisDaySession,
+  type OnThisDayNavControl,
+} from "./OnThisDaySessionProvider";
 
 const CATEGORY_LABELS: Record<OnThisDayCategory, string> = {
   selected: "Highlights",
@@ -40,12 +61,26 @@ const CATEGORY_NOUNS: Record<
   holidays: { singular: "holiday", plural: "holidays" },
 };
 
-const cacheKey = (category: OnThisDayCategory, order: OnThisDayOrder): string =>
-  `${category}:${category === "holidays" ? "newest" : order}`;
+const cacheKey = (
+  dayKey: string,
+  category: OnThisDayCategory,
+  order: OnThisDayOrder,
+): string => `${dayKey}:${category}:${category === "holidays" ? "newest" : order}`;
 
 const displayYear = (year: number | undefined): string => {
   if (year == null) return "Annual";
   return year < 0 ? `${Math.abs(year)} BCE` : String(year);
+};
+
+const formatCheckedDate = (timestampMs: number): string => {
+  if (!Number.isFinite(timestampMs)) return "";
+  const date = new Date(timestampMs);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 };
 
 const TimelineEventContent = ({ event }: { event: OnThisDayEvent }) => (
@@ -93,48 +128,187 @@ const TimelineEventContent = ({ event }: { event: OnThisDayEvent }) => (
   </article>
 );
 
-export const OnThisDayExplorer = () => {
+export type OnThisDayExplorerProps = {
+  initialDay?: CalendarDay;
+  isTodayRoute?: boolean;
+  initialResponse?: OnThisDayPageResponse | null;
+};
+
+export const OnThisDayExplorer = ({
+  initialDay,
+  isTodayRoute = false,
+  initialResponse = null,
+}: OnThisDayExplorerProps = {}) => {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const session = useOnThisDaySession();
+
+  const resolvedInitialDay = useMemo(
+    () => initialDay ?? calendarDayFromUtcDate(),
+    [initialDay],
+  );
+  const [activeDay, setActiveDay] = useState<CalendarDay>(resolvedInitialDay);
+  const [readersToday, setReadersToday] = useState<CalendarDay | null>(null);
+  const [clientMounted, setClientMounted] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const initialCategory = parseOnThisDayCategory(searchParams?.get("category"));
+  const initialOrder = parseOnThisDayOrder(
+    searchParams?.get("order"),
+    initialCategory,
+  );
+
   const [activeCategory, setActiveCategory] =
-    useState<OnThisDayCategory>("selected");
+    useState<OnThisDayCategory>(initialCategory);
   const [orders, setOrders] = useState<
     Record<OnThisDayCategory, OnThisDayOrder>
-  >({
-    selected: "newest",
-    events: "newest",
-    births: "newest",
-    deaths: "newest",
+  >(() => ({
+    selected: initialCategory === "selected" ? initialOrder : "newest",
+    events: initialCategory === "events" ? initialOrder : "newest",
+    births: initialCategory === "births" ? initialOrder : "newest",
+    deaths: initialCategory === "deaths" ? initialOrder : "newest",
     holidays: "newest",
-  });
-  const [cache, setCache] = useState<Record<string, OnThisDayPageResponse>>({});
+  }));
+
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
   const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
+  const [dayAnnouncement, setDayAnnouncement] = useState<string | null>(null);
+
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const previousLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const nextLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const pickerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const requestKeyRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
+
+  // Sync activeDay if prop changes (e.g. reused component instance across routes).
+  useEffect(() => {
+    setActiveDay((current) =>
+      isTodayRoute && readersToday
+        ? readersToday
+        : isSameCalendarDay(current, resolvedInitialDay)
+          ? current
+          : resolvedInitialDay,
+    );
+  }, [isTodayRoute, readersToday, resolvedInitialDay]);
+
+  // Resolve Reader's Today after mount to prevent hydration mismatches.
+  useEffect(() => {
+    const localToday = calendarDayFromLocalDate();
+    setReadersToday(localToday);
+    setClientMounted(true);
+    if (isTodayRoute && !isSameCalendarDay(localToday, resolvedInitialDay)) {
+      setActiveDay(localToday);
+    }
+  }, [isTodayRoute, resolvedInitialDay]);
+
+  // Keep view state synchronized with browser Back/Forward query updates.
+  const searchParamsString = searchParams?.toString() ?? "";
+  useEffect(() => {
+    const parsedParams = new URLSearchParams(searchParamsString);
+    const nextCategory = parseOnThisDayCategory(parsedParams.get("category"));
+    const nextOrder = parseOnThisDayOrder(
+      parsedParams.get("order"),
+      nextCategory,
+    );
+    setActiveCategory(nextCategory);
+    if (nextCategory !== "holidays") {
+      setOrders((current) =>
+        current[nextCategory] === nextOrder
+          ? current
+          : { ...current, [nextCategory]: nextOrder },
+      );
+    }
+  }, [searchParamsString]);
+
+  // Seed shared cache with server-provided initialResponse when available.
+  const initialResponseKey = initialResponse
+    ? cacheKey(
+        initialResponse.calendarDay,
+        initialResponse.category,
+        initialResponse.order,
+      )
+    : null;
+  useEffect(() => {
+    if (!initialResponse || !initialResponseKey) return;
+    session.setCache((current) =>
+      current[initialResponseKey]
+        ? current
+        : { ...current, [initialResponseKey]: initialResponse },
+    );
+  }, [initialResponse, initialResponseKey, session]);
+
+  const dayKey = calendarDayKey(activeDay);
+  const dayLabel = formatCalendarDay(activeDay);
   const activeOrder = orders[activeCategory];
-  const activeKey = cacheKey(activeCategory, activeOrder);
-  const activeResponse = cache[activeKey];
+  const activeKey = cacheKey(dayKey, activeCategory, activeOrder);
+
+  const effectiveCache = useMemo(() => {
+    if (initialResponse && initialResponseKey && !session.cache[initialResponseKey]) {
+      return { ...session.cache, [initialResponseKey]: initialResponse };
+    }
+    return session.cache;
+  }, [initialResponse, initialResponseKey, session.cache]);
+
+  const activeResponse = effectiveCache[activeKey];
   const response =
     activeResponse ??
-    Object.values(cache).find(
-      (candidate) => candidate.category === activeCategory,
+    Object.values(effectiveCache).find(
+      (candidate) =>
+        candidate.calendarDay === dayKey &&
+        candidate.category === activeCategory,
     );
-  const metadata = Object.values(cache)[0];
+  const metadata =
+    activeResponse ??
+    response ??
+    Object.values(effectiveCache).find(
+      (candidate) => candidate.calendarDay === dayKey,
+    );
+
+  // Restore focus to the pressed day-navigation control across route transitions.
+  useLayoutEffect(() => {
+    const pendingControl = session.pendingFocusControlRef.current;
+    if (!pendingControl) return;
+    session.pendingFocusControlRef.current = null;
+    if (pendingControl === "previous") {
+      previousLinkRef.current?.focus({ preventScroll: true });
+    } else if (pendingControl === "next") {
+      nextLinkRef.current?.focus({ preventScroll: true });
+    } else if (pendingControl === "picker") {
+      pickerTriggerRef.current?.focus({ preventScroll: true });
+    }
+  }, [dayKey, session.pendingFocusControlRef]);
+
+  const syncViewStateToUrl = useCallback(
+    (category: OnThisDayCategory, order: OnThisDayOrder) => {
+      if (typeof window === "undefined") return;
+      const basePath = pathname || window.location.pathname;
+      const nextHref = buildOnThisDayHref(basePath, { category, order });
+      const currentHref = `${window.location.pathname}${window.location.search}`;
+      if (nextHref !== currentHref) {
+        window.history.replaceState(window.history.state, "", nextHref);
+      }
+    },
+    [pathname],
+  );
 
   const load = useCallback(
     async ({
+      targetDayKey,
       category,
       order,
       offset,
       append,
     }: {
+      targetDayKey: string;
       category: OnThisDayCategory;
       order: OnThisDayOrder;
       offset: number;
       append: boolean;
     }) => {
-      const key = cacheKey(category, order);
+      const key = cacheKey(targetDayKey, category, order);
       const requestKey = `${key}:${offset}:${append ? "append" : "replace"}`;
       if (requestRef.current && requestKeyRef.current === requestKey) return;
       requestRef.current?.abort();
@@ -145,6 +319,7 @@ export const OnThisDayExplorer = () => {
       setErrorByKey((current) => ({ ...current, [key]: "" }));
       try {
         const params = new URLSearchParams({
+          day: targetDayKey,
           category,
           order: category === "holidays" ? "newest" : order,
           offset: String(offset),
@@ -157,11 +332,11 @@ export const OnThisDayExplorer = () => {
           const body = (await result.json().catch(() => null)) as {
             error?: string;
           } | null;
-          throw new Error(body?.error || "On This Day could not be loaded.");
+          throw new Error(body?.error || "This day isn't available right now.");
         }
         const next = (await result.json()) as OnThisDayPageResponse;
         if (controller.signal.aborted) return;
-        setCache((current) => {
+        session.setCache((current) => {
           const previous = current[key];
           return {
             ...current,
@@ -178,7 +353,7 @@ export const OnThisDayExplorer = () => {
           [key]:
             error instanceof Error
               ? error.message
-              : "On This Day could not be loaded.",
+              : "This day isn't available right now.",
         }));
       } finally {
         if (requestRef.current === controller) {
@@ -188,16 +363,22 @@ export const OnThisDayExplorer = () => {
         }
       }
     },
-    [],
+    [session],
   );
 
+  // On bare /on-this-day without SSR data, wait until Reader's Today is resolved
+  // on mount so we don't fire a wasted UTC request before switching to local today.
+  const waitingForLocalToday = isTodayRoute && !clientMounted && !initialResponse;
+
   useEffect(() => {
+    if (waitingForLocalToday) return;
     if (
-      !cache[activeKey] &&
+      !effectiveCache[activeKey] &&
       loadingKey !== activeKey &&
       !errorByKey[activeKey]
     ) {
       void load({
+        targetDayKey: dayKey,
         category: activeCategory,
         order: activeOrder,
         offset: 0,
@@ -208,11 +389,26 @@ export const OnThisDayExplorer = () => {
     activeCategory,
     activeKey,
     activeOrder,
-    cache,
+    dayKey,
+    effectiveCache,
     errorByKey,
     load,
     loadingKey,
+    waitingForLocalToday,
   ]);
+
+  // Announce day changes once the new day's data is available, after mount so
+  // screen readers reliably speak the update.
+  useEffect(() => {
+    if (!session.pendingDayAnnouncementRef.current) return;
+    if (!activeResponse || activeResponse.calendarDay !== dayKey) return;
+    session.pendingDayAnnouncementRef.current = false;
+    const label = CATEGORY_LABELS[activeResponse.category];
+    const total = activeResponse.total;
+    setDayAnnouncement(
+      `Now showing ${dayLabel}, ${label}, ${total} ${total === 1 ? "item" : "items"}.`,
+    );
+  }, [activeResponse, dayKey, dayLabel, session.pendingDayAnnouncementRef]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -258,7 +454,50 @@ export const OnThisDayExplorer = () => {
       requestKeyRef.current = null;
       setLoadingKey(null);
     }
+    setDayAnnouncement(null);
     setActiveCategory(category);
+    syncViewStateToUrl(category, orders[category]);
+  };
+
+  const handleOrderChange = (order: OnThisDayOrder) => {
+    if (activeCategory === "holidays") return;
+    setDayAnnouncement(null);
+    setOrders((current) => ({
+      ...current,
+      [activeCategory]: order,
+    }));
+    syncViewStateToUrl(activeCategory, order);
+  };
+
+  const handleNavigateDayLink = (
+    control: Exclude<OnThisDayNavControl, "picker">,
+  ) => {
+    session.pendingFocusControlRef.current = control;
+    session.pendingDayAnnouncementRef.current = true;
+  };
+
+  const handleSelectPickerDay = (selected: CalendarDay) => {
+    setPickerOpen(false);
+    const targetPath = onThisDayPath(selected);
+    const targetHref = buildOnThisDayHref(targetPath, {
+      category: activeCategory,
+      order: activeOrder,
+    });
+    if (
+      isSameCalendarDay(selected, activeDay) &&
+      pathname === targetPath
+    ) {
+      pickerTriggerRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    session.pendingFocusControlRef.current = "picker";
+    session.pendingDayAnnouncementRef.current = true;
+    router.push(targetHref, { scroll: false });
+  };
+
+  const handleClosePicker = () => {
+    setPickerOpen(false);
+    pickerTriggerRef.current?.focus({ preventScroll: true });
   };
 
   const handleTabKeyDown = (
@@ -318,8 +557,6 @@ export const OnThisDayExplorer = () => {
   const isLoading = loadingKey === activeKey;
   const error = errorByKey[activeKey];
   const remaining = response ? response.total - response.items.length : 0;
-  const editionLabel = formatUtcCalendarDate(metadata?.requestedDate);
-  const snapshotLabel = formatUtcCalendarDate(metadata?.snapshotDate);
   const responseCategory = response?.category ?? activeCategory;
   const categoryNouns = CATEGORY_NOUNS[responseCategory];
   const categoryNoun =
@@ -328,196 +565,229 @@ export const OnThisDayExplorer = () => {
     ? `Loading ${categoryNouns.plural}…`
     : error
       ? error
-      : response
-        ? `Showing ${response.items.length} of ${response.total} ${categoryNoun}${response.category === "holidays" ? "." : `, ${response.order} first.`}`
-        : "";
+      : dayAnnouncement
+        ? dayAnnouncement
+        : response
+          ? `Showing ${response.items.length} of ${response.total} ${categoryNoun}${response.category === "holidays" ? "." : `, ${response.order} first.`}`
+          : "";
+
+  const checkedDateLabel =
+    clientMounted && metadata?.checkedAt
+      ? formatCheckedDate(metadata.checkedAt)
+      : "";
 
   return (
-    <section aria-labelledby="on-this-day-explorer-heading">
-      <h2 id="on-this-day-explorer-heading" className="sr-only">
-        Explore the day in history
-      </h2>
-      {metadata ? (
-        <div className="on-this-day-edition">
-          <p>
-            Wikimedia edition for {editionLabel || metadata.requestedDate} (UTC)
-          </p>
-          {metadata.snapshotIsStale ? (
-            <p role="status">
-              Today&apos;s update is unavailable, so this is the archived
-              edition from {snapshotLabel || metadata.snapshotDate}.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div
-        className="on-this-day-tabs"
-        role="tablist"
-        aria-label="On This Day categories"
-      >
-        {ON_THIS_DAY_CATEGORIES.map((category, index) => {
-          const selected = activeCategory === category;
-          const available = metadata?.availableCategories[category] !== false;
-          return (
-            <button
-              key={category}
-              ref={(node) => {
-                tabRefs.current[index] = node;
-              }}
-              type="button"
-              role="tab"
-              id={`on-this-day-tab-${category}`}
-              aria-controls="on-this-day-tabpanel"
-              aria-selected={selected}
-              aria-label={
-                metadata
-                  ? `${CATEGORY_LABELS[category]} ${metadata.counts[category]} ${metadata.counts[category] === 1 ? "item" : "items"}`
-                  : CATEGORY_LABELS[category]
-              }
-              tabIndex={selected ? 0 : -1}
-              disabled={!available}
-              onClick={() => activateCategory(category)}
-              onKeyDown={(event) => handleTabKeyDown(event, category)}
-            >
-              <span>{`${CATEGORY_LABELS[category]} `}</span>
-              {metadata ? (
-                <span aria-hidden="true">{metadata.counts[category]}</span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        id="on-this-day-tabpanel"
-        role="tabpanel"
-        aria-labelledby={`on-this-day-tab-${activeCategory}`}
-        aria-busy={isLoading}
-        className="on-this-day-tabpanel"
-        tabIndex={0}
-      >
-        <p
-          id="on-this-day-live-status"
-          className={response ? "context-status" : "sr-only"}
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {liveStatusMessage}
+    <>
+      <header className="mb-6">
+        <h1 className="type-page-title font-display text-[1.75rem] font-bold text-foreground">
+          On This Day: {dayLabel}
+        </h1>
+        <p className="mt-1 max-w-3xl text-base leading-[1.6] text-foreground-2">
+          Events, notable lives, and holidays from Wikipedia across the
+          centuries.
         </p>
-        {!response && isLoading ? (
-          <div className="on-this-day-loading">
-            Loading {CATEGORY_LABELS[activeCategory].toLowerCase()}…
-          </div>
+
+        <OnThisDayDayNav
+          day={activeDay}
+          category={activeCategory}
+          order={activeOrder}
+          pickerOpen={pickerOpen}
+          onOpenPicker={() => setPickerOpen(true)}
+          onNavigateDay={handleNavigateDayLink}
+          previousLinkRef={previousLinkRef}
+          nextLinkRef={nextLinkRef}
+          pickerTriggerRef={pickerTriggerRef}
+        />
+      </header>
+
+      <CalendarDayPicker
+        open={pickerOpen}
+        selectedDay={activeDay}
+        readersToday={readersToday}
+        onSelectDay={handleSelectPickerDay}
+        onClose={handleClosePicker}
+      />
+
+      <section aria-labelledby="on-this-day-explorer-heading">
+        <h2 id="on-this-day-explorer-heading" className="sr-only">
+          Explore the day in history
+        </h2>
+
+        {metadata?.degraded ? (
+          <p className="on-this-day-degraded-status" role="status">
+            Only highlights are available for this day right now.
+          </p>
         ) : null}
-        {!response && error ? (
-          <div className="on-this-day-error">
-            <p>{error}</p>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() =>
-                void load({
-                  category: activeCategory,
-                  order: activeOrder,
-                  offset: 0,
-                  append: false,
-                })
-              }
-            >
-              Try again
-            </button>
-          </div>
-        ) : null}
-        {response ? (
-          <>
-            <AccessibleTimeline
-              items={timelineItems}
-              defaultOrder={timelineOrder}
-              order={timelineOrder}
-              categoryFilter="none"
-              showSort={activeCategory !== "holidays"}
-              totalCount={response.total}
-              showStatus={false}
-              onOrderChange={(order) => {
-                if (activeCategory === "holidays") return;
-                setOrders((current) => ({
-                  ...current,
-                  [activeCategory]: order,
-                }));
-              }}
-            />
-            {response.total > 25 ? (
+
+        <div
+          className="on-this-day-tabs"
+          role="tablist"
+          aria-label="On This Day categories"
+        >
+          {ON_THIS_DAY_CATEGORIES.map((category, index) => {
+            const selected = activeCategory === category;
+            const available = metadata?.availableCategories[category] !== false;
+            return (
+              <button
+                key={category}
+                ref={(node) => {
+                  tabRefs.current[index] = node;
+                }}
+                type="button"
+                role="tab"
+                id={`on-this-day-tab-${category}`}
+                aria-controls="on-this-day-tabpanel"
+                aria-selected={selected}
+                aria-label={
+                  metadata
+                    ? `${CATEGORY_LABELS[category]} ${metadata.counts[category]} ${metadata.counts[category] === 1 ? "item" : "items"}`
+                    : CATEGORY_LABELS[category]
+                }
+                tabIndex={selected ? 0 : -1}
+                disabled={!available}
+                onClick={() => activateCategory(category)}
+                onKeyDown={(event) => handleTabKeyDown(event, category)}
+              >
+                <span>{`${CATEGORY_LABELS[category]} `}</span>
+                {metadata ? (
+                  <span aria-hidden="true">{metadata.counts[category]}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          id="on-this-day-tabpanel"
+          role="tabpanel"
+          aria-labelledby={`on-this-day-tab-${activeCategory}`}
+          aria-busy={isLoading}
+          className="on-this-day-tabpanel"
+          tabIndex={0}
+        >
+          <p
+            id="on-this-day-live-status"
+            className={response ? "context-status" : "sr-only"}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {liveStatusMessage}
+          </p>
+          {!response && isLoading ? (
+            <div className="on-this-day-loading">
+              Loading {CATEGORY_LABELS[activeCategory].toLowerCase()}…
+            </div>
+          ) : null}
+          {!response && error ? (
+            <div className="on-this-day-error">
+              <p>{error}</p>
               <button
                 type="button"
-                className="btn-secondary on-this-day-show-more"
-                aria-disabled={isLoading || response.nextOffset == null}
-                onClick={() => {
-                  if (isLoading || response.nextOffset == null) return;
+                className="btn-secondary"
+                onClick={() =>
                   void load({
+                    targetDayKey: dayKey,
                     category: activeCategory,
                     order: activeOrder,
-                    offset: response.nextOffset,
-                    append: true,
-                  });
-                }}
+                    offset: 0,
+                    append: false,
+                  })
+                }
               >
-                {isLoading
-                  ? "Loading more…"
-                  : response.nextOffset == null
-                    ? `All ${response.total} ${CATEGORY_LABELS[activeCategory].toLowerCase()} shown`
-                    : `Show ${Math.min(25, remaining)} more ${CATEGORY_LABELS[activeCategory].toLowerCase()}`}
+                Try again
               </button>
-            ) : null}
-            {error ? (
-              <div className="on-this-day-recoverable-error">
-                <p>{error}</p>
+            </div>
+          ) : null}
+          {response ? (
+            <>
+              <AccessibleTimeline
+                items={timelineItems}
+                defaultOrder={timelineOrder}
+                order={timelineOrder}
+                categoryFilter="none"
+                showSort={activeCategory !== "holidays"}
+                totalCount={response.total}
+                showStatus={false}
+                onOrderChange={handleOrderChange}
+              />
+              {response.total > 25 ? (
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-secondary on-this-day-show-more"
+                  aria-disabled={isLoading || response.nextOffset == null}
                   onClick={() => {
-                    const nextOffset = activeResponse?.nextOffset ?? 0;
+                    if (isLoading || response.nextOffset == null) return;
+                    setDayAnnouncement(null);
                     void load({
+                      targetDayKey: dayKey,
                       category: activeCategory,
                       order: activeOrder,
-                      offset: nextOffset,
-                      append: Boolean(activeResponse && nextOffset > 0),
+                      offset: response.nextOffset,
+                      append: true,
                     });
                   }}
                 >
-                  Try loading these{" "}
-                  {CATEGORY_LABELS[activeCategory].toLowerCase()} again
+                  {isLoading
+                    ? "Loading more…"
+                    : response.nextOffset == null
+                      ? `All ${response.total} ${CATEGORY_LABELS[activeCategory].toLowerCase()} shown`
+                      : `Show ${Math.min(25, remaining)} more ${CATEGORY_LABELS[activeCategory].toLowerCase()}`}
                 </button>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+              ) : null}
+              {error ? (
+                <div className="on-this-day-recoverable-error">
+                  <p>{error}</p>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      const nextOffset = activeResponse?.nextOffset ?? 0;
+                      void load({
+                        targetDayKey: dayKey,
+                        category: activeCategory,
+                        order: activeOrder,
+                        offset: nextOffset,
+                        append: Boolean(activeResponse && nextOffset > 0),
+                      });
+                    }}
+                  >
+                    Try loading these{" "}
+                    {CATEGORY_LABELS[activeCategory].toLowerCase()} again
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
 
-      {metadata ? (
-        <p className="on-this-day-source-note">
-          Event text comes from Wikipedia and is available under{" "}
-          <a
-            href="https://creativecommons.org/licenses/by-sa/4.0/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            CC BY-SA 4.0
-            <span className="sr-only"> (opens in a new tab)</span>
-          </a>
-          .{" "}
-          <a
-            href={metadata.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View the source calendar page
-            <span className="sr-only"> (opens in a new tab)</span>
-          </a>
-          .
-        </p>
-      ) : null}
-    </section>
+        {metadata ? (
+          <p className="on-this-day-source-note">
+            {checkedDateLabel
+              ? `Lists from Wikipedia, last checked ${checkedDateLabel}. `
+              : "Lists from Wikipedia. "}
+            Event text is available under{" "}
+            <a
+              href="https://creativecommons.org/licenses/by-sa/4.0/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              CC BY-SA 4.0
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            .{" "}
+            <a
+              href={metadata.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View the source calendar page
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            .
+          </p>
+        ) : null}
+      </section>
+    </>
   );
 };
