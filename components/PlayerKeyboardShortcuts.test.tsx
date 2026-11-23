@@ -28,6 +28,7 @@ describe("PlayerKeyboardShortcuts", () => {
   const actions = {
     onTogglePlayback: vi.fn(),
     onSkipBy: vi.fn(),
+    onPreviousSection: vi.fn(),
     onNextSection: vi.fn(),
   };
 
@@ -45,14 +46,18 @@ describe("PlayerKeyboardShortcuts", () => {
     vi.restoreAllMocks();
   });
 
-  it("plays or pauses, seeks by ten seconds, and advances the queue", () => {
+  it("plays or pauses, seeks by ten seconds, and steps between sections", () => {
     expect(press(" ")).toBe(true);
     expect(press("ArrowLeft")).toBe(true);
     expect(press("ArrowRight")).toBe(true);
     expect(press("N", document.body, { shiftKey: true })).toBe(true);
+    expect(press("P", document.body, { shiftKey: true })).toBe(true);
     expect(actions.onTogglePlayback).toHaveBeenCalledOnce();
     expect(actions.onSkipBy.mock.calls).toEqual([[-10], [10]]);
     expect(actions.onNextSection).toHaveBeenCalledOnce();
+    expect(actions.onPreviousSection).toHaveBeenCalledOnce();
+    expect(press("P")).toBe(false);
+    expect(press("Q", document.body, { shiftKey: true })).toBe(false);
   });
 
   it("scopes shortcuts to the player when navigating away and restores the article scope on return", () => {
@@ -158,8 +163,12 @@ describe("PlayerKeyboardShortcuts", () => {
     expect(press("N", document.body, { shiftKey: true, repeat: true })).toBe(
       true,
     );
+    expect(press("P", document.body, { shiftKey: true, repeat: true })).toBe(
+      true,
+    );
     expect(actions.onTogglePlayback).not.toHaveBeenCalled();
     expect(actions.onNextSection).not.toHaveBeenCalled();
+    expect(actions.onPreviousSection).not.toHaveBeenCalled();
     expect(press("ArrowRight", document.body, { repeat: true })).toBe(true);
     expect(actions.onSkipBy).toHaveBeenCalledWith(10);
   });

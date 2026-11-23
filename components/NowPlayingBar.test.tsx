@@ -45,7 +45,16 @@ const makeProps = (overrides: Partial<BarProps> = {}): BarProps => ({
   playbackRate: 1,
   onTogglePlayback: vi.fn(),
   onSkipBy: vi.fn(),
-  onSkipSection: vi.fn(),
+  navigation: {
+    position: { current: 2, total: 4 },
+    previous: { sectionKey: "summary", title: "Summary" },
+    next: { sectionKey: "section-1", title: "Legacy" },
+    canGoToPrevious: true,
+    canGoToNext: true,
+    playAllSecondsRemaining: null,
+  },
+  onPreviousSection: vi.fn(),
+  onNextSection: vi.fn(),
   onStop: vi.fn(),
   onSeek: vi.fn(),
   onPlaybackRateChange: vi.fn(),
@@ -306,8 +315,10 @@ describe("NowPlayingBar", () => {
     expect(props.onSkipBy).toHaveBeenCalledWith(-10);
     act(() => button(container, "Forward 10 seconds").click());
     expect(props.onSkipBy).toHaveBeenCalledWith(10);
-    act(() => button(container, "Next section").click());
-    expect(props.onSkipSection).toHaveBeenCalledTimes(1);
+    act(() => button(container, "Previous section: Summary").click());
+    expect(props.onPreviousSection).toHaveBeenCalledTimes(1);
+    act(() => button(container, "Next section: Legacy").click());
+    expect(props.onNextSection).toHaveBeenCalledTimes(1);
     act(() => button(container, "Jump to section").click());
     expect(props.onJumpToSection).toHaveBeenCalledTimes(1);
     act(() => button(container, "Stop audio").click());
@@ -318,13 +329,126 @@ describe("NowPlayingBar", () => {
     expect(props.onPlaybackRateChange).toHaveBeenCalledWith(1.25);
   });
 
-  it("offers Play while paused and hides Next section outside Play all", () => {
+  it("offers Play while paused and section steps outside Play all", () => {
     const props = makeProps({ playback: playback({ status: "paused" }) });
     act(() => root.render(<NowPlayingBar {...props} />));
 
     act(() => button(container, "Play History").click());
     expect(props.onTogglePlayback).toHaveBeenCalledTimes(1);
-    expect(() => button(container, "Next section")).toThrow();
+    const group = container.querySelector("[aria-label='Playback controls']")!;
+    const names = Array.from(group.querySelectorAll("button")).map(
+      (control) => control.getAttribute("aria-label") ?? control.textContent,
+    );
+    expect(names.slice(0, 4)).toEqual([
+      "Previous section: Summary",
+      "Back 10 seconds",
+      "Forward 10 seconds",
+      "Next section: Legacy",
+    ]);
+  });
+
+  it("keeps focus on a section step that reaches the first or last section", () => {
+    const props = makeProps({
+      navigation: {
+        position: { current: 1, total: 1 },
+        previous: null,
+        next: null,
+        canGoToPrevious: false,
+        canGoToNext: false,
+        playAllSecondsRemaining: null,
+      },
+    });
+    act(() => root.render(<NowPlayingBar {...props} />));
+
+    for (const name of ["Previous section", "Next section"]) {
+      const step = button(container, name);
+      expect(step.hasAttribute("disabled")).toBe(false);
+      expect(step.getAttribute("aria-disabled")).toBe("true");
+      step.focus();
+      act(() => step.click());
+      expect(document.activeElement).toBe(step);
+    }
+    expect(props.onPreviousSection).not.toHaveBeenCalled();
+    expect(props.onNextSection).not.toHaveBeenCalled();
+  });
+
+  it("shows where the listener is in the article and the Play all time left", () => {
+    act(() => root.render(<NowPlayingBar {...makeProps()} />));
+    const progress = () =>
+      container.querySelector("[data-now-playing-progress]");
+    expect(progress()?.textContent).toBe("Section 2 of 4");
+
+    const props = makeProps({ playback: playback({ mode: "play_all" }) });
+    act(() =>
+      root.render(
+        <NowPlayingBar
+          {...props}
+          navigation={{
+            ...props.navigation!,
+            playAllSecondsRemaining: 31 * 60,
+          }}
+        />,
+      ),
+    );
+    expect(progress()?.textContent).toBe(
+      "Section 2 of 4 · , about 31 minutes left",
+    );
+    expect(progress()?.querySelector("[aria-hidden='true']")?.textContent).toBe(
+      " · ",
+    );
+    expect(progress()?.closest("[hidden]")).toBeNull();
+    expect(progress()?.closest("[aria-live]")).toBeNull();
+  });
+
+  it("announces a section chosen with Previous or Next once it starts", () => {
+    const props = makeProps();
+    act(() => root.render(<NowPlayingBar {...props} />));
+    const status = container.querySelector("[role='status']")!;
+    expect(status.textContent).toBe("");
+
+    act(() => button(container, "Next section: Legacy").click());
+    expect(props.onNextSection).toHaveBeenCalledOnce();
+    act(() =>
+      root.render(
+        <NowPlayingBar
+          {...props}
+          sectionTitle="Legacy"
+          playback={playback({
+            status: "loading",
+            sectionKey: "section-1",
+            sectionIdx: 1,
+          })}
+        />,
+      ),
+    );
+    expect(status.textContent).toBe("");
+
+    act(() =>
+      root.render(
+        <NowPlayingBar
+          {...props}
+          sectionTitle="Legacy"
+          navigation={{
+            ...props.navigation!,
+            position: { current: 3, total: 4 },
+          }}
+          playback={playback({ sectionKey: "section-1", sectionIdx: 1 })}
+        />,
+      ),
+    );
+    expect(status.textContent).toBe("Now playing: Legacy, section 3 of 4");
+
+    // A section started from the article's own Listen button stays quiet.
+    act(() =>
+      root.render(
+        <NowPlayingBar
+          {...props}
+          sectionTitle="Early life"
+          playback={playback({ sectionKey: "section-2", sectionIdx: 2 })}
+        />,
+      ),
+    );
+    expect(status.textContent).toBe("");
   });
 
   it("does not toggle playback while the section is still loading", () => {
@@ -347,7 +471,7 @@ describe("NowPlayingBar", () => {
     );
     const status = container.querySelector("[role='status']");
     expect(status?.getAttribute("aria-live")).toBe("polite");
-    expect(status?.textContent).toBe("Now playing: History");
+    expect(status?.textContent).toBe("Now playing: History, section 2 of 4");
 
     act(() =>
       root.render(
@@ -358,7 +482,7 @@ describe("NowPlayingBar", () => {
         />,
       ),
     );
-    expect(status?.textContent).toBe("Now playing: History");
+    expect(status?.textContent).toBe("Now playing: History, section 2 of 4");
 
     act(() =>
       root.render(
