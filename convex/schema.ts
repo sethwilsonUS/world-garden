@@ -661,6 +661,7 @@ export default defineSchema({
     checkedAt: v.number(),
     changedAt: v.number(),
     imagesCheckedAt: v.number(),
+    pendingImageEnrichment: v.optional(v.boolean()),
     lastAttemptAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     suspiciousStreak: v.number(),

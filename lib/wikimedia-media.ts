@@ -58,6 +58,8 @@ export type WikimediaMediaRequest = {
 export type WikimediaMediaDetails = {
   repository: WikimediaMediaRepository;
   attribution: WikimediaMediaAttribution;
+  resolved?: boolean;
+  unavailable?: boolean;
   altText?: string;
   originalSrc?: string;
   lightboxSrc?: string;
@@ -269,7 +271,7 @@ const fetchImageInfoBatch = async (
   sourceTitles: string[],
   fetchImpl: typeof fetch,
   options: { includeRendition: boolean; signal?: AbortSignal },
-): Promise<ImageInfoPage[]> => {
+): Promise<{ ok: boolean; pages: ImageInfoPage[] }> => {
   const params = new URLSearchParams({
     action: "query",
     format: "json",
@@ -297,20 +299,25 @@ const fetchImageInfoBatch = async (
         response = await fetchWithTimeout(url, fetchImpl, options.signal);
       }
     }
-    if (!response.ok) return [];
+    if (!response.ok) return { ok: false, pages: [] };
 
     const payload = (await response.json()) as {
       query?: { pages?: unknown };
     };
     const pages = payload.query?.pages;
-    if (!pages || typeof pages !== "object") return [];
-    return Object.values(pages).filter(
+    if (!pages || typeof pages !== "object" || Array.isArray(pages)) {
+      return { ok: false, pages: [] };
+    }
+    const values = Object.values(pages);
+    const validPages = values.filter(
       (page): page is ImageInfoPage =>
-        Boolean(page) && typeof page === "object",
+        Boolean(page) && typeof page === "object" && !Array.isArray(page),
     );
+    if (validPages.length !== values.length) return { ok: false, pages: [] };
+    return { ok: true, pages: validPages };
   } catch (error: unknown) {
     if (options.signal?.aborted) throw error;
-    return [];
+    return { ok: false, pages: [] };
   }
 };
 
@@ -347,7 +354,7 @@ export const fetchWikimediaMediaAttributions = async (
 
   for (let index = 0; index < uniqueTitles.length; index += IMAGE_INFO_BATCH_SIZE) {
     const batch = uniqueTitles.slice(index, index + IMAGE_INFO_BATCH_SIZE);
-    const pages = await fetchImageInfoBatch(
+    const { pages } = await fetchImageInfoBatch(
       WIKIMEDIA_COMMONS_ACTION_API,
       batch,
       fetchImpl,
@@ -409,6 +416,7 @@ export const fetchWikimediaMediaDetails = async (
     const projectHost = projectHostForRepository(repository);
     results.set(request.imageUrl, {
       repository,
+      resolved: false,
       attribution: buildWikimediaSourceFallback(
         request.sourceTitle,
         projectHost,
@@ -433,7 +441,7 @@ export const fetchWikimediaMediaDetails = async (
     const media = [...repositoryGroup.values()];
     for (let index = 0; index < media.length; index += IMAGE_INFO_BATCH_SIZE) {
       const batch = media.slice(index, index + IMAGE_INFO_BATCH_SIZE);
-      const pages = await fetchImageInfoBatch(
+      const { ok, pages } = await fetchImageInfoBatch(
         actionApiForRepository(repository),
         batch.map((item) => item.sourceTitle),
         fetchImpl,
@@ -448,8 +456,24 @@ export const fetchWikimediaMediaDetails = async (
         if (!requested) continue;
 
         const info = page.imageinfo?.[0];
-        if (!info) continue;
         const projectHost = projectHostForRepository(repository);
+        if (!info) {
+          if (ok) {
+            const fallback = buildWikimediaSourceFallback(
+              requested.sourceTitle,
+              projectHost,
+            );
+            for (const imageUrl of requested.imageUrls) {
+              results.set(imageUrl, {
+                repository,
+                resolved: false,
+                unavailable: true,
+                attribution: fallback,
+              });
+            }
+          }
+          continue;
+        }
         const attribution = attributionFromImageInfo(
           page.title,
           info,
@@ -500,6 +524,7 @@ export const fetchWikimediaMediaDetails = async (
         for (const imageUrl of requested.imageUrls) {
           results.set(imageUrl, {
             repository,
+            resolved: true,
             attribution,
             ...(altText ? { altText } : {}),
             ...(originalSrc ? { originalSrc } : {}),

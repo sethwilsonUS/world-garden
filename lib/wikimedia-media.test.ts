@@ -253,6 +253,7 @@ describe("Wikimedia media attribution", () => {
 
     expect(details.get(imageUrl)).toMatchObject({
       repository: "commons",
+      resolved: true,
       originalSrc:
         "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
       lightboxSrc:
@@ -309,6 +310,7 @@ describe("Wikimedia media attribution", () => {
 
     expect(details.get(imageUrl)).toMatchObject({
       repository: "enwiki",
+      resolved: true,
       originalSrc:
         "https://upload.wikimedia.org/wikipedia/en/a/ab/Poster.jpg",
       lightboxSrc:
@@ -380,6 +382,7 @@ describe("Wikimedia media attribution", () => {
 
     expect(details.get(imageUrl)).toEqual({
       repository: "commons",
+      resolved: false,
       attribution: expect.objectContaining({
         sourceTitle: "File:Fallback.jpg",
         sourceUrl: expect.stringContaining("commons.wikimedia.org/wiki/"),
@@ -455,8 +458,44 @@ describe("Wikimedia media attribution", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(details.get(imageUrl)).toEqual({
       repository: "commons",
+      resolved: false,
       attribution: expect.objectContaining({
         sourceTitle: "File:Wait.jpg",
+      }),
+    });
+  });
+
+  it("marks definitively missing Wikimedia pages as unresolved and unavailable", async () => {
+    const imageUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Deleted.jpg";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          query: {
+            pages: {
+              "-1": {
+                title: "File:Deleted.jpg",
+                missing: "",
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const details = await fetchWikimediaMediaDetails(
+      [{ sourceTitle: "File:Deleted.jpg", imageUrl }],
+      fetchMock,
+    );
+
+    expect(details.get(imageUrl)).toEqual({
+      repository: "commons",
+      resolved: false,
+      unavailable: true,
+      attribution: expect.objectContaining({
+        sourceTitle: "File:Deleted.jpg",
+        sourceUrl: expect.stringContaining("commons.wikimedia.org/wiki/"),
       }),
     });
   });

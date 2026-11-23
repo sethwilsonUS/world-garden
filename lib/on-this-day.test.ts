@@ -408,6 +408,140 @@ describe("On This Day snapshot", () => {
     ]);
   });
 
+  it("treats per-URL fallback entries from Wikimedia media lookup as unresolved", async () => {
+    const { buildOnThisDaySnapshotWithMeta } = await import("./on-this-day");
+    const built = await buildOnThisDaySnapshotWithMeta({
+      day: { month: 7, day: 24 },
+      provider,
+      resolveImages: vi.fn(async () =>
+        new Map([
+          [
+            "https://upload.wikimedia.org/apollo.jpg",
+            {
+              isFallback: true,
+              attribution: {
+                sourceTitle: "File:apollo.jpg",
+                sourceUrl:
+                  "https://commons.wikimedia.org/wiki/File%3Aapollo.jpg",
+              },
+            },
+          ],
+        ]),
+      ),
+      checkedAt: 1_000,
+    });
+
+    expect(built.imageResolutionSucceeded).toBe(false);
+    expect(
+      built.snapshot.categories.selected[0]?.image?.attributionIsFallback,
+    ).toBe(true);
+
+    // Next build must NOT reuse the fallback entry and must retry the URL.
+    const retryResolve = vi.fn(async () =>
+      new Map([
+        [
+          "https://upload.wikimedia.org/apollo.jpg",
+          {
+            altText: "Resolved on retry",
+            attribution: {
+              sourceTitle: "File:Apollo.jpg",
+              sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+              creator: "NASA",
+              licenseName: "Public domain",
+            },
+          },
+        ],
+      ]),
+    );
+    const retried = await buildOnThisDaySnapshotWithMeta({
+      day: { month: 7, day: 24 },
+      provider,
+      previousSnapshot: built.snapshot,
+      resolveImages: retryResolve,
+      checkedAt: 2_000,
+    });
+    expect(retryResolve).toHaveBeenCalledTimes(1);
+    expect(retried.imageResolutionSucceeded).toBe(true);
+    expect(
+      retried.snapshot.categories.selected[0]?.image?.attributionIsFallback,
+    ).toBeUndefined();
+    expect(retried.snapshot.categories.selected[0]?.image?.altText).toBe(
+      "Resolved on retry",
+    );
+  });
+
+  it("distinguishes Commons HTTP errors from definitively missing files end-to-end", async () => {
+    const { buildOnThisDaySnapshotWithMeta } = await import("./on-this-day");
+    const commonsImageUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Apollo.jpg";
+    const commonsProvider: OnThisDayProvider = {
+      fetchAll: vi.fn(async () => ({
+        selected: [
+          {
+            year: 1969,
+            text: "Apollo 11 splashed down.",
+            pages: [
+              {
+                titles: { normalized: "Apollo 11" },
+                pageid: 6625,
+                thumbnail: { source: commonsImageUrl, width: 330, height: 220 },
+              },
+            ],
+          },
+        ],
+        events: [],
+        births: [],
+        deaths: [],
+        holidays: [],
+      })),
+    };
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, { status: 503, headers: { "Retry-After": "60" } }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: {
+                "-1": { title: "File:Apollo.jpg", missing: "" },
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const failedLookup = await buildOnThisDaySnapshotWithMeta({
+        day: { month: 7, day: 24 },
+        provider: commonsProvider,
+        checkedAt: 1_000,
+      });
+      expect(failedLookup.imageResolutionSucceeded).toBe(false);
+      expect(
+        failedLookup.snapshot.categories.selected[0]?.image
+          ?.attributionIsFallback,
+      ).toBe(true);
+
+      const missingFile = await buildOnThisDaySnapshotWithMeta({
+        day: { month: 7, day: 24 },
+        provider: commonsProvider,
+        checkedAt: 2_000,
+      });
+      expect(missingFile.imageResolutionSucceeded).toBe(true);
+      expect(
+        missingFile.snapshot.categories.selected[0]?.image
+          ?.attributionIsFallback,
+      ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("preserves prior resolved image metadata and signals failure when re-resolution throws", async () => {
     const warnSpy = vi
       .spyOn(console, "warn")

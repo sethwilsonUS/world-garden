@@ -296,6 +296,11 @@ export const OnThisDayExplorer = ({
     );
   }, [initialResponse, initialResponseKey, session.cache]);
 
+  const effectiveCacheRef = useRef(effectiveCache);
+  useLayoutEffect(() => {
+    effectiveCacheRef.current = effectiveCache;
+  }, [effectiveCache]);
+
   const activeResponse = effectiveCache[activeKey];
   const response =
     activeResponse ??
@@ -380,6 +385,26 @@ export const OnThisDayExplorer = ({
         }
         const next = (await result.json()) as OnThisDayPageResponse;
         if (controller.signal.aborted) return;
+
+        const latestCache = effectiveCacheRef.current;
+        const latestDayEntry = Object.values(latestCache).find(
+          (entry) => entry.calendarDay === targetDayKey,
+        );
+        const isSupersededByDay =
+          latestDayEntry != null &&
+          (next.changedAt < latestDayEntry.changedAt ||
+            (!latestDayEntry.degraded && next.degraded));
+
+        if (!append && isSupersededByDay) {
+          // Terminal state for a stale/degraded non-append response so the
+          // automatic loader does not loop endlessly against a cached/degraded edge.
+          setErrorByKey((current) => ({
+            ...current,
+            [key]: "This section is updating. Try again in a moment.",
+          }));
+          return;
+        }
+
         session.setCache((current) => {
           const previous = current[key];
           const existingDayEntry = Object.values(current).find(

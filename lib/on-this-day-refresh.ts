@@ -67,6 +67,7 @@ export type OnThisDayRefreshStore = {
     checkedAt: number;
     changedAt: number;
     imagesCheckedAt: number;
+    pendingImageEnrichment?: boolean;
     lastAttemptAt: number;
     leaseToken: string;
   }): Promise<LeaseWriteResult>;
@@ -79,6 +80,7 @@ export type OnThisDayRefreshStore = {
     checkedAt: number;
     changedAt: number;
     imagesCheckedAt: number;
+    pendingImageEnrichment?: boolean;
     lastAttemptAt: number;
   }): Promise<InsertIfMissingResult>;
   markDayCheckedUnchanged(args: {
@@ -86,6 +88,7 @@ export type OnThisDayRefreshStore = {
     schemaVersion: number;
     checkedAt: number;
     imagesCheckedAt: number;
+    pendingImageEnrichment?: boolean;
     lastAttemptAt: number;
     leaseToken: string;
   }): Promise<LeaseWriteResult>;
@@ -270,14 +273,14 @@ export const selectRefreshQueue = (
     }
   }
 
-  // 5. Cold-built days waiting for image metadata enrichment.
+  // 5. Cold-built or partial days waiting for image metadata enrichment.
   const unenrichedDays = ALL_CALENDAR_DAYS.filter((day) => {
     const state = byKey.get(calendarDayKey(day));
     return (
       state != null &&
       state.checkedAt > 0 &&
       !state.degraded &&
-      state.imagesCheckedAt <= 0
+      (state.imagesCheckedAt <= 0 || state.pendingImageEnrichment === true)
     );
   }).sort((left, right) => {
     const leftChecked = byKey.get(calendarDayKey(left))?.checkedAt ?? 0;
@@ -396,15 +399,14 @@ export const refreshCalendarDay = async (
     }
 
     const nextHash = hashOnThisDaySnapshot(nextSnapshot);
-    const hasPendingImageEnrichment =
-      !previousState || previousState.imagesCheckedAt <= 0;
-    const nextImagesCheckedAt = !imageResolutionSucceeded
-      ? shouldFullReResolveImages
-        ? (previousState?.imagesCheckedAt ?? 0)
-        : 0
-      : shouldFullReResolveImages || hasPendingImageEnrichment
+    const previousImagesCheckedAt = previousState?.imagesCheckedAt ?? 0;
+    const ranFullImageCheck =
+      shouldFullReResolveImages || previousImagesCheckedAt <= 0;
+    const nextImagesCheckedAt =
+      ranFullImageCheck && imageResolutionSucceeded
         ? now
-        : previousState.imagesCheckedAt;
+        : previousImagesCheckedAt;
+    const nextPendingImageEnrichment = !imageResolutionSucceeded;
 
     const isUnchanged =
       existing !== null &&
@@ -420,6 +422,7 @@ export const refreshCalendarDay = async (
         schemaVersion: CURRENT_ON_THIS_DAY_SCHEMA_VERSION,
         checkedAt: now,
         imagesCheckedAt: nextImagesCheckedAt,
+        pendingImageEnrichment: nextPendingImageEnrichment,
         lastAttemptAt: now,
         leaseToken,
       });
@@ -442,6 +445,7 @@ export const refreshCalendarDay = async (
       checkedAt: now,
       changedAt: now,
       imagesCheckedAt: nextImagesCheckedAt,
+      pendingImageEnrichment: nextPendingImageEnrichment,
       lastAttemptAt: now,
       leaseToken,
     });

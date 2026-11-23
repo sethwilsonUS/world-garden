@@ -338,6 +338,7 @@ export const getOnThisDayDayRecord = async ({
         checkedAt: now,
         changedAt: now,
         imagesCheckedAt: 0,
+        pendingImageEnrichment: true,
         lastAttemptAt: now,
       })
       .catch((error) => {

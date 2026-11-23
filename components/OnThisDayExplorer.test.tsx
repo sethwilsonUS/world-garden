@@ -608,6 +608,46 @@ describe("OnThisDayExplorer", () => {
     expect(container.textContent).toContain("events item 1 (07-30)");
   });
 
+  it("enters a terminal error state instead of looping when a non-append response is older than the cached day", async () => {
+    const t1 = Date.UTC(2026, 10, 19, 12, 0, 0);
+    const t2 = Date.UTC(2026, 10, 21, 12, 0, 0);
+    const initialNewer = {
+      ...responseFor("/api/on-this-day?day=07-30&category=selected"),
+      changedAt: t2,
+    };
+
+    fetchMock.mockImplementation(async (input) =>
+      Response.json({
+        ...responseFor(String(input)),
+        changedAt: t1,
+      }),
+    );
+
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer
+            initialDay={{ month: 7, day: 30 }}
+            initialResponse={initialNewer}
+          />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    await act(async () => undefined);
+
+    const eventsTab = container.querySelector<HTMLButtonElement>(
+      "#on-this-day-tab-events",
+    )!;
+    await act(async () => eventsTab.click());
+    await act(async () => undefined);
+    await act(async () => undefined);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "This section is updating. Try again in a moment.",
+    );
+  });
+
   it("falls back to an available tab stop when navigating to a highlights-only day while Events is active", async () => {
     searchParamsRef.current = new URLSearchParams("category=events");
     window.history.replaceState(null, "", "/on-this-day/july-30?category=events");

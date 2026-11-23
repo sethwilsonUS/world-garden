@@ -126,6 +126,7 @@ const createMemoryStore = () => {
         checkedAt: args.checkedAt,
         changedAt: args.changedAt,
         imagesCheckedAt: args.imagesCheckedAt,
+        pendingImageEnrichment: args.pendingImageEnrichment ?? false,
         lastAttemptAt: args.lastAttemptAt,
         suspiciousStreak: 0,
       };
@@ -157,6 +158,7 @@ const createMemoryStore = () => {
         checkedAt: args.checkedAt,
         changedAt: existing?.changedAt ?? args.checkedAt,
         imagesCheckedAt: args.imagesCheckedAt,
+        pendingImageEnrichment: args.pendingImageEnrichment ?? false,
         lastAttemptAt: args.lastAttemptAt,
         suspiciousStreak: 0,
       };
@@ -375,11 +377,17 @@ describe("refreshCalendarDay", () => {
         { store, provider, resolveImages: failingResolve, now: t1 },
       );
       expect(partial.status).toBe("refreshed");
-      // Only the new image was attempted; first image stayed verified; enrichment stays pending (imagesCheckedAt = 0).
+      // Only the new image was attempted; first image's full-check timestamp t0 is preserved while enrichment stays pending.
       expect(failingResolve).toHaveBeenCalledWith([
         expect.objectContaining({ imageUrl: secondImage }),
       ]);
-      expect(states.get("03-05")?.imagesCheckedAt).toBe(0);
+      expect(states.get("03-05")?.imagesCheckedAt).toBe(t0);
+      expect(states.get("03-05")?.pendingImageEnrichment).toBe(true);
+      expect(
+        selectRefreshQueue([...states.values()], t1 + 1000).queue.map(
+          calendarDayKey,
+        ),
+      ).toContain("03-05");
       expect(
         days.get("03-05")?.data.categories.events[0]?.image?.attributionIsFallback,
       ).toBe(true);
@@ -387,7 +395,7 @@ describe("refreshCalendarDay", () => {
         days.get("03-05")?.data.categories.selected[0]?.image?.attributionIsFallback,
       ).toBeUndefined();
 
-      // Next refresh retries ONLY the fallback URL (reusing the verified first image!) and clears pending enrichment.
+      // Next refresh retries ONLY the fallback URL (reusing the verified first image), clears pending flag, and keeps t0.
       resolveImages.mockClear();
       const t2 = t1 + 60_000;
       const retried = await refreshCalendarDay(
@@ -398,7 +406,8 @@ describe("refreshCalendarDay", () => {
       expect(resolveImages).toHaveBeenCalledWith([
         expect.objectContaining({ imageUrl: secondImage }),
       ]);
-      expect(states.get("03-05")?.imagesCheckedAt).toBe(t2);
+      expect(states.get("03-05")?.imagesCheckedAt).toBe(t0);
+      expect(states.get("03-05")?.pendingImageEnrichment).toBe(false);
       expect(
         days.get("03-05")?.data.categories.events[0]?.image?.attributionIsFallback,
       ).toBeUndefined();

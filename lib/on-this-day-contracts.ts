@@ -57,6 +57,7 @@ export type OnThisDayRefreshState = {
   checkedAt: number;
   changedAt: number;
   imagesCheckedAt: number;
+  pendingImageEnrichment?: boolean;
   lastAttemptAt?: number;
   lastError?: string;
   suspiciousStreak: number;

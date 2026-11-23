@@ -62,6 +62,8 @@ export type OnThisDayProvider = {
 export type OnThisDayResolvedImage = {
   attribution: WikimediaMediaAttribution;
   altText?: string;
+  isFallback?: boolean;
+  retryable?: boolean;
 };
 
 export type OnThisDayImageResolver = (
@@ -156,6 +158,8 @@ const resolveImagesWithWikimedia: OnThisDayImageResolver = async (requests) => {
       {
         attribution: detail.attribution,
         ...(detail.altText ? { altText: detail.altText } : {}),
+        ...(detail.resolved === false ? { isFallback: true } : {}),
+        ...(detail.unavailable ? { retryable: false } : {}),
       },
     ]),
   );
@@ -343,6 +347,7 @@ export const buildOnThisDaySnapshotWithMeta = async ({
           sourceTitle,
         }));
 
+  const requestedUrls = new Set(requests.map((request) => request.imageUrl));
   let fetchedMetadata = new Map<string, OnThisDayResolvedImage>();
   let imageResolutionSucceeded = !skipImageResolution;
   if (requests.length > 0) {
@@ -363,20 +368,31 @@ export const buildOnThisDaySnapshotWithMeta = async ({
       const candidate = candidates.get(event.image.source);
       if (!candidate) continue;
       const repository = getWikimediaMediaRepositoryFromUrl(candidate.source);
+      const fetched = fetchedMetadata.get(event.image.source);
+      const fetchedVerified = fetched && !fetched.isFallback ? fetched : undefined;
+      if (
+        requestedUrls.has(event.image.source) &&
+        !fetchedVerified &&
+        fetched?.retryable !== false
+      ) {
+        imageResolutionSucceeded = false;
+      }
       const resolved =
-        fetchedMetadata.get(event.image.source) ??
+        fetchedVerified ??
         reusedMetadata.get(event.image.source) ??
         previousMetadata.get(event.image.source);
       if (resolved) {
         if (resolved.altText) event.image.altText = resolved.altText;
         event.image.attribution = resolved.attribution;
       } else {
-        event.image.attribution = buildWikimediaSourceFallback(
-          candidate.sourceTitle,
-          repository === "enwiki"
-            ? "en.wikipedia.org"
-            : "commons.wikimedia.org",
-        );
+        event.image.attribution =
+          fetched?.attribution ??
+          buildWikimediaSourceFallback(
+            candidate.sourceTitle,
+            repository === "enwiki"
+              ? "en.wikipedia.org"
+              : "commons.wikimedia.org",
+          );
         event.image.attributionIsFallback = true;
       }
     }

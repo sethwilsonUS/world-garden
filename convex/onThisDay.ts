@@ -16,6 +16,7 @@ const serializeRefreshState = (row: {
   checkedAt: number;
   changedAt: number;
   imagesCheckedAt: number;
+  pendingImageEnrichment?: boolean;
   lastAttemptAt?: number;
   lastError?: string;
   suspiciousStreak: number;
@@ -27,6 +28,7 @@ const serializeRefreshState = (row: {
   checkedAt: row.checkedAt,
   changedAt: row.changedAt,
   imagesCheckedAt: row.imagesCheckedAt,
+  pendingImageEnrichment: row.pendingImageEnrichment,
   lastAttemptAt: row.lastAttemptAt,
   lastError: row.lastError,
   suspiciousStreak: row.suspiciousStreak,
@@ -164,6 +166,7 @@ export const saveDaySnapshot = mutation({
     checkedAt: v.number(),
     changedAt: v.number(),
     imagesCheckedAt: v.number(),
+    pendingImageEnrichment: v.optional(v.boolean()),
     lastAttemptAt: v.number(),
     leaseToken: v.string(),
     attestation: serverAttestationValidator,
@@ -234,6 +237,7 @@ export const saveDaySnapshot = mutation({
       checkedAt: args.checkedAt,
       changedAt: args.changedAt,
       imagesCheckedAt: args.imagesCheckedAt,
+      pendingImageEnrichment: args.pendingImageEnrichment ?? false,
       lastAttemptAt: args.lastAttemptAt,
       lastError: undefined,
       suspiciousStreak: 0,
@@ -256,6 +260,7 @@ export const insertDaySnapshotIfMissing = mutation({
     checkedAt: v.number(),
     changedAt: v.number(),
     imagesCheckedAt: v.number(),
+    pendingImageEnrichment: v.optional(v.boolean()),
     lastAttemptAt: v.number(),
     attestation: serverAttestationValidator,
   },
@@ -308,6 +313,8 @@ export const insertDaySnapshotIfMissing = mutation({
       checkedAt: args.checkedAt,
       changedAt: args.changedAt,
       imagesCheckedAt: args.imagesCheckedAt,
+      pendingImageEnrichment:
+        args.pendingImageEnrichment ?? args.imagesCheckedAt <= 0,
       lastAttemptAt: args.lastAttemptAt,
       lastError: undefined,
       suspiciousStreak: 0,
@@ -334,6 +341,7 @@ export const markDayCheckedUnchanged = mutation({
     schemaVersion: v.number(),
     checkedAt: v.number(),
     imagesCheckedAt: v.number(),
+    pendingImageEnrichment: v.optional(v.boolean()),
     lastAttemptAt: v.number(),
     leaseToken: v.string(),
     attestation: serverAttestationValidator,
@@ -362,6 +370,7 @@ export const markDayCheckedUnchanged = mutation({
       degraded: false,
       checkedAt: args.checkedAt,
       imagesCheckedAt: args.imagesCheckedAt,
+      pendingImageEnrichment: args.pendingImageEnrichment ?? false,
       lastAttemptAt: args.lastAttemptAt,
       lastError: undefined,
       suspiciousStreak: 0,
