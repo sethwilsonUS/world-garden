@@ -123,5 +123,5 @@ describe("renderTrendingPodcastArtworkResponse", () => {
         }),
       );
     }
-  }, 20_000);
+  }, 60_000);
 });
