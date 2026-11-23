@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { loadOgFonts } from "@/app/og-fonts";
+import { fetchArtworkImageDataUrl } from "@/lib/artwork-image";
 import { fetchWikiSummary, truncateText } from "@/lib/wiki-summary";
 
 export const alt = "Article preview";
@@ -128,7 +129,11 @@ export default async function OgImage({
     // Render with slug-derived title if Wikipedia is unreachable
   }
 
-  if (!thumbnailUrl) {
+  const thumbnailDataUrl = thumbnailUrl
+    ? await fetchArtworkImageDataUrl(thumbnailUrl)
+    : null;
+
+  if (!thumbnailDataUrl) {
     return new ImageResponse(<FallbackCard title={title} summary={summary} />, {
       ...size,
       fonts,
@@ -218,7 +223,7 @@ export default async function OgImage({
             }}
           >
             <img
-              src={thumbnailUrl}
+              src={thumbnailDataUrl}
               alt={title}
               style={{
                 width: "100%",

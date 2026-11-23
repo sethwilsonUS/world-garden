@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { createElement as h } from "react";
 import { loadOgFonts } from "@/app/og-fonts";
+import { fetchArtworkImageDataUrl } from "@/lib/artwork-image";
 
 const ARTWORK_SIZE = 3000;
 const PRIMARY = "#10261e";
@@ -15,27 +16,8 @@ export type ArticleAudioArtworkInput = {
   imageUrl?: string | null;
 };
 
-const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
-
 const truncate = (value: string, maxLength: number): string =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1).trimEnd()}…` : value;
-
-const fetchImageDataUrl = async (url: string): Promise<string | null> => {
-  try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
-
-    const contentType = response.headers.get("content-type")?.split(";")[0]?.trim();
-    if (!contentType?.startsWith("image/")) return null;
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length === 0) return null;
-
-    return `data:${contentType};base64,${toBase64(bytes)}`;
-  } catch {
-    return null;
-  }
-};
 
 const getInitials = (title: string): string =>
   title
@@ -51,7 +33,9 @@ export const renderArticleAudioArtworkResponse = async ({
   imageUrl,
 }: ArticleAudioArtworkInput): Promise<ImageResponse> => {
   const fonts = await loadOgFonts();
-  const imageDataUrl = imageUrl ? await fetchImageDataUrl(imageUrl) : null;
+  const imageDataUrl = imageUrl
+    ? await fetchArtworkImageDataUrl(imageUrl)
+    : null;
   const titleLabel = truncate(title.trim() || "Wikipedia article", 72);
   const summaryLabel = truncate((summary ?? "").trim(), 180);
 
