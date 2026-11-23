@@ -496,47 +496,47 @@ function getGalleryPlateSlots(
       return [
         {
           plateIndex: 3,
-          left: 638,
-          top: 20,
-          width: 210,
-          height: 168,
-          rotateDeg: 2.8,
+          left: 642,
+          top: 16,
+          width: 208,
+          height: 166,
+          rotateDeg: 2.6,
           pillCorner: "bottom-right",
         },
         {
           plateIndex: 1,
-          left: 858,
-          top: 24,
+          left: 860,
+          top: 22,
           width: 230,
           height: 192,
-          rotateDeg: 2.1,
+          rotateDeg: 2.0,
           pillCorner: "bottom-right",
         },
         {
           plateIndex: 4,
-          left: 616,
-          top: 334,
-          width: 218,
-          height: 184,
-          rotateDeg: 1.5,
+          left: 628,
+          top: 344,
+          width: 206,
+          height: 182,
+          rotateDeg: 1.4,
           pillCorner: "bottom-left",
         },
         {
           plateIndex: 2,
-          left: 846,
-          top: 240,
+          left: 848,
+          top: 238,
           width: 238,
-          height: 274,
+          height: 278,
           rotateDeg: -1.8,
           pillCorner: "bottom-right",
         },
         {
           plateIndex: 0,
-          left: 470,
-          top: 126,
-          width: 266,
-          height: 224,
-          rotateDeg: -2.5,
+          left: 468,
+          top: 116,
+          width: 268,
+          height: 228,
+          rotateDeg: -2.3,
           pillCorner: "bottom-left",
         },
       ];
@@ -549,6 +549,23 @@ function getGalleryHeadlineFontSize(headline: string): string {
   if (headline.length >= 9) return "72px";
   if (headline.length >= 7) return "78px";
   return "84px";
+}
+
+function formatGallerySubtitleLines(subtitle: string): readonly string[] {
+  const boundNumbers = subtitle.replace(/(\d[\d,]*)\s+([A-Za-z]+)/gu, "$1\u00A0$2");
+  const dotParts = boundNumbers
+    .split(/\s+·\s+/u)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (dotParts.length === 4) {
+    return [
+      `${dotParts[0]} · ${dotParts[1]}`,
+      `${dotParts[2]} · ${dotParts[3]}`,
+    ];
+  }
+
+  return [boundNumbers.replace(/\s+(\S+)\s*$/u, "\u00A0$1")];
 }
 
 function ArchivalPlate({
@@ -603,7 +620,7 @@ function ArchivalPlate({
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            objectPosition: plate.isPortrait ? "50% 20%" : "50% 50%",
+            objectPosition: plate.isPortrait ? "50% 14%" : "50% 16%",
           }}
         />
         {yearLabel ? (
@@ -621,7 +638,7 @@ function ArchivalPlate({
               border: `1.5px solid ${colors.goldSoft}`,
               color: colors.paper,
               fontFamily: "DM Sans, sans-serif",
-              fontSize: "17px",
+              fontSize: "18px",
               fontWeight: 700,
               lineHeight: 1.15,
               letterSpacing: "0.04em",
@@ -812,6 +829,7 @@ export async function renderOnThisDayOgImage({
 
   const slots = getGalleryPlateSlots(activePlates);
   const headlineFontSize = getGalleryHeadlineFontSize(headline);
+  const subtitleLines = formatGallerySubtitleLines(subtitle);
 
   return new ImageResponse(
     (
@@ -921,13 +939,18 @@ export async function renderOnThisDayOgImage({
               style={{
                 marginTop: "20px",
                 display: "flex",
-                maxWidth: "396px",
+                flexDirection: "column",
+                maxWidth: "408px",
                 fontSize: "21px",
-                lineHeight: 1.42,
+                lineHeight: 1.44,
                 color: colors.galleryMutedInk,
               }}
             >
-              {subtitle}
+              {subtitleLines.map((line) => (
+                <div key={line} style={{ display: "flex" }}>
+                  {line}
+                </div>
+              ))}
             </div>
           </div>
 

@@ -20,6 +20,7 @@
     "feedback": "node scripts/product-feedback-report.mjs",
     "audit:mediawiki": "tsx scripts/mediawiki-corpus-audit.ts",
     "on-this-day:backfill": "tsx scripts/on-this-day-backfill.ts",
+    "on-this-day:backfill-cards": "tsx scripts/on-this-day-backfill-cards.ts",
     "arch": "ts-archunit check",
     "arch:baseline": "ts-archunit baseline --output arch-baseline.json",
     "arch:explain": "ts-archunit explain --format agent",
