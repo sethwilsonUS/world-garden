@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import sitemap from "./sitemap";
+import sitemap, { dynamic } from "./sitemap";
 
 const { listOnThisDayRefreshStates } = vi.hoisted(() => ({
   listOnThisDayRefreshStates: vi.fn(),
@@ -21,6 +21,10 @@ afterEach(() => {
 });
 
 describe("sitemap", () => {
+  it("forces dynamic rendering because Convex fetchQuery uses cache: no-store", () => {
+    expect(dynamic).toBe("force-dynamic");
+  });
+
   it("lists canonical public pages plus all 366 On This Day calendar day URLs", async () => {
     process.env.NEXT_PUBLIC_SITE_URL = "https://curiogarden.org/";
     const marchFifthChangedAt = Date.UTC(2026, 2, 5, 10, 0, 0);
