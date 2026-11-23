@@ -18,6 +18,7 @@ type UseMediaSessionOptions = {
   onSeekBackward: () => void;
   onSeekTo: (time: number) => void;
   onStop: () => void;
+  onPreviousTrack?: () => void;
   onNextTrack?: () => void;
 };
 
@@ -37,6 +38,7 @@ export const useMediaSession = ({
   onSeekBackward,
   onSeekTo,
   onStop,
+  onPreviousTrack,
   onNextTrack,
 }: UseMediaSessionOptions) => {
   const onPlayRef = useRef(onPlay);
@@ -45,6 +47,7 @@ export const useMediaSession = ({
   const onSeekBackwardRef = useRef(onSeekBackward);
   const onSeekToRef = useRef(onSeekTo);
   const onStopRef = useRef(onStop);
+  const onPreviousTrackRef = useRef(onPreviousTrack);
   const onNextTrackRef = useRef(onNextTrack);
 
   useEffect(() => {
@@ -54,6 +57,7 @@ export const useMediaSession = ({
     onSeekBackwardRef.current = onSeekBackward;
     onSeekToRef.current = onSeekTo;
     onStopRef.current = onStop;
+    onPreviousTrackRef.current = onPreviousTrack;
     onNextTrackRef.current = onNextTrack;
   });
 
@@ -71,6 +75,10 @@ export const useMediaSession = ({
     [],
   );
   const stableStop = useCallback(() => onStopRef.current(), []);
+  const stablePreviousTrack = useCallback(
+    () => onPreviousTrackRef.current?.(),
+    [],
+  );
   const stableNextTrack = useCallback(() => onNextTrackRef.current?.(), []);
 
   useEffect(() => {
@@ -102,6 +110,24 @@ export const useMediaSession = ({
     stableSeekTo,
     stableStop,
   ]);
+
+  // Lock screens, headphones, and car controls step between sections.
+  useEffect(() => {
+    if (!enabled || !("mediaSession" in navigator)) return;
+
+    if (onPreviousTrack) {
+      navigator.mediaSession.setActionHandler(
+        "previoustrack",
+        stablePreviousTrack,
+      );
+    } else {
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+    }
+
+    return () => {
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+    };
+  }, [enabled, onPreviousTrack, stablePreviousTrack]);
 
   useEffect(() => {
     if (!enabled || !("mediaSession" in navigator)) return;

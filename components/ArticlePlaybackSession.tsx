@@ -143,7 +143,9 @@ function PlaybackSession({
           playbackRate={state.playbackRate}
           onTogglePlayback={actions.togglePlayback}
           onSkipBy={actions.skipBy}
-          onSkipSection={actions.skipSection}
+          navigation={state.navigation}
+          onPreviousSection={actions.previousSection}
+          onNextSection={actions.nextSection}
           onStop={actions.stopPlayAll}
           onSeek={actions.seek}
           onPlaybackRateChange={actions.changePlaybackRate}

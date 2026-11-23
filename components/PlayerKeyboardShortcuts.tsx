@@ -8,6 +8,7 @@ export const SKIP_SECONDS = 10;
 type PlayerShortcutActions = {
   onTogglePlayback?: () => void;
   onSkipBy?: (seconds: number) => void;
+  onPreviousSection?: () => void;
   onNextSection?: () => void;
 };
 
@@ -33,10 +34,22 @@ function readShortcutsEnabled() {
 
 function shortcutAction(
   event: KeyboardEvent,
-  { onTogglePlayback, onSkipBy, onNextSection }: PlayerShortcutActions,
+  {
+    onTogglePlayback,
+    onSkipBy,
+    onPreviousSection,
+    onNextSection,
+  }: PlayerShortcutActions,
 ) {
   if (event.shiftKey) {
-    return event.key.toLowerCase() === "n" ? onNextSection : undefined;
+    switch (event.key.toLowerCase()) {
+      case "n":
+        return onNextSection;
+      case "p":
+        return onPreviousSection;
+      default:
+        return undefined;
+    }
   }
   switch (event.key) {
     case " ":
@@ -87,7 +100,8 @@ export function PlayerKeyboardShortcuts({
     }
 
     event.preventDefault();
-    // Holding Space or Shift+N must not toggle repeatedly or skip a whole queue.
+    // Holding Space, Shift+N, or Shift+P must not toggle repeatedly or skip
+    // through a whole article.
     if (!event.repeat || event.key.startsWith("Arrow")) action();
   });
 
@@ -127,7 +141,10 @@ export function PlayerKeyboardShortcuts({
           forward {SKIP_SECONDS} seconds.
         </li>
         <li>
-          <kbd>Shift</kbd> + <kbd>N</kbd> for the next section during Play all.
+          <kbd>Shift</kbd> + <kbd>N</kbd> for the next section.
+        </li>
+        <li>
+          <kbd>Shift</kbd> + <kbd>P</kbd> for the previous section.
         </li>
       </ul>
       <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 rounded-lg px-2 font-semibold">

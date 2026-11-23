@@ -22,6 +22,10 @@ import {
 import { formatTime } from "@/lib/formatTime";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import {
+  formatTimeLeft,
+  type SectionPosition,
+} from "@/lib/article-section-navigation";
+import {
   PauseIcon,
   PlayIcon,
   SpeedButton,
@@ -41,6 +45,18 @@ const readMinimized = (): boolean => {
   }
 };
 
+type SectionTarget = { sectionKey: string; title: string };
+
+export type NowPlayingNavigation = {
+  position: SectionPosition | null;
+  previous: SectionTarget | null;
+  next: SectionTarget | null;
+  canGoToPrevious: boolean;
+  canGoToNext: boolean;
+  /** Wall-clock seconds left in Play all; null outside Play all. */
+  playAllSecondsRemaining: number | null;
+};
+
 type NowPlayingBarProps = {
   returnFocusRef?: RefObject<HTMLButtonElement | null>;
   error?: string | null;
@@ -54,7 +70,9 @@ type NowPlayingBarProps = {
   playbackRate: number;
   onTogglePlayback: () => void;
   onSkipBy: (seconds: number) => void;
-  onSkipSection?: () => void;
+  navigation?: NowPlayingNavigation;
+  onPreviousSection?: () => void;
+  onNextSection?: () => void;
   onStop: () => void;
   onSeek: (time: number) => void;
   onPlaybackRateChange: (rate: PlaybackRate) => void;
@@ -73,6 +91,10 @@ const controlBaseClass =
   "inline-flex min-h-11 min-w-11 max-w-full shrink-0 cursor-pointer items-center justify-center gap-[6px] rounded-xl border px-[10px] py-[6px] text-sm font-semibold leading-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-2";
 
 const controlClass = `${controlBaseClass} border-border bg-surface text-foreground hover:bg-surface-3`;
+
+// aria-disabled keeps focus on the button when the listener reaches the first
+// or last section, instead of dropping it to the page.
+const sectionStepClass = `${controlClass} aria-disabled:cursor-not-allowed aria-disabled:text-muted aria-disabled:hover:bg-surface`;
 
 const SkipSecondsIcon = ({ direction }: { direction: "back" | "forward" }) => (
   <svg
@@ -94,7 +116,7 @@ const SkipSecondsIcon = ({ direction }: { direction: "back" | "forward" }) => (
   </svg>
 );
 
-const NextSectionIcon = () => (
+const SectionStepIcon = ({ direction }: { direction: "previous" | "next" }) => (
   <svg
     viewBox="0 0 24 24"
     fill="currentColor"
@@ -103,6 +125,7 @@ const NextSectionIcon = () => (
     aria-hidden="true"
     focusable="false"
     className="shrink-0"
+    style={direction === "previous" ? { transform: "scaleX(-1)" } : undefined}
   >
     <polygon points="4,4 16,12 4,20" />
     <rect x="17" y="4" width="3" height="16" rx="0.5" />
@@ -165,7 +188,9 @@ export const NowPlayingBar = ({
   playbackRate,
   onTogglePlayback,
   onSkipBy,
-  onSkipSection,
+  navigation,
+  onPreviousSection,
+  onNextSection,
   onStop,
   onSeek,
   onPlaybackRateChange,
@@ -184,6 +209,11 @@ export const NowPlayingBar = ({
   const controlsId = useId();
   const [minimized, setMinimized] = useState(readMinimized);
   const [rateAnnouncement, setRateAnnouncement] = useState("");
+  // The section the listener asked for from this player, so it is announced
+  // once it starts. Section buttons on the article confirm themselves.
+  const [requestedSectionKey, setRequestedSectionKey] = useState<
+    string | null
+  >(null);
   const visible = isNowPlayingVisible(playback) || Boolean(error);
 
   useLayoutEffect(() => {
@@ -229,13 +259,21 @@ export const NowPlayingBar = ({
     };
   }, [visible]);
 
-  // Play all advances on its own, so announce each new section once. Single
-  // sections are started by the user and already confirmed by their button.
+  // Play all advances on its own, and Previous or Next section changes what
+  // plays without moving focus, so announce each new section once. Sections
+  // started from the article's own buttons are confirmed by those buttons.
+  const position = navigation?.position ?? null;
+  const shouldAnnounceSection =
+    playback.mode === "play_all" ||
+    (requestedSectionKey !== null &&
+      playback.sectionKey === requestedSectionKey);
   const sectionAnnouncement =
-    playback.mode === "play_all" &&
+    shouldAnnounceSection &&
     (playback.status === "playing" || playback.status === "paused") &&
     sectionTitle
-      ? `Now playing: ${sectionTitle}`
+      ? `Now playing: ${sectionTitle}${
+          position ? `, section ${position.current} of ${position.total}` : ""
+        }`
       : "";
 
   const liveRegions = (
@@ -253,7 +291,6 @@ export const NowPlayingBar = ({
 
   const isLoading = playback.status === "loading";
   const isPaused = playback.status === "paused";
-  const isPlayingAll = playback.mode === "play_all";
   const displayTitle = sectionTitle ?? articleTitle;
   const controlLabel = error
     ? "Retry"
@@ -288,6 +325,31 @@ export const NowPlayingBar = ({
     onPlaybackRateChange(next);
     setRateAnnouncement(`Playback speed ${formatRate(next)}`);
   };
+
+  const canGoToPrevious = Boolean(
+    onPreviousSection && navigation?.canGoToPrevious,
+  );
+  const canGoToNext = Boolean(onNextSection && navigation?.canGoToNext);
+  const goToPreviousSection = () => {
+    if (!canGoToPrevious) return;
+    setRequestedSectionKey(navigation?.previous?.sectionKey ?? null);
+    onPreviousSection?.();
+  };
+  const goToNextSection = () => {
+    if (!canGoToNext) return;
+    setRequestedSectionKey(navigation?.next?.sectionKey ?? null);
+    onNextSection?.();
+  };
+  const previousLabel = navigation?.previous
+    ? `Previous section: ${navigation.previous.title}`
+    : "Previous section";
+  const nextLabel = navigation?.next
+    ? `Next section: ${navigation.next.title}`
+    : "Next section";
+  const timeLeft =
+    navigation?.playAllSecondsRemaining != null
+      ? formatTimeLeft(navigation.playAllSecondsRemaining)
+      : null;
 
   const toggleMinimized = () => {
     const next = !minimized;
@@ -380,6 +442,17 @@ export const NowPlayingBar = ({
               aria-label="Playback controls"
               className="flex flex-wrap items-center gap-[6px]"
             >
+              {onPreviousSection ? (
+                <button
+                  type="button"
+                  onClick={goToPreviousSection}
+                  aria-disabled={!canGoToPrevious || undefined}
+                  aria-label={previousLabel}
+                  className={sectionStepClass}
+                >
+                  <SectionStepIcon direction="previous" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => onSkipBy(-SKIP_SECONDS)}
@@ -404,14 +477,15 @@ export const NowPlayingBar = ({
                 </span>
                 <SkipSecondsIcon direction="forward" />
               </button>
-              {isPlayingAll && onSkipSection ? (
+              {onNextSection ? (
                 <button
                   type="button"
-                  onClick={onSkipSection}
-                  aria-label="Next section"
-                  className={controlClass}
+                  onClick={goToNextSection}
+                  aria-disabled={!canGoToNext || undefined}
+                  aria-label={nextLabel}
+                  className={sectionStepClass}
                 >
-                  <NextSectionIcon />
+                  <SectionStepIcon direction="next" />
                 </button>
               ) : null}
               <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
@@ -462,12 +536,28 @@ export const NowPlayingBar = ({
                 {duration > 0 ? formatTime(duration) : "--:--"}
               </span>
             </div>
+            {position ? (
+              <p
+                className="m-0 text-xs leading-snug text-foreground-2"
+                data-now-playing-progress=""
+              >
+                Section {position.current} of {position.total}
+                {timeLeft ? (
+                  <>
+                    <span aria-hidden="true"> · </span>
+                    <span className="sr-only">, </span>
+                    {timeLeft}
+                  </>
+                ) : null}
+              </p>
+            ) : null}
           </div>
           <PlayerKeyboardShortcuts
             scopeRef={isPlayingArticlePage ? undefined : barRef}
             onTogglePlayback={error || isLoading ? undefined : onTogglePlayback}
             onSkipBy={canSeek ? onSkipBy : undefined}
-            onNextSection={isPlayingAll ? onSkipSection : undefined}
+            onPreviousSection={canGoToPrevious ? goToPreviousSection : undefined}
+            onNextSection={canGoToNext ? goToNextSection : undefined}
           />
         </div>
       </section>
