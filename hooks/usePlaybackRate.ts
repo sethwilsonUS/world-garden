@@ -88,7 +88,7 @@ function cycleRate() {
 }
 
 const getSnapshot = () => currentRate;
-const getServerSnapshot = () => DEFAULT_RATE;
+const getServerSnapshot = (): PlaybackRate => DEFAULT_RATE;
 
 export const usePlaybackRate = () => {
   const rate = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
