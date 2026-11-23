@@ -114,7 +114,7 @@ it("distinguishes the RSS publication day from the Wikimedia pageview day", () =
   expect(getTrendingEpisodeDateLabel({
     updatedAt: Date.UTC(2026, 10, 22, 4, 48),
     trendingDate: "2026-11-20",
-  })).toBe("Published November 22, 2026 · Pageviews for November 20, 2026");
+  })).toBe("Published November 22, 2026 (UTC) · Pageviews for November 20, 2026");
 });
 
 describe("episode artwork urls", () => {

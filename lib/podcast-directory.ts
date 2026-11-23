@@ -99,7 +99,7 @@ export const getTrendingEpisodeDateLabel = (
 ): string => {
   // RSS uses the ready record's updatedAt for pubDate.
   const publishedDate = new Date(episode.updatedAt).toISOString().slice(0, 10);
-  return `Published ${formatTrendingDate(publishedDate)} · Pageviews for ${formatTrendingDate(episode.trendingDate)}`;
+  return `Published ${formatTrendingDate(publishedDate)} (UTC) · Pageviews for ${formatTrendingDate(episode.trendingDate)}`;
 };
 
 export const getTrendingEpisodeSummary = (episode: TrendingPodcastEpisode): string =>
