@@ -673,6 +673,28 @@ export default defineSchema({
     .index("by_monthDay", ["monthDay"])
     .index("by_checkedAt", ["checkedAt"]),
 
+  onThisDayShareCards: defineTable({
+    monthDay: v.string(),
+    version: v.number(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    width: v.number(),
+    height: v.number(),
+    byteSize: v.number(),
+    generatedAt: v.number(),
+    snapshotCheckedAt: v.optional(v.number()),
+    plates: v.array(
+      v.object({
+        year: v.optional(v.number()),
+        articleTitle: v.string(),
+        imageUrl: v.string(),
+        licenseName: v.optional(v.string()),
+        creator: v.optional(v.string()),
+        sourceUrl: v.optional(v.string()),
+      }),
+    ),
+  }).index("by_monthDay", ["monthDay"]),
+
   didYouKnowAudio: defineTable({
     feedDate: v.string(),
     status: didYouKnowAudioStatus,

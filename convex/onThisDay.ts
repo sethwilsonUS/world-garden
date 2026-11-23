@@ -9,6 +9,15 @@ const serverAttestationValidator = v.object({
   signature: v.string(),
 });
 
+const shareCardPlateValidator = v.object({
+  year: v.optional(v.number()),
+  articleTitle: v.string(),
+  imageUrl: v.string(),
+  licenseName: v.optional(v.string()),
+  creator: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+});
+
 const serializeRefreshState = (row: {
   monthDay: string;
   schemaVersion: number;
@@ -437,6 +446,130 @@ export const recordRefreshFailure = mutation({
       superseded: false as const,
       id: existingState._id,
       suspiciousStreak: nextStreak,
+    };
+  },
+});
+
+export const getShareCardByMonthDay = query({
+  args: { monthDay: v.string() },
+  async handler(ctx, args) {
+    const row = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay", (q) => q.eq("monthDay", args.monthDay))
+      .first();
+
+    if (!row) return null;
+
+    const imageUrl = await ctx.storage.getUrl(row.storageId);
+    return {
+      monthDay: row.monthDay,
+      version: row.version,
+      storageId: row.storageId,
+      mimeType: row.mimeType,
+      width: row.width,
+      height: row.height,
+      byteSize: row.byteSize,
+      generatedAt: row.generatedAt,
+      snapshotCheckedAt: row.snapshotCheckedAt,
+      plates: row.plates,
+      imageUrl,
+    };
+  },
+});
+
+export const listShareCardStatuses = query({
+  args: {},
+  async handler(ctx) {
+    const rows = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay")
+      .collect();
+
+    return rows.map((row) => ({
+      monthDay: row.monthDay,
+      version: row.version,
+      generatedAt: row.generatedAt,
+      byteSize: row.byteSize,
+      plateCount: row.plates.length,
+    }));
+  },
+});
+
+export const generateShareCardUploadUrl = mutation({
+  args: { attestation: serverAttestationValidator },
+  async handler(ctx, { attestation }) {
+    await assertPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "generate-upload-url",
+      args: {},
+      attestation,
+    });
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const saveShareCard = mutation({
+  args: {
+    monthDay: v.string(),
+    version: v.number(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    width: v.number(),
+    height: v.number(),
+    byteSize: v.number(),
+    generatedAt: v.number(),
+    snapshotCheckedAt: v.optional(v.number()),
+    plates: v.array(shareCardPlateValidator),
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "save-show-asset",
+      args: writeArgs,
+      attestation,
+    });
+
+    const existing = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay", (q) => q.eq("monthDay", args.monthDay))
+      .first();
+
+    const record = {
+      monthDay: args.monthDay,
+      version: args.version,
+      storageId: args.storageId,
+      mimeType: args.mimeType,
+      width: args.width,
+      height: args.height,
+      byteSize: args.byteSize,
+      generatedAt: args.generatedAt,
+      snapshotCheckedAt: args.snapshotCheckedAt,
+      plates: args.plates,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, record);
+      if (existing.storageId !== args.storageId) {
+        try {
+          await ctx.storage.delete(existing.storageId);
+        } catch (error) {
+          console.warn(
+            `[on-this-day] Failed to delete superseded share card blob ${existing.storageId} for ${args.monthDay}`,
+            error,
+          );
+        }
+      }
+    } else {
+      await ctx.db.insert("onThisDayShareCards", record);
+    }
+
+    return {
+      monthDay: args.monthDay,
+      version: args.version,
+      storageId: args.storageId,
+      replaced: Boolean(existing),
     };
   },
 });
