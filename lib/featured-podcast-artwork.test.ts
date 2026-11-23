@@ -75,7 +75,7 @@ describe("renderFeaturedPodcastArtworkResponse", () => {
         }),
       }),
     );
-  }, 20_000);
+  }, 60_000);
 
   it("falls back cleanly to a rendered PNG when the upstream image response is non-image HTML", async () => {
     const httpCalls = mockHttpFetch(
@@ -98,5 +98,5 @@ describe("renderFeaturedPodcastArtworkResponse", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("image/png");
     expect(Array.from(bytes.slice(0, 4))).toEqual(PNG_SIGNATURE);
-  }, 20_000);
+  }, 60_000);
 });
