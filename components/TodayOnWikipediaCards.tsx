@@ -132,68 +132,124 @@ const formatViews = (views: number): string => {
 const formatOnThisDayYear = (year: number): string =>
   year < 0 ? `${Math.abs(year)} BCE` : String(year);
 
-const ArticleLinkList = ({ links }: { links: FeedArticleLink[] }) => {
-  if (links.length === 0) return null;
+const cardClass =
+  "flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface-2";
+
+const cardLabelClass = "m-0 text-[0.8125rem] font-semibold text-muted";
+
+const inlineLinkClass =
+  "text-accent underline decoration-accent/50 underline-offset-[0.16em] hover:text-accent-hover";
+
+const seeAllLinkClass =
+  "mt-2 inline-flex min-h-11 items-center gap-1.5 pt-2 text-[0.9375rem] font-semibold text-accent no-underline hover:text-accent-hover";
+
+const ArrowIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    width={14}
+    height={14}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M5 12h14" />
+    <path d="M12 5l7 7-7 7" />
+  </svg>
+);
+
+/**
+ * Fixed-ratio card image. AdaptiveImageFrame keeps its focal-point cropping
+ * and transparency handling; the fixed ratio prevents the tall letterboxed
+ * frames the old two-column layout produced.
+ */
+const CardImage = ({
+  image,
+  alt = "",
+  sizes,
+  priority = false,
+}: {
+  image: FeedImage;
+  alt?: string;
+  sizes: string;
+  priority?: boolean;
+}) => (
+  <AdaptiveImageFrame
+    src={image.source}
+    alt={alt}
+    width={image.width}
+    height={image.height}
+    sizes={sizes}
+    fallbackFrameAspectRatio={16 / 9}
+    className="block aspect-[16/9] w-full"
+    priority={priority}
+    unoptimized
+  />
+);
+
+/**
+ * CC BY-SA attribution kept intact but tucked behind a small disclosure on
+ * summary surfaces, so credits don't dominate the reading flow.
+ */
+export const ImageCreditDisclosure = ({
+  attribution,
+  className = "",
+}: {
+  attribution?: WikimediaMediaAttribution;
+  className?: string;
+}) => {
+  if (!attribution?.sourceUrl) return null;
 
   return (
-    <ul className="m-0 mt-3 flex list-none flex-wrap gap-2 p-0" role="list">
-      {links.slice(0, MAX_ARTICLE_LINKS_PER_ITEM).map((link) => (
-        <li key={`${link.wikiPageId ?? link.slug}-${link.title}`}>
+    <details className={`group text-xs text-muted ${className}`}>
+      <summary className="inline-flex min-h-6 cursor-pointer items-center gap-1 rounded font-medium text-muted hover:text-foreground">
+        <svg
+          viewBox="0 0 20 20"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          width={12}
+          height={12}
+          aria-hidden="true"
+          focusable="false"
+          className="shrink-0 transition-transform duration-150 group-open:rotate-90"
+        >
+          <path d="m7 4 6 6-6 6" />
+        </svg>
+        Image credit
+      </summary>
+      <div className="mt-1">
+        <MediaAttribution attribution={attribution} compact />
+      </div>
+    </details>
+  );
+};
+
+const ReadLinks = ({ links }: { links: FeedArticleLink[] }) => {
+  const visible = links.slice(0, MAX_ARTICLE_LINKS_PER_ITEM);
+  if (visible.length === 0) return null;
+
+  return (
+    <span className="mt-1 block text-sm text-muted">
+      Listen:{" "}
+      {visible.map((link, index) => (
+        <span key={`${link.wikiPageId ?? link.slug}-${link.title}`}>
+          {index > 0 ? ", " : null}
           <ArticleLink
             articleTitle={link.title}
             href={toArticleHref(link.slug)}
-            className="inline-flex min-h-[44px] max-w-full flex-wrap items-center break-words rounded-full border border-accent-border bg-accent-bg px-[12px] py-[4px] text-xs font-medium leading-snug text-accent no-underline [overflow-wrap:anywhere]"
+            className={inlineLinkClass}
           >
             {link.title}
           </ArticleLink>
-        </li>
+        </span>
       ))}
-    </ul>
-  );
-};
-
-const getFirstLinkedImage = (links: FeedArticleLink[]) =>
-  links.find((link) => link.thumbnail);
-
-const LinkedItemThumbnail = ({ link }: { link: FeedArticleLink }) => {
-  if (!link.thumbnail) return null;
-
-  return (
-    <AdaptiveImageFrame
-      src={link.thumbnail.source}
-      alt=""
-      width={link.thumbnail.width}
-      height={link.thumbnail.height}
-      sizes="96px"
-      fallbackFrameAspectRatio={1}
-      className="mt-1 h-20 w-24 shrink-0 rounded-md sm:h-24"
-      unoptimized
-    />
-  );
-};
-
-const FeedItemMedia = ({
-  links,
-  children,
-}: {
-  links: FeedArticleLink[];
-  children: ReactNode;
-}) => {
-  const imageLink = getFirstLinkedImage(links);
-  const image = imageLink?.thumbnail;
-
-  return (
-    <div className={image ? "flex gap-3" : undefined}>
-      {imageLink && image ? <LinkedItemThumbnail link={imageLink} /> : null}
-      <div className="min-w-0">
-        {children}
-        {image?.attribution ? (
-          <div className="mt-2">
-            <MediaAttribution attribution={image.attribution} compact />
-          </div>
-        ) : null}
-      </div>
-    </div>
+    </span>
   );
 };
 
@@ -212,56 +268,35 @@ export const FeaturedArticleCard = ({
     formatUtcCalendarDate(article.feedDate ?? feedDate);
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-border bg-surface-2 transition-all duration-200">
-      <div
-        className={
-          article.thumbnail
-            ? "grid gap-0 sm:grid-cols-[minmax(180px,40%)_minmax(0,1fr)]"
-            : ""
-        }
-      >
-        {article.thumbnail && (
-          <AdaptiveImageFrame
-            src={article.thumbnail.source}
-            alt=""
-            width={article.thumbnail.width}
-            height={article.thumbnail.height}
-            sizes="(min-width: 1024px) 224px, (min-width: 640px) 40vw, 100vw"
-            className="aspect-[16/9] sm:aspect-auto sm:min-h-[148px]"
-            priority
-            unoptimized
-          />
-        )}
-        <div className="min-w-0 px-5 py-4">
-          <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Featured article
-          </p>
-          <h3 className="mt-2 font-display text-[1.05rem] font-bold leading-[1.3]">
-            <ArticleLink
-              articleTitle={article.title}
-              href={toArticleHref(slug)}
-              className="result-link text-foreground no-underline"
-            >
-              {article.title}
-            </ArticleLink>
-          </h3>
-          <p className="mt-2 break-words text-sm leading-[1.65] text-foreground-2 [overflow-wrap:anywhere]">
-            {article.extract}
-          </p>
-          {dateLabel && (
-            <p className="mt-3 text-xs text-muted" aria-live="polite">
-              Last updated: {dateLabel}
-            </p>
-          )}
-          {article.thumbnail?.attribution ? (
-            <div className="mt-2">
-              <MediaAttribution
-                attribution={article.thumbnail.attribution}
-                compact
-              />
-            </div>
-          ) : null}
-        </div>
+    <article className={cardClass} data-today-pick="featured">
+      {article.thumbnail ? (
+        <CardImage
+          image={article.thumbnail}
+          sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+          priority
+        />
+      ) : null}
+      <div className="flex min-w-0 flex-1 flex-col px-5 py-4">
+        <p className={cardLabelClass}>Featured article</p>
+        <h3 className="mt-1 font-display text-xl font-semibold leading-[1.25]">
+          <ArticleLink
+            articleTitle={article.title}
+            href={toArticleHref(slug)}
+            className="text-foreground underline decoration-transparent underline-offset-4 transition-colors hover:decoration-accent"
+          >
+            {article.title}
+          </ArticleLink>
+        </h3>
+        <p className="mt-2 line-clamp-4 break-words text-[0.9375rem] leading-[1.6] text-foreground-2 [overflow-wrap:anywhere]">
+          {article.extract}
+        </p>
+        {dateLabel ? (
+          <p className="mt-3 text-xs text-muted">Last updated: {dateLabel}</p>
+        ) : null}
+        <ImageCreditDisclosure
+          attribution={article.thumbnail?.attribution}
+          className="mt-2"
+        />
       </div>
     </article>
   );
@@ -290,29 +325,43 @@ const PreviewToggle = ({
       onClick={onToggle}
       aria-expanded={expanded}
       aria-controls={controls}
-      className="linked-article-link mt-4 min-h-11 rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-semibold text-foreground-2"
+      className="mt-2 inline-flex min-h-11 cursor-pointer items-center self-start border-0 bg-transparent pt-2 text-[0.9375rem] font-semibold text-accent hover:text-accent-hover"
     >
       {expanded ? `Show fewer ${label}` : `Show all ${total} ${label}`}
     </button>
   );
 };
 
+const FeedColumn = ({
+  id,
+  title,
+  children,
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) => (
+  <section
+    aria-labelledby={id}
+    className="flex min-w-0 flex-col rounded-2xl border border-border bg-surface-2 px-5 py-4"
+  >
+    <h3
+      id={id}
+      tabIndex={-1}
+      className="font-display text-lg font-semibold text-foreground"
+    >
+      {title}
+    </h3>
+    {children}
+  </section>
+);
+
 export const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
   const [expanded, setExpanded] = useState(false);
   const visibleNews = expanded ? news : news.slice(0, MAX_NEWS_ITEMS);
 
   return (
-    <section
-      aria-labelledby="today-news-heading"
-      className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
-    >
-      <h3
-        id="today-news-heading"
-        className="font-display text-base font-semibold text-foreground"
-      >
-        In the News
-      </h3>
-
+    <FeedColumn id="today-news-heading" title="In the news">
       {news.length > 0 ? (
         <>
           <ul
@@ -321,13 +370,12 @@ export const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
             role="list"
           >
             {visibleNews.map((item, index) => (
-              <li key={`${index}-${item.story}`}>
-                <FeedItemMedia links={item.links}>
-                  <p className="text-sm leading-[1.7] text-foreground-2">
-                    {item.story}
-                  </p>
-                  <ArticleLinkList links={item.links} />
-                </FeedItemMedia>
+              <li
+                key={`${index}-${item.story}`}
+                className="text-[0.9375rem] leading-[1.6] text-foreground-2"
+              >
+                {item.story}
+                <ReadLinks links={item.links} />
               </li>
             ))}
           </ul>
@@ -345,7 +393,7 @@ export const NewsCard = ({ news }: { news: InTheNewsItem[] }) => {
           No news items are available right now.
         </p>
       )}
-    </section>
+    </FeedColumn>
   );
 };
 
@@ -354,45 +402,30 @@ export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
   const visibleItems = items.slice(0, MAX_ON_THIS_DAY_ITEMS);
 
   return (
-    <section
-      aria-labelledby="today-on-this-day-heading"
-      className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
-    >
-      <h3
-        id="today-on-this-day-heading"
-        className="text-xs font-semibold uppercase tracking-[0.16em] text-muted"
-      >
-        On This Day
-      </h3>
-      <ol className="m-0 mt-2 list-none divide-y divide-border p-0">
+    <FeedColumn id="today-on-this-day-heading" title="On this day">
+      <ol className="m-0 mt-3 list-none space-y-4 p-0">
         {visibleItems.map((item, index) => (
           <li
             key={`${item.year ?? "annual"}-${item.text}-${index}`}
-            className="py-3 first:pt-0 last:pb-0"
+            className="text-[0.9375rem] leading-[1.6] text-foreground-2"
           >
-            <FeedItemMedia links={item.pages}>
-              <p className="text-sm leading-[1.7] text-foreground-2">
-                {item.year != null ? (
-                  <span className="font-semibold text-foreground">
-                    {formatOnThisDayYear(item.year)}:{" "}
-                  </span>
-                ) : null}
-                {item.text}
-              </p>
-              <ArticleLinkList links={item.pages} />
-            </FeedItemMedia>
+            {item.year != null ? (
+              <span className="font-semibold text-foreground">
+                {formatOnThisDayYear(item.year)}:{" "}
+              </span>
+            ) : null}
+            {item.text}
+            <ReadLinks links={item.pages} />
           </li>
         ))}
       </ol>
-      <Link
-        href="/on-this-day"
-        className="linked-article-link mt-4 inline-flex min-h-11 items-center rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground-2 no-underline"
-      >
+      <Link href="/on-this-day" className={seeAllLinkClass}>
         {items.length > MAX_ON_THIS_DAY_ITEMS
           ? `Explore all ${items.length} highlights`
           : "Explore On This Day"}
+        <ArrowIcon />
       </Link>
-    </section>
+    </FeedColumn>
   );
 };
 
@@ -410,7 +443,7 @@ export const SnapshotCallout = ({
 
   return (
     <p
-      className="mx-auto mt-3 max-w-2xl rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-center text-xs leading-[1.6] text-foreground-2"
+      className="mt-3 rounded-xl border border-accent-border bg-accent-bg px-4 py-2 text-sm leading-[1.6] text-foreground-2"
       role="status"
     >
       Showing the latest cached edition from {dateLabel}. Today&apos;s update is
@@ -425,7 +458,7 @@ const DidYouKnowSegmentText = ({ segment }: { segment: DidYouKnowSegment }) => {
       <ArticleLink
         articleTitle={segment.title}
         href={toArticleHref(segment.slug)}
-        className="text-accent underline decoration-accent/50 underline-offset-[0.16em]"
+        className={inlineLinkClass}
       >
         {segment.text}
       </ArticleLink>
@@ -442,46 +475,39 @@ export const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => {
     : items.slice(0, MAX_DID_YOU_KNOW_ITEMS);
 
   return (
-    <section
-      aria-labelledby="today-dyk-heading"
-      className="rounded-2xl border border-border bg-surface-2 px-5 py-4"
-    >
-      <h3
-        id="today-dyk-heading"
-        className="font-display text-base font-semibold text-foreground"
-      >
-        Did You Know?
-      </h3>
-
+    <FeedColumn id="today-dyk-heading" title="Did you know?">
       {items.length > 0 ? (
         <>
-          <ol
+          <ul
             id="today-dyk-list"
             className="m-0 mt-3 list-none space-y-4 p-0"
             role="list"
           >
-            {visibleItems.map((item, index) => (
-              <li key={`${index}-${item.text}`}>
-                <FeedItemMedia links={item.links}>
-                  <p className="text-sm leading-[1.8] text-foreground-2">
-                    <span className="mr-2 font-semibold text-accent">
-                      {index + 1}.
-                    </span>
-                    {(item.segments.length > 0
-                      ? item.segments
-                      : [{ type: "text" as const, text: item.text }]
-                    ).map((segment, segmentIndex) => (
-                      <DidYouKnowSegmentText
-                        key={`${index}-${segmentIndex}`}
-                        segment={segment}
-                      />
-                    ))}
-                  </p>
-                  <ArticleLinkList links={item.links} />
-                </FeedItemMedia>
-              </li>
-            ))}
-          </ol>
+            {visibleItems.map((item, index) => {
+              const hasInlineLinks = item.segments.some(
+                (segment) => segment.type === "link",
+              );
+              return (
+                <li
+                  key={`${index}-${item.text}`}
+                  className="text-[0.9375rem] leading-[1.6] text-foreground-2"
+                >
+                  {(item.segments.length > 0
+                    ? item.segments
+                    : [{ type: "text" as const, text: item.text }]
+                  ).map((segment, segmentIndex) => (
+                    <DidYouKnowSegmentText
+                      key={`${index}-${segmentIndex}`}
+                      segment={segment}
+                    />
+                  ))}
+                  {/* Only offer separate links when the sentence has none,
+                      so keyboard users don't tab through duplicates. */}
+                  {hasInlineLinks ? null : <ReadLinks links={item.links} />}
+                </li>
+              );
+            })}
+          </ul>
           <PreviewToggle
             expanded={expanded}
             onToggle={() => setExpanded((current) => !current)}
@@ -496,161 +522,145 @@ export const DidYouKnowCard = ({ items }: { items: DidYouKnowItem[] }) => {
           No Did You Know items are available right now.
         </p>
       )}
-    </section>
+    </FeedColumn>
   );
 };
+
+export const TrendingBriefCard = ({ brief }: { brief: TrendingBrief }) => (
+  <section
+    aria-labelledby="today-brief-heading"
+    className={`${cardClass} px-5 py-4`}
+    data-today-pick="brief"
+  >
+    <p className={cardLabelClass}>Daily audio brief</p>
+    <h3
+      id="today-brief-heading"
+      className="mt-1 font-display text-xl font-semibold leading-[1.25] text-foreground"
+    >
+      Why these topics are trending
+    </h3>
+    <p className="mt-2 text-[0.9375rem] leading-[1.6] text-foreground-2">
+      A few minutes on what people are reading about on Wikipedia, and why.
+    </p>
+    <div className="mt-4">
+      <DailyTrendingBriefPlayer
+        audioUrl={brief.audioUrl}
+        title={brief.headline || "Why these topics are trending today"}
+        durationSeconds={brief.durationSeconds}
+      />
+    </div>
+  </section>
+);
+
+/** Evergreen third pick when today's audio brief isn't ready yet. */
+export const PodcastsPromoCard = () => (
+  <section
+    aria-labelledby="today-podcasts-heading"
+    className={`${cardClass} px-5 py-4`}
+    data-today-pick="podcasts"
+  >
+    <p className={cardLabelClass}>Daily podcasts</p>
+    <h3
+      id="today-podcasts-heading"
+      className="mt-1 font-display text-xl font-semibold leading-[1.25] text-foreground"
+    >
+      Listen in your podcast app
+    </h3>
+    <p className="mt-2 text-[0.9375rem] leading-[1.6] text-foreground-2">
+      Today&apos;s featured article and the daily trending brief arrive as
+      podcast episodes. Subscribe once and they show up on their own.
+    </p>
+    <Link href="/podcasts" className={seeAllLinkClass}>
+      Browse podcasts
+      <ArrowIcon />
+    </Link>
+  </section>
+);
 
 export const TrendingArticles = ({
   articles,
   trendingDate,
-  brief,
 }: {
   articles: TrendingArticle[];
   trendingDate?: string | null;
-  brief?: TrendingBrief | null;
 }) => {
-  if (articles.length === 0 && !brief) return null;
+  if (articles.length === 0) return null;
 
   const dateLabel = formatUtcCalendarDate(trendingDate);
 
   return (
-    <section aria-labelledby="today-trending-heading" className="lg:col-span-2">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Trending
-          </p>
-          <h3
-            id="today-trending-heading"
-            className="mt-1 font-display text-base font-semibold text-foreground"
-          >
-            What people are curious about
-          </h3>
-        </div>
-        {dateLabel && (
-          <p className="text-xs text-muted" aria-live="polite">
-            Last updated: {dateLabel}
-          </p>
-        )}
+    <section aria-labelledby="today-trending-heading" className="mt-10">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <h3
+          id="today-trending-heading"
+          className="type-section-title-sm font-display font-semibold text-foreground"
+        >
+          Trending now
+        </h3>
+        {dateLabel ? (
+          <p className="text-sm text-muted">Most read on {dateLabel}</p>
+        ) : null}
       </div>
 
-      {brief && (
-        <DailyTrendingBriefPlayer
-          audioUrl={brief.audioUrl}
-          title={brief.headline || "Why these topics are trending today"}
-          durationSeconds={brief.durationSeconds}
-        />
-      )}
-
-      {articles.length > 0 && (
-        <>
-          <ol
-            className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4"
-            role="list"
-          >
-            {articles.slice(0, MAX_TRENDING_ARTICLES).map((article, index) => {
-              const slug = toArticleSlug(article.title);
-              return (
-                <li key={article.title}>
-                  <div className="garden-bed flex h-full flex-col overflow-hidden">
-                    <ArticleLink
-                      articleTitle={article.title}
-                      href={toArticleHref(slug)}
-                      className="result-link flex flex-1 flex-col border-0 bg-transparent no-underline transition-all duration-200"
-                    >
-                      {article.thumbnail ? (
-                        <AdaptiveImageFrame
-                          src={article.thumbnail.source}
-                          alt=""
-                          width={article.thumbnail.width}
-                          height={article.thumbnail.height}
-                          sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                          className="block aspect-[16/9]"
-                          unoptimized
-                        />
-                      ) : (
-                        <span
-                          className="flex aspect-[16/9] items-center justify-center bg-surface-3 text-muted opacity-40"
-                          aria-hidden="true"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            width={32}
-                            height={32}
-                          >
-                            <rect
-                              x="3"
-                              y="3"
-                              width="18"
-                              height="18"
-                              rx="2"
-                              ry="2"
-                            />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <polyline points="21 15 16 10 5 21" />
-                          </svg>
-                        </span>
-                      )}
-                      <span className="flex flex-1 flex-col px-4 py-3">
-                        <span className="text-xs font-semibold text-accent">
-                          #{index + 1}
-                        </span>
-                        <span className="mt-2 font-display text-[0.9375rem] font-bold leading-[1.3] text-foreground">
-                          {article.title}
-                        </span>
-                        <span className="mt-1 break-words text-[0.8125rem] leading-[1.5] text-muted [overflow-wrap:anywhere]">
-                          {article.extract}
-                        </span>
-                        {article.views > 0 && (
-                          <span className="mt-2 text-[0.6875rem] text-muted">
-                            {formatViews(article.views)} views yesterday
-                          </span>
-                        )}
-                      </span>
-                    </ArticleLink>
-                    {article.thumbnail?.attribution ? (
-                      <div className="border-t border-border px-4 py-2.5">
-                        <MediaAttribution
-                          attribution={article.thumbnail.attribution}
-                          compact
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-
-          <div className="mt-3 text-center">
-            <Link
-              href="/trending"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent no-underline transition-colors duration-200"
-            >
-              See all trending articles
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                width={14}
-                height={14}
-                aria-hidden="true"
+      <ol
+        className="m-0 grid list-none grid-cols-1 gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4"
+        role="list"
+      >
+        {articles.slice(0, MAX_TRENDING_ARTICLES).map((article, index) => {
+          const slug = toArticleSlug(article.title);
+          return (
+            <li key={article.title} className={cardClass}>
+              <ArticleLink
+                articleTitle={article.title}
+                href={toArticleHref(slug)}
+                className="result-link flex flex-1 flex-col border-0 bg-transparent no-underline"
               >
-                <path d="M5 12h14" />
-                <path d="M12 5l7 7-7 7" />
-              </svg>
-            </Link>
-          </div>
-        </>
-      )}
+                {article.thumbnail ? (
+                  <CardImage
+                    image={article.thumbnail}
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                  />
+                ) : (
+                  <span
+                    className="block aspect-[16/9] w-full bg-surface-3"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="flex flex-1 flex-col px-4 py-3">
+                  <span className="text-sm font-semibold text-accent">
+                    #{index + 1}
+                  </span>
+                  <span className="mt-1 font-display text-lg font-semibold leading-[1.3] text-foreground">
+                    {article.title}
+                  </span>
+                  <span className="mt-1 line-clamp-3 break-words text-sm leading-[1.55] text-foreground-2 [overflow-wrap:anywhere]">
+                    {article.extract}
+                  </span>
+                  {article.views > 0 ? (
+                    <span className="mt-auto pt-2 text-xs text-muted">
+                      {formatViews(article.views)} views yesterday
+                    </span>
+                  ) : null}
+                </span>
+              </ArticleLink>
+              <ImageCreditDisclosure
+                attribution={article.thumbnail?.attribution}
+                className="px-4 pb-3"
+              />
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="mt-3 text-center">
+        <Link
+          href="/trending"
+          className="inline-flex min-h-11 items-center gap-1.5 text-[0.9375rem] font-semibold text-accent no-underline hover:text-accent-hover"
+        >
+          See all trending articles
+          <ArrowIcon />
+        </Link>
+      </div>
     </section>
   );
 };
@@ -662,21 +672,41 @@ const PictureAudioStatus = ({ audio }: { audio?: PictureAudio }) => {
 
   if (audio.status === "ready" && audio.audioUrl) {
     return (
-      <AudioPlayer
-        audioUrl={audio.audioUrl}
-        title="Picture of the Day description"
-        label="Listen: Picture of the Day description"
-        playbackRate={rate}
-        onPlaybackRateChange={setRate}
-        variant="compact"
-        className="mt-4 max-w-full"
-      />
+      <details className="group mt-3">
+        <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg text-[0.9375rem] font-semibold text-accent hover:text-accent-hover">
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            width={14}
+            height={14}
+            aria-hidden="true"
+            focusable="false"
+            className="shrink-0 transition-transform duration-150 group-open:rotate-90"
+          >
+            <path d="m7 4 6 6-6 6" />
+          </svg>
+          Listen to the description
+        </summary>
+        <AudioPlayer
+          audioUrl={audio.audioUrl}
+          title="Picture of the Day description"
+          label="Listen: Picture of the Day description"
+          playbackRate={rate}
+          onPlaybackRateChange={setRate}
+          variant="compact"
+          className="mt-2 max-w-full"
+        />
+      </details>
     );
   }
 
   if (audio.status === "pending") {
     return (
-      <p className="mt-4 text-sm text-muted" role="status" aria-live="polite">
+      <p className="mt-3 text-sm text-muted" role="status" aria-live="polite">
         Picture audio is being prepared.
       </p>
     );
@@ -684,7 +714,7 @@ const PictureAudioStatus = ({ audio }: { audio?: PictureAudio }) => {
 
   if (audio.status === "failed") {
     return (
-      <p className="mt-4 text-sm text-muted" role="status" aria-live="polite">
+      <p className="mt-3 text-sm text-muted" role="status" aria-live="polite">
         Picture audio is not available right now.
       </p>
     );
@@ -695,92 +725,116 @@ const PictureAudioStatus = ({ audio }: { audio?: PictureAudio }) => {
 
 export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
   const image = picture.thumbnail ?? picture.image;
+  const imageCredit = image?.attribution ?? picture.image?.attribution;
+  const sourceUrl = imageCredit?.sourceUrl ?? picture.filePage;
+  const attribution = imageCredit && sourceUrl
+    ? {
+        ...imageCredit,
+        sourceUrl,
+        licenseUrl: imageCredit.licenseUrl ?? (
+          imageCredit.licenseName === picture.license?.type ? picture.license?.url : undefined
+        ),
+      }
+    : undefined;
+  const additionalCredit = picture.credit !== attribution?.credit && picture.credit !== attribution?.creator;
+  const additionalLicense = picture.license?.type !== attribution?.licenseName ||
+    (picture.license?.url && picture.license.url !== attribution?.licenseUrl);
 
   return (
-    <figure className="m-0 overflow-hidden rounded-2xl border border-border bg-surface-2">
-      {image && (
-        <AdaptiveImageFrame
-          src={image.source}
+    <figure className={`m-0 ${cardClass}`} data-today-pick="picture">
+      {image ? (
+        <CardImage
+          image={image}
           alt={picture.altText || "Wikipedia picture of the day"}
-          width={image.width}
-          height={image.height}
-          sizes="(min-width: 1024px) 38vw, 100vw"
-          fallbackFrameAspectRatio={16 / 10}
-          className="aspect-[16/10]"
-          loading="eager"
-          fetchPriority="high"
-          unoptimized
+          sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+          priority
         />
-      )}
+      ) : null}
 
-      <figcaption className="px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-          Picture of the Day
-        </p>
-        <p className="mt-2 text-sm leading-[1.7] text-foreground-2">
+      <figcaption className="flex flex-1 flex-col px-5 py-4">
+        <p className={cardLabelClass}>Picture of the day</p>
+        <p className="mt-2 text-[0.9375rem] leading-[1.6] text-foreground-2">
           {picture.description || picture.title}
         </p>
 
-        <dl className="mt-3 grid gap-1 text-xs leading-[1.6] text-muted">
-          {picture.artist && (
-            <div>
-              <dt className="inline font-semibold text-foreground-2">
-                Artist:{" "}
-              </dt>
-              <dd className="inline">{picture.artist}</dd>
-            </div>
-          )}
-          {picture.credit && (
-            <div>
-              <dt className="inline font-semibold text-foreground-2">
-                Credit:{" "}
-              </dt>
-              <dd className="inline">{picture.credit}</dd>
-            </div>
-          )}
-          {picture.license?.type && (
-            <div>
-              <dt className="inline font-semibold text-foreground-2">
-                License:{" "}
-              </dt>
-              <dd className="inline">
-                {picture.license.url ? (
-                  <a
-                    href={picture.license.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent underline"
-                  >
-                    {picture.license.type}
-                    <span className="sr-only"> (opens in new tab)</span>
-                  </a>
-                ) : (
-                  picture.license.type
-                )}
-              </dd>
-            </div>
-          )}
-        </dl>
-
-        {picture.filePage && (
-          <a
-            href={picture.filePage}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex text-xs font-medium text-accent underline"
-          >
-            View on Wikimedia Commons
-            <span className="sr-only"> (opens in new tab)</span>
-          </a>
-        )}
-
-        {!picture.filePage && image?.attribution ? (
-          <div className="mt-3">
-            <MediaAttribution attribution={image.attribution} />
-          </div>
-        ) : null}
-
         <PictureAudioStatus audio={picture.audio} />
+
+        <details className="group mt-2 text-xs text-muted">
+          <summary className="inline-flex min-h-6 cursor-pointer items-center gap-1 rounded font-medium hover:text-foreground">
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={12}
+              height={12}
+              aria-hidden="true"
+              focusable="false"
+              className="shrink-0 transition-transform duration-150 group-open:rotate-90"
+            >
+              <path d="m7 4 6 6-6 6" />
+            </svg>
+            Image credit
+          </summary>
+          <dl className="mt-1 grid gap-1 leading-[1.6]">
+            {picture.artist && picture.artist !== attribution?.creator ? (
+              <div>
+                <dt className="inline font-semibold text-foreground-2">
+                  Artist:{" "}
+                </dt>
+                <dd className="inline">{picture.artist}</dd>
+              </div>
+            ) : null}
+            {picture.credit && additionalCredit ? (
+              <div>
+                <dt className="inline font-semibold text-foreground-2">
+                  Credit:{" "}
+                </dt>
+                <dd className="inline">{picture.credit}</dd>
+              </div>
+            ) : null}
+            {picture.license?.type && additionalLicense ? (
+              <div>
+                <dt className="inline font-semibold text-foreground-2">
+                  License:{" "}
+                </dt>
+                <dd className="inline">
+                  {picture.license.url ? (
+                    <a
+                      href={picture.license.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent underline"
+                    >
+                      {picture.license.type}
+                      <span className="sr-only"> (opens in new tab)</span>
+                    </a>
+                  ) : (
+                    picture.license.type
+                  )}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+          {picture.filePage && picture.filePage !== attribution?.sourceUrl ? (
+            <a
+              href={picture.filePage}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex text-accent underline"
+            >
+              View on Wikimedia Commons
+              <span className="sr-only"> (opens in new tab)</span>
+            </a>
+          ) : null}
+          {attribution ? (
+            <div className="mt-1">
+              <MediaAttribution attribution={attribution} />
+            </div>
+          ) : null}
+        </details>
       </figcaption>
     </figure>
   );

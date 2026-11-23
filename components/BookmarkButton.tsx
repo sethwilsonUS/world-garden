@@ -39,7 +39,7 @@ export const BookmarkButton = ({
           : "Library: save this article to revisit later"
       }
       className={`linked-article-link inline-flex min-h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] border transition-all duration-200 ${
-        variant === "labeled" ? "px-3 py-2" : "h-11 w-11"
+        variant === "labeled" ? "max-w-full px-3 py-2" : "h-11 w-11"
       } ${
         saved
           ? "border-accent-border bg-accent-bg text-accent"
@@ -56,6 +56,7 @@ export const BookmarkButton = ({
         width={18}
         height={18}
         aria-hidden="true"
+        className="shrink-0"
       >
         <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
       </svg>

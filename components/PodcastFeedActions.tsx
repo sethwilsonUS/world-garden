@@ -32,7 +32,10 @@ export const PodcastFeedActions = ({
   return (
     <div className="mt-3">
       <div className="flex flex-wrap items-center gap-2">
-        <CopyFeedButton value={feedUrl} label={`Copy ${feedTitle} feed URL`} />
+        <CopyFeedButton
+          value={feedUrl}
+          label={`Copy feed URL for ${feedTitle}`}
+        />
         <button
           type="button"
           onClick={handleApplePodcasts}
@@ -68,13 +71,17 @@ export const PodcastFeedActions = ({
         </span>
         .
       </p>
-      <p className="mt-2 text-sm text-muted leading-[1.6]">
-        Expect a little lag: Apple Podcasts usually picks up feed changes within
-        a few hours, while artwork or metadata updates can take up to a day. On
-        Mac, you can try{" "}
-        <span className="font-medium text-foreground">Command-R</span>; on
-        iPhone, Apple does not document an equivalent manual refresh.
-      </p>
+      <details className="mt-2 text-sm text-muted leading-[1.6]">
+        <summary className="inline-flex min-h-[44px] cursor-pointer items-center font-medium text-foreground-2">
+          New episodes not showing yet?
+        </summary>
+        <p className="mt-1">
+          Apple Podcasts usually picks up feed changes within a few hours, while
+          artwork or metadata updates can take up to a day. On Mac, you can try{" "}
+          <span className="font-medium text-foreground">Command-R</span>; on
+          iPhone, Apple does not document an equivalent manual refresh.
+        </p>
+      </details>
       <p className="sr-only" aria-live="polite" role="status">
         {statusMessage}
       </p>

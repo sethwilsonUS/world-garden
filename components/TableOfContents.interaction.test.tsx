@@ -12,6 +12,7 @@ import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import { type PlaybackRate } from "@/hooks/usePlaybackRate";
 import { createTestSection } from "@/lib/test-section-narration";
 import { ARTICLE_SECTION_NARRATION_VERSION } from "@/lib/section-narration";
+import { ArticleListeningControls } from "./ArticleListeningControls";
 import { TableOfContents } from "./TableOfContents";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -72,26 +73,37 @@ const TableHarness = ({
   articleSections?: Section[];
 }) => {
   const [rate, setRate] = useState<PlaybackRate>(initialRate);
+  const identity = {
+    wikiPageId,
+    revisionId: `revision-${wikiPageId}`,
+    title: "Example article",
+    language: "en",
+    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+  };
+  const summaryText = "A summary with enough words to estimate audio duration.";
+  const sectionDurations = { summary: 120, "section-0": 60 };
   return (
     <DataContext.Provider value={value}>
-      <TableOfContents
-        identity={{
-          wikiPageId,
-          revisionId: `revision-${wikiPageId}`,
-          title: "Example article",
-          language: "en",
-          narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
-        }}
-        summaryText="A summary with enough words to estimate audio duration."
+      <ArticleListeningControls
+        identity={identity}
+        summaryText={summaryText}
         sections={articleSections}
-        sectionDurations={{ summary: 120, "section-0": 60 }}
+        sectionDurations={sectionDurations}
         playback={idlePlayback}
-        onListenSection={() => {}}
-        onListenSummary={() => {}}
         onPlayAll={() => {}}
         onStopPlayAll={() => {}}
         playbackRate={rate}
         onPlaybackRateChange={setRate}
+      />
+      <TableOfContents
+        identity={identity}
+        summaryText={summaryText}
+        sections={articleSections}
+        sectionDurations={sectionDurations}
+        playback={idlePlayback}
+        onListenSection={() => {}}
+        onListenSummary={() => {}}
+        playbackRate={rate}
       />
     </DataContext.Provider>
   );
@@ -132,6 +144,7 @@ describe("TableOfContents interactions", () => {
       ).not.toBeNull();
       expect(container.textContent).toContain("Playback speed 0.5x");
       expect(container.textContent).toContain("4m");
+      expect(container.textContent).toContain("Play all6m");
     });
   });
 
@@ -155,11 +168,13 @@ describe("TableOfContents interactions", () => {
     );
     await waitForExpectation(() =>
       expect(
-        container.querySelector('[aria-label="2 links · 1 citation"]'),
+        container.querySelector(
+          '[aria-label="2 links · 1 citation in History"]',
+        ),
       ).not.toBeNull(),
     );
     const details = container.querySelector(
-      '[aria-label="2 links · 1 citation"]',
+      '[aria-label="2 links · 1 citation in History"]',
     ) as HTMLButtonElement;
     expect(details.getAttribute("aria-expanded")).toBe("false");
 
@@ -185,7 +200,7 @@ describe("TableOfContents interactions", () => {
       root.render(<TableHarness value={value} wikiPageId="2" />),
     );
     expect(
-      container.querySelector('[aria-label="2 links · 1 citation"]'),
+      container.querySelector('[aria-label="2 links · 1 citation in History"]'),
     ).toBeNull();
     expect(container.textContent).not.toContain("Linked article");
     expect(container.textContent).not.toContain("A cited source");
@@ -229,17 +244,21 @@ describe("TableOfContents interactions", () => {
     );
     await waitForExpectation(() => {
       expect(
-        container.querySelector('[aria-label="1 link · 1 citation"]'),
+        container.querySelector(
+          '[aria-label="1 link · 1 citation in History"]',
+        ),
       ).not.toBeNull();
       expect(
-        container.querySelector('[aria-label="2 links · 3 citations"]'),
+        container.querySelector(
+          '[aria-label="2 links · 3 citations in History"]',
+        ),
       ).not.toBeNull();
     });
 
     act(() =>
       (
         container.querySelector(
-          '[aria-label="2 links · 3 citations"]',
+          '[aria-label="2 links · 3 citations in History"]',
         ) as HTMLButtonElement
       ).click(),
     );

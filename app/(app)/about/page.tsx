@@ -31,26 +31,16 @@ export default function AboutPage() {
   return (
     <div className="container mx-auto px-4 pb-20 pt-10">
       <article className="mx-auto max-w-4xl [overflow-wrap:anywhere]">
-        <nav aria-label="Back navigation" className="mb-8">
-          <Link
-            href="/"
-            className="inline-flex min-h-11 max-w-full items-center gap-1 text-sm text-muted no-underline"
-          >
-            <span aria-hidden="true">←</span>
-            Back to the garden
-          </Link>
-        </nav>
-
-        <header className="relative overflow-hidden rounded-[32px] border border-accent-border bg-surface-2 px-6 py-10 sm:px-10 sm:py-14">
+        <header className="relative overflow-hidden rounded-[32px] border border-accent-border bg-surface-2 px-[16px] py-10 sm:px-10 sm:py-14">
           <div
             className="pattern-leaves absolute inset-0 opacity-70"
             aria-hidden="true"
           />
           <div className="relative max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+            <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
               About this project
             </p>
-            <h1 className="type-hero-title mt-4 font-display font-semibold leading-[1.02] tracking-[-0.025em] text-foreground">
+            <h1 className="mt-4 font-display text-[length:var(--type-page-title)] font-semibold leading-[1.08] tracking-[-0.025em] text-foreground sm:text-[length:var(--type-hero-title)]">
               Free knowledge, made listenable.
             </h1>
             <p className="mt-6 max-w-xl text-[1.05rem] leading-[1.8] text-foreground-2">
@@ -66,7 +56,7 @@ export default function AboutPage() {
           aria-labelledby="why-heading"
           className="mx-auto mt-14 max-w-3xl"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             The idea
           </p>
           <h2
@@ -104,7 +94,7 @@ export default function AboutPage() {
           aria-labelledby="research-heading"
           className="garden-bed mx-auto mt-10 max-w-3xl overflow-hidden p-6 sm:p-8"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
             Help the garden learn
           </p>
           <h2
@@ -132,7 +122,7 @@ export default function AboutPage() {
 
         <section aria-labelledby="engineering-heading" className="mt-16">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+            <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
               Under the garden bed
             </p>
             <h2
@@ -172,7 +162,7 @@ export default function AboutPage() {
           aria-labelledby="ai-transparency-heading"
           className="mx-auto mt-16 max-w-3xl"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Plain-language provenance
           </p>
           <h2

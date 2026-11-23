@@ -50,15 +50,15 @@ export const RandomArticleButton = () => {
       onFocus={prePick}
       disabled={loading}
       aria-label="Surprise me: listen to a random Wikipedia article"
-      className={`linked-article-link inline-flex min-h-11 items-center gap-1.5 py-2 px-[18px] bg-transparent text-foreground-2 border border-border rounded-full font-medium text-[0.8125rem] font-[inherit] transition-all duration-200 ${loading ? "cursor-wait opacity-60" : "cursor-pointer"}`}
+      className={`inline-flex min-h-11 items-center gap-2 rounded-full border border-control-border bg-transparent px-[18px] py-2 text-[0.9375rem] font-semibold text-foreground-2 transition-colors duration-200 hover:border-accent hover:bg-surface-2 hover:text-foreground ${loading ? "cursor-wait" : "cursor-pointer"}`}
     >
       {loading ? (
         <svg
           className="animate-spin"
           fill="none"
           viewBox="0 0 24 24"
-          width={14}
-          height={14}
+          width={16}
+          height={16}
           aria-hidden="true"
         >
           <circle
@@ -83,8 +83,8 @@ export const RandomArticleButton = () => {
           strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
-          width={14}
-          height={14}
+          width={16}
+          height={16}
           aria-hidden="true"
         >
           <path d="M18 4l3 3-3 3" />

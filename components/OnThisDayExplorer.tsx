@@ -63,6 +63,7 @@ const TimelineEventContent = ({ event }: { event: OnThisDayEvent }) => (
               <ArticleLink
                 articleTitle={page.title}
                 href={`/article/${encodeURIComponent(page.slug)}`}
+                className="text-sm!"
               >
                 {page.title}
               </ArticleLink>

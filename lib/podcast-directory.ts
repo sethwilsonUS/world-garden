@@ -94,6 +94,14 @@ export const getTrendingEpisodeTitle = (episode: TrendingPodcastEpisode): string
   episode.headline?.trim() ||
   `Wikipedia Trending Brief: ${formatTrendingDate(episode.trendingDate)}`;
 
+export const getTrendingEpisodeDateLabel = (
+  episode: Pick<TrendingPodcastEpisode, "updatedAt" | "trendingDate">,
+): string => {
+  // RSS uses the ready record's updatedAt for pubDate.
+  const publishedDate = new Date(episode.updatedAt).toISOString().slice(0, 10);
+  return `Published ${formatTrendingDate(publishedDate)} (UTC) · Pageviews for ${formatTrendingDate(episode.trendingDate)}`;
+};
+
 export const getTrendingEpisodeSummary = (episode: TrendingPodcastEpisode): string =>
   getPodcastExcerpt(
     episode.podcastDescription || episode.summary || episode.spokenSummary,

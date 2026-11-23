@@ -17,7 +17,7 @@ export default function SignInPage() {
     >
       <div className="container mx-auto grid min-h-[576px] max-w-5xl items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.8fr)] lg:gap-16">
         <div className="mx-auto max-w-xl text-center lg:mx-0 lg:text-left">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-accent">
+          <p className="mb-3 text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
             Your Curio Garden account
           </p>
           <h1

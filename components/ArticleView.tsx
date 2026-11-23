@@ -26,13 +26,14 @@ import {
   ArticleLoadError,
   ArticleLoadingState,
   AudioErrorNotice,
-  MobileArticleSummaryDisclosure,
   ResumeBanner,
 } from "./ArticleViewPresentation";
+import { ArticleListeningControls } from "./ArticleListeningControls";
 import { BookmarkButton } from "./BookmarkButton";
+import { NowPlayingBar } from "./NowPlayingBar";
 import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
-import { TableOfContents } from "./TableOfContents";
+import { TableOfContents, tocFocusTargetId } from "./TableOfContents";
 
 type ArticleData = Article & {
   _id?: string;
@@ -87,6 +88,7 @@ const ArticleViewContent = ({
   const [heroImageAnalysis, setHeroImageAnalysis] =
     useState<AdaptiveImageAnalysis | null>(null);
   const fetchTriggered = useRef(false);
+  const playAllButtonRef = useRef<HTMLButtonElement>(null);
 
   const articleContext = useArticleContext(
     displayArticle
@@ -209,18 +211,12 @@ const ArticleViewContent = ({
   const {
     state: audioState,
     actions: audioActions,
-    audioElement: {
-      ref: audioRef,
-      src: audioSrc,
-      playAllButtonRef,
-      warmRegionRef,
-    },
+    audioElement: { ref: audioRef, src: audioSrc, warmRegionRef },
   } = useArticleAudioController({
     slug,
     article: displayArticle,
     badgeTrackingEnabled,
     updateProgress,
-    shouldFocusPlayAll: Boolean(displayArticle && !showResumeBanner),
   });
 
   if (fetching && !displayArticle) {
@@ -258,140 +254,213 @@ const ArticleViewContent = ({
     audioActions.startFromBeginning();
   };
 
+  const activeSectionKey = audioState.playback.sectionKey;
+  const activeSectionIdx = audioState.playback.sectionIdx;
+  const nowPlayingSectionTitle =
+    activeSectionKey === "summary"
+      ? "Summary"
+      : activeSectionIdx !== null
+        ? (sections[activeSectionIdx]?.title ?? null)
+        : null;
+
+  const jumpToActiveSection = () => {
+    if (!activeSectionKey) return;
+    const target = document.getElementById(tocFocusTargetId(activeSectionKey));
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    target.scrollIntoView({
+      block: "center",
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+    target.focus({ preventScroll: true });
+  };
+
   return (
-    <article className="animate-fade-in-up">
-      <div className="mb-4">
-        <h1 className="type-page-title m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
-          {displayArticle.title}
-        </h1>
-        <div
-          role="group"
-          aria-label="Article actions"
-          className="mt-4 flex flex-wrap items-center gap-2"
-        >
-          <BookmarkButton
-            slug={slug}
-            title={displayArticle.title}
-            variant="labeled"
+    <>
+      <article className="animate-fade-in-up">
+        <header className="mb-6">
+          <h1 className="type-page-title m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
+            {displayArticle.title}
+          </h1>
+
+          <div className="mt-5">
+            <ArticleListeningControls
+              playAllButtonRef={playAllButtonRef}
+              identity={displayArticle}
+              summaryText={displayArticle.summary}
+              sections={sections}
+              sectionDurations={audioState.sectionDurations}
+              playback={audioState.playback}
+              onPlayAll={audioActions.playAll}
+              onWarmPlayAll={audioActions.warmPlayAll}
+              onStopPlayAll={audioActions.stopPlayAll}
+              onTogglePlayAll={audioActions.togglePlayAll}
+              onSkipSection={audioActions.skipSection}
+              onDownloadAll={audioActions.downloadAll}
+              downloadHref={audioState.download.href}
+              downloading={audioState.download.downloading}
+              downloadProgress={audioState.download.progress}
+              downloadStatus={audioState.download.status}
+              downloadStage={audioState.download.stage}
+              playbackRate={audioState.playbackRate}
+              onPlaybackRateChange={audioActions.changePlaybackRate}
+              fallbackVoiceNotice={audioState.fallbackVoiceNotice}
+            />
+          </div>
+
+          {showResumeBanner && savedProgressState && (
+            <div className="mt-4">
+              <ResumeBanner
+                sectionLabel={
+                  savedProgressState.sectionIndex != null
+                    ? (sections[savedProgressState.sectionIndex]?.title ??
+                      "previous section")
+                    : "summary"
+                }
+                onResume={handleResume}
+                onStartOver={handleStartFromBeginning}
+              />
+            </div>
+          )}
+
+          {audioState.error && (
+            <div className="mt-4">
+              <AudioErrorNotice
+                error={audioState.error}
+                retryLabel={audioState.retryLabel}
+                onRetry={audioActions.retry}
+              />
+            </div>
+          )}
+
+          <div
+            role="group"
+            aria-label="Save this article"
+            className="mt-4 flex flex-wrap items-center gap-2"
+          >
+            <BookmarkButton
+              slug={slug}
+              title={displayArticle.title}
+              variant="labeled"
+            />
+            <PlaylistActionButton
+              slug={slug}
+              title={displayArticle.title}
+              variant="labeled"
+            />
+            <details className="group basis-full" data-save-options-help>
+              <summary className="btn-tertiary -ml-3 cursor-pointer list-none text-sm [&::-webkit-details-marker]:hidden">
+                <span className="group-open:hidden">
+                  What’s the difference?
+                </span>
+                <span className="hidden group-open:inline">
+                  Hide the difference
+                </span>
+              </summary>
+              <p className="mb-0 mt-1 max-w-[70ch] text-sm leading-relaxed text-foreground-2">
+                {isLocal
+                  ? "Library keeps the article on this device for later."
+                  : "Library keeps the article for later. Playlist generates a full-article podcast episode for your private feed."}
+              </p>
+            </details>
+          </div>
+        </header>
+
+        <ArticleHero
+          article={displayArticle}
+          imageAnalysis={heroImageAnalysis}
+          lightbox={heroLightbox}
+          onLightboxChange={setHeroLightbox}
+        />
+
+        <div className="mb-6 flex flex-col gap-3">
+          <ArticleSourceLine
+            language={displayArticle.language}
+            revisionId={displayArticle.revisionId}
+            wikiPageId={displayArticle.wikiPageId}
           />
-          <PlaylistActionButton
-            slug={slug}
-            title={displayArticle.title}
-            variant="labeled"
+          <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
+        </div>
+
+        <audio
+          ref={audioRef}
+          src={audioSrc ?? undefined}
+          preload="metadata"
+          aria-hidden="true"
+          className="hidden"
+        />
+
+        <div ref={warmRegionRef} className="animate-fade-in-up-delay-2 mb-6">
+          <TableOfContents
+            identity={displayArticle}
+            summaryText={displayArticle.summary}
+            sections={sections}
+            sectionDurations={audioState.sectionDurations}
+            playback={audioState.playback}
+            onListenSection={audioActions.listenSection}
+            onListenSummary={audioActions.listenSummary}
+            onWarmSummary={audioActions.warmSummary}
+            onWarmSection={audioActions.warmSection}
+            playbackRate={audioState.playbackRate}
+            audioProgress={audioState.audioProgress}
+            onSeek={audioActions.seek}
+            contextBlocks={contextBlocks}
           />
+        </div>
+
+        <ArticleContextLane
+          state={visibleArticleContext}
+          retry={articleContext.retry}
+        />
+
+        <ArticleGallery
+          identity={displayArticle}
+          className="animate-fade-in-up-delay-2 mb-6 mt-10 border-t border-border pt-8"
+        />
+
+        {audioState.finishedPlaying && (
+          <div className="animate-fade-in-up mb-6">
+            <RelatedArticles identity={displayArticle} />
+          </div>
+        )}
+
+        <ArticleHeader
+          title={displayArticle.title}
+          language={displayArticle.language}
+          revisionId={displayArticle.revisionId}
+          lastEdited={displayArticle.lastEdited}
+          wikiPageId={displayArticle.wikiPageId}
+        />
+
+        <p className="mt-6 text-sm text-muted">
+          Something off with this article or its audio?{" "}
           <ArticleFeedbackLink
             title={displayArticle.title}
             slug={slug}
             revisionId={displayArticle.revisionId}
           />
-        </div>
-        <p className="mb-3 mt-2 max-w-2xl text-sm leading-[1.65] text-muted">
-          {isLocal
-            ? "Library keeps the article on this device for later."
-            : "Library keeps the article for later. Playlist generates a full-article podcast episode for your private feed."}
         </p>
-        <ArticleSourceLine
-          language={displayArticle.language}
-          revisionId={displayArticle.revisionId}
-          wikiPageId={displayArticle.wikiPageId}
-        />
-        <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
-      </div>
+      </article>
 
-      <ArticleHero
-        article={displayArticle}
-        imageAnalysis={heroImageAnalysis}
-        lightbox={heroLightbox}
-        onLightboxChange={setHeroLightbox}
+      {/* Outside the animated <article>: its lingering transform would
+          otherwise become the containing block for position: fixed. */}
+      <NowPlayingBar
+        returnFocusRef={playAllButtonRef}
+        articleTitle={displayArticle.title}
+        sectionTitle={nowPlayingSectionTitle}
+        playback={audioState.playback}
+        audioProgress={audioState.audioProgress}
+        playbackRate={audioState.playbackRate}
+        onTogglePlayback={audioActions.togglePlayback}
+        onSkipBy={audioActions.skipBy}
+        onSkipSection={audioActions.skipSection}
+        onStop={audioActions.stopPlayAll}
+        onSeek={audioActions.seek}
+        onPlaybackRateChange={audioActions.changePlaybackRate}
+        onJumpToSection={jumpToActiveSection}
       />
-
-      {showResumeBanner && savedProgressState && (
-        <ResumeBanner
-          sectionLabel={
-            savedProgressState.sectionIndex != null
-              ? (sections[savedProgressState.sectionIndex]?.title ??
-                "previous section")
-              : "summary"
-          }
-          onResume={handleResume}
-          onStartOver={handleStartFromBeginning}
-        />
-      )}
-
-      <audio
-        ref={audioRef}
-        src={audioSrc ?? undefined}
-        preload="metadata"
-        aria-hidden="true"
-        className="hidden"
-      />
-
-      {audioState.error && (
-        <AudioErrorNotice
-          error={audioState.error}
-          retryLabel={audioState.retryLabel}
-          onRetry={audioActions.retry}
-        />
-      )}
-
-      <div ref={warmRegionRef} className="animate-fade-in-up-delay-2 mb-6">
-        <TableOfContents
-          identity={displayArticle}
-          summaryText={displayArticle.summary}
-          sections={sections}
-          sectionDurations={audioState.sectionDurations}
-          playback={audioState.playback}
-          onListenSection={audioActions.listenSection}
-          onListenSummary={audioActions.listenSummary}
-          onPlayAll={audioActions.playAll}
-          onWarmPlayAll={audioActions.warmPlayAll}
-          onWarmSummary={audioActions.warmSummary}
-          onWarmSection={audioActions.warmSection}
-          onStopPlayAll={audioActions.stopPlayAll}
-          onTogglePlayAll={audioActions.togglePlayAll}
-          onSkipSection={audioActions.skipSection}
-          onDownloadAll={audioActions.downloadAll}
-          downloadHref={audioState.download.href}
-          downloading={audioState.download.downloading}
-          downloadProgress={audioState.download.progress}
-          downloadStatus={audioState.download.status}
-          downloadStage={audioState.download.stage}
-          playbackRate={audioState.playbackRate}
-          onPlaybackRateChange={audioActions.changePlaybackRate}
-          audioProgress={audioState.audioProgress}
-          onSeek={audioActions.seek}
-          playAllRef={playAllButtonRef}
-          fallbackVoiceNotice={audioState.fallbackVoiceNotice}
-          contextBlocks={contextBlocks}
-          mobileSummaryDisclosure={
-            <MobileArticleSummaryDisclosure summary={displayArticle.summary} />
-          }
-        />
-      </div>
-
-      <ArticleContextLane
-        state={visibleArticleContext}
-        retry={articleContext.retry}
-      />
-
-      <ArticleGallery
-        identity={displayArticle}
-        className="animate-fade-in-up-delay-2 mb-6 mt-10 border-t border-border pt-8"
-      />
-
-      {audioState.finishedPlaying && (
-        <div className="animate-fade-in-up mb-6">
-          <RelatedArticles identity={displayArticle} />
-        </div>
-      )}
-
-      <ArticleHeader
-        title={displayArticle.title}
-        language={displayArticle.language}
-        revisionId={displayArticle.revisionId}
-        lastEdited={displayArticle.lastEdited}
-        wikiPageId={displayArticle.wikiPageId}
-      />
-    </article>
+    </>
   );
 };

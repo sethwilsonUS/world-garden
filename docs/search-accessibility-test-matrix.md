@@ -11,10 +11,17 @@ Search must preserve all of these behaviors:
 
 - Home and blank search pages do not move focus on load or summon a software
   keyboard.
-- Results arriving asynchronously do not move focus.
+- The “Search topic” field appears above the results and contains the current
+  query. Readers can change it while results load. Results arriving
+  asynchronously preserve focus.
 - One stable polite live region announces searching, result count, or no
   results. The error alert is the only error announcement.
-- Result links use native Tab, Shift+Tab, and Enter behavior.
+- Results form an ordered list. Each row starts with the article title and
+  optional description. Number badges are absent.
+- With account features enabled, each article link has a separate Playlist
+  button. At the small breakpoint and wider, the icon has a visible “Playlist”
+  label that changes with its state. Narrower screens use the icon alone.
+  The accessible name identifies the action at both widths.
 - Number, arrow, Home, and End keys remain available to the browser and
   assistive technology.
 - Search headings, titles, descriptions, and controls reflow without
@@ -42,14 +49,15 @@ complete the scenario. It does not mean an automated substitute passed.
 | --- | --- | --- |
 | S1 | Open the home page without touching the keyboard or screen. | The page context is available first; the search field is not focused automatically. |
 | S2 | Open the blank search page. On mobile, observe the software keyboard. | The heading and instructions remain available; focus stays neutral and the keyboard does not open. |
-| S3 | Submit a search over throttled networking, move focus to the refinement field while loading, and let results arrive. | “Searching Wikipedia…” and one result-count update are announced; focus stays in the refinement field. |
-| S4 | Browse results with native commands. Try Tab, Shift+Tab, Enter, arrows, Home, End, digits 1–6, and modified digits. | Tab order is logical and Enter opens the chosen result. Curio Garden does not intercept arrows or digits. NVDA/JAWS heading keys continue to work in browse/virtual mode. |
+| S3 | Submit a search over throttled networking. Focus the prefilled “Search topic” field above the results and let results arrive. | The searching announcement includes the query and is followed by one result-count update. Focus stays in the field. |
+| S4 | Browse results using Tab and Shift+Tab. With account features enabled, inspect Playlist beside an article at desktop and phone widths. Press Enter on the article link. Also try arrows, Home, End, digits 1–6, and modified digits. | Tab reaches the article link, then its enabled Playlist button, then the next result. Enter on the link opens the chosen article. Native browser and screen-reader navigation keys remain available. |
 | S5 | Repeat with an empty response and an error response. | No-results is announced once. An error is announced once by the alert, without a competing polite message. |
 | S6 | Repeat with long unbroken query, title, and description text at genuine 200% and 400% browser zoom. Test OS magnification separately. | No page-level horizontal scrolling, clipped controls, hidden focus indicator, or unexpected viewport jump occurs. |
 
 ## Compatibility matrix
 
-Update this table in the same pull request as the completed test evidence.
+The recorded observations below apply to the July 2026 build. Record a new
+run when verifying the current search form, results, and Playlist controls.
 
 | Configuration | Modes and scenarios | Status | Evidence |
 | --- | --- | --- | --- |
@@ -94,6 +102,7 @@ down.
 | Check | What it covers | What it cannot prove |
 | --- | --- | --- |
 | `components/SearchResultsList.interaction.test.tsx` | Stable live-region node, focus preservation, stale requests, empty/error states, and non-intercepted keys. | Spoken output, virtual-cursor modes, browser focus rendering, touch, or zoom. |
+| `components/PlaylistActionButton.test.tsx` | Compact Playlist button markup and its accessible name. | The visible breakpoint, keyboard navigation between results and Playlist controls, or sign-in completion. |
 | `e2e/search-accessibility.spec.ts` | Chromium focus behavior, native tab order, axe serious/critical checks, and long-content reflow at 640px and 320px CSS viewport proxies. | Real 200%/400% browser zoom, screen-reader speech, quick-key interception, software keyboards, touch exploration, or magnifier tracking. |
 
 The 640px and 320px browser tests are reflow proxies for a 1280px-wide

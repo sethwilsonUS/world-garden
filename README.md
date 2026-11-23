@@ -45,14 +45,14 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **AI:** Direct OpenAI Responses API for daily trend brief generation, web search, and optional context-description enhancement
 - **Rich context:** MapLibre GL and Apache ECharts as progressive visual enhancements over semantic HTML views
 - **Styling:** Tailwind CSS 4 + CSS custom properties
-- **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
+- **Fonts:** Fraunces (display), Atkinson Hyperlegible Next (body), Atkinson Hyperlegible Mono (timestamps and code)
 - **Testing:** Vitest unit/integration tests plus Playwright Chromium journeys and axe accessibility scans
 
 ## Product Tour
 
 | Home and daily discovery                                                                                         | Article listening                                                                                                          | Wikimedia gallery                                                                                      |
 | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| ![Curio Garden home page with search, daily Wikipedia features, and recent listening cards](screenshot-home.png) | ![Ada Lovelace article page with section playback controls, a table of contents, and article text](screenshot-article.png) | ![Stonehenge Wikimedia gallery showing licensed image cards and captions](gallery-full-screenshot.png) |
+| ![Search-first home with recently opened articles, daily Wikipedia picks, and a listening sample](screenshot-home.png) | ![Ada Lovelace with Play all beneath the title, a short summary beside her portrait, and the first section’s Listen button](screenshot-article.png) | ![Stonehenge Wikimedia gallery showing licensed image cards and captions](gallery-full-screenshot.png) |
 
 The live product stays focused on listening. The [/about](https://curiogarden.org/about) page gives technical reviewers a shorter account of the motivation, architecture, provenance model, and major engineering tradeoffs.
 

@@ -41,46 +41,19 @@ export const HomeListeningSample = () => {
   return (
     <section
       aria-labelledby="listening-sample-heading"
-      className="home-workbench-player garden-bed mt-6 overflow-hidden text-left"
+      className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface text-left [overflow-wrap:anywhere]"
     >
-      <div className="px-4 pt-4 sm:px-5 sm:pt-5 lg:px-7 lg:pt-7">
-        <div className="flex items-start gap-3">
-          <span
-            className="grid size-10 shrink-0 place-items-center rounded-full border border-accent-border bg-accent-bg text-accent"
-            aria-hidden="true"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.8}
-              strokeLinecap="round"
-              width={21}
-              height={21}
-            >
-              <path d="M4 12h2" />
-              <path d="M9 8v8" />
-              <path d="M13 5v14" />
-              <path d="M17 9v6" />
-              <path d="M21 11v2" />
-            </svg>
-          </span>
-
-          <div className="min-w-0">
-            <p className="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-accent">
-              Listening sample
-            </p>
-            <h2
-              id="listening-sample-heading"
-              className="mt-0.5 font-display text-[1.14rem] font-semibold leading-[1.25] text-foreground"
-            >
-              Start with a short listen
-            </h2>
-            <p className="mt-1 text-sm leading-[1.6] text-foreground-2">
-              Hear how a Wikipedia page becomes a clear listening path.
-            </p>
-          </div>
-        </div>
+      <div className="px-4 pt-4 sm:px-5 sm:pt-5">
+        <h3
+          id="listening-sample-heading"
+          className="font-display text-lg font-semibold leading-[1.25] text-foreground"
+        >
+          Hear it in 18 seconds
+        </h3>
+        <p className="mt-1 text-[0.9375rem] leading-[1.6] text-foreground-2">
+          A short sample of how a Wikipedia page becomes a clear listening
+          path.
+        </p>
 
         <AudioPlayer
           audioUrl={HOME_LISTENING_SAMPLE_URL}
@@ -111,8 +84,8 @@ export const HomeListeningSample = () => {
         ) : null}
       </div>
 
-      <details className="group mt-1 px-4 pb-4 text-center text-sm text-foreground-2 sm:px-5 lg:px-7">
-        <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-2 font-semibold text-muted transition-colors duration-150 hover:text-accent">
+      <details className="group mt-1 px-4 pb-4 text-[0.9375rem] text-foreground-2 sm:px-5">
+        <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-2 text-[0.9375rem] font-semibold text-foreground-2 transition-colors duration-150 hover:text-accent">
           <svg
             viewBox="0 0 20 20"
             fill="none"

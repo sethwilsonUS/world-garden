@@ -85,7 +85,6 @@ type UseArticleAudioControllerArgs = {
   article: ArticleAudioArticle | null;
   badgeTrackingEnabled: boolean;
   updateProgress: UpdateProgress;
-  shouldFocusPlayAll: boolean;
 };
 
 const getStartupNow = (): number =>
@@ -144,7 +143,6 @@ export const useArticleAudioController = ({
   article,
   badgeTrackingEnabled,
   updateProgress,
-  shouldFocusPlayAll,
 }: UseArticleAudioControllerArgs) => {
   const bypassAudioCacheForStress = shouldBypassAudioCacheForStress();
   const convex = useConvex();
@@ -220,11 +218,9 @@ export const useArticleAudioController = ({
     null,
   );
   const pendingAutoPlay = useRef(false);
-  const playAllRef = useRef<HTMLButtonElement>(null);
   const tocWarmRef = useRef<HTMLDivElement>(null);
   const viewportWarmedArticleKey = useRef<string | null>(null);
   const fallbackNoticeArticleKey = useRef<string | null>(null);
-  const suppressPlayAllFocusWarm = useRef(false);
   const activeAudioRequestKey = useRef<string | null>(null);
   const slowLoadingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlayingAllRef = useRef(isPlayingAll);
@@ -564,7 +560,6 @@ export const useArticleAudioController = ({
   );
 
   const warmPlayAllForIntent = useCallback(() => {
-    if (suppressPlayAllFocusWarm.current) return;
     warmSummaryForIntent();
     if (!article) return;
     warmPlayAllQueue(buildPlayAllQueue(article));
@@ -1290,15 +1285,6 @@ export const useArticleAudioController = ({
     generateAudio("summary", `${article.title} — Summary`, null, "start_over");
   }, [article, generateAudio, warmSummaryForIntent]);
 
-  useEffect(() => {
-    if (!article || !shouldFocusPlayAll) return;
-    suppressPlayAllFocusWarm.current = true;
-    playAllRef.current?.focus({ preventScroll: true });
-    queueMicrotask(() => {
-      suppressPlayAllFocusWarm.current = false;
-    });
-  }, [article, shouldFocusPlayAll]);
-
   const retryTarget = getAudioRetryTarget(
     audioPlayback,
     article?.title ?? "Article",
@@ -1340,11 +1326,12 @@ export const useArticleAudioController = ({
       startFromBeginning: handleStartFromBeginning,
       changePlaybackRate: handlePlaybackRateChange,
       seek: audioElSeek,
+      skipBy: audioElSkip,
+      togglePlayback: handleTogglePlayAll,
     },
     audioElement: {
       ref: audioRef,
       src: audioUrl,
-      playAllButtonRef: playAllRef,
       warmRegionRef: tocWarmRef,
     },
   } as const;

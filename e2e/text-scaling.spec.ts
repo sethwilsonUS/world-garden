@@ -1,5 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import {
+  ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+  ARTICLE_CONTEXT_SCHEMA_VERSION,
+} from "../lib/article-context-types";
+import { createTestSection } from "../lib/test-section-narration";
 import { expectNoPageOverflow } from "./support/expect-no-page-overflow";
 
 const EXPECTED_ROOT_SIZE = {
@@ -206,6 +211,82 @@ test("every route template reflows at the maximum target size", async ({
       await expectNoPageOverflow(page);
     });
   }
+});
+
+test("article section titles and Listen targets reflow at maximum text size", async ({
+  page,
+}) => {
+  const section = createTestSection({
+    title: "Notes on the Analytical Engine",
+    level: 4,
+    content: "Lovelace described how the engine could process symbols.",
+  });
+  await page.route("**/api/local-wikipedia", (route) => {
+    const { operation } = route.request().postDataJSON();
+    if (operation === "article") {
+      return route.fulfill({
+        json: {
+          data: {
+            wikiPageId: "974",
+            revisionId: "123456789",
+            title: "Ada Lovelace",
+            language: "en",
+            narrationVersion: 2,
+            summary: "Ada Lovelace was a mathematician.",
+            sections: [section],
+          },
+        },
+      });
+    }
+    if (operation === "metadata") {
+      return route.fulfill({
+        json: { data: { linkCounts: [], sectionCitations: [], images: [] } },
+      });
+    }
+    return route.fallback();
+  });
+  await page.route("**/api/article-context", (route) =>
+    route.fulfill({
+      json: {
+        cacheStatus: "hit",
+        context: {
+          ...route.request().postDataJSON(),
+          schemaVersion: ARTICLE_CONTEXT_SCHEMA_VERSION,
+          extractorVersion: ARTICLE_CONTEXT_EXTRACTOR_VERSION,
+          generatedAt: "2026-08-01T00:00:00Z",
+          sourceHash: "section-reflow",
+          blocks: [],
+        },
+      },
+    }),
+  );
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto("/article/Ada_Lovelace");
+  const sections = page.getByRole("navigation", { name: "Article sections" });
+  const title = sections.getByText(section.title, { exact: true });
+  const listen = sections.getByRole("button", {
+    name: `Listen to ${section.title}`,
+  });
+  await expect(listen).toBeVisible();
+  await expectNoPageOverflow(page);
+  const titleBox = await title.boundingBox();
+  const listenBox = await listen.boundingBox();
+  if (!titleBox || !listenBox)
+    throw new Error("Section title or Listen target missing");
+  expect(listenBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+  expect(listenBox.width).toBeGreaterThanOrEqual(44);
+  expect(listenBox.height).toBeGreaterThanOrEqual(44);
+
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.getByRole("button", { name: /^Play all/ }).click();
+  const skip = page.getByRole("button", { name: "Skip section", exact: true });
+  await expect(skip.getByText("Skip section", { exact: true })).toBeVisible();
+  await expectNoPageOverflow(page);
 });
 
 test("shell, menu, and listening controls remain reachable", async ({

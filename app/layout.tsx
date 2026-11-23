@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
-import { Fraunces, DM_Sans, JetBrains_Mono } from "next/font/google";
+import {
+  Fraunces,
+  Atkinson_Hyperlegible_Next,
+  Atkinson_Hyperlegible_Mono,
+} from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import {
@@ -15,16 +19,25 @@ const fraunces = Fraunces({
   display: "swap",
 });
 
-const dmSans = DM_Sans({
+// Atkinson Hyperlegible was designed by the Braille Institute for low-vision
+// readers: distinct I/l/1 and 0/O shapes, open counters, generous spacing.
+const bodyFont = Atkinson_Hyperlegible_Next({
   variable: "--font-body",
-  subsets: ["latin"],
+  // Next has no automatic fallback metrics for the Atkinson families.
+  adjustFontFallback: false,
+  fallback: ["system-ui", "sans-serif"],
+  subsets: ["latin", "latin-ext"],
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+// Only used for timestamps and feed URLs, so it isn't worth a preload.
+const monoFont = Atkinson_Hyperlegible_Mono({
   variable: "--font-mono",
+  adjustFontFallback: false,
+  fallback: ["ui-monospace", "monospace"],
   subsets: ["latin"],
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -154,8 +167,8 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Curio Garden" />
       </head>
       <body
-        className={`${fraunces.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased animated-bg`}
-        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
+        className={`${fraunces.variable} ${bodyFont.variable} ${monoFont.variable} antialiased animated-bg`}
+        style={{ fontFamily: "var(--font-body)" }}
       >
         {children}
         <Analytics />

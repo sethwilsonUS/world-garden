@@ -72,10 +72,9 @@ describe("HomeListeningSample", () => {
   it("offers the same article player presentation with an opt-in transcript", () => {
     const markup = renderToStaticMarkup(<HomeListeningSample />);
 
-    expect(markup).toContain("Listening sample");
-    expect(markup).toContain("Start with a short listen");
+    expect(markup).toContain("Hear it in 18 seconds");
     expect(markup).toContain(
-      "Hear how a Wikipedia page becomes a clear listening path.",
+      "A short sample of how a Wikipedia page becomes a clear listening path.",
     );
     expect(markup).not.toContain("No account or search needed");
     expect(markup).toContain(

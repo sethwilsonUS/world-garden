@@ -12,8 +12,15 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
 import { SiteNavLinks } from "./SiteNavLinks";
+import {
+  HeaderSearch,
+  SearchForm,
+  SearchIcon,
+  isHeaderSearchHidden,
+} from "./SearchForm";
 
 const MOBILE_MENU_ID = "mobile-nav-menu";
+const MOBILE_SEARCH_ID = "mobile-header-search";
 
 const LeafIcon = ({ size = 24 }: { size?: number }) => {
   return (
@@ -88,13 +95,31 @@ export const AccessibleLayout = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const [mobileMenuTop, setMobileMenuTop] = useState(0);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
+  const showHeaderSearch = !isHeaderSearchHidden(pathname);
 
   const [prevPathname, setPrevPathname] = useState(pathname);
   if (pathname !== prevPathname) {
     setPrevPathname(pathname);
     setMobileMenuOpen(false);
+    setMobileSearchOpen(false);
   }
+
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    mobileSearchInputRef.current?.focus();
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setMobileSearchOpen(false);
+      searchToggleRef.current?.focus();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mobileSearchOpen]);
 
   const closeMobileMenu = useCallback(() => {
     setMobileMenuOpen(false);
@@ -238,17 +263,37 @@ export const AccessibleLayout = ({
 
           {/* Desktop nav */}
           <div className="hidden min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:flex">
+            <HeaderSearch />
             <SiteNavLinks variant="desktop" authEnabled={authEnabled} />
             <ThemeToggle />
             {authControls}
           </div>
 
-          {/* Mobile: theme toggle + hamburger */}
+          {/* Mobile: search + theme toggle + hamburger */}
           <div className="flex items-center gap-1 lg:hidden">
+            {showHeaderSearch ? (
+              <button
+                ref={searchToggleRef}
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setMobileSearchOpen((v) => !v);
+                }}
+                aria-expanded={mobileSearchOpen}
+                aria-controls={MOBILE_SEARCH_ID}
+                aria-label={mobileSearchOpen ? "Close search" : "Search articles"}
+                className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-foreground transition-colors duration-200 hover:bg-surface-2"
+              >
+                {mobileSearchOpen ? <CloseIcon /> : <SearchIcon />}
+              </button>
+            ) : null}
             <ThemeToggle />
             <button
               ref={hamburgerRef}
-              onClick={() => setMobileMenuOpen((v) => !v)}
+              onClick={() => {
+                setMobileSearchOpen(false);
+                setMobileMenuOpen((v) => !v);
+              }}
               aria-expanded={mobileMenuOpen}
               aria-controls={MOBILE_MENU_ID}
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
@@ -257,6 +302,16 @@ export const AccessibleLayout = ({
               {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
             </button>
           </div>
+
+          {showHeaderSearch && mobileSearchOpen ? (
+            <div id={MOBILE_SEARCH_ID} className="basis-full pb-2 lg:hidden">
+              <SearchForm
+                variant="header"
+                inputId="header-search-input-mobile"
+                inputRef={mobileSearchInputRef}
+              />
+            </div>
+          ) : null}
         </nav>
       </header>
 
@@ -310,13 +365,13 @@ export const AccessibleLayout = ({
               <SiteNavLinks variant="footer" authEnabled={authEnabled} />
               <Link
                 href="/privacy"
-                className="text-foreground-2 no-underline text-sm"
+                className="inline-flex min-h-11 items-center text-foreground-2 no-underline text-sm"
               >
                 Privacy
               </Link>
               <Link
                 href="/terms"
-                className="text-foreground-2 no-underline text-sm"
+                className="inline-flex min-h-11 items-center text-foreground-2 no-underline text-sm"
               >
                 Terms
               </Link>

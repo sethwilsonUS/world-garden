@@ -67,7 +67,7 @@ export const DailyTrendingBriefPlayer = ({
         </button>
 
         <div className="min-w-[min(100%,10rem)] flex-[1_1_10rem] break-words [overflow-wrap:anywhere]">
-          <p className="m-0 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-muted">
+          <p className="m-0 text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             AI-generated daily audio briefing
           </p>
           <p className="m-0 mt-1 font-display text-sm font-semibold leading-snug text-foreground">
@@ -99,7 +99,7 @@ export const DailyTrendingBriefPlayer = ({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="min-w-0 break-words font-mono text-[0.7rem] text-muted tabular-nums [overflow-wrap:anywhere]">
+        <span className="min-w-0 break-words font-mono text-xs text-muted tabular-nums [overflow-wrap:anywhere]">
           {formatTime(currentTime)} / {formatTime(effectiveDuration)}
         </span>
         <Link

@@ -26,3 +26,9 @@ Validated prose is persisted before artwork and speech. A downstream failure pre
 The protected `GET /api/podcast/trending/cron` runs at 04:45 UTC and retries at 05:15 UTC. `POST /api/podcast/trending/sync` provides a manual trigger. Both require `CRON_SECRET`; trusted speech also requires matching `TTS_QUOTA_BYPASS_SECRET` values in the app and Convex. Episodes publish to `/api/podcast/trending.xml` after audio and artwork complete.
 
 Monitor failures by stage, writing repairs, web-search usage and estimated text cost, strict TTS failures, and successful reuse on retries. Listener feedback helps assess depth and pacing.
+
+### Checking an apparently late episode
+
+Compare the latest RSS item's `pubDate` with the scheduled run in UTC. The archive also labels the Wikimedia pageview date, which can be earlier than publication. The featured snapshot refreshes at 00:05 UTC, several hours before the 04:45 UTC narration run. During that interval, `/api/trending/brief` can report `missing` for fresh pageviews even when the preceding brief published on schedule.
+
+If the feed still lacks an episode after the 05:15 UTC retry has had time to finish, compare the API's `trendingDate` with the matching `trendingBriefJobs` record and the production cron logs before triggering a manual sync.

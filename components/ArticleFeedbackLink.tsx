@@ -71,7 +71,8 @@ export const buildArticleFeedbackHref = ({
 export const ArticleFeedbackLink = (props: ArticleFeedbackLinkProps) => (
   <Link
     href={buildArticleFeedbackHref(props)}
-    className="btn-secondary min-h-10 px-4 py-2 text-sm no-underline"
+    className="btn-tertiary text-sm"
+    data-article-feedback-link
   >
     Give feedback on this article
   </Link>

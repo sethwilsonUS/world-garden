@@ -268,7 +268,7 @@ export const AudioPlayer = ({
             type="button"
             onClick={() => skip(-10)}
             aria-label="Skip back 10 seconds"
-            className="flex min-h-[44px] min-w-[44px] cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-[8px] font-mono text-[0.5625rem] font-bold leading-none text-foreground-2 transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
+            className="flex min-h-[44px] min-w-[44px] cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-[8px] font-mono text-xs font-bold leading-none text-foreground-2 transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
             <svg
               viewBox="0 0 24 24"
@@ -337,7 +337,7 @@ export const AudioPlayer = ({
             type="button"
             onClick={() => skip(10)}
             aria-label="Skip forward 10 seconds"
-            className="flex min-h-[44px] min-w-[44px] cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-[8px] font-mono text-[0.5625rem] font-bold leading-none text-foreground-2 transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
+            className="flex min-h-[44px] min-w-[44px] cursor-pointer flex-col items-center justify-center gap-px rounded-[10px] border-0 bg-transparent p-[8px] font-mono text-xs font-bold leading-none text-foreground-2 transition-colors duration-150 hover:bg-accent-bg hover:text-accent"
           >
             <svg
               viewBox="0 0 24 24"
@@ -416,7 +416,7 @@ export const AudioPlayer = ({
       </div>
 
       {showSyntheticSpeechLabel ? (
-        <p className="mt-2 text-center text-[0.6875rem] leading-normal text-muted">
+        <p className="mt-2 text-center text-xs leading-normal text-muted">
           Synthetic speech audio.
         </p>
       ) : null}

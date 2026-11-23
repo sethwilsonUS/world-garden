@@ -119,7 +119,7 @@ const SignedInDashboard = () => {
               {librarySummary(bookmarkCount, areBookmarksLoaded)}
             </span>
             {email ? (
-              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-muted">
+              <span className="max-w-full rounded-full border border-border bg-surface px-3 py-1.5 text-muted [overflow-wrap:anywhere]">
                 Signed in as {email}
               </span>
             ) : null}

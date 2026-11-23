@@ -46,7 +46,7 @@ describe("compact playback reflow", () => {
     expect(markup).toContain("Activate to change.");
     expect(markup).not.toContain("Click to change.");
     expect(markup).toContain(
-      "min-w-0 break-words font-mono text-[0.7rem] text-muted tabular-nums [overflow-wrap:anywhere]",
+      "min-w-0 break-words font-mono text-xs text-muted tabular-nums [overflow-wrap:anywhere]",
     );
   });
 });

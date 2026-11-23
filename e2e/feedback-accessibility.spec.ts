@@ -58,8 +58,12 @@ test("feedback route does not steal focus and supports skip navigation", async (
   await page.keyboard.press("Enter");
   await expect(page.locator("#main-content")).toBeFocused();
   await page.keyboard.press("Tab");
+  // No redundant "Back to home" link: the first stop is the form itself.
   await expect(
     page.getByRole("link", { name: "Back to the garden" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: /What are you sharing\?/ }),
   ).toBeFocused();
 });
 
@@ -202,7 +206,5 @@ test("the feedback privacy anchor clears the fixed navigation", async ({
     };
   });
   expect(positions).not.toBeNull();
-  expect(positions!.headingTop).toBeGreaterThanOrEqual(
-    positions!.navbarBottom,
-  );
+  expect(positions!.headingTop).toBeGreaterThanOrEqual(positions!.navbarBottom);
 });

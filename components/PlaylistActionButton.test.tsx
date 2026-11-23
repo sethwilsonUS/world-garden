@@ -85,4 +85,78 @@ describe("PlaylistActionButton", () => {
       'title="Playlist: sign in to generate a podcast episode"',
     );
   });
+
+  it("offers a compact variant with a short visible label inside the accessible name", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+    vi.doMock("@clerk/nextjs", () => ({
+      SignInButton: ({ children }: { children: ReactNode }) =>
+        createElement("div", null, children),
+      useAuth: () => ({
+        isLoaded: true,
+        isSignedIn: false,
+      }),
+    }));
+    vi.doMock("@/hooks/usePersonalPlaylist", () => ({
+      usePersonalPlaylist: () => ({
+        addBySlug: vi.fn(),
+        isAdding: () => false,
+        isAvailable: false,
+        isLoaded: true,
+        isInPlaylist: () => false,
+      }),
+    }));
+
+    const { PlaylistActionButton } = await import("./PlaylistActionButton");
+    const markup = renderToStaticMarkup(
+      createElement(PlaylistActionButton, {
+        slug: "Taylor_Swift",
+        title: "Taylor Swift",
+        variant: "compact",
+      }),
+    );
+
+    expect(markup).toContain(
+      '<span class="hidden text-sm font-medium sm:inline">Playlist</span>',
+    );
+    expect(markup).toContain(
+      'aria-label="Add to Playlist: sign in to add Taylor Swift and generate a podcast episode"',
+    );
+    expect(markup).toContain("min-h-[44px]");
+    expect(markup).toContain("min-w-[44px]");
+  });
+
+  it("keeps the default icon variant unchanged for existing callers", async () => {
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "false";
+    vi.doMock("@clerk/nextjs", () => ({
+      SignInButton: ({ children }: { children: ReactNode }) =>
+        createElement("div", null, children),
+      useAuth: () => ({
+        isLoaded: true,
+        isSignedIn: false,
+      }),
+    }));
+    vi.doMock("@/hooks/usePersonalPlaylist", () => ({
+      usePersonalPlaylist: () => ({
+        addBySlug: vi.fn(),
+        isAdding: () => false,
+        isAvailable: false,
+        isLoaded: true,
+        isInPlaylist: () => false,
+      }),
+    }));
+
+    const { PlaylistActionButton } = await import("./PlaylistActionButton");
+    const markup = renderToStaticMarkup(
+      createElement(PlaylistActionButton, {
+        slug: "Taylor_Swift",
+        title: "Taylor Swift",
+      }),
+    );
+
+    expect(markup).toContain(
+      'aria-label="sign in to add Taylor Swift and generate a podcast episode"',
+    );
+    expect(markup).toContain("h-[44px] w-[44px]");
+    expect(markup).not.toContain("<span");
+  });
 });

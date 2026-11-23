@@ -8,6 +8,11 @@ vi.mock("@/hooks/useBookmarks", () => ({
   useBookmarks: vi.fn(),
 }));
 
+vi.mock("@/components/RandomArticleButton", () => ({
+  RandomArticleButton: () =>
+    createElement("button", { type: "button" }, "Surprise me"),
+}));
+
 vi.mock("@/lib/analytics", () => ({
   analytics: {
     libraryPageAccessed: vi.fn(),
@@ -46,6 +51,10 @@ describe("LibraryPage", () => {
     const markup = renderToStaticMarkup(createElement(LibraryPage));
 
     expect(markup).toContain("No saved articles yet");
+    // A one-click path to something worth saving, next to "Start exploring".
+    expect(markup).toContain("Start exploring");
+    expect(markup).toContain("Surprise me");
+    expect(markup).not.toContain("Back to home");
   });
 
   it("renders saved bookmarks once loading completes", () => {

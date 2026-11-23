@@ -52,7 +52,7 @@ export const RandomRerollButton = () => {
       disabled={loading}
       aria-label="Load another random article"
       aria-busy={loading}
-      className={`inline-flex items-center gap-1.5 text-muted text-sm bg-transparent border-none p-0 transition-opacity duration-200 ${loading ? "cursor-wait opacity-60" : "cursor-pointer"}`}
+      className={`inline-flex items-center gap-1.5 text-muted text-sm bg-transparent border-none p-0 transition-colors duration-200 ${loading ? "cursor-wait" : "cursor-pointer hover:text-foreground"}`}
     >
       {loading ? (
         <svg

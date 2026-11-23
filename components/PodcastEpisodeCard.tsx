@@ -3,13 +3,18 @@ import { PodcastEpisodeArtwork } from "@/components/PodcastEpisodeArtwork";
 import { PodcastEpisodePlayer } from "@/components/PodcastEpisodePlayer";
 
 type PodcastEpisodeCardProps = {
+  /** Stable id used to label the episode's player by its visible heading. */
+  headingId: string;
+  headingLevel?: 3 | 4;
   artworkSrc: string | null;
-  artworkAlt: string;
+  artworkAlt?: string;
   audioUrl: string | null;
   durationSeconds?: number;
   title: string;
   dateLabel: string;
   summary?: string;
+  /** Clamp the summary to two lines for overview lists. */
+  compact?: boolean;
   actions: ReactNode;
 };
 
@@ -23,73 +28,75 @@ function formatDuration(seconds: number): string {
 }
 
 export const PodcastEpisodeCard = ({
+  headingId,
+  headingLevel = 3,
   artworkSrc,
-  artworkAlt,
+  artworkAlt = "",
   audioUrl,
   durationSeconds,
   title,
   dateLabel,
   summary,
+  compact = false,
   actions,
 }: PodcastEpisodeCardProps) => {
   const durationLabel =
     durationSeconds && durationSeconds > 0
       ? formatDuration(durationSeconds)
       : null;
+  const Heading = headingLevel === 4 ? "h4" : "h3";
 
   return (
-    <article className="garden-bed p-4 sm:p-5">
-      {/* Info row: artwork + text metadata */}
-      <div className="flex flex-col sm:flex-row gap-4 sm:gap-5">
+    <article className="rounded-xl border border-border bg-surface-2 p-4">
+      <div className="flex min-w-0 items-start gap-4">
         {artworkSrc && (
           <PodcastEpisodeArtwork
             src={artworkSrc}
             alt={artworkAlt}
-            className="mx-auto w-full max-w-[200px] sm:mx-0 sm:w-36 md:w-40 shrink-0"
+            className="w-16 shrink-0 sm:w-20"
           />
         )}
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">
-              {dateLabel}
-            </span>
-            {durationLabel && (
-              <>
-                <span
-                  className="inline-block h-[3px] w-[3px] rounded-full bg-muted"
-                  aria-hidden="true"
-                />
-                <span className="font-mono text-[0.68rem] text-muted">
-                  {durationLabel}
-                </span>
-              </>
-            )}
-          </div>
-
-          <h3 className="mt-1.5 font-display text-[1.08rem] font-semibold leading-[1.28] text-foreground sm:text-[1.14rem]">
+          <Heading
+            id={headingId}
+            className="break-words font-display text-[1.05rem] font-semibold leading-[1.3] text-foreground [overflow-wrap:anywhere]"
+          >
             {title}
-          </h3>
+          </Heading>
+          <p className="mt-1 text-xs text-muted">
+            {dateLabel}
+            {durationLabel ? (
+              <>
+                <span aria-hidden="true"> · </span>
+                <span className="sr-only">, </span>
+                <span className="tabular-nums">{durationLabel}</span>
+              </>
+            ) : null}
+          </p>
 
           {summary && (
-            <p className="mt-2 break-words text-sm leading-[1.68] text-foreground-2 [overflow-wrap:anywhere]">
+            <p
+              className={`mt-2 break-words text-sm leading-[1.6] text-foreground-2 [overflow-wrap:anywhere] ${
+                compact ? "line-clamp-2" : ""
+              }`.trim()}
+            >
               {summary}
             </p>
           )}
         </div>
       </div>
 
-      {/* Playback */}
       {audioUrl && (
         <PodcastEpisodePlayer
           audioUrl={audioUrl}
           title={title}
+          labelledBy={headingId}
           durationSeconds={durationSeconds}
-          className="mt-4"
+          className="mt-3"
         />
       )}
 
-      {/* Actions */}
       <div className="mt-3 flex flex-wrap gap-2">{actions}</div>
     </article>
   );

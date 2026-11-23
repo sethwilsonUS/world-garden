@@ -77,36 +77,30 @@ export default async function FeedbackPage({
   searchParams = Promise.resolve({}),
 }: FeedbackPageProps) {
   const articleContext = parseArticleFeedbackContext(await searchParams);
-  const backHref = articleContext
-    ? `/article/${encodeURIComponent(articleContext.slug)}`
-    : "/";
-  const backLabel = articleContext
-    ? `Back to ${articleContext.title}`
-    : "Back to the garden";
-
   return (
     <div className="container mx-auto px-4 pb-20 pt-10">
       <div className="mx-auto max-w-4xl">
-        <nav aria-label="Back navigation" className="mb-8">
-          <Link
-            href={backHref}
-            className="inline-flex min-h-11 max-w-full min-w-0 items-center gap-1 text-sm text-muted no-underline"
-          >
-            <span aria-hidden="true">←</span>
-            <span className="min-w-0 [overflow-wrap:anywhere]">
-              {backLabel}
-            </span>
-          </Link>
-        </nav>
+        {/* The site nav already leads home; only keep a back link when it
+            returns the reader to the article they were giving feedback on. */}
+        {articleContext ? (
+          <nav aria-label="Back navigation" className="mb-5">
+            <Link
+              href={`/article/${encodeURIComponent(articleContext.slug)}`}
+              className="inline-flex min-h-11 max-w-full min-w-0 items-center gap-1 text-sm text-muted no-underline"
+            >
+              <span aria-hidden="true">←</span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                Back to {articleContext.title}
+              </span>
+            </Link>
+          </nav>
+        ) : null}
 
         <header>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-            Feedback &amp; research
-          </p>
-          <h1 className="type-page-title mt-3 font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-foreground">
+          <h1 className="type-page-title font-display text-[1.75rem] font-bold text-foreground">
             Help the garden learn.
           </h1>
-          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.8] text-foreground-2">
+          <p className="mt-1 max-w-2xl text-base leading-[1.6] text-foreground-2">
             Found a barrier, spotted something confusing, or have an idea? Share
             what happened. You can send feedback without signing in, and you
             choose whether to leave contact details. No diagnosis is required.

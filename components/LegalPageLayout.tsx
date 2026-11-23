@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 
 type LegalPageLayoutProps = {
   title: string;
@@ -23,39 +22,14 @@ export function LegalPageLayout({
   return (
     <div className="container mx-auto px-4 pt-10 pb-20">
       <div className="max-w-4xl mx-auto">
-        <nav aria-label="Back navigation" className="mb-5">
-          <Link
-            href="/"
-            className="inline-flex min-h-11 items-center gap-1 text-muted text-sm no-underline"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              width={14}
-              height={14}
-              aria-hidden="true"
-            >
-              <path d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to home
-          </Link>
-        </nav>
-
         <header className="mb-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
-            Legal
-          </p>
-          <h1 className="type-page-title mt-4 font-display text-[2rem] sm:text-[2.45rem] font-bold text-foreground leading-[1.05]">
+          <h1 className="type-page-title font-display text-[1.75rem] font-bold text-foreground">
             {title}
           </h1>
-          <p className="mt-4 max-w-3xl text-[1.04rem] leading-[1.78] text-foreground-2">
+          <p className="mt-1 max-w-3xl text-base leading-[1.6] text-foreground-2">
             {description}
           </p>
-          <p className="mt-3 text-xs text-muted">Last updated: {lastUpdated}</p>
+          <p className="mt-2 text-xs text-muted">Last updated: {lastUpdated}</p>
         </header>
 
         <div className="space-y-5">{children}</div>

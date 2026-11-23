@@ -116,7 +116,7 @@ const BadgeProgressToastCard = ({
           </div>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-muted">
+            <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
               {statusLabel}
             </p>
             <h2 className="mt-1 break-words font-display text-[1.02rem] leading-[1.2] text-foreground [overflow-wrap:anywhere]">

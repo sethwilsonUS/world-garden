@@ -74,16 +74,12 @@ const validateFields = (fields: FeedbackFields): FieldErrors => {
     errors.message =
       "Please shorten your feedback. Some characters use more space than others.";
   }
-  if (
-    utf8Length(environment) > MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES
-  ) {
+  if (utf8Length(environment) > MAX_PRODUCT_FEEDBACK_ENVIRONMENT_BYTES) {
     errors.environment = "Please shorten the browser or access-tool details.";
   }
   if (fields.researchOptIn && !email) {
     errors.contactEmail = RESEARCH_EMAIL_ERROR;
-  } else if (
-    utf8Length(email) > MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES
-  ) {
+  } else if (utf8Length(email) > MAX_PRODUCT_FEEDBACK_CONTACT_EMAIL_BYTES) {
     errors.contactEmail =
       "Please shorten the email address. Some characters use more space than others.";
   } else if (email && (!EMAIL_PATTERN.test(email) || email.includes(".."))) {
@@ -133,7 +129,7 @@ const ArticleContextSummary = ({
   >
     <p
       id="feedback-article-heading"
-      className="text-xs font-semibold uppercase tracking-[0.14em] text-accent"
+      className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent"
     >
       Feedback on this article
     </p>
@@ -540,7 +536,7 @@ export const FeedbackForm = ({
           type="submit"
           disabled={!hydrated || sending}
           className={`btn-primary min-h-11 w-full sm:w-auto ${
-            sending ? "cursor-not-allowed opacity-60" : ""
+            sending ? "cursor-wait" : ""
           }`}
           aria-disabled={!hydrated || sending}
         >

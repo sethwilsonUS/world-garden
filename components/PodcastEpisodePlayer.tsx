@@ -7,6 +7,8 @@ import { formatTime } from "@/lib/formatTime";
 type PodcastEpisodePlayerProps = {
   audioUrl: string;
   title: string;
+  /** Id of the visible episode heading that names this player group. */
+  labelledBy?: string;
   durationSeconds?: number;
   className?: string;
 };
@@ -14,6 +16,7 @@ type PodcastEpisodePlayerProps = {
 export const PodcastEpisodePlayer = ({
   audioUrl,
   title,
+  labelledBy,
   durationSeconds,
   className = "",
 }: PodcastEpisodePlayerProps) => {
@@ -30,10 +33,15 @@ export const PodcastEpisodePlayer = ({
       : 0;
 
   return (
+    // The title is printed once, in the card heading; the player group points
+    // at it instead of repeating it visually.
     <div
-      className={`rounded-xl border border-border bg-surface px-3 py-2.5 sm:px-3.5 sm:py-3 ${className}`.trim()}
+      role="group"
+      aria-labelledby={labelledBy}
+      aria-label={labelledBy ? undefined : `Episode audio: ${title}`}
+      className={`rounded-xl border border-border bg-surface px-3 py-2 ${className}`.trim()}
     >
-      <div className="flex min-w-0 flex-wrap items-start gap-[10px] sm:gap-[12px]">
+      <div className="flex min-w-0 flex-wrap items-center gap-[10px] sm:gap-[12px]">
         <button
           type="button"
           onClick={toggle}
@@ -65,13 +73,19 @@ export const PodcastEpisodePlayer = ({
           )}
         </button>
 
-        <div className="min-w-[min(100%,10rem)] flex-[1_1_10rem] break-words [overflow-wrap:anywhere]">
-          <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">
-            Episode audio
-          </p>
-          <p className="m-0 mt-0.5 font-display text-[0.92rem] font-semibold leading-snug text-foreground">
-            {title}
-          </p>
+        <div className="grid min-w-[min(100%,8rem)] flex-[1_1_8rem] gap-[6px]">
+          <div
+            aria-hidden="true"
+            className="h-1.5 overflow-hidden rounded-full bg-surface-3"
+          >
+            <div
+              className="h-full rounded-full bg-accent transition-[width] duration-200"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="min-w-0 break-words text-xs text-muted tabular-nums [overflow-wrap:anywhere]">
+            {formatTime(currentTime)} / {formatTime(effectiveDuration)}
+          </span>
         </div>
 
         <button
@@ -81,28 +95,13 @@ export const PodcastEpisodePlayer = ({
             const currentIndex = rates.indexOf(rate);
             setRate(rates[(currentIndex + 1) % rates.length]);
           }}
-          aria-label={`Playback speed ${formatRate(rate)}. Click to change.`}
-          className={`min-h-[44px] min-w-[44px] shrink-0 rounded-lg border border-border px-[10px] py-[8px] font-mono text-[0.72rem] font-bold leading-none ${
+          aria-label={`Playback speed ${formatRate(rate)}. Activate to change.`}
+          className={`min-h-[44px] min-w-[44px] shrink-0 rounded-lg border border-border px-[10px] py-[8px] text-sm font-bold leading-none tabular-nums ${
             rate !== 1 ? "text-accent" : "text-muted"
           }`}
         >
           {formatRate(rate)}
         </button>
-      </div>
-
-      <div className="mt-[10px] grid min-w-0 grid-cols-1 gap-[8px]">
-        <div
-          aria-hidden="true"
-          className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3"
-        >
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-200"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <span className="justify-self-end font-mono text-[0.68rem] text-muted tabular-nums">
-          {formatTime(currentTime)} / {formatTime(effectiveDuration)}
-        </span>
       </div>
 
       <audio

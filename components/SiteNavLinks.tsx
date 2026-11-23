@@ -57,7 +57,11 @@ export const SiteNavLinks = ({
 
   return (
     <>
-      {commonLinks.map((link) => renderLink(link.href, link.label))}
+      {commonLinks
+        // The logo already links home on wide screens; keep "Home" in the
+        // mobile menu and footer where the logo is less discoverable.
+        .filter((link) => variant !== "desktop" || link.href !== "/")
+        .map((link) => renderLink(link.href, link.label))}
       {authEnabled ? (
         <>
           <Show when="signed-out">{renderLink("/library", "Library")}</Show>

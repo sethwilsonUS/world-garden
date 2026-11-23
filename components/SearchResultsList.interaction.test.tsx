@@ -124,6 +124,11 @@ describe("SearchResultsList interactions", () => {
     expect(container.querySelector('[role="status"]')).toBe(status);
     expect(status?.textContent).toContain("2 search results found for Moria.");
     expect(document.activeElement).toBe(refineInput);
+    // The ordered list conveys position; no decorative number badges or
+    // "1." prefixes are duplicated into link names.
+    expect(container.querySelector("ol a")?.hasAttribute("aria-label")).toBe(false);
+    expect(container.querySelector("ol a")?.textContent).toContain("Moria description");
+    expect(container.querySelector("ol a")?.textContent).not.toMatch(/^1/);
     expect(container.textContent).not.toContain("number key");
     expect(container.textContent).not.toContain("arrow keys");
   });
