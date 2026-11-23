@@ -41,7 +41,7 @@ export const HomeListeningSample = () => {
   return (
     <section
       aria-labelledby="listening-sample-heading"
-      className="overflow-hidden rounded-2xl border border-border bg-surface text-left"
+      className="min-w-0 overflow-hidden rounded-2xl border border-border bg-surface text-left [overflow-wrap:anywhere]"
     >
       <div className="px-4 pt-4 sm:px-5 sm:pt-5">
         <h3

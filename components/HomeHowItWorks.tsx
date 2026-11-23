@@ -19,9 +19,9 @@ export const HomeHowItWorks = () => (
   <section
     id="how-it-works"
     aria-labelledby="how-it-works-heading"
-    className="mt-16 rounded-3xl border border-border bg-surface-2 p-5 sm:p-8 lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)] lg:items-start lg:gap-10"
+    className="mt-16 rounded-3xl border border-border bg-surface-2 p-5 [overflow-wrap:anywhere] sm:p-8 lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)] lg:items-start lg:gap-10"
   >
-    <div>
+    <div className="min-w-0">
       <h2
         id="how-it-works-heading"
         className="type-section-title font-display font-semibold text-foreground"
@@ -37,7 +37,7 @@ export const HomeHowItWorks = () => (
             >
               {index + 1}
             </span>
-            <p className="m-0 text-base leading-[1.6] text-foreground-2">
+            <p className="m-0 min-w-0 text-base leading-[1.6] text-foreground-2">
               <strong className="font-semibold text-foreground">
                 {step.title}.
               </strong>{" "}
@@ -47,7 +47,7 @@ export const HomeHowItWorks = () => (
         ))}
       </ol>
     </div>
-    <div className="mt-6 lg:mt-0">
+    <div className="mt-6 min-w-0 lg:mt-0">
       <HomeListeningSample />
     </div>
   </section>
