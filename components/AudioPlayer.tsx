@@ -25,6 +25,7 @@ type AudioPlayerProps = {
   variant?: "default" | "compact";
   className?: string;
   fallbackDuration?: number;
+  nativeControlsBeforeHydration?: boolean;
   onPlaying?: () => void;
   onPlaybackError?: () => void;
   showSyntheticSpeechLabel?: boolean;
@@ -45,6 +46,7 @@ export const AudioPlayer = ({
   variant = "default",
   className = "",
   fallbackDuration = 0,
+  nativeControlsBeforeHydration = false,
   onPlaying,
   onPlaybackError,
   showSyntheticSpeechLabel = true,
@@ -53,6 +55,9 @@ export const AudioPlayer = ({
 }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playBtnRef = useRef<HTMLButtonElement>(null);
+  const [nativeControls, setNativeControls] = useState(
+    nativeControlsBeforeHydration,
+  );
   const [playing, setPlaying] = useState(false);
   const [ended, setEnded] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
@@ -87,6 +92,23 @@ export const AudioPlayer = ({
     const onMeta = () => {
       if (isFinite(audio.duration)) setDuration(audio.duration);
     };
+    // Native controls can receive input before React attaches media listeners.
+    // Adopt the existing media state and keep a focused native control in place.
+    let mounted = true;
+    if (audio.controls) {
+      queueMicrotask(() => {
+        if (!mounted) return;
+        onMeta();
+        onTimeUpdate();
+        setHasPlayed(audio.played.length > 0 || audio.currentTime > 0);
+        if (audio.played.length > 0) handlePlaying();
+        setPlaying(!audio.paused && !audio.ended);
+        setEnded(audio.ended);
+        if (audio.ended) handleEnded();
+        if (audio.error) handlePlaybackError();
+        if (document.activeElement !== audio) setNativeControls(false);
+      });
+    }
     audio.addEventListener("play", onPlay);
     audio.addEventListener("playing", onPlayingEvent);
     audio.addEventListener("pause", onPause);
@@ -96,6 +118,7 @@ export const AudioPlayer = ({
     audio.addEventListener("durationchange", onMeta);
     audio.addEventListener("loadedmetadata", onMeta);
     return () => {
+      mounted = false;
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("playing", onPlayingEvent);
       audio.removeEventListener("pause", onPause);
@@ -252,12 +275,23 @@ export const AudioPlayer = ({
       {/* Main player surface */}
       <div
         data-audio-player-surface=""
-        className={`border border-border bg-surface-3 ${
+        className={`relative border border-border bg-surface-3 ${nativeControls ? "[&>:not(audio)]:invisible" : ""} ${
           compact
             ? "rounded-xl px-[14px] py-[12px]"
             : "rounded-2xl px-[clamp(14px,4vw,20px)] py-[16px]"
         }`}
       >
+        <audio
+          ref={audioRef}
+          src={audioUrl}
+          preload="metadata"
+          controls={nativeControls}
+          hidden={!nativeControls}
+          aria-hidden={nativeControls ? undefined : true}
+          aria-label={nativeControls ? title : undefined}
+          className="absolute inset-0 m-auto w-full"
+          onBlur={() => setNativeControls(false)}
+        />
         {/* Controls: skip-back, play/pause, skip-forward */}
         <div
           className={`mb-[14px] flex flex-wrap items-center justify-center ${
@@ -448,14 +482,6 @@ export const AudioPlayer = ({
           </a>
         </div>
       ) : null}
-
-      <audio
-        ref={audioRef}
-        src={audioUrl}
-        preload="metadata"
-        hidden
-        aria-hidden="true"
-      />
     </div>
   );
 };

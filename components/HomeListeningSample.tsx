@@ -68,6 +68,7 @@ export const HomeListeningSample = () => {
           showSyntheticSpeechLabel={false}
           showDownload={false}
           showLabel={false}
+          nativeControlsBeforeHydration
           variant="compact"
           className="mt-4 max-w-full"
         />

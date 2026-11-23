@@ -95,9 +95,15 @@ describe("HomeListeningSample", () => {
     expect(markup).toContain("0:18");
     expect(markup).toContain(`src="${HOME_LISTENING_SAMPLE_URL}"`);
     expect(markup).toContain('preload="metadata"');
-    expect(markup).toContain('aria-hidden="true"');
-    expect(markup).toContain(' hidden=""');
-    expect(markup).not.toContain(' controls=""');
+    const serverMarkup = document.createElement("template");
+    serverMarkup.innerHTML = markup;
+    const serverAudio = serverMarkup.content.querySelector("audio");
+    expect(serverAudio?.controls).toBe(true);
+    expect(serverAudio?.hidden).toBe(false);
+    expect(serverAudio?.hasAttribute("aria-hidden")).toBe(false);
+    expect(serverAudio?.getAttribute("aria-label")).toBe(
+      "Curio Garden listening sample",
+    );
     expect(markup).not.toContain("autoplay");
     expect(markup).not.toContain("autofocus");
     expect(markup).not.toContain("Synthetic speech audio.");
