@@ -2075,6 +2075,43 @@ test("a hero and Gallery image do not receive a third Context diagram copy", asy
   await expect(page.locator("a.context-section-link")).toHaveCount(0);
 });
 
+test("visual labels scale and the report form fits at 320px with doubled text", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await mockArticleAndContext(page);
+  await page.goto("/article/Ada_Lovelace");
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--os-text-base", "200%");
+  });
+  await openVisualAidsWithKeyboard(page);
+
+  const map = page.locator("#article-context-map-journey");
+  const kindLabel = map.getByText("Map", { exact: true });
+  expect(
+    await kindLabel.evaluate((label) =>
+      parseFloat(getComputedStyle(label).fontSize),
+    ),
+  ).toBeGreaterThanOrEqual(24);
+
+  const report = map.locator("details.context-report");
+  await openDetailsWithKeyboard(page, report);
+  const reason = report.getByRole("combobox", { name: "What went wrong?" });
+  await expect(reason).toBeVisible();
+  expect(
+    await reason.evaluate((select) =>
+      parseFloat(getComputedStyle(select).fontSize),
+    ),
+  ).toBeGreaterThanOrEqual(28);
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(1);
+});
+
 test("visual context remains usable at 200 percent zoom with forced colors", async ({
   page,
 }) => {

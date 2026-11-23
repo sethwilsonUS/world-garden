@@ -935,17 +935,17 @@ fieldset {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  min-height: 24px;
+  min-height: 44px;
   padding: 2px 7px;
   border: 1px solid var(--color-accent-border);
   border-radius: 999px;
   background: var(--color-accent-bg);
   color: var(--color-accent);
-  font-size: 0.625rem;
+  font-size: 0.875rem;
   font-weight: 700;
   line-height: 1.2;
   text-decoration: none;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .context-section-link:hover,
@@ -1027,7 +1027,7 @@ fieldset {
   align-items: center;
   gap: 7px;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -1090,11 +1090,13 @@ fieldset {
 
 .context-visual-load-status {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
   color: var(--color-muted);
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .context-visual-load-status-fallback,
@@ -1122,7 +1124,7 @@ fieldset {
   border: 1px solid currentcolor;
   border-radius: 50%;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1;
 }
@@ -1136,7 +1138,7 @@ fieldset {
 .context-lane-error .btn-secondary {
   margin-top: 12px;
   padding: 8px 12px;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
 }
 
 .context-lane-heading {
@@ -1163,10 +1165,8 @@ fieldset {
   margin-bottom: 3px;
   color: var(--color-accent);
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
 }
 
 .context-lane-title {
@@ -1177,11 +1177,11 @@ fieldset {
   line-height: 1.2;
 }
 
-.context-lane-heading p {
+.context-lane-heading p:not(.context-lane-title) {
   max-width: 42rem;
   margin: 7px 0 0;
   color: var(--color-muted);
-  font-size: 0.8125rem;
+  font-size: 1rem;
   line-height: 1.6;
 }
 
@@ -1196,6 +1196,7 @@ fieldset {
 
   position: relative;
   min-width: 0;
+  overflow-wrap: anywhere;
   scroll-margin-top: calc(var(--site-header-height) + 16px);
   padding: 28px 0 30px;
   border-top: 1px solid var(--color-border);
@@ -1246,7 +1247,7 @@ fieldset {
   align-items: center;
   gap: 8px;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.4;
 }
 
@@ -1256,10 +1257,8 @@ fieldset {
   gap: 5px;
   color: var(--color-foreground-2);
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .context-kind-mark svg {
@@ -1312,7 +1311,7 @@ fieldset {
 .context-visual-caption {
   margin: 9px 0 17px;
   color: var(--color-foreground-2);
-  font-size: 0.8125rem;
+  font-size: 1rem;
   line-height: 1.65;
 }
 
@@ -1374,7 +1373,7 @@ fieldset {
   margin: 0;
   padding-left: 1.4rem;
   color: var(--color-foreground-2);
-  font-size: 0.8125rem;
+  font-size: 1rem;
 }
 
 .context-place-list li,
@@ -1397,10 +1396,11 @@ fieldset {
 .context-coordinates {
   color: var(--color-muted);
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
 }
 
 .context-data-disclosure {
+  container: context-data / inline-size;
   width: 100%;
   min-width: 0;
   margin-top: 14px;
@@ -1443,14 +1443,14 @@ fieldset {
 
 .context-data-disclosure-label {
   flex: 1 1 12rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
 .context-data-disclosure-meta {
   color: var(--color-muted);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -1474,6 +1474,23 @@ fieldset {
 
 .context-data-disclosure[open] .context-data-disclosure-chevron svg {
   transform: rotate(180deg);
+}
+
+@container context-data (max-width: 24rem) {
+  .context-data-disclosure > summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+
+  .context-data-disclosure-meta {
+    grid-column: 1;
+  }
+
+  .context-data-disclosure-chevron {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
 }
 
 .context-data-disclosure-content {
@@ -1504,13 +1521,13 @@ fieldset {
 .context-map-prompt strong {
   display: block;
   color: var(--color-foreground);
-  font-size: 0.8125rem;
+  font-size: 1rem;
 }
 
 .context-map-prompt p {
   margin: 3px 0 0;
   color: var(--color-foreground-2);
-  font-size: 0.6875rem;
+  font-size: 1rem;
   line-height: 1.55;
 }
 
@@ -1524,14 +1541,19 @@ fieldset {
 
 .context-load-map {
   flex: 0 0 auto;
-  min-height: 42px;
+  min-height: 44px;
+  max-width: 100%;
   padding: 9px 14px;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
 }
 
 .context-text-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  overflow-wrap: anywhere;
   color: var(--color-accent);
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-underline-offset: 3px;
 }
@@ -1539,7 +1561,7 @@ fieldset {
 .context-attribution {
   margin: 8px 0 0;
   color: var(--color-muted);
-  font-size: 0.65625rem;
+  font-size: 0.75rem;
   line-height: 1.55;
 }
 
@@ -1625,14 +1647,14 @@ fieldset {
 .context-diagram-controls button,
 .context-map-place-controls button,
 .context-downloads button {
-  min-height: 34px;
+  min-height: 44px;
   padding: 6px 9px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);
   color: var(--color-foreground-2);
   cursor: pointer;
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
@@ -1660,7 +1682,7 @@ fieldset {
 .context-map-place-controls p {
   margin: 0 0 5px;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 1rem;
 }
 
 .context-map-place-controls ul {
@@ -1676,7 +1698,7 @@ fieldset {
   min-height: 1em;
   margin: 7px 0 0;
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -1691,16 +1713,18 @@ fieldset {
 
 .context-timeline-controls label {
   display: grid;
+  max-width: 100%;
   gap: 4px;
   color: var(--color-foreground-2);
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
 .context-timeline-controls select,
 .context-report select,
 .context-report textarea {
-  min-height: 40px;
+  min-height: 44px;
+  max-width: 100%;
   border: 1px solid var(--color-border);
   border-radius: 9px;
   background: var(--color-surface);
@@ -1714,9 +1738,9 @@ fieldset {
 }
 
 .context-timeline-controls .btn-secondary {
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 12px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .context-timeline-list {
@@ -1860,10 +1884,8 @@ fieldset {
   margin: 0 0 10px;
   color: var(--color-accent);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .on-this-day-edition {
@@ -2151,13 +2173,13 @@ fieldset {
   border: 1px solid var(--color-border);
   border-radius: 999px;
   color: var(--color-muted);
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .context-series-controls {
   display: flex;
+  min-inline-size: 0;
   flex-wrap: wrap;
   gap: 7px 12px;
   margin: 8px 0 12px;
@@ -2169,7 +2191,7 @@ fieldset {
 .context-series-controls legend {
   padding: 0 4px;
   color: var(--color-foreground);
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
@@ -2177,9 +2199,10 @@ fieldset {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 44px;
+  overflow-wrap: anywhere;
   color: var(--color-foreground-2);
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
 }
 
 .context-series-controls input {
@@ -2208,7 +2231,7 @@ fieldset {
 .context-standard-chart-selection-status,
 .context-standard-chart-summary {
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 1rem;
   line-height: 1.55;
 }
 
@@ -2354,7 +2377,7 @@ fieldset {
 .context-ranking-panel h4 span {
   color: var(--color-muted);
   font-family: var(--font-body);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -2409,7 +2432,7 @@ fieldset {
 
 .context-ranking-entry > span {
   color: var(--color-muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -2586,7 +2609,7 @@ fieldset {
   justify-content: flex-end;
   gap: 5px;
   color: var(--color-foreground-2);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.4;
 }
 
@@ -2699,7 +2722,7 @@ fieldset {
 .context-data-table thead th {
   background: var(--color-surface-3);
   color: var(--color-foreground);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
 }
 
 .context-data-table tbody th {
@@ -2749,7 +2772,7 @@ fieldset {
 .context-diagram-controls span {
   color: var(--color-muted);
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
 }
 
 .context-parts-list {
@@ -2859,14 +2882,16 @@ fieldset {
 
 .context-sources,
 .context-report {
-  min-width: 10rem;
+  min-width: min(10rem, 100%);
+  max-width: 100%;
+  overflow-wrap: anywhere;
   color: var(--color-foreground-2);
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
 }
 
 .context-sources > summary,
 .context-report > summary {
-  min-height: 34px;
+  min-height: 44px;
   padding: 8px 2px;
   color: var(--color-accent);
   cursor: pointer;
@@ -2883,7 +2908,7 @@ fieldset {
 .context-sources li span {
   display: block;
   color: var(--color-muted);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
 }
 
 .context-sources p {
@@ -2894,6 +2919,7 @@ fieldset {
 
 .context-report form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 7px;
   width: min(100%, 27rem);
   margin-top: 6px;
@@ -2921,9 +2947,9 @@ fieldset {
 
 .context-report .btn-secondary {
   justify-self: start;
-  min-height: 40px;
+  min-height: 44px;
   padding: 8px 12px;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 
 @media (max-width: 520px) {
@@ -2947,7 +2973,7 @@ fieldset {
   }
 
   .context-ranking-measure {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .context-parts-list > div {
