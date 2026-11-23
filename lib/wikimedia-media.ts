@@ -24,6 +24,8 @@ type ImageInfo = {
 type ImageInfoPage = {
   title?: string;
   imagerepository?: string;
+  missing?: string | boolean;
+  invalid?: string | boolean;
   imageinfo?: ImageInfo[];
 };
 
@@ -458,7 +460,13 @@ export const fetchWikimediaMediaDetails = async (
         const info = page.imageinfo?.[0];
         const projectHost = projectHostForRepository(repository);
         if (!info) {
-          if (ok) {
+          const isTerminalUnavailable =
+            page.missing === "" ||
+            page.missing === true ||
+            page.invalid === "" ||
+            page.invalid === true ||
+            page.imagerepository === "";
+          if (ok && isTerminalUnavailable) {
             const fallback = buildWikimediaSourceFallback(
               requested.sourceTitle,
               projectHost,

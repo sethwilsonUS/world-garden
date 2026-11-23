@@ -499,4 +499,37 @@ describe("Wikimedia media attribution", () => {
       }),
     });
   });
+
+  it("keeps a retryable fallback when an HTTP 200 page omits imageinfo without a terminal marker", async () => {
+    const imageUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Partial.jpg";
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          query: {
+            pages: {
+              "1": {
+                title: "File:Partial.jpg",
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const details = await fetchWikimediaMediaDetails(
+      [{ sourceTitle: "File:Partial.jpg", imageUrl }],
+      fetchMock,
+    );
+
+    expect(details.get(imageUrl)).toEqual({
+      repository: "commons",
+      resolved: false,
+      attribution: expect.objectContaining({
+        sourceTitle: "File:Partial.jpg",
+        sourceUrl: expect.stringContaining("commons.wikimedia.org/wiki/"),
+      }),
+    });
+  });
 });
