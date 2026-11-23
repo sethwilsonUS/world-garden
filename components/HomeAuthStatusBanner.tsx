@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth } from "convex/react";
@@ -47,10 +47,14 @@ const CloseIcon = () => (
 const inlineActionClass =
   "inline cursor-pointer rounded border-0 bg-transparent p-0 px-1 align-baseline font-[inherit] leading-[inherit] font-semibold text-accent underline decoration-accent/60 underline-offset-[3px] hover:text-accent-hover";
 
+const getStoredDismissals = () =>
+  window.localStorage.getItem(ACCOUNT_NOTE_DISMISSED_KEY) ?? "";
+
 const readDismissed = (): string => {
   try {
-    return window.localStorage.getItem(ACCOUNT_NOTE_DISMISSED_KEY) ?? "";
-  } catch {
+    return getStoredDismissals();
+  } catch (error) {
+    console.debug("Could not read account note preferences.", error);
     return "";
   }
 };
@@ -121,6 +125,7 @@ const degradedContent = (): NoteContent => ({
 
 export const HomeAuthStatusBanner = () => {
   const dismissedKinds = useDismissedKinds();
+  const [dismissedThisView, setDismissedThisView] = useState<NoteKind[]>([]);
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { isLoading: isConvexAuthLoading, isAuthenticated } = useConvexAuth();
   const { user } = useUser();
@@ -154,15 +159,16 @@ export const HomeAuthStatusBanner = () => {
         focusTarget?.focus();
       }
       try {
-        const kinds = new Set(readDismissed().split(",").filter(Boolean));
+        const kinds = new Set(getStoredDismissals().split(",").filter(Boolean));
         kinds.add(kind);
         window.localStorage.setItem(
           ACCOUNT_NOTE_DISMISSED_KEY,
           [...kinds].join(","),
         );
-      } catch {
-        // Storage can be unavailable (private mode); fall through to the
-        // event so this page view still hides the note.
+      } catch (error) {
+        console.debug("Could not save the account note preference.", error);
+        setDismissedThisView((kinds) => [...kinds, kind]);
+        return;
       }
       window.dispatchEvent(new Event(DISMISS_EVENT));
     },
@@ -172,7 +178,8 @@ export const HomeAuthStatusBanner = () => {
   const isDismissed =
     content !== null &&
     content.kind !== "status" &&
-    dismissedKinds.split(",").includes(content.kind);
+    (dismissedThisView.includes(content.kind) ||
+      dismissedKinds.split(",").includes(content.kind));
 
   // Reserve the row's height while auth resolves to avoid layout shift.
   if (!content || isDismissed) {

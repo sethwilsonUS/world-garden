@@ -68,6 +68,7 @@ describe("HomeAuthStatusBanner", () => {
       root.unmount();
     });
     container.remove();
+    vi.restoreAllMocks();
   });
 
   it("shows a one-line guest note with a single sign-in action", () => {
@@ -177,6 +178,39 @@ describe("HomeAuthStatusBanner", () => {
     });
     expect(document.body.textContent).toContain("Welcome back, Seth");
   });
+
+  it.each(["getItem", "setItem"] as const)(
+    "dismisses notes independently for this view when storage %s throws",
+    async (operation) => {
+      vi.spyOn(Storage.prototype, operation).mockImplementation(() => {
+        throw new DOMException("Storage is blocked", "SecurityError");
+      });
+      vi.spyOn(console, "debug").mockImplementation(() => {});
+      const renderNote = () => act(() => root.render(<HomeAuthStatusBanner />));
+      const dismissNote = () => {
+        const button = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Dismiss account note"]',
+        );
+        expect(button).not.toBeNull();
+        return act(() => button?.click());
+      };
+
+      await renderNote();
+      await dismissNote();
+      expect(container.querySelector("aside")).toBeNull();
+
+      authState = "signed-in";
+      convexAuthState = "authenticated";
+      await renderNote();
+      expect(container.textContent).toContain("Welcome back, Seth");
+      await dismissNote();
+      expect(container.querySelector("aside")).toBeNull();
+
+      authState = "signed-out";
+      await renderNote();
+      expect(container.querySelector("aside")).toBeNull();
+    },
+  );
 
   it("keeps focus on the search input when auth state resolves and the banner dismisses", async () => {
     authState = "loading";
