@@ -632,6 +632,8 @@ export default defineSchema({
     .index("by_feedDate", ["feedDate"])
     .index("by_updatedAt", ["updatedAt"]),
 
+  // Retained as a read-only rollout fallback until all 366 days are backfilled
+  // into `onThisDayDays`. Remove in the post-backfill cleanup follow-up.
   onThisDaySnapshots: defineTable({
     feedDate: v.string(),
     monthDay: v.string(),
@@ -642,6 +644,34 @@ export default defineSchema({
   })
     .index("by_feedDate", ["feedDate"])
     .index("by_monthDay_updatedAt", ["monthDay", "updatedAt"]),
+
+  onThisDayDays: defineTable({
+    monthDay: v.string(),
+    schemaVersion: v.number(),
+    data: v.any(),
+    contentHash: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_monthDay", ["monthDay"]),
+
+  onThisDayRefreshState: defineTable({
+    monthDay: v.string(),
+    schemaVersion: v.number(),
+    degraded: v.boolean(),
+    checkedAt: v.number(),
+    changedAt: v.number(),
+    imagesCheckedAt: v.number(),
+    pendingImageEnrichment: v.optional(v.boolean()),
+    lastAttemptAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    suspiciousStreak: v.number(),
+    refreshLeaseUntil: v.optional(v.number()),
+    refreshLeaseToken: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_monthDay", ["monthDay"])
+    .index("by_checkedAt", ["checkedAt"]),
 
   didYouKnowAudio: defineTable({
     feedDate: v.string(),

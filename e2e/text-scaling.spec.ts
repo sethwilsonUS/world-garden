@@ -37,10 +37,11 @@ const priorityViewports = [
 ] as const;
 
 const onThisDayFixture = {
-  requestedDate: "2026-08-01",
-  snapshotDate: "2026-08-01",
-  snapshotIsStale: false,
-  provider: "wikifeeds-v1",
+  calendarDay: "08-01",
+  checkedAt: Date.UTC(2026, 7, 1, 12, 0, 0),
+  changedAt: Date.UTC(2026, 7, 1, 12, 0, 0),
+  degraded: false,
+  provider: "wikipedia-rest-v1",
   sourceUrl: "https://en.wikipedia.org/wiki/August_1",
   category: "selected",
   order: "newest",
@@ -94,12 +95,14 @@ const mockStableApis = async (page: Page) => {
   );
   await page.route("**/api/on-this-day?**", (route) => {
     const url = new URL(route.request().url());
+    const calendarDay = url.searchParams.get("day") ?? onThisDayFixture.calendarDay;
     const category = url.searchParams.get("category") ?? "selected";
     const order = url.searchParams.get("order") ?? "newest";
     return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         ...onThisDayFixture,
+        calendarDay,
         category,
         order,
       }),

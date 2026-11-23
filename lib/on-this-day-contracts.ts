@@ -1,5 +1,7 @@
 import type { WikimediaMediaAttribution } from "@/lib/wikimedia-media";
 
+export const CURRENT_ON_THIS_DAY_SCHEMA_VERSION = 2 as const;
+
 export const ON_THIS_DAY_CATEGORIES = [
   "selected",
   "events",
@@ -24,6 +26,7 @@ export type OnThisDayImage = {
   articleTitle: string;
   altText?: string;
   attribution?: WikimediaMediaAttribution;
+  attributionIsFallback?: boolean;
 };
 
 export type OnThisDayEvent = {
@@ -37,21 +40,35 @@ export type OnThisDayEvent = {
 export type OnThisDayCategoryMap<T> = Record<OnThisDayCategory, T>;
 
 export type OnThisDaySnapshot = {
-  schemaVersion: 1;
-  provider: "wikifeeds-v1" | "featured-fallback";
-  feedDate: string;
+  schemaVersion: typeof CURRENT_ON_THIS_DAY_SCHEMA_VERSION;
+  provider: "wikipedia-rest-v1" | "featured-fallback";
   monthDay: string;
-  generatedAt: number;
+  checkedAt: number;
   sourceUrl: string;
   categories: OnThisDayCategoryMap<OnThisDayEvent[]>;
   counts: OnThisDayCategoryMap<number>;
   availableCategories: OnThisDayCategoryMap<boolean>;
 };
 
+export type OnThisDayRefreshState = {
+  monthDay: string;
+  schemaVersion: number;
+  degraded: boolean;
+  checkedAt: number;
+  changedAt: number;
+  imagesCheckedAt: number;
+  pendingImageEnrichment?: boolean;
+  lastAttemptAt?: number;
+  lastError?: string;
+  suspiciousStreak: number;
+  refreshLeaseUntil?: number;
+};
+
 export type OnThisDayPageResponse = {
-  requestedDate: string;
-  snapshotDate: string;
-  snapshotIsStale: boolean;
+  calendarDay: string;
+  checkedAt: number;
+  changedAt: number;
+  degraded: boolean;
   provider: OnThisDaySnapshot["provider"];
   sourceUrl: string;
   category: OnThisDayCategory;

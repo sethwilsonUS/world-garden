@@ -1,37 +1,45 @@
-import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
-  paginateOnThisDaySnapshot,
-} from "@/lib/on-this-day";
+  calendarDayFromUtcDate,
+  onThisDayPath,
+  parseCalendarDayKey,
+  parseLegacyFeedDateToCalendarDay,
+  type CalendarDay,
+} from "@/lib/calendar-day";
+import { paginateOnThisDaySnapshot } from "@/lib/on-this-day";
 import {
   ON_THIS_DAY_CATEGORIES,
   type OnThisDayCategory,
   type OnThisDayOrder,
 } from "@/lib/on-this-day-contracts";
 import {
-  getOnThisDaySnapshot,
-  resolveOnThisDayFeedDate,
+  getOnThisDayDayRecord,
+  triggerSafetyNetRefresh,
 } from "@/lib/on-this-day-snapshot";
 
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
-const CURRENT_CACHE_HEADERS = {
+const NORMAL_CACHE_HEADERS = {
   "Cache-Control":
-    "public, max-age=900, s-maxage=900, stale-while-revalidate=3600",
-} as const;
-const ARCHIVE_CACHE_HEADERS = {
-  "Cache-Control":
-    "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800",
+    "public, max-age=900, s-maxage=3600, stale-while-revalidate=86400",
 } as const;
 
-const isValidDate = (value: string): boolean => {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/u);
-  if (!match) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return (
-    !Number.isNaN(date.getTime()) &&
-    date.getUTCFullYear() === Number(match[1]) &&
-    date.getUTCMonth() + 1 === Number(match[2]) &&
-    date.getUTCDate() === Number(match[3])
+const buildUndatedCacheHeaders = (nowMs = Date.now()): { "Cache-Control": string } => {
+  const now = new Date(nowMs);
+  const nextUtcMidnightMs = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
   );
+  const secondsUntilMidnight = Math.max(
+    1,
+    Math.floor((nextUtcMidnightMs - nowMs) / 1000),
+  );
+  const sMaxAge = Math.min(3600, secondsUntilMidnight);
+  const maxAge = Math.min(900, sMaxAge);
+  return {
+    "Cache-Control": `public, max-age=${maxAge}, s-maxage=${sMaxAge}`,
+  };
 };
 
 const parseInteger = (
@@ -44,17 +52,38 @@ const parseInteger = (
   return Number.isSafeInteger(parsed) ? parsed : null;
 };
 
+const resolveRequestedDay = (
+  params: URLSearchParams,
+  now = new Date(),
+): { day: CalendarDay | null; isExplicitDay: boolean } => {
+  const dayParam = params.get("day");
+  if (dayParam != null) {
+    return { day: parseCalendarDayKey(dayParam), isExplicitDay: true };
+  }
+  const legacyDateParam = params.get("date");
+  if (legacyDateParam != null) {
+    return {
+      day: parseLegacyFeedDateToCalendarDay(legacyDateParam),
+      isExplicitDay: true,
+    };
+  }
+  return { day: calendarDayFromUtcDate(now), isExplicitDay: false };
+};
+
 export const GET = async (request: NextRequest) => {
+  const nowMs = Date.now();
   const params = request.nextUrl.searchParams;
-  const currentDate = resolveOnThisDayFeedDate();
-  const requestedDate = params.get("date") ?? currentDate;
+  const { day: requestedDay, isExplicitDay } = resolveRequestedDay(
+    params,
+    new Date(nowMs),
+  );
   const categoryValue = params.get("category") ?? "selected";
   const orderValue = params.get("order") ?? "newest";
   const offset = parseInteger(params.get("offset"), 0);
   const limit = parseInteger(params.get("limit"), 25);
 
   if (
-    !isValidDate(requestedDate) ||
+    !requestedDay ||
     !ON_THIS_DAY_CATEGORIES.includes(categoryValue as OnThisDayCategory) ||
     (orderValue !== "newest" && orderValue !== "oldest") ||
     offset == null ||
@@ -68,46 +97,62 @@ export const GET = async (request: NextRequest) => {
   }
 
   try {
-    const snapshot = await getOnThisDaySnapshot({
-      requestedDate,
-      allowLiveFallback: requestedDate === currentDate,
+    const record = await getOnThisDayDayRecord({
+      day: requestedDay,
+      allowColdBuild: true,
+      now: nowMs,
     });
-    if (!snapshot) {
+    if (!record) {
       return NextResponse.json(
-        {
-          error:
-            requestedDate === currentDate
-              ? "Today's On This Day edition is not available yet."
-              : "That archived On This Day edition is not available.",
-        },
-        {
-          status: requestedDate === currentDate ? 503 : 404,
-          headers: NO_CACHE_HEADERS,
-        },
+        { error: "This day isn't available right now." },
+        { status: 503, headers: NO_CACHE_HEADERS },
       );
     }
 
-    const body = paginateOnThisDaySnapshot(snapshot, {
-      requestedDate,
+    if (record.needsSafetyNetRefresh) {
+      after(async () => {
+        try {
+          const result = await triggerSafetyNetRefresh(requestedDay);
+          if (
+            result &&
+            (result.status === "refreshed" || result.status === "degraded")
+          ) {
+            revalidatePath("/on-this-day");
+            revalidatePath(onThisDayPath(requestedDay));
+          }
+        } catch (refreshError) {
+          console.error(
+            "[/api/on-this-day] safety-net refresh failed",
+            refreshError,
+          );
+        }
+      });
+    }
+
+    const body = paginateOnThisDaySnapshot(record.snapshot, {
       category: categoryValue as OnThisDayCategory,
       order: orderValue as OnThisDayOrder,
       offset,
       limit,
+      checkedAt: record.checkedAt,
+      changedAt: record.changedAt,
+      degraded: record.degraded,
     });
-    return NextResponse.json(body, {
-      headers: body.snapshotIsStale
-        ? NO_CACHE_HEADERS
-        : requestedDate === currentDate
-          ? CURRENT_CACHE_HEADERS
-          : ARCHIVE_CACHE_HEADERS,
-    });
+
+    const headers = record.degraded
+      ? NO_CACHE_HEADERS
+      : isExplicitDay
+        ? NORMAL_CACHE_HEADERS
+        : buildUndatedCacheHeaders(nowMs);
+
+    return NextResponse.json(body, { headers });
   } catch (error) {
     console.error(
       `[/api/on-this-day] ${error instanceof Error ? error.message : String(error)}`,
     );
     return NextResponse.json(
-      { error: "Unable to load On This Day right now." },
-      { status: 502, headers: NO_CACHE_HEADERS },
+      { error: "This day isn't available right now." },
+      { status: 503, headers: NO_CACHE_HEADERS },
     );
   }
 };

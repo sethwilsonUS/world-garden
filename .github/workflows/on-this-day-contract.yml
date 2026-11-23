@@ -1,0 +1,31 @@
+name: On This Day Upstream Contract
+
+on:
+  schedule:
+    - cron: "15 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Wikipedia On This Day Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify live Wikipedia On This Day contract
+        env:
+          WIKIMEDIA_ON_THIS_DAY_LIVE_TEST: "1"
+        run: npx vitest run lib/on-this-day-live.test.ts
