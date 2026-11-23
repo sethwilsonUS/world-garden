@@ -287,6 +287,14 @@ test("article section titles and Listen targets reflow at maximum text size", as
   const skip = page.getByRole("button", { name: "Skip section", exact: true });
   await expect(skip.getByText("Skip section", { exact: true })).toBeVisible();
   await expectNoPageOverflow(page);
+
+  await page.getByRole("button", { name: "Open menu" }).click();
+  const theme = page.getByRole("navigation", { name: "Mobile navigation" })
+    .getByRole("button", { name: /Switch to (light|dark) theme/ });
+  const originalAction = await theme.innerText();
+  // The expanded player overlaps this part of the menu at maximum text size.
+  await theme.click();
+  await expect(theme).not.toHaveAccessibleName(originalAction);
 });
 
 test("shell, menu, and listening controls remain reachable", async ({

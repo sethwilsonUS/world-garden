@@ -321,7 +321,7 @@ export const AccessibleLayout = ({
           ref={menuRef}
           role="navigation"
           aria-label="Mobile navigation"
-          className="fixed inset-x-0 z-40 overflow-y-auto overscroll-contain border-b border-border bg-surface-nav shadow-lg backdrop-blur-2xl lg:hidden"
+          className="fixed inset-x-0 z-[60] overflow-y-auto overscroll-contain border-b border-border bg-surface-nav shadow-lg backdrop-blur-2xl lg:hidden"
           style={{
             top: mobileMenuTop,
             bottom: "env(safe-area-inset-bottom, 0px)",
