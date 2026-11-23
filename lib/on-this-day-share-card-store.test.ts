@@ -5,6 +5,7 @@ import {
   deleteUnreferencedShareCardBlob,
   generateShareCardUploadUrl,
   getShareCardByMonthDay,
+  getShareCardCreditsByRevision,
   listShareCardStatuses,
   saveShareCard,
 } from "../convex/onThisDay";
@@ -25,11 +26,14 @@ vi.mock("convex/nextjs", () => ({
 }));
 
 import {
+  computeShareCardCreditRevisionId,
   getStoredOnThisDayShareCard,
+  getStoredOnThisDayShareCardCreditsByRevision,
   listStoredOnThisDayShareCardStatuses,
   uploadAndSaveOnThisDayShareCard,
   type OnThisDayShareCardStatus,
   type StoredOnThisDayShareCard,
+  type StoredOnThisDayShareCardCreditRevision,
   type StoredOnThisDayShareCardPlate,
 } from "./on-this-day-share-card-store";
 
@@ -262,6 +266,21 @@ describe("on-this-day-share-card-store", () => {
         >[0]["attestation"];
       };
       const { attestation, ...writeArgs } = saveMutationArgs;
+      const expectedPlates = [
+        {
+          year: 1969,
+          articleTitle: "Apollo 11",
+          imageUrl:
+            "https://upload.wikimedia.org/wikipedia/commons/apollo.jpg",
+          licenseName: "Public domain",
+        },
+      ];
+      const expectedRevisionId = computeShareCardCreditRevisionId({
+        monthDay: "10-18",
+        version: 1,
+        plates: expectedPlates,
+      });
+      expect(expectedRevisionId).toMatch(/^[a-f0-9]{16}$/u);
       expect(writeArgs).toEqual({
         monthDay: "10-18",
         version: 1,
@@ -272,15 +291,8 @@ describe("on-this-day-share-card-store", () => {
         byteSize: bytes.byteLength,
         generatedAt: 1_780_000_000_000,
         snapshotCheckedAt: 1_779_999_500_000,
-        plates: [
-          {
-            year: 1969,
-            articleTitle: "Apollo 11",
-            imageUrl:
-              "https://upload.wikimedia.org/wikipedia/commons/apollo.jpg",
-            licenseName: "Public domain",
-          },
-        ],
+        creditRevisionId: expectedRevisionId,
+        plates: expectedPlates,
       });
       await expect(
         verifyPublicAudioWriteAttestation({
@@ -610,6 +622,7 @@ describe("on-this-day-share-card-store", () => {
                     byteSize: 123_456,
                     generatedAt: 1_780_000_000_000,
                     snapshotCheckedAt: 1_779_999_000_000,
+                    creditRevisionId: "a1b2c3d4e5f60708",
                     plates: samplePlates,
                   })),
                 })),
@@ -629,6 +642,7 @@ describe("on-this-day-share-card-store", () => {
         byteSize: 123_456,
         generatedAt: 1_780_000_000_000,
         snapshotCheckedAt: 1_779_999_000_000,
+        creditRevisionId: "a1b2c3d4e5f60708",
         plates: samplePlates,
         imageUrl: "https://storage.convex.test/card.jpg",
       });
@@ -753,6 +767,7 @@ describe("on-this-day-share-card-store", () => {
       // Insert path
       const insert = vi.fn(async () => "new-card-id");
       const deleteStorage = vi.fn(async () => undefined);
+      const getUrl = vi.fn(async () => "https://storage.convex.test/v2.jpg");
       await expect(
         handler(
           {
@@ -765,7 +780,7 @@ describe("on-this-day-share-card-store", () => {
               insert,
               patch: vi.fn(),
             },
-            storage: { delete: deleteStorage },
+            storage: { delete: deleteStorage, getUrl },
           },
           { ...writeArgs, attestation },
         ),
@@ -776,7 +791,10 @@ describe("on-this-day-share-card-store", () => {
         replaced: false,
         rejectedStaleVersion: false,
       });
-      expect(insert).toHaveBeenCalledWith("onThisDayShareCards", writeArgs);
+      expect(insert).toHaveBeenCalledWith("onThisDayShareCards", {
+        ...writeArgs,
+        creditRevisionId: undefined,
+      });
       expect(deleteStorage).not.toHaveBeenCalled();
 
       // Replace path with missing old blob (must warn and still succeed)
@@ -805,7 +823,7 @@ describe("on-this-day-share-card-store", () => {
               insert: vi.fn(),
               patch,
             },
-            storage: { delete: failingDelete },
+            storage: { delete: failingDelete, getUrl },
           },
           { ...writeArgs, attestation },
         ),
@@ -816,7 +834,10 @@ describe("on-this-day-share-card-store", () => {
         replaced: true,
         rejectedStaleVersion: false,
       });
-      expect(patch).toHaveBeenCalledWith("existing-card-id", writeArgs);
+      expect(patch).toHaveBeenCalledWith("existing-card-id", {
+        ...writeArgs,
+        creditRevisionId: undefined,
+      });
       expect(failingDelete).toHaveBeenCalledWith("storage-v1");
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("storage-v1"),
@@ -842,7 +863,7 @@ describe("on-this-day-share-card-store", () => {
               insert: vi.fn(),
               patch: vi.fn(async () => undefined),
             },
-            storage: { delete: sameBlobDelete },
+            storage: { delete: sameBlobDelete, getUrl },
           },
           { ...writeArgs, attestation },
         ),
@@ -875,7 +896,7 @@ describe("on-this-day-share-card-store", () => {
               insert: vi.fn(),
               patch: vi.fn(async () => undefined),
             },
-            storage: { delete: cleanDelete },
+            storage: { delete: cleanDelete, getUrl },
           },
           { ...writeArgs, attestation },
         ),
@@ -888,6 +909,256 @@ describe("on-this-day-share-card-store", () => {
       });
       expect(cleanDelete).toHaveBeenCalledWith("storage-v1");
       expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("throws when args.storageId no longer exists in storage without patching or deleting existing card", async () => {
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+      const handler = registeredInvoker(saveShareCard);
+      const writeArgs = {
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-vanished" as Id<"_storage">,
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        byteSize: 120_000,
+        generatedAt: 1_780_000_000_000,
+        plates: samplePlates,
+      };
+      const attestation = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: writeArgs,
+      });
+
+      const patch = vi.fn();
+      const insert = vi.fn();
+      const deleteStorage = vi.fn();
+      const getUrl = vi.fn(async () => null);
+
+      await expect(
+        handler(
+          {
+            db: {
+              query: vi.fn(() => ({
+                withIndex: vi.fn(() => ({
+                  first: vi.fn(async () => ({
+                    _id: "existing-card-id",
+                    monthDay: "10-18",
+                    version: 1,
+                    storageId: "storage-healthy" as Id<"_storage">,
+                  })),
+                })),
+              })),
+              insert,
+              patch,
+            },
+            storage: { delete: deleteStorage, getUrl },
+          },
+          { ...writeArgs, attestation },
+        ),
+      ).rejects.toThrow("no longer exists");
+
+      expect(getUrl).toHaveBeenCalledWith("storage-vanished");
+      expect(patch).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      expect(deleteStorage).not.toHaveBeenCalled();
+    });
+
+    it("stores append-only credit revisions that survive subsequent card replacements and supports revision queries", async () => {
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+      vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "false");
+      vi.stubEnv("NEXT_PUBLIC_CONVEX_URL", "https://example.convex.cloud");
+
+      const saveHandler = registeredInvoker(saveShareCard);
+      const getRevHandler = registeredInvoker(getShareCardCreditsByRevision);
+
+      const cards = new Map<
+        string,
+        {
+          _id: string;
+          monthDay: string;
+          version: number;
+          storageId: Id<"_storage">;
+          creditRevisionId?: string;
+          plates: StoredOnThisDayShareCardPlate[];
+        }
+      >();
+      const revisions = new Map<string, StoredOnThisDayShareCardCreditRevision>();
+
+      const makeCtx = () => ({
+        db: {
+          query: vi.fn((table: string) => ({
+            withIndex: vi.fn((_idx: string, cb?: (q: { eq: (k: string, v: string) => unknown }) => unknown) => {
+              let lookupVal = "";
+              cb?.({
+                eq: (_field: string, value: string) => {
+                  lookupVal = value;
+                  return value;
+                },
+              });
+              return {
+                first: vi.fn(async () => {
+                  if (table === "onThisDayShareCards") {
+                    return cards.get(lookupVal) ?? null;
+                  }
+                  if (table === "onThisDayShareCardCreditRevisions") {
+                    return revisions.get(lookupVal) ?? null;
+                  }
+                  return null;
+                }),
+              };
+            }),
+          })),
+          insert: vi.fn(async (table: string, doc: Record<string, unknown>) => {
+            if (table === "onThisDayShareCards") {
+              const monthDay = String(doc.monthDay);
+              cards.set(monthDay, {
+                _id: `card-${monthDay}`,
+                monthDay,
+                version: Number(doc.version),
+                storageId: doc.storageId as Id<"_storage">,
+                creditRevisionId: doc.creditRevisionId as string | undefined,
+                plates: doc.plates as StoredOnThisDayShareCardPlate[],
+              });
+              return `card-${monthDay}`;
+            }
+            if (table === "onThisDayShareCardCreditRevisions") {
+              const revId = String(doc.revisionId);
+              revisions.set(revId, {
+                revisionId: revId,
+                monthDay: String(doc.monthDay),
+                version: Number(doc.version),
+                generatedAt: Number(doc.generatedAt),
+                plates: doc.plates as StoredOnThisDayShareCardPlate[],
+              });
+              return `rev-${revId}`;
+            }
+            return "id";
+          }),
+          patch: vi.fn(async (_id: string, doc: Record<string, unknown>) => {
+            const monthDay = String(doc.monthDay);
+            cards.set(monthDay, {
+              _id,
+              monthDay,
+              version: Number(doc.version),
+              storageId: doc.storageId as Id<"_storage">,
+              creditRevisionId: doc.creditRevisionId as string | undefined,
+              plates: doc.plates as StoredOnThisDayShareCardPlate[],
+            });
+          }),
+        },
+        storage: {
+          getUrl: vi.fn(async () => "https://storage.convex.test/blob.jpg"),
+          delete: vi.fn(async () => undefined),
+        },
+      });
+
+      const platesRev1: StoredOnThisDayShareCardPlate[] = [
+        {
+          year: 2019,
+          articleTitle: "First Plate",
+          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/a/ab/One.jpg",
+          licenseName: "CC BY-SA 4.0",
+          creator: "Author One",
+        },
+      ];
+      const rev1 = computeShareCardCreditRevisionId({
+        monthDay: "10-18",
+        version: 1,
+        plates: platesRev1,
+      });
+      const writeArgs1 = {
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-r1" as Id<"_storage">,
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        byteSize: 120_000,
+        generatedAt: 1_780_000_000_000,
+        creditRevisionId: rev1,
+        plates: platesRev1,
+      };
+      const att1 = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: writeArgs1,
+      });
+      await saveHandler(makeCtx(), { ...writeArgs1, attestation: att1 });
+
+      // Replace card with different plates and rev2
+      const platesRev2: StoredOnThisDayShareCardPlate[] = [
+        {
+          year: 2020,
+          articleTitle: "Second Plate",
+          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Two.jpg",
+          licenseName: "CC BY 4.0",
+          creator: "Author Two",
+        },
+      ];
+      const rev2 = computeShareCardCreditRevisionId({
+        monthDay: "10-18",
+        version: 1,
+        plates: platesRev2,
+      });
+      expect(rev2).not.toBe(rev1);
+      const writeArgs2 = {
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-r2" as Id<"_storage">,
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        byteSize: 125_000,
+        generatedAt: 1_780_000_050_000,
+        creditRevisionId: rev2,
+        plates: platesRev2,
+      };
+      const att2 = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: writeArgs2,
+      });
+      await saveHandler(makeCtx(), { ...writeArgs2, attestation: att2 });
+
+      // BOTH rev1 and rev2 remain readable after card replacement!
+      await expect(
+        getRevHandler(makeCtx(), { revisionId: rev1 }),
+      ).resolves.toEqual({
+        revisionId: rev1,
+        monthDay: "10-18",
+        version: 1,
+        generatedAt: 1_780_000_000_000,
+        plates: platesRev1,
+      });
+      await expect(
+        getRevHandler(makeCtx(), { revisionId: rev2 }),
+      ).resolves.toEqual({
+        revisionId: rev2,
+        monthDay: "10-18",
+        version: 1,
+        generatedAt: 1_780_000_050_000,
+        plates: platesRev2,
+      });
+      await expect(
+        getRevHandler(makeCtx(), { revisionId: "missing-rev-123" }),
+      ).resolves.toBeNull();
+
+      // Store adapter read helper
+      fetchQueryMock.mockResolvedValueOnce(revisions.get(rev1));
+      await expect(
+        getStoredOnThisDayShareCardCreditsByRevision(rev1),
+      ).resolves.toEqual(revisions.get(rev1));
+      expect(fetchQueryMock).toHaveBeenCalledWith(
+        anyApi.onThisDay.getShareCardCreditsByRevision,
+        { revisionId: rev1 },
+      );
+
+      vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "true");
+      await expect(
+        getStoredOnThisDayShareCardCreditsByRevision(rev1),
+      ).resolves.toBeNull();
     });
 
     it("rejects lower-version saveShareCard writes without overwriting existing card and cleans up stale uploaded blob", async () => {

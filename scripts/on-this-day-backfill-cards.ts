@@ -50,10 +50,12 @@ import {
   type ShareCardPlateCandidate,
 } from "@/lib/on-this-day-share-card-selection";
 import {
+  computeShareCardCreditRevisionId,
   listStoredOnThisDayShareCardStatuses,
   uploadAndSaveOnThisDayShareCard,
   type OnThisDayShareCardStatus,
   type StoredOnThisDayShareCardPlate,
+  type UploadAndSaveOnThisDayShareCardResult,
 } from "@/lib/on-this-day-share-card-store";
 import {
   createConvexOnThisDayStore,
@@ -98,7 +100,7 @@ type LoadedCandidatePlate = {
   normalized: NormalizedShareCardPlateImage;
 };
 
-type PlateReportEntry = {
+export type PlateReportEntry = {
   slot: number;
   year: number | null;
   yearLabel: string | null;
@@ -111,7 +113,7 @@ type PlateReportEntry = {
   imageUrl: string;
 };
 
-type DayRunReport = {
+export type DayRunReport = {
   monthDay: string;
   dayLabel: string;
   status: "rendered" | "uploaded" | "skipped" | "failed";
@@ -519,6 +521,53 @@ const renderEvergreenPreview = async (
   };
 };
 
+export const buildUploadDayRunReport = ({
+  monthDay,
+  dayLabel,
+  snapshotSource,
+  subtitle,
+  byteSize,
+  reportPlates,
+  saved,
+}: {
+  monthDay: string;
+  dayLabel: string;
+  snapshotSource: "convex" | "live";
+  subtitle: string;
+  byteSize: number;
+  reportPlates: PlateReportEntry[];
+  saved: UploadAndSaveOnThisDayShareCardResult;
+}): DayRunReport => {
+  if (saved.rejectedStaleVersion) {
+    return {
+      monthDay,
+      dayLabel,
+      status: "skipped",
+      snapshotSource,
+      subtitle,
+      plateCount: reportPlates.length,
+      byteSize,
+      storageId: saved.storageId,
+      replaced: false,
+      reason: `retained newer v${saved.version}`,
+      plates: reportPlates,
+    };
+  }
+
+  return {
+    monthDay,
+    dayLabel,
+    status: "uploaded",
+    snapshotSource,
+    subtitle,
+    plateCount: reportPlates.length,
+    byteSize,
+    storageId: saved.storageId,
+    replaced: saved.replaced,
+    plates: reportPlates,
+  };
+};
+
 const processCalendarDay = async ({
   day,
   options,
@@ -590,6 +639,23 @@ const processCalendarDay = async ({
     };
   }
 
+  const storedPlates: StoredOnThisDayShareCardPlate[] = slotted.map(
+    ({ candidate }) => ({
+      ...(candidate.year === undefined ? {} : { year: candidate.year }),
+      articleTitle: candidate.articleTitle,
+      imageUrl: candidate.imageUrl,
+      ...(candidate.licenseName ? { licenseName: candidate.licenseName } : {}),
+      ...(candidate.creator ? { creator: candidate.creator } : {}),
+      ...(candidate.sourceUrl ? { sourceUrl: candidate.sourceUrl } : {}),
+    }),
+  );
+
+  const creditRevisionId = computeShareCardCreditRevisionId({
+    monthDay,
+    version: ON_THIS_DAY_SHARE_CARD_VERSION,
+    plates: storedPlates,
+  });
+
   const ogPlates: OnThisDayOgPlate[] = slotted.map((plate) => {
     const licenseName =
       plate.candidate.licenseName ??
@@ -613,7 +679,7 @@ const processCalendarDay = async ({
     dayLabel,
     subtitle,
     plates: ogPlates,
-    creditPath: `/api/on-this-day/share-card-credits?day=${monthDay}`,
+    creditPath: `/api/on-this-day/share-card-credits?day=${monthDay}&rev=${creditRevisionId}`,
   });
 
   const reportPlates: PlateReportEntry[] = slotted.map((plate, index) => ({
@@ -658,17 +724,6 @@ const processCalendarDay = async ({
     };
   }
 
-  const storedPlates: StoredOnThisDayShareCardPlate[] = slotted.map(
-    ({ candidate }) => ({
-      ...(candidate.year === undefined ? {} : { year: candidate.year }),
-      articleTitle: candidate.articleTitle,
-      imageUrl: candidate.imageUrl,
-      ...(candidate.licenseName ? { licenseName: candidate.licenseName } : {}),
-      ...(candidate.creator ? { creator: candidate.creator } : {}),
-      ...(candidate.sourceUrl ? { sourceUrl: candidate.sourceUrl } : {}),
-    }),
-  );
-
   const saved = await uploadAndSaveOnThisDayShareCard({
     monthDay,
     version: ON_THIS_DAY_SHARE_CARD_VERSION,
@@ -677,8 +732,26 @@ const processCalendarDay = async ({
     width: ON_THIS_DAY_OG_SIZE.width,
     height: ON_THIS_DAY_OG_SIZE.height,
     snapshotCheckedAt: snapshot.checkedAt,
+    creditRevisionId,
     plates: storedPlates,
   });
+
+  const uploadReport = buildUploadDayRunReport({
+    monthDay,
+    dayLabel,
+    snapshotSource,
+    subtitle,
+    byteSize: jpegBytes.byteLength,
+    reportPlates,
+    saved,
+  });
+
+  if (uploadReport.status === "skipped") {
+    console.log(
+      `[on-this-day:backfill-cards] ${dayLabel} (${monthDay}): skipped (${uploadReport.reason}; keeping ${saved.storageId}).`,
+    );
+    return uploadReport;
+  }
 
   printPlateTable(
     `${dayLabel} (${monthDay}) Uploaded Share Card`,
@@ -688,18 +761,7 @@ const processCalendarDay = async ({
     `convex:${saved.storageId} (${saved.replaced ? "replaced" : "created"})`,
   );
 
-  return {
-    monthDay,
-    dayLabel,
-    status: "uploaded",
-    snapshotSource,
-    subtitle,
-    plateCount: slotted.length,
-    byteSize: jpegBytes.byteLength,
-    storageId: saved.storageId,
-    replaced: saved.replaced,
-    plates: reportPlates,
-  };
+  return uploadReport;
 };
 
 const main = async (): Promise<void> => {
@@ -796,6 +858,8 @@ const main = async (): Promise<void> => {
         summary.totals.rendered += 1;
       } else if (report.status === "uploaded") {
         summary.totals.uploaded += 1;
+      } else if (report.status === "skipped") {
+        summary.totals.skipped += 1;
       } else if (report.status === "failed") {
         summary.totals.failed += 1;
       }

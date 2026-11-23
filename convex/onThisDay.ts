@@ -471,8 +471,29 @@ export const getShareCardByMonthDay = query({
       byteSize: row.byteSize,
       generatedAt: row.generatedAt,
       snapshotCheckedAt: row.snapshotCheckedAt,
+      creditRevisionId: row.creditRevisionId,
       plates: row.plates,
       imageUrl,
+    };
+  },
+});
+
+export const getShareCardCreditsByRevision = query({
+  args: { revisionId: v.string() },
+  async handler(ctx, args) {
+    const row = await ctx.db
+      .query("onThisDayShareCardCreditRevisions")
+      .withIndex("by_revisionId", (q) => q.eq("revisionId", args.revisionId))
+      .first();
+
+    if (!row) return null;
+
+    return {
+      revisionId: row.revisionId,
+      monthDay: row.monthDay,
+      version: row.version,
+      generatedAt: row.generatedAt,
+      plates: row.plates,
     };
   },
 });
@@ -560,6 +581,7 @@ export const saveShareCard = mutation({
     byteSize: v.number(),
     generatedAt: v.number(),
     snapshotCheckedAt: v.optional(v.number()),
+    creditRevisionId: v.optional(v.string()),
     plates: v.array(shareCardPlateValidator),
     attestation: serverAttestationValidator,
   },
@@ -597,6 +619,13 @@ export const saveShareCard = mutation({
       };
     }
 
+    if ((await ctx.storage.getUrl(args.storageId)) === null) {
+      throw new Error(
+        `Share card blob ${args.storageId} no longer exists for ${args.monthDay}`,
+      );
+    }
+
+    const creditRevisionId = args.creditRevisionId;
     const record = {
       monthDay: args.monthDay,
       version: args.version,
@@ -607,6 +636,7 @@ export const saveShareCard = mutation({
       byteSize: args.byteSize,
       generatedAt: args.generatedAt,
       snapshotCheckedAt: args.snapshotCheckedAt,
+      creditRevisionId,
       plates: args.plates,
     };
 
@@ -624,6 +654,22 @@ export const saveShareCard = mutation({
       }
     } else {
       await ctx.db.insert("onThisDayShareCards", record);
+    }
+
+    if (creditRevisionId) {
+      const existingRevision = await ctx.db
+        .query("onThisDayShareCardCreditRevisions")
+        .withIndex("by_revisionId", (q) => q.eq("revisionId", creditRevisionId))
+        .first();
+      if (!existingRevision) {
+        await ctx.db.insert("onThisDayShareCardCreditRevisions", {
+          revisionId: creditRevisionId,
+          monthDay: args.monthDay,
+          version: args.version,
+          generatedAt: args.generatedAt,
+          plates: args.plates,
+        });
+      }
     }
 
     return {

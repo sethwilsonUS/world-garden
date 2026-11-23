@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ON_THIS_DAY_SHARE_CARD_VERSION } from "@/lib/on-this-day-share-card";
 import {
+  buildUploadDayRunReport,
   createPoliteWikimediaFetch,
   parseCliArgs,
   resolveTargetCalendarDays,
@@ -168,5 +169,50 @@ describe("waitAbortable and createPoliteWikimediaFetch", () => {
     await expect(secondPromise).rejects.toThrow("stop spacing");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(Date.now() - start).toBeLessThan(1_000);
+  });
+});
+
+describe("buildUploadDayRunReport", () => {
+  it("reports rejectedStaleVersion as skipped (never uploaded) with retained version info", () => {
+    const staleReport = buildUploadDayRunReport({
+      monthDay: "10-18",
+      dayLabel: "October 18",
+      snapshotSource: "convex",
+      subtitle: "54 events · 258 births",
+      byteSize: 150_000,
+      reportPlates: [],
+      saved: {
+        monthDay: "10-18",
+        version: 2,
+        storageId: "storage-v2",
+        replaced: false,
+        rejectedStaleVersion: true,
+      },
+    });
+
+    expect(staleReport.status).toBe("skipped");
+    expect(staleReport.replaced).toBe(false);
+    expect(staleReport.storageId).toBe("storage-v2");
+    expect(staleReport.reason).toBe("retained newer v2");
+
+    const uploadedReport = buildUploadDayRunReport({
+      monthDay: "10-18",
+      dayLabel: "October 18",
+      snapshotSource: "convex",
+      subtitle: "54 events · 258 births",
+      byteSize: 150_000,
+      reportPlates: [],
+      saved: {
+        monthDay: "10-18",
+        version: 2,
+        storageId: "storage-v2-new",
+        replaced: true,
+        rejectedStaleVersion: false,
+      },
+    });
+
+    expect(uploadedReport.status).toBe("uploaded");
+    expect(uploadedReport.replaced).toBe(true);
+    expect(uploadedReport.reason).toBeUndefined();
   });
 });

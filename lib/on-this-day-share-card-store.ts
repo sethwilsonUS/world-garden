@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { anyApi } from "convex/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { shouldUseOnThisDaySnapshotCache } from "@/lib/on-this-day-snapshot";
@@ -25,8 +26,17 @@ export type StoredOnThisDayShareCard = {
   byteSize: number;
   generatedAt: number;
   snapshotCheckedAt?: number;
+  creditRevisionId?: string;
   plates: StoredOnThisDayShareCardPlate[];
   imageUrl: string | null;
+};
+
+export type StoredOnThisDayShareCardCreditRevision = {
+  revisionId: string;
+  monthDay: string;
+  version: number;
+  generatedAt: number;
+  plates: StoredOnThisDayShareCardPlate[];
 };
 
 export type OnThisDayShareCardStatus = {
@@ -47,6 +57,7 @@ export type UploadAndSaveOnThisDayShareCardInput = {
   height: number;
   generatedAt?: number;
   snapshotCheckedAt?: number;
+  creditRevisionId?: string;
   plates: StoredOnThisDayShareCardPlate[];
 };
 
@@ -116,6 +127,33 @@ const uploadBlobToConvexStorage = async (
   return body.storageId;
 };
 
+export const computeShareCardCreditRevisionId = ({
+  monthDay,
+  version,
+  plates,
+}: {
+  monthDay: string;
+  version: number;
+  plates: readonly StoredOnThisDayShareCardPlate[];
+}): string => {
+  const canonicalPayload = JSON.stringify({
+    monthDay,
+    version,
+    plates: plates.map((plate) => ({
+      year: plate.year ?? null,
+      articleTitle: plate.articleTitle,
+      imageUrl: plate.imageUrl,
+      licenseName: plate.licenseName ?? null,
+      creator: plate.creator ?? null,
+      sourceUrl: plate.sourceUrl ?? null,
+    })),
+  });
+  return createHash("sha256")
+    .update(canonicalPayload)
+    .digest("hex")
+    .slice(0, 16);
+};
+
 export const getStoredOnThisDayShareCard = async (
   monthDay: string,
 ): Promise<StoredOnThisDayShareCard | null> => {
@@ -124,6 +162,17 @@ export const getStoredOnThisDayShareCard = async (
     monthDay,
   })) as StoredOnThisDayShareCard | null;
   return card ?? null;
+};
+
+export const getStoredOnThisDayShareCardCreditsByRevision = async (
+  revisionId: string,
+): Promise<StoredOnThisDayShareCardCreditRevision | null> => {
+  if (!shouldUseOnThisDaySnapshotCache()) return null;
+  const revision = (await fetchQuery(
+    anyApi.onThisDay.getShareCardCreditsByRevision,
+    { revisionId },
+  )) as StoredOnThisDayShareCardCreditRevision | null;
+  return revision ?? null;
 };
 
 export const listStoredOnThisDayShareCardStatuses = async (): Promise<
@@ -146,6 +195,7 @@ export const uploadAndSaveOnThisDayShareCard = async ({
   height,
   generatedAt = Date.now(),
   snapshotCheckedAt,
+  creditRevisionId,
   plates,
 }: UploadAndSaveOnThisDayShareCardInput): Promise<UploadAndSaveOnThisDayShareCardResult> => {
   if (!shouldUseOnThisDaySnapshotCache()) {
@@ -175,6 +225,15 @@ export const uploadAndSaveOnThisDayShareCard = async ({
   const blob = new Blob([Buffer.from(data)], { type: mimeType });
   const storageId = await uploadBlobToConvexStorage(uploadUrl, blob);
 
+  const normalizedPlates = plates.map(normalizeShareCardPlate);
+  const resolvedCreditRevisionId =
+    creditRevisionId?.trim() ||
+    computeShareCardCreditRevisionId({
+      monthDay,
+      version,
+      plates: normalizedPlates,
+    });
+
   const saveArgs: {
     monthDay: string;
     version: number;
@@ -185,6 +244,7 @@ export const uploadAndSaveOnThisDayShareCard = async ({
     byteSize: number;
     generatedAt: number;
     snapshotCheckedAt?: number;
+    creditRevisionId: string;
     plates: StoredOnThisDayShareCardPlate[];
   } = {
     monthDay,
@@ -195,7 +255,8 @@ export const uploadAndSaveOnThisDayShareCard = async ({
     height,
     byteSize: data.byteLength,
     generatedAt,
-    plates: plates.map(normalizeShareCardPlate),
+    creditRevisionId: resolvedCreditRevisionId,
+    plates: normalizedPlates,
   };
   if (snapshotCheckedAt !== undefined) {
     saveArgs.snapshotCheckedAt = snapshotCheckedAt;
