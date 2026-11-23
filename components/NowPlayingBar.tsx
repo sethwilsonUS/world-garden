@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
@@ -16,7 +16,18 @@ import {
 } from "@/components/AudioPlaybackPresentation";
 
 export const NOW_PLAYING_HEIGHT_VARIABLE = "--now-playing-height";
+const MINIMIZED_STORAGE_KEY = "curio-now-playing-minimized";
 const SKIP_SECONDS = 10;
+
+const readMinimized = (): boolean => {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(MINIMIZED_STORAGE_KEY) === "true";
+  } catch (error) {
+    console.debug("Could not read the Now playing preference.", error);
+    return false;
+  }
+};
 
 type NowPlayingBarProps = {
   articleTitle: string;
@@ -43,7 +54,7 @@ export const isNowPlayingVisible = (playback: AudioPlaybackState): boolean =>
     playback.status === "loading");
 
 const controlBaseClass =
-  "inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-[6px] rounded-xl border px-[10px] py-[6px] text-sm font-semibold leading-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-2";
+  "inline-flex min-h-11 min-w-11 max-w-full shrink-0 cursor-pointer items-center justify-center gap-[6px] rounded-xl border px-[10px] py-[6px] text-sm font-semibold leading-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface-2";
 
 const controlClass = `${controlBaseClass} border-border bg-surface text-foreground hover:bg-surface-3`;
 
@@ -141,6 +152,8 @@ export const NowPlayingBar = ({
   onJumpToSection,
 }: NowPlayingBarProps) => {
   const barRef = useRef<HTMLElement>(null);
+  const controlsId = useId();
+  const [minimized, setMinimized] = useState(readMinimized);
   const [rateAnnouncement, setRateAnnouncement] = useState("");
   const visible = isNowPlayingVisible(playback);
 
@@ -212,12 +225,23 @@ export const NowPlayingBar = ({
       : 0;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const canSeek = !isLoading && duration > 0;
+  const disclosureLabel = minimized ? "Expand player" : "Minimize player";
 
   const cycleSpeed = () => {
     const idx = PLAYBACK_RATES.indexOf(playbackRate as PlaybackRate);
     const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
     onPlaybackRateChange(next);
     setRateAnnouncement(`Playback speed ${formatRate(next)}`);
+  };
+
+  const toggleMinimized = () => {
+    const next = !minimized;
+    setMinimized(next);
+    try {
+      window.localStorage.setItem(MINIMIZED_STORAGE_KEY, String(next));
+    } catch (error) {
+      console.debug("Could not save the Now playing preference.", error);
+    }
   };
 
   return (
@@ -229,18 +253,79 @@ export const NowPlayingBar = ({
         data-now-playing-bar
         className="fixed inset-x-0 bottom-0 z-50 max-h-[60dvh] overflow-y-auto border-t border-border bg-surface-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.18)] [overflow-wrap:anywhere]"
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-1 px-3 sm:px-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="min-w-0 flex-[1_1_12rem]">
-              <p className="m-0 line-clamp-2 text-sm font-semibold leading-snug text-foreground sm:text-base">
+        <div className="@container mx-auto flex max-w-3xl flex-col gap-1 px-3 sm:px-4">
+          <div
+            className={`flex min-w-0 gap-2 ${minimized ? "items-center" : "items-start"}`}
+          >
+            <div className="min-w-0 flex-1">
+              <p
+                className={`m-0 text-sm font-semibold leading-snug text-foreground sm:text-base ${minimized ? "line-clamp-2" : ""}`}
+              >
                 {displayTitle}
               </p>
-              <p className="m-0 line-clamp-1 text-xs leading-snug text-muted sm:text-sm">
-                {isLoading ? "Loading audio · " : isPaused ? "Paused · " : ""}
-                {articleTitle}
-              </p>
+              {!minimized && (
+                <p className="m-0 line-clamp-1 text-xs leading-snug text-muted sm:text-sm">
+                  {isLoading ? "Loading audio · " : isPaused ? "Paused · " : ""}
+                  {articleTitle}
+                </p>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (!isLoading) onTogglePlayback();
+              }}
+              aria-disabled={isLoading || undefined}
+              aria-label={
+                isLoading
+                  ? `Loading ${displayTitle}`
+                  : isPaused
+                    ? `Play ${displayTitle}`
+                    : `Pause ${displayTitle}`
+              }
+              className={`${controlBaseClass} min-w-12 border-transparent bg-btn-primary px-[14px] text-btn-primary-text hover:bg-btn-primary-hover [&>svg]:size-[1.1em] ${
+                isLoading ? "cursor-wait" : ""
+              }`}
+            >
+              {isLoading ? (
+                <SpinnerIcon />
+              ) : isPaused ? (
+                <PlayIcon />
+              ) : (
+                <PauseIcon />
+              )}
+              <span className="hidden @min-[24em]:inline">
+                {isLoading ? "Loading" : isPaused ? "Play" : "Pause"}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-expanded={!minimized}
+              aria-controls={controlsId}
+              aria-label={disclosureLabel}
+              title={disclosureLabel}
+              onClick={toggleMinimized}
+              className={controlClass}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                className={`size-[1.1em] shrink-0 ${minimized ? "rotate-180" : ""}`}
+              >
+                <path d="m5 9 7 7 7-7" />
+              </svg>
+              <span className="hidden @min-[16em]:inline">
+                {minimized ? "Expand" : "Minimize"}
+              </span>
+            </button>
+          </div>
 
+          <div id={controlsId} hidden={minimized}>
             <div
               role="group"
               aria-label="Playback controls"
@@ -256,34 +341,6 @@ export const NowPlayingBar = ({
                 <SkipSecondsIcon direction="back" />
                 <span aria-hidden="true" className="text-xs">
                   {SKIP_SECONDS}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isLoading) onTogglePlayback();
-                }}
-                aria-disabled={isLoading || undefined}
-                aria-label={
-                  isLoading
-                    ? `Loading ${displayTitle}`
-                    : isPaused
-                      ? `Play ${displayTitle}`
-                      : `Pause ${displayTitle}`
-                }
-                className={`${controlBaseClass} min-w-12 border-transparent bg-btn-primary px-[14px] text-btn-primary-text hover:bg-btn-primary-hover ${
-                  isLoading ? "cursor-wait" : ""
-                }`}
-              >
-                {isLoading ? (
-                  <SpinnerIcon />
-                ) : isPaused ? (
-                  <PlayIcon />
-                ) : (
-                  <PauseIcon />
-                )}
-                <span className="hidden sm:inline">
-                  {isLoading ? "Loading" : isPaused ? "Play" : "Pause"}
                 </span>
               </button>
               <button
@@ -326,36 +383,36 @@ export const NowPlayingBar = ({
                 <StopIcon />
               </button>
             </div>
-          </div>
 
-          <div className="audio-scrubber flex min-w-0 items-center gap-3">
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.1}
-              value={currentTime}
-              disabled={!canSeek}
-              onChange={(event) => {
-                const value = parseFloat(event.target.value);
-                onSeek(
-                  Number.isFinite(value)
-                    ? Math.min(duration, Math.max(0, value))
-                    : 0,
-                );
-              }}
-              aria-label={`Position in ${displayTitle}`}
-              aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
-              className="audio-progress-range block min-h-11 min-w-0 flex-1"
-              style={{ "--progress": `${progress}%` } as CSSProperties}
-            />
-            <span
-              aria-hidden="true"
-              className="shrink-0 font-mono text-xs font-medium tabular-nums text-foreground-2"
-            >
-              {formatTime(currentTime)} /{" "}
-              {duration > 0 ? formatTime(duration) : "--:--"}
-            </span>
+            <div className="audio-scrubber flex min-w-0 flex-wrap items-center gap-x-3">
+              <input
+                type="range"
+                min={0}
+                max={duration}
+                step={0.1}
+                value={currentTime}
+                disabled={!canSeek}
+                onChange={(event) => {
+                  const value = parseFloat(event.target.value);
+                  onSeek(
+                    Number.isFinite(value)
+                      ? Math.min(duration, Math.max(0, value))
+                      : 0,
+                  );
+                }}
+                aria-label={`Position in ${displayTitle}`}
+                aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
+                className="audio-progress-range block min-h-11 min-w-0 flex-[1_1_8rem]"
+                style={{ "--progress": `${progress}%` } as CSSProperties}
+              />
+              <span
+                aria-hidden="true"
+                className="max-w-full font-mono text-xs font-medium tabular-nums text-foreground-2"
+              >
+                {formatTime(currentTime)} /{" "}
+                {duration > 0 ? formatTime(duration) : "--:--"}
+              </span>
+            </div>
           </div>
         </div>
       </section>

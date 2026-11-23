@@ -66,6 +66,7 @@ describe("NowPlayingBar", () => {
   let resizeCallbacks: ResizeObserverCallback[];
 
   beforeEach(() => {
+    window.localStorage.clear();
     resizeCallbacks = [];
     vi.stubGlobal(
       "ResizeObserver",
@@ -146,6 +147,60 @@ describe("NowPlayingBar", () => {
     );
     expect(root_.style.getPropertyValue(NOW_PLAYING_HEIGHT_VARIABLE)).toBe("");
     expect(document.body.style.paddingBottom).toBe("");
+  });
+
+  it("keeps focus and playback when minimized, and remembers both choices across articles", () => {
+    const props = makeProps({ playback: playback({ mode: "play_all" }) });
+    act(() => root.render(<NowPlayingBar key="first" {...props} />));
+
+    const toggle = button(container, "Minimize player");
+    const panel = document.getElementById(
+      toggle.getAttribute("aria-controls")!,
+    );
+    expect(panel?.hidden).toBe(false);
+    toggle.focus();
+    act(() => toggle.click());
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(panel?.hidden).toBe(true);
+    expect(panel?.contains(button(container, "Stop audio"))).toBe(true);
+    expect(
+      panel?.contains(container.querySelector("input[type='range']")),
+    ).toBe(true);
+    const pause = button(container, "Pause History");
+    expect(pause.closest("[hidden]")).toBeNull();
+    expect(props.onStop).not.toHaveBeenCalled();
+    expect(props.onTogglePlayback).not.toHaveBeenCalled();
+    act(() => pause.click());
+    expect(props.onTogglePlayback).toHaveBeenCalledOnce();
+
+    act(() => root.render(<NowPlayingBar key="second" {...props} />));
+    const expand = button(container, "Expand player");
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    expand.focus();
+    act(() => expand.click());
+    expect(document.activeElement).toBe(expand);
+    expect(button(container, "Stop audio").closest("[hidden]")).toBeNull();
+
+    act(() => root.render(<NowPlayingBar key="third" {...props} />));
+    expect(
+      button(container, "Minimize player").getAttribute("aria-expanded"),
+    ).toBe("true");
+  });
+
+  it("can still minimize when the browser blocks preference storage", () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage is blocked", "SecurityError");
+    });
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+    act(() => root.render(<NowPlayingBar {...makeProps()} />));
+    act(() => button(container, "Minimize player").click());
+    expect(
+      button(container, "Expand player").getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(
+      container.querySelector("input[type='range']")?.closest("[hidden]"),
+    ).not.toBeNull();
   });
 
   it("drives the existing controller actions", () => {

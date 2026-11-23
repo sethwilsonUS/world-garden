@@ -1436,6 +1436,65 @@ test("article keeps structured source sections playable with an accessible adapt
   await expectNoSeriousAxeViolations(page);
 });
 
+test("Now playing can be minimized at double text size with the keyboard", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await mockArticleData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.goto("/article/Ada_Lovelace");
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+  await page.getByRole("button", { name: "Listen to Recognition" }).click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  const pause = player.getByRole("button", { name: "Pause Recognition" });
+  await expect(pause).toBeVisible();
+  const expandedHeight = (await player.boundingBox())!.height;
+  const minimize = player.getByRole("button", { name: "Minimize player" });
+  await minimize.focus();
+  await page.keyboard.press("Enter");
+
+  const expand = player.getByRole("button", { name: "Expand player" });
+  await expect(expand).toBeFocused();
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expectVisibleFocusIndicator(expand);
+  await expect(player.getByRole("slider")).toHaveCount(0);
+  await expect(player.getByRole("button")).toHaveCount(2);
+  const compactHeight = (await player.boundingBox())!.height;
+  expect(compactHeight).toBeLessThan(expandedHeight / 2);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.documentElement.style.getPropertyValue("--now-playing-height"),
+      ),
+    )
+    .toBe(`${Math.ceil(compactHeight)}px`);
+  for (const control of [expand, pause]) {
+    const box = (await control.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+  }
+
+  await page.keyboard.press("Shift+Tab");
+  await expect(pause).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(
+    player.getByRole("button", { name: "Play Recognition" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Space");
+  await expect(minimize).toBeFocused();
+  await expect(minimize).toHaveAttribute("aria-expanded", "true");
+  await expect(player.getByRole("slider")).toBeVisible();
+});
+
 test("article section controls and metadata reflow with enlarged text", async ({
   page,
 }) => {
