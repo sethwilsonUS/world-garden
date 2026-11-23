@@ -3,6 +3,7 @@ import { calendarDayKey, parseCalendarDaySlug } from "@/lib/calendar-day";
 import {
   getStoredOnThisDayShareCard,
   getStoredOnThisDayShareCardCreditsByRevision,
+  isValidShareCardCreditRevisionId,
   type StoredOnThisDayShareCardPlate,
 } from "@/lib/on-this-day-share-card-store";
 
@@ -16,8 +17,6 @@ const CREDITS_CACHE_HEADERS = {
 const IMMUTABLE_CREDITS_CACHE_HEADERS = {
   "Cache-Control": "public, max-age=86400, s-maxage=31536000, immutable",
 } as const;
-
-const REVISION_ID_PATTERN = /^[a-z0-9_-]{6,64}$/u;
 
 const serializePlates = (
   plates: readonly StoredOnThisDayShareCardPlate[],
@@ -51,7 +50,7 @@ export const GET = async (request: NextRequest) => {
 
   if (rawRev !== null) {
     const trimmedRev = rawRev.trim();
-    if (!REVISION_ID_PATTERN.test(trimmedRev)) {
+    if (!isValidShareCardCreditRevisionId(trimmedRev)) {
       return NextResponse.json(
         {
           error:

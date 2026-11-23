@@ -18,10 +18,16 @@ const { getStoredShareCardMock, getStoredCreditsByRevisionMock } = vi.hoisted(
   }),
 );
 
-vi.mock("@/lib/on-this-day-share-card-store", () => ({
-  getStoredOnThisDayShareCard: getStoredShareCardMock,
-  getStoredOnThisDayShareCardCreditsByRevision: getStoredCreditsByRevisionMock,
-}));
+vi.mock("@/lib/on-this-day-share-card-store", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/on-this-day-share-card-store")>();
+  return {
+    ...actual,
+    getStoredOnThisDayShareCard: getStoredShareCardMock,
+    getStoredOnThisDayShareCardCreditsByRevision:
+      getStoredCreditsByRevisionMock,
+  };
+});
 
 import { dynamic, GET } from "./route";
 

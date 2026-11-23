@@ -29,7 +29,9 @@ import {
   computeShareCardCreditRevisionId,
   getStoredOnThisDayShareCard,
   getStoredOnThisDayShareCardCreditsByRevision,
+  isValidShareCardCreditRevisionId,
   listStoredOnThisDayShareCardStatuses,
+  SHARE_CARD_CREDIT_REVISION_ID_PATTERN,
   uploadAndSaveOnThisDayShareCard,
   type OnThisDayShareCardStatus,
   type StoredOnThisDayShareCard,
@@ -338,6 +340,64 @@ describe("on-this-day-share-card-store", () => {
         unknown
       >;
       expect("snapshotCheckedAt" in saveMutationArgs).toBe(false);
+    });
+
+    it("preserves a valid supplied creditRevisionId and rejects invalid ones before requesting an upload URL", async () => {
+      vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "false");
+      vi.stubEnv("NEXT_PUBLIC_CONVEX_URL", "https://example.convex.cloud");
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+
+      expect(SHARE_CARD_CREDIT_REVISION_ID_PATTERN.test("custom_rev-01")).toBe(
+        true,
+      );
+      expect(isValidShareCardCreditRevisionId("REV_123")).toBe(false);
+      expect(isValidShareCardCreditRevisionId("short")).toBe(false);
+
+      await expect(
+        uploadAndSaveOnThisDayShareCard({
+          monthDay: "10-18",
+          version: 1,
+          data: new Uint8Array([1, 2, 3]),
+          mimeType: "image/jpeg",
+          width: 1200,
+          height: 630,
+          generatedAt: 1_780_000_000_000,
+          creditRevisionId: "REV_123",
+          plates: samplePlates,
+        }),
+      ).rejects.toThrow("Invalid creditRevisionId");
+      expect(fetchMutationMock).not.toHaveBeenCalled();
+
+      fetchMutationMock
+        .mockResolvedValueOnce("https://upload.example.test/share-card")
+        .mockResolvedValueOnce({
+          monthDay: "10-18",
+          version: 1,
+          storageId: "storage-custom-rev",
+          replaced: false,
+          rejectedStaleVersion: false,
+        });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ storageId: "storage-custom-rev" })),
+      );
+
+      await uploadAndSaveOnThisDayShareCard({
+        monthDay: "10-18",
+        version: 1,
+        data: new Uint8Array([1, 2, 3]),
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        generatedAt: 1_780_000_000_000,
+        creditRevisionId: "  custom_rev-01  ",
+        plates: samplePlates,
+      });
+
+      const saveArgs = fetchMutationMock.mock.calls[1]?.[1] as {
+        creditRevisionId?: string;
+      };
+      expect(saveArgs.creditRevisionId).toBe("custom_rev-01");
     });
   });
 

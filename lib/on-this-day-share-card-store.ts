@@ -69,6 +69,11 @@ export type UploadAndSaveOnThisDayShareCardResult = {
   rejectedStaleVersion?: boolean;
 };
 
+export const SHARE_CARD_CREDIT_REVISION_ID_PATTERN = /^[a-z0-9_-]{6,64}$/u;
+
+export const isValidShareCardCreditRevisionId = (value: string): boolean =>
+  SHARE_CARD_CREDIT_REVISION_ID_PATTERN.test(value);
+
 const SAVE_SHARE_CARD_MAX_RETRIES = 2;
 const SAVE_SHARE_CARD_RETRY_BASE_MS = 100;
 
@@ -207,6 +212,16 @@ export const uploadAndSaveOnThisDayShareCard = async ({
     throw new Error("Cannot upload an empty On This Day share card image.");
   }
 
+  const trimmedCreditRevisionId = creditRevisionId?.trim();
+  if (
+    trimmedCreditRevisionId &&
+    !isValidShareCardCreditRevisionId(trimmedCreditRevisionId)
+  ) {
+    throw new Error(
+      `Invalid creditRevisionId "${creditRevisionId}". Expected 6-64 characters matching [a-z0-9_-].`,
+    );
+  }
+
   const uploadArgs = await withOnThisDayWriteAttestation(
     "generate-upload-url",
     {},
@@ -227,7 +242,7 @@ export const uploadAndSaveOnThisDayShareCard = async ({
 
   const normalizedPlates = plates.map(normalizeShareCardPlate);
   const resolvedCreditRevisionId =
-    creditRevisionId?.trim() ||
+    trimmedCreditRevisionId ||
     computeShareCardCreditRevisionId({
       monthDay,
       version,

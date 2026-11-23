@@ -14,6 +14,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
+  buildShareCardAttributionLine,
   ON_THIS_DAY_OG_SIZE,
   type OnThisDayOgPlate,
 } from "@/app/(app)/on-this-day/og-card";
@@ -122,10 +123,17 @@ export type DayRunReport = {
   plateCount?: number;
   byteSize?: number;
   outputPath?: string;
+  previewCreditsPath?: string;
   storageId?: string;
+  retainedVersion?: number;
   replaced?: boolean;
   reason?: string;
   plates?: PlateReportEntry[];
+  attempted?: {
+    byteSize: number;
+    plateCount: number;
+    plates: PlateReportEntry[];
+  };
 };
 
 const createAbortError = (signal: AbortSignal): Error => {
@@ -521,6 +529,27 @@ const renderEvergreenPreview = async (
   };
 };
 
+export const resolveShareCardCreditTarget = ({
+  monthDay,
+  creditRevisionId,
+  previewOnly,
+}: {
+  monthDay: string;
+  creditRevisionId: string;
+  previewOnly: boolean;
+}): { creditPath: string; previewCreditsFilename?: string } => {
+  if (previewOnly) {
+    const previewCreditsFilename = `on-this-day-${monthDay}.credits.json`;
+    return {
+      creditPath: `local preview — ${previewCreditsFilename}`,
+      previewCreditsFilename,
+    };
+  }
+  return {
+    creditPath: `/api/on-this-day/share-card-credits?day=${monthDay}&rev=${creditRevisionId}`,
+  };
+};
+
 export const buildUploadDayRunReport = ({
   monthDay,
   dayLabel,
@@ -545,12 +574,15 @@ export const buildUploadDayRunReport = ({
       status: "skipped",
       snapshotSource,
       subtitle,
-      plateCount: reportPlates.length,
-      byteSize,
       storageId: saved.storageId,
+      retainedVersion: saved.version,
       replaced: false,
       reason: `retained newer v${saved.version}`,
-      plates: reportPlates,
+      attempted: {
+        byteSize,
+        plateCount: reportPlates.length,
+        plates: reportPlates,
+      },
     };
   }
 
@@ -675,11 +707,17 @@ const processCalendarDay = async ({
     };
   });
 
+  const { creditPath, previewCreditsFilename } = resolveShareCardCreditTarget({
+    monthDay,
+    creditRevisionId,
+    previewOnly: options.previewOnly,
+  });
+
   const jpegBytes = await renderOnThisDayShareCardJpeg({
     dayLabel,
     subtitle,
     plates: ogPlates,
-    creditPath: `/api/on-this-day/share-card-credits?day=${monthDay}&rev=${creditRevisionId}`,
+    creditPath,
   });
 
   const reportPlates: PlateReportEntry[] = slotted.map((plate, index) => ({
@@ -703,6 +741,31 @@ const processCalendarDay = async ({
     );
     await writeFile(outputPath, jpegBytes);
 
+    let previewCreditsPath: string | undefined;
+    if (
+      previewCreditsFilename &&
+      buildShareCardAttributionLine(ogPlates, creditPath) !== null
+    ) {
+      previewCreditsPath = path.join(
+        options.previewOutDir,
+        previewCreditsFilename,
+      );
+      await writeFile(
+        previewCreditsPath,
+        `${JSON.stringify(
+          {
+            previewOnly: true,
+            unpublished: true,
+            monthDay,
+            version: ON_THIS_DAY_SHARE_CARD_VERSION,
+            plates: storedPlates,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    }
+
     printPlateTable(
       `${dayLabel} (${monthDay}) Preview Share Card`,
       reportPlates,
@@ -720,6 +783,7 @@ const processCalendarDay = async ({
       plateCount: slotted.length,
       byteSize: jpegBytes.byteLength,
       outputPath,
+      ...(previewCreditsPath ? { previewCreditsPath } : {}),
       plates: reportPlates,
     };
   }

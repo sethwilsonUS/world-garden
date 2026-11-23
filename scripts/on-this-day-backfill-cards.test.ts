@@ -4,6 +4,7 @@ import {
   buildUploadDayRunReport,
   createPoliteWikimediaFetch,
   parseCliArgs,
+  resolveShareCardCreditTarget,
   resolveTargetCalendarDays,
   shouldSkipStoredShareCard,
   waitAbortable,
@@ -173,14 +174,29 @@ describe("waitAbortable and createPoliteWikimediaFetch", () => {
 });
 
 describe("buildUploadDayRunReport", () => {
-  it("reports rejectedStaleVersion as skipped (never uploaded) with retained version info", () => {
+  it("reports rejectedStaleVersion as skipped with retainedVersion and nests rejected render metadata under attempted", () => {
+    const sampleReportPlates = [
+      {
+        slot: 0,
+        year: 1775,
+        yearLabel: "1775",
+        articleTitle: "American Revolutionary War",
+        category: "selected",
+        licenseTier: "pd-cc0",
+        licenseName: "Public domain",
+        isPortrait: false,
+        dimensions: "330x218",
+        imageUrl: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Rev.jpg",
+      },
+    ];
+
     const staleReport = buildUploadDayRunReport({
       monthDay: "10-18",
       dayLabel: "October 18",
       snapshotSource: "convex",
       subtitle: "54 events · 258 births",
       byteSize: 150_000,
-      reportPlates: [],
+      reportPlates: sampleReportPlates,
       saved: {
         monthDay: "10-18",
         version: 2,
@@ -193,7 +209,16 @@ describe("buildUploadDayRunReport", () => {
     expect(staleReport.status).toBe("skipped");
     expect(staleReport.replaced).toBe(false);
     expect(staleReport.storageId).toBe("storage-v2");
+    expect(staleReport.retainedVersion).toBe(2);
     expect(staleReport.reason).toBe("retained newer v2");
+    expect(staleReport.byteSize).toBeUndefined();
+    expect(staleReport.plateCount).toBeUndefined();
+    expect(staleReport.plates).toBeUndefined();
+    expect(staleReport.attempted).toEqual({
+      byteSize: 150_000,
+      plateCount: 1,
+      plates: sampleReportPlates,
+    });
 
     const uploadedReport = buildUploadDayRunReport({
       monthDay: "10-18",
@@ -201,7 +226,7 @@ describe("buildUploadDayRunReport", () => {
       snapshotSource: "convex",
       subtitle: "54 events · 258 births",
       byteSize: 150_000,
-      reportPlates: [],
+      reportPlates: sampleReportPlates,
       saved: {
         monthDay: "10-18",
         version: 2,
@@ -213,6 +238,38 @@ describe("buildUploadDayRunReport", () => {
 
     expect(uploadedReport.status).toBe("uploaded");
     expect(uploadedReport.replaced).toBe(true);
+    expect(uploadedReport.byteSize).toBe(150_000);
+    expect(uploadedReport.plateCount).toBe(1);
+    expect(uploadedReport.plates).toEqual(sampleReportPlates);
+    expect(uploadedReport.attempted).toBeUndefined();
+    expect(uploadedReport.retainedVersion).toBeUndefined();
     expect(uploadedReport.reason).toBeUndefined();
+  });
+});
+
+describe("resolveShareCardCreditTarget", () => {
+  it("uses local preview sidecar credit label in --preview-only mode instead of an unpublished API URL", () => {
+    const previewTarget = resolveShareCardCreditTarget({
+      monthDay: "10-18",
+      creditRevisionId: "a1b2c3d4e5f60708",
+      previewOnly: true,
+    });
+    expect(previewTarget.creditPath).toBe(
+      "local preview — on-this-day-10-18.credits.json",
+    );
+    expect(previewTarget.creditPath).not.toContain("/api/on-this-day/");
+    expect(previewTarget.previewCreditsFilename).toBe(
+      "on-this-day-10-18.credits.json",
+    );
+
+    const uploadTarget = resolveShareCardCreditTarget({
+      monthDay: "10-18",
+      creditRevisionId: "a1b2c3d4e5f60708",
+      previewOnly: false,
+    });
+    expect(uploadTarget.creditPath).toBe(
+      "/api/on-this-day/share-card-credits?day=10-18&rev=a1b2c3d4e5f60708",
+    );
+    expect(uploadTarget.previewCreditsFilename).toBeUndefined();
   });
 });
