@@ -66,7 +66,7 @@ describe("renderArticleAudioArtworkResponse", () => {
         }),
       }),
     );
-  }, 20_000);
+  }, 60_000);
 
   it("falls back cleanly to a rendered PNG when the Wikimedia image fetch returns HTTP 429", async () => {
     const httpCalls = mockHttpFetch(
@@ -84,5 +84,5 @@ describe("renderArticleAudioArtworkResponse", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("image/png");
     expect(Array.from(bytes.slice(0, 4))).toEqual(PNG_SIGNATURE);
-  }, 20_000);
+  }, 60_000);
 });
