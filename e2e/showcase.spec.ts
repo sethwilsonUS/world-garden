@@ -1008,7 +1008,9 @@ test("trending announces availability in an existing status region", async ({ pa
     await route.fulfill({ json: { enabled: true, status: "missing", brief: null } });
   });
   await page.goto("/trending");
-  const status = page.getByRole("status", { name: "Audio brief availability" });
+  const trending = page.getByRole("region", { name: "Trending today" });
+  const status = trending.getByRole("status");
+  await expect(status).toHaveAccessibleName("");
   await expect(status).toBeEmpty();
   const original = await status.evaluateHandle((element) => element);
   response.resolve();

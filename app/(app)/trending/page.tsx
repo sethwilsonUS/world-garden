@@ -222,9 +222,7 @@ export default function TrendingPage() {
             </section>
           ) : null}
           <p className={availability ? "mb-6 text-sm leading-[1.6] text-muted" : "m-0"}>
-            <span role="status" aria-label="Audio brief availability">
-              {availability}
-            </span>
+            <span role="status">{availability}</span>
             {availability && (
               <>
                 {" "}
