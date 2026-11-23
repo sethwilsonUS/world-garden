@@ -21,6 +21,7 @@ import { useArticleAudioController } from "./useArticleAudioController";
 
 const mocks = vi.hoisted(() => ({
   audioStartup: vi.fn(),
+  claimPlayback: vi.fn(),
   downloadAll: vi.fn(),
   exportJobs: [] as Array<Record<string, unknown>>,
   generateTts: vi.fn(),
@@ -195,6 +196,7 @@ const ControllerHarness = ({
     article: articleValue,
     badgeTrackingEnabled: false,
     updateProgress: mocks.updateProgress,
+    claimPlayback: mocks.claimPlayback,
   });
 
   useEffect(() => {
@@ -1183,5 +1185,83 @@ describe("useArticleAudioController", () => {
       );
       expect(playSpy).toHaveBeenCalledTimes(1);
     }
+  });
+  it("restarts the loaded section when the listener steps back before the next one arrives", async () => {
+    const nextSection = deferred<TtsAudioUrlResult>();
+    mocks.generateTts.mockImplementation(
+      ({ sectionKey }: { sectionKey: string }) =>
+        sectionKey === "section-1"
+          ? nextSection.promise
+          : Promise.resolve(audioResult(`blob:${sectionKey}`)),
+    );
+    act(() => controller().actions.listenSection(0));
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        sectionKey: "section-0",
+      }),
+    );
+    const audio = container.querySelector("audio")!;
+    act(() => controller().actions.seek(12));
+    expect(audio.currentTime).toBe(12);
+
+    act(() => controller().actions.nextSection());
+    expect(controller().state.playback).toMatchObject({
+      status: "loading",
+      sectionKey: "section-1",
+    });
+    expect(audio.paused).toBe(true);
+    playSpy.mockClear();
+
+    // The element still holds section 0, so this reload changes no URL.
+    act(() => controller().actions.previousSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        sectionKey: "section-0",
+      }),
+    );
+    expect(controller().audioSrc).toBe("blob:section-0");
+    expect(audio.currentTime).toBe(0);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      nextSection.resolve(audioResult("blob:too-late"));
+      await nextSection.promise;
+    });
+    expect(controller().state.playback.sectionKey).toBe("section-0");
+    expect(controller().audioSrc).toBe("blob:section-0");
+  });
+
+  it("reclaims Now playing when the listener steps through Play all", async () => {
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
+    );
+    act(() => controller().actions.playAll());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("summary"),
+    );
+    mocks.claimPlayback.mockClear();
+
+    act(() => controller().actions.nextSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
+    expect(mocks.claimPlayback).toHaveBeenCalledTimes(1);
+
+    act(() => controller().actions.previousSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("summary"),
+    );
+    expect(mocks.claimPlayback).toHaveBeenCalledTimes(2);
+
+    // Play all advancing on its own leaves ownership where it is.
+    const audio = container.querySelector("audio")!;
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
+    expect(mocks.claimPlayback).toHaveBeenCalledTimes(2);
   });
 });

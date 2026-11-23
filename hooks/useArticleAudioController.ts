@@ -210,6 +210,10 @@ export const useArticleAudioController = ({
     createIdleAudioPlayback,
   );
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // The URL in the element, readable from async completions, and a counter
+  // that re-runs autoplay even when a track reloads the URL already there.
+  const audioUrlRef = useRef<string | null>(null);
+  const [audioLoadId, setAudioLoadId] = useState(0);
   const [pausedForOtherMedia, setPausedForOtherMedia] = useState(false);
   const [finishedPlaying, setFinishedPlaying] = useState(false);
   const [trackingSectionKey, setTrackingSectionKey] = useState<string | null>(
@@ -269,6 +273,7 @@ export const useArticleAudioController = ({
 
   const resetAudioPlayback = useCallback(() => {
     clearSlowLoadingTimer();
+    audioUrlRef.current = null;
     setAudioUrl(null);
     setAudioPlayback(createIdleAudioPlayback());
   }, [clearSlowLoadingTimer]);
@@ -620,6 +625,22 @@ export const useArticleAudioController = ({
     isPlayingAllRef.current = isPlayingAll;
   }, [isPlayingAll]);
 
+  /**
+   * Put a track's audio in the element. Returning to the URL that is already
+   * loaded (Next, then Previous before the next section arrives) changes no
+   * state, so start it from the beginning and count the load to re-run the
+   * autoplay effect.
+   */
+  const loadAudioUrl = useCallback(
+    (url: string) => {
+      if (audioUrlRef.current === url) audioElSeek(0);
+      audioUrlRef.current = url;
+      setAudioUrl(url);
+      setAudioLoadId((id) => id + 1);
+    },
+    [audioElSeek],
+  );
+
   const pauseForOtherMedia = useCallback(() => {
     setPausedForOtherMedia(true);
     audioElPause();
@@ -651,7 +672,7 @@ export const useArticleAudioController = ({
     if (isPlayingAll && playAllQueue.current.length > 0) {
       warmPlayAllQueue(playAllQueue.current);
     }
-  }, [audioUrl, audioRef, isPlayingAll, warmPlayAllQueue]);
+  }, [audioLoadId, audioUrl, audioRef, isPlayingAll, warmPlayAllQueue]);
 
   const activeAudioIdentity = activeNarrationHash
     ? `${activeNarrationHash}::${activeTtsCacheKey}`
@@ -818,7 +839,7 @@ export const useArticleAudioController = ({
           seededStartupPath.current.get(sectionKey) ?? "memory";
         seededStartupPath.current.delete(sectionKey);
         showFallbackNoticeForPlayback(memoryCached);
-        setAudioUrl(memoryCached.url);
+        loadAudioUrl(memoryCached.url);
         pendingAutoPlay.current = true;
         trackAudioStartup(
           scope,
@@ -834,7 +855,7 @@ export const useArticleAudioController = ({
       if (convexCached) {
         seedAudioResult(sectionKey, convexCached);
         showFallbackNoticeForPlayback(convexCached);
-        setAudioUrl(convexCached.url);
+        loadAudioUrl(convexCached.url);
         pendingAutoPlay.current = true;
         trackAudioStartup(
           scope,
@@ -872,7 +893,7 @@ export const useArticleAudioController = ({
         seedAudioResult(sectionKey, result);
         seededStartupPath.current.delete(sectionKey);
         showFallbackNoticeForPlayback(result);
-        setAudioUrl(result.url);
+        loadAudioUrl(result.url);
         trackAudioStartup(scope, source, path, result, startupStartedAt);
       };
 
@@ -962,6 +983,7 @@ export const useArticleAudioController = ({
       generateTtsFromApi,
       getCachedAudioResult,
       getTextForSection,
+      loadAudioUrl,
       narrationTracks,
       resetAudioPlayback,
       seedAudioResult,
@@ -1042,6 +1064,8 @@ export const useArticleAudioController = ({
     audioElPause();
     if (playAllQueue.current.length > 0) {
       const next = playAllQueue.current.shift()!;
+      // "auto_next" does not claim on its own; a listener's skip does.
+      claimPlayback?.();
       generateAudio(next.sectionKey, next.label, next.sectionIdx, "auto_next");
     } else {
       isPlayingAllRef.current = false;
@@ -1051,6 +1075,7 @@ export const useArticleAudioController = ({
     }
   }, [
     audioElPause,
+    claimPlayback,
     clearSlowLoadingTimer,
     generateAudio,
     isPlayingAll,
@@ -1089,6 +1114,7 @@ export const useArticleAudioController = ({
           .slice(trackIndex + 1)
           .map((track) => ({ ...track, label: track.title }));
         isPlayingAllRef.current = true;
+        claimPlayback?.();
         generateAudio(
           target.sectionKey,
           target.title,
@@ -1107,7 +1133,13 @@ export const useArticleAudioController = ({
         target.sectionKey === "summary" ? "summary" : "section",
       );
     },
-    [audioElPause, clearSlowLoadingTimer, generateAudio, narrationTracks],
+    [
+      audioElPause,
+      claimPlayback,
+      clearSlowLoadingTimer,
+      generateAudio,
+      narrationTracks,
+    ],
   );
 
   const handlePreviousSection = useCallback(() => {
