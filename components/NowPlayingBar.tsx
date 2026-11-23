@@ -257,7 +257,6 @@ export const NowPlayingBar = ({
       : 0;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const canSeek = !isLoading && duration > 0;
-  const disclosureLabel = minimized ? "Expand player" : "Minimize player";
 
   const cycleSpeed = () => {
     const idx = PLAYBACK_RATES.indexOf(playbackRate as PlaybackRate);
@@ -334,8 +333,6 @@ export const NowPlayingBar = ({
               type="button"
               aria-expanded={!minimized}
               aria-controls={controlsId}
-              aria-label={disclosureLabel}
-              title={disclosureLabel}
               onClick={toggleMinimized}
               className={controlClass}
             >
@@ -351,8 +348,8 @@ export const NowPlayingBar = ({
               >
                 <path d="m5 9 7 7 7-7" />
               </svg>
-              <span className="hidden @min-[16em]:inline">
-                {minimized ? "Expand" : "Minimize"}
+              <span className="@max-[16em]:sr-only">
+                Player controls
               </span>
             </button>
           </div>

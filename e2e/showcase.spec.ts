@@ -1474,14 +1474,17 @@ test("Now playing can be minimized at double text size with the keyboard", async
   const pause = player.getByRole("button", { name: "Pause Recognition" });
   await expect(pause).toBeVisible();
   const expandedHeight = (await player.boundingBox())!.height;
-  const minimize = player.getByRole("button", { name: "Minimize player" });
-  await minimize.focus();
+  const disclosure = player.getByRole("button", {
+    name: "Player controls",
+    exact: true,
+  });
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+  await disclosure.focus();
   await page.keyboard.press("Enter");
 
-  const expand = player.getByRole("button", { name: "Expand player" });
-  await expect(expand).toBeFocused();
-  await expect(expand).toHaveAttribute("aria-expanded", "false");
-  await expectVisibleFocusIndicator(expand);
+  await expect(disclosure).toBeFocused();
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await expectVisibleFocusIndicator(disclosure);
   await expect(player.getByRole("slider")).toHaveCount(0);
   await expect(player.getByRole("button")).toHaveCount(2);
   const compactHeight = (await player.boundingBox())!.height;
@@ -1493,7 +1496,7 @@ test("Now playing can be minimized at double text size with the keyboard", async
       ),
     )
     .toBe(`${Math.ceil(compactHeight)}px`);
-  for (const control of [expand, pause]) {
+  for (const control of [disclosure, pause]) {
     const box = (await control.boundingBox())!;
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -1509,9 +1512,13 @@ test("Now playing can be minimized at double text size with the keyboard", async
   ).toBeFocused();
   await page.keyboard.press("Tab");
   await page.keyboard.press("Space");
-  await expect(minimize).toBeFocused();
-  await expect(minimize).toHaveAttribute("aria-expanded", "true");
+  await expect(disclosure).toBeFocused();
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
   await expect(player.getByRole("slider")).toBeVisible();
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const label = disclosure.getByText("Player controls", { exact: true });
+  expect((await label.boundingBox())!.width).toBeGreaterThan(25);
 });
 
 test("article section controls and metadata reflow with enlarged text", async ({

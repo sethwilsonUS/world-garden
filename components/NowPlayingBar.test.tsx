@@ -190,7 +190,9 @@ describe("NowPlayingBar", () => {
     const props = makeProps({ playback: playback({ mode: "play_all" }) });
     act(() => root.render(<NowPlayingBar key="first" {...props} />));
 
-    const toggle = button(container, "Minimize player");
+    const toggle = button(container, "Player controls");
+    expect(toggle.textContent).toBe("Player controls");
+    expect(toggle.hasAttribute("title")).toBe(false);
     const panel = document.getElementById(
       toggle.getAttribute("aria-controls")!,
     );
@@ -212,7 +214,7 @@ describe("NowPlayingBar", () => {
     expect(props.onTogglePlayback).toHaveBeenCalledOnce();
 
     act(() => root.render(<NowPlayingBar key="second" {...props} />));
-    const expand = button(container, "Expand player");
+    const expand = button(container, "Player controls");
     expect(expand.getAttribute("aria-expanded")).toBe("false");
     expand.focus();
     act(() => expand.click());
@@ -221,7 +223,7 @@ describe("NowPlayingBar", () => {
 
     act(() => root.render(<NowPlayingBar key="third" {...props} />));
     expect(
-      button(container, "Minimize player").getAttribute("aria-expanded"),
+      button(container, "Player controls").getAttribute("aria-expanded"),
     ).toBe("true");
   });
 
@@ -231,9 +233,9 @@ describe("NowPlayingBar", () => {
     });
     vi.spyOn(console, "debug").mockImplementation(() => {});
     act(() => root.render(<NowPlayingBar {...makeProps()} />));
-    act(() => button(container, "Minimize player").click());
+    act(() => button(container, "Player controls").click());
     expect(
-      button(container, "Expand player").getAttribute("aria-expanded"),
+      button(container, "Player controls").getAttribute("aria-expanded"),
     ).toBe("false");
     expect(
       container.querySelector("input[type='range']")?.closest("[hidden]"),
