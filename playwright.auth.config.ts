@@ -55,6 +55,11 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "mobile-sign-in",
+      testMatch: "mobile-sign-in.spec.ts",
+      use: devices["iPhone 16 Pro"],
+    },
+    {
       name: "clerk-setup",
       testMatch: /(^|[/\\])clerk\.setup\.ts$/,
     },

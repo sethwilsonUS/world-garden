@@ -2,7 +2,6 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { ArticlePlaybackProvider } from "@/components/ArticlePlaybackProvider";
 import { AppProviders } from "../AppProviders";
 import { AccessibleLayout } from "@/components/AccessibleLayout";
-import { AuthNavControls } from "@/components/AuthNavControls";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { TrendingBriefWarmup } from "@/components/TrendingBriefWarmup";
@@ -48,13 +47,7 @@ export default function AppLayout({
       <AppProviders>
         <ArticlePlaybackProvider>
           <ThemeProvider>
-            <AccessibleLayout
-              authEnabled={!isLocal}
-              authControls={isLocal ? undefined : <AuthNavControls />}
-              mobileAuthControls={
-                isLocal ? undefined : <AuthNavControls mobile />
-              }
-            >
+            <AccessibleLayout authEnabled={!isLocal}>
               {children}
             </AccessibleLayout>
           </ThemeProvider>

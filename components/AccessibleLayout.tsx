@@ -10,6 +10,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { AuthNavControls } from "./AuthNavControls";
 import { ThemeToggle } from "./ThemeToggle";
 import { SiteNavLinks } from "./SiteNavLinks";
 import {
@@ -81,13 +82,9 @@ const CloseIcon = () => (
 
 export const AccessibleLayout = ({
   children,
-  authControls,
-  mobileAuthControls,
   authEnabled = false,
 }: {
   children: ReactNode;
-  authControls?: ReactNode;
-  mobileAuthControls?: ReactNode;
   authEnabled?: boolean;
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -265,7 +262,7 @@ export const AccessibleLayout = ({
           <div className="hidden min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:flex">
             <HeaderSearch />
             <SiteNavLinks variant="desktop" authEnabled={authEnabled} />
-            {authControls}
+            {authEnabled && <AuthNavControls />}
           </div>
 
           {/* Mobile search and navigation */}
@@ -332,9 +329,9 @@ export const AccessibleLayout = ({
             <div>
               <ThemeToggle />
             </div>
-            {mobileAuthControls ? (
+            {authEnabled ? (
               <div className="pt-3 mt-2 border-t border-border">
-                {mobileAuthControls}
+                <AuthNavControls mobile onSignIn={closeMobileMenu} />
               </div>
             ) : null}
           </div>
