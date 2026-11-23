@@ -21,8 +21,8 @@ vi.mock("@/lib/on-this-day-page-data", () => ({
 }));
 
 import OnThisDayCalendarPage, {
+  dynamic,
   generateMetadata,
-  generateStaticParams,
 } from "./page";
 
 describe("/on-this-day/[day] route", () => {
@@ -30,8 +30,8 @@ describe("/on-this-day/[day] route", () => {
     vi.clearAllMocks();
   });
 
-  it("uses on-demand ISR by returning an empty generateStaticParams array", async () => {
-    await expect(generateStaticParams()).resolves.toEqual([]);
+  it("forces dynamic rendering because production renders use ClerkProvider dynamic and Convex fetchQuery", () => {
+    expect(dynamic).toBe("force-dynamic");
   });
 
   it("generates day-specific metadata with self-referencing canonical URL", async () => {
