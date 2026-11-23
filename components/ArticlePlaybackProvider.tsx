@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useLayoutEffect,
+  useMemo,
   useState,
   type ReactNode,
   type RefObject,
@@ -26,24 +27,28 @@ export type ArticlePage = ArticleSource & {
   showController: (controller: Controller) => void;
 };
 
-const ArticlePageContext = createContext<
-  ((page: ArticlePage) => () => void) | null
->(null);
+const ArticlePageContext = createContext<{
+  register: (page: ArticlePage) => () => void;
+  playing: ArticleSource | null;
+} | null>(null);
 
 export function useArticlePlayback(
   slug: string,
-  article: ArticleSource["article"] | null,
+  fetchedArticle: ArticleSource["article"] | null,
   playAllButtonRef: ArticlePage["playAllButtonRef"],
 ) {
-  const register = useContext(ArticlePageContext);
-  if (!register)
+  const context = useContext(ArticlePageContext);
+  if (!context)
     throw new Error("Article playback requires ArticlePlaybackProvider.");
+  const { register, playing } = context;
+  // Keep section indices, visible text and audio on the same Wikipedia revision.
+  const article = playing?.slug === slug ? playing.article : fetchedArticle;
   const [controller, showController] = useState<Controller | null>(null);
   useLayoutEffect(() => {
     if (article)
       return register({ slug, article, playAllButtonRef, showController });
   }, [article, playAllButtonRef, register, slug]);
-  return controller;
+  return { article, controller };
 }
 
 export function ArticlePlaybackProvider({ children }: { children: ReactNode }) {
@@ -60,11 +65,12 @@ export function ArticlePlaybackProvider({ children }: { children: ReactNode }) {
   // Keep only the visible article and the article the listener started.
   // Their keys preserve the controller and audio element through navigation.
   const sources: ArticleSource[] = [];
-  if (page) sources.push(page);
-  if (playing && page?.slug !== playing.slug) sources.push(playing);
+  if (playing) sources.push(playing);
+  if (page && page.slug !== playing?.slug) sources.push(page);
+  const context = useMemo(() => ({ register, playing }), [register, playing]);
 
   return (
-    <ArticlePageContext.Provider value={register}>
+    <ArticlePageContext.Provider value={context}>
       {children}
       {sources.map((source) => (
         <ArticlePlaybackSession

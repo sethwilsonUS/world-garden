@@ -11,7 +11,7 @@ import type { ArticlePage, ArticleSource } from "./ArticlePlaybackProvider";
 
 function focusSection(key: string) {
   const target = document.getElementById(tocFocusTargetId(key));
-  if (!target) return false;
+  if (!target || target.matches(":disabled")) return false;
   const reduceMotion = window.matchMedia?.(
     "(prefers-reduced-motion: reduce)",
   ).matches;
@@ -20,7 +20,7 @@ function focusSection(key: string) {
     behavior: reduceMotion ? "auto" : "smooth",
   });
   target.focus({ preventScroll: true });
-  return true;
+  return document.activeElement === target;
 }
 
 type SessionProps = {
@@ -103,7 +103,7 @@ function PlaybackSession({
     if (!sectionKey) return;
     if (page && focusSection(sectionKey)) return;
     pendingJump.current = true;
-    router.push(`/article/${encodeURIComponent(slug)}`);
+    if (!page) router.push(`/article/${encodeURIComponent(slug)}`);
   };
   // Registration and the article's controls commit separately. Wait until
   // the section row is in the document before moving keyboard focus.

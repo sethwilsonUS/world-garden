@@ -48,7 +48,7 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
   const { fetchArticle } = useData();
   const { recordVisit, getProgress } = useHistory();
 
-  const [displayArticle, setDisplayArticle] = useState<ArticleData | null>(
+  const [fetchedArticle, setFetchedArticle] = useState<ArticleData | null>(
     null,
   );
   const [fetching, setFetching] = useState(true);
@@ -63,6 +63,11 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
     useState<AdaptiveImageAnalysis | null>(null);
   const fetchTriggered = useRef(false);
   const playAllButtonRef = useRef<HTMLButtonElement>(null);
+  const { article: displayArticle, controller } = useArticlePlayback(
+    slug,
+    fetchedArticle,
+    playAllButtonRef,
+  );
 
   const articleContext = useArticleContext(
     displayArticle
@@ -140,7 +145,7 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
     fetchArticle({ slug })
       .then((result) => {
         const article = result as ArticleData;
-        setDisplayArticle(article);
+        setFetchedArticle(article);
         updateResumePrompt();
         recordVisit(slug, article.title);
       })
@@ -182,13 +187,11 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
     };
   }, [displayArticle?.thumbnailUrl]);
 
-  const controller = useArticlePlayback(slug, displayArticle, playAllButtonRef);
-
   if (fetching && !displayArticle) {
     return <ArticleLoadingState />;
   }
 
-  if (fetchError) {
+  if (fetchError && !displayArticle) {
     return (
       <ArticleLoadError
         error={fetchError}

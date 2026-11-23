@@ -1530,6 +1530,79 @@ test("Now playing can be minimized at double text size with the keyboard", async
   expect((await sectionTitle.boundingBox())!.width).toBeGreaterThan(20);
 });
 
+test("returning to a revised article keeps the playing revision and queue until Stop", async ({
+  page,
+}) => {
+  await mockArticleData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.goto("/article/Ada_Lovelace");
+  await page.getByRole("button", { name: /^Play all/ }).click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  await expect(
+    player.getByRole("button", { name: "Pause Summary" }),
+  ).toBeVisible();
+
+  const search = page.getByRole("searchbox", { name: "Search articles" });
+  await search.fill("Ada");
+  await search.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: /Results for/ }),
+  ).toBeVisible();
+  await page.locator("audio").dispatchEvent("ended");
+  await expect(
+    player.getByRole("button", { name: "Pause Early life" }),
+  ).toBeVisible();
+
+  await player.getByRole("button", { name: "Pause Early life" }).click();
+  await expect(player.getByRole("button", { name: "Play Early life" })).toBeVisible();
+  const revisedSummary = "This newly fetched revision has different narration.";
+  await page.route("**/api/local-wikipedia", (route) => {
+    if (route.request().postDataJSON().operation !== "article")
+      return route.fallback();
+    return route.fulfill({
+      json: {
+        data: {
+          wikiPageId: "974",
+          revisionId: "123456790",
+          title: "Ada Lovelace",
+          language: "en",
+          narrationVersion: 2,
+          summary: revisedSummary,
+          sections: [],
+        },
+      },
+    });
+  });
+  const fetched = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/local-wikipedia") &&
+      r.request().postDataJSON()?.operation === "article",
+  );
+  await player.getByRole("button", { name: "Jump to section" }).click();
+  await fetched;
+  await expect(page.locator("#toc-listen-section-0")).toBeFocused();
+  await expect(
+    player.getByRole("button", { name: "Play Early life" }),
+  ).toBeVisible();
+  await expect(page.getByText(revisedSummary, { exact: true })).toHaveCount(0);
+  await player.getByRole("button", { name: "Play Early life" }).click();
+  await page.locator("audio").dispatchEvent("ended");
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  await player.getByRole("button", { name: "Stop audio" }).click();
+  await expect(page.getByText(revisedSummary, { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Listen to Early life" }),
+  ).toHaveCount(0);
+});
+
 test("article playback survives search, browsing another article, and returning to its section", async ({
   page,
 }) => {
