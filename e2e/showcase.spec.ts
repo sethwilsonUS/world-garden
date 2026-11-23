@@ -1809,6 +1809,53 @@ test("Play all advances away from the article and keeps reading shortcuts out of
   await expect(page.getByRole("main")).toBeFocused();
 });
 
+test("Now playing steps between single sections and says where the listener is", async ({
+  page,
+}) => {
+  await mockArticleData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.goto("/article/Ada_Lovelace");
+  await page.getByRole("button", { name: "Listen to Early life" }).click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  await expect(
+    player.getByRole("button", { name: "Pause Early life" }),
+  ).toBeVisible();
+  await expect(player.getByText("Section 2 of 3", { exact: true })).toBeVisible();
+
+  const next = player.getByRole("button", { name: "Next section: Recognition" });
+  await next.click();
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Now playing:" })).toHaveText(
+    "Now playing: Recognition, section 3 of 3",
+  );
+  const lastNext = player.getByRole("button", { name: "Next section" });
+  await expect(lastNext).toHaveAttribute("aria-disabled", "true");
+  await expect(lastNext).toBeFocused();
+
+  await page.getByRole("heading", { name: "Ada Lovelace", exact: true }).click();
+  await page.keyboard.press("Shift+P");
+  await expect(
+    player.getByRole("button", { name: "Pause Early life" }),
+  ).toBeVisible();
+  await page.keyboard.press("Shift+P");
+  await expect(player.getByRole("button", { name: "Pause Summary" })).toBeVisible();
+  await expect(
+    player.getByRole("button", { name: "Previous section" }),
+  ).toHaveAttribute("aria-disabled", "true");
+
+  // A single section still stops at its end instead of playing on.
+  await page.locator("audio").dispatchEvent("ended");
+  await expect(player).toHaveCount(0);
+});
+
 test("article section controls and metadata reflow with enlarged text", async ({
   page,
 }) => {

@@ -16,6 +16,7 @@ import {
   buildArticleNarrationTracks,
 } from "@/lib/section-narration";
 import { createTestSection } from "@/lib/test-section-narration";
+import { useMediaSession } from "@/hooks/useMediaSession";
 import { useArticleAudioController } from "./useArticleAudioController";
 
 const mocks = vi.hoisted(() => ({
@@ -973,5 +974,214 @@ describe("useArticleAudioController", () => {
     expect(mocks.audioStartup).not.toHaveBeenCalled();
     expect(mocks.playbackSpeed).not.toHaveBeenCalled();
     expect(playSpy).not.toHaveBeenCalled();
+  });
+  it("steps between single sections without starting Play all", async () => {
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
+    );
+
+    act(() => controller().actions.listenSection(0));
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        mode: "single",
+        sectionKey: "section-0",
+      }),
+    );
+    expect(controller().state.navigation).toEqual({
+      position: { current: 2, total: 4 },
+      previous: { sectionKey: "summary", title: "Summary" },
+      next: { sectionKey: "section-1", title: "Riddles in the Dark" },
+      canGoToPrevious: true,
+      canGoToNext: true,
+      playAllSecondsRemaining: null,
+    });
+
+    act(() => controller().actions.nextSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        mode: "single",
+        sectionKey: "section-1",
+        label: "Riddles in the Dark — An Unexpected Journey",
+      }),
+    );
+    expect(controller().audioSrc).toBe("blob:section-1");
+
+    act(() => controller().actions.previousSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
+    act(() => controller().actions.previousSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        mode: "single",
+        sectionKey: "summary",
+      }),
+    );
+    expect(controller().state.navigation).toMatchObject({
+      position: { current: 1, total: 4 },
+      previous: null,
+      canGoToPrevious: false,
+    });
+
+    // Nothing comes before the summary, so the request is ignored.
+    const calls = mocks.generateTts.mock.calls.length;
+    act(() => controller().actions.previousSection());
+    expect(controller().state.playback.sectionKey).toBe("summary");
+    expect(mocks.generateTts).toHaveBeenCalledTimes(calls);
+
+    // A single section ends on its own instead of continuing the article.
+    const audio = container.querySelector("audio")!;
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("idle");
+      expect(controller().state.finishedPlaying).toBe(false);
+    });
+  });
+
+  it("moves back during Play all and continues through the rest of the article", async () => {
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
+    );
+
+    act(() => controller().actions.playAll());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("summary"),
+    );
+    const audio = container.querySelector("audio")!;
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-1"),
+    );
+    expect(controller().state.navigation.position).toEqual({
+      current: 3,
+      total: 4,
+    });
+    expect(controller().state.navigation.playAllSecondsRemaining).toEqual(
+      expect.any(Number),
+    );
+
+    act(() => controller().actions.previousSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        mode: "play_all",
+        sectionKey: "section-0",
+      }),
+    );
+
+    act(() => audio.dispatchEvent(new Event("ended")));
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        mode: "play_all",
+        sectionKey: "section-1",
+      }),
+    );
+    act(() => controller().actions.nextSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        mode: "play_all",
+        sectionKey: "section-2",
+      }),
+    );
+    expect(controller().state.navigation).toMatchObject({
+      next: null,
+      canGoToNext: true,
+    });
+
+    // Next on the last section finishes Play all, as Skip section does.
+    act(() => controller().actions.nextSection());
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("idle");
+      expect(controller().state.finishedPlaying).toBe(true);
+    });
+  });
+
+  it("gives lock-screen and headphone track buttons the same section steps", async () => {
+    const mediaSession = vi.mocked(useMediaSession);
+    const latestSession = () => mediaSession.mock.calls.at(-1)![0];
+    expect(latestSession().onPreviousTrack).toBeUndefined();
+    expect(latestSession().onNextTrack).toBeUndefined();
+
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
+    );
+    act(() => controller().actions.listenSection(1));
+    await waitForExpectation(() =>
+      expect(controller().state.playback.status).toBe("playing"),
+    );
+    expect(latestSession().onPreviousTrack).toEqual(expect.any(Function));
+    expect(latestSession().onNextTrack).toEqual(expect.any(Function));
+
+    act(() => latestSession().onPreviousTrack!());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-0"),
+    );
+    act(() => latestSession().onNextTrack!());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("section-1"),
+    );
+  });
+
+  it("brings this article back when a section is chosen after another player took over", async () => {
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
+    );
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.status).toBe("playing"),
+    );
+    act(() => controller().actions.pauseForOtherMedia());
+    expect(controller().state.playback.status).toBe("paused");
+    playSpy.mockClear();
+
+    act(() => controller().actions.nextSection());
+    await waitForExpectation(() =>
+      expect(controller().state.playback).toMatchObject({
+        status: "playing",
+        sectionKey: "section-0",
+      }),
+    );
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("brings Play all back when the listener steps sections after another player took over", async () => {
+    mocks.generateTts.mockImplementation(
+      async ({ sectionKey }: { sectionKey: string }) =>
+        audioResult(`blob:${sectionKey}`),
+    );
+    act(() => controller().actions.playAll());
+    await waitForExpectation(() =>
+      expect(controller().state.playback.sectionKey).toBe("summary"),
+    );
+
+    for (const [step, sectionKey] of [
+      ["nextSection", "section-0"],
+      ["previousSection", "summary"],
+    ] as const) {
+      act(() => controller().actions.pauseForOtherMedia());
+      expect(controller().state.playback.status).toBe("paused");
+      playSpy.mockClear();
+
+      act(() => controller().actions[step]());
+      await waitForExpectation(() =>
+        expect(controller().state.playback).toMatchObject({
+          status: "playing",
+          mode: "play_all",
+          sectionKey,
+        }),
+      );
+      expect(playSpy).toHaveBeenCalledTimes(1);
+    }
   });
 });

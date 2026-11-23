@@ -57,6 +57,10 @@ import {
 } from "@/lib/article-audio-playback";
 import { buildAwardedBadgeProgress } from "@/lib/badges";
 import {
+  getPlayAllSecondsRemaining,
+  getSectionNavigation,
+} from "@/lib/article-section-navigation";
+import {
   buildArticleNarrationHash,
   buildArticleNarrationTracks,
 } from "@/lib/section-narration";
@@ -1033,6 +1037,8 @@ export const useArticleAudioController = ({
     activeAudioRequestKey.current = null;
     pendingAutoPlay.current = false;
     clearSlowLoadingTimer();
+    // Skipping is an explicit request to hear this article again.
+    setPausedForOtherMedia(false);
     audioElPause();
     if (playAllQueue.current.length > 0) {
       const next = playAllQueue.current.shift()!;
@@ -1050,6 +1056,106 @@ export const useArticleAudioController = ({
     isPlayingAll,
     resetAudioPlayback,
   ]);
+
+  const sectionNavigation = useMemo(
+    () => getSectionNavigation(narrationTracks, audioPlayback.sectionKey),
+    [audioPlayback.sectionKey, narrationTracks],
+  );
+
+  /**
+   * Start a different track from the player. Play all keeps going from the
+   * new place; a single section stays a single section.
+   */
+  const navigateToTrack = useCallback(
+    (trackIndex: number, continuePlayAll: boolean) => {
+      const target = narrationTracks[trackIndex];
+      if (!target) return;
+      requestId.current += 1;
+      if (activeAudioRequestKey.current) {
+        clearAudioRequest(
+          ttsRequestCache.current,
+          activeAudioRequestKey.current,
+        );
+      }
+      activeAudioRequestKey.current = null;
+      pendingAutoPlay.current = false;
+      clearSlowLoadingTimer();
+      // Choosing a section is an explicit request to hear this article.
+      setPausedForOtherMedia(false);
+      audioElPause();
+
+      if (continuePlayAll) {
+        playAllQueue.current = narrationTracks
+          .slice(trackIndex + 1)
+          .map((track) => ({ ...track, label: track.title }));
+        isPlayingAllRef.current = true;
+        generateAudio(
+          target.sectionKey,
+          target.title,
+          target.sectionIdx,
+          "auto_next",
+        );
+        return;
+      }
+
+      playAllQueue.current = [];
+      isPlayingAllRef.current = false;
+      generateAudio(
+        target.sectionKey,
+        target.title,
+        target.sectionIdx,
+        target.sectionKey === "summary" ? "summary" : "section",
+      );
+    },
+    [audioElPause, clearSlowLoadingTimer, generateAudio, narrationTracks],
+  );
+
+  const handlePreviousSection = useCallback(() => {
+    const { previousIndex, previousStartIndex } = sectionNavigation;
+    if (previousIndex === null) return;
+    if (isPlayingAll) navigateToTrack(previousStartIndex ?? previousIndex, true);
+    else navigateToTrack(previousIndex, false);
+  }, [isPlayingAll, navigateToTrack, sectionNavigation]);
+
+  const handleNextSection = useCallback(() => {
+    // Play all already has its queue; skipping past the end finishes it.
+    if (isPlayingAll) {
+      handleSkipSection();
+      return;
+    }
+    const { nextIndex } = sectionNavigation;
+    if (nextIndex !== null) navigateToTrack(nextIndex, false);
+  }, [handleSkipSection, isPlayingAll, navigateToTrack, sectionNavigation]);
+
+  const canGoToPreviousSection = sectionNavigation.previousIndex !== null;
+  const canGoToNextSection =
+    isPlayingAll || sectionNavigation.nextIndex !== null;
+
+  const navigationTarget = (trackIndex: number | null) => {
+    const track = trackIndex === null ? undefined : narrationTracks[trackIndex];
+    if (!track) return null;
+    return {
+      sectionKey: track.sectionKey,
+      title:
+        track.sectionIdx === null
+          ? "Summary"
+          : (article?.sections?.[track.sectionIdx]?.title ?? track.title),
+    };
+  };
+
+  const playAllSecondsRemaining = isPlayingAll
+    ? getPlayAllSecondsRemaining({
+        tracks: narrationTracks,
+        sectionKey: audioPlayback.sectionKey,
+        // The element still holds the previous track while the next loads.
+        currentTime:
+          audioPlayback.status === "loading" ? 0 : audioElCurrentTime,
+        duration:
+          audioPlayback.status === "loading" ? Number.NaN : audioElDuration,
+        durations: cachedAudio?.durations,
+        playbackRate,
+      })
+    : null;
 
   const mediaSessionTitle =
     isSpeaking || audioElPlaying
@@ -1078,7 +1184,8 @@ export const useArticleAudioController = ({
     onSeekBackward: () => audioElSkip(-10),
     onSeekTo: audioElSeek,
     onStop: handleStopPlayAll,
-    onNextTrack: isPlayingAll ? handleSkipSection : undefined,
+    onPreviousTrack: canGoToPreviousSection ? handlePreviousSection : undefined,
+    onNextTrack: canGoToNextSection ? handleNextSection : undefined,
   });
 
   useBadgeListenTracking({
@@ -1324,6 +1431,14 @@ export const useArticleAudioController = ({
       finishedPlaying,
       playbackRate,
       sectionDurations: cachedAudio?.durations,
+      navigation: {
+        position: sectionNavigation.position,
+        previous: navigationTarget(sectionNavigation.previousIndex),
+        next: navigationTarget(sectionNavigation.nextIndex),
+        canGoToPrevious: canGoToPreviousSection,
+        canGoToNext: canGoToNextSection,
+        playAllSecondsRemaining,
+      },
       audioProgress: audioUrl
         ? { currentTime: audioElCurrentTime, duration: audioElDuration }
         : undefined,
@@ -1346,6 +1461,8 @@ export const useArticleAudioController = ({
       pauseForOtherMedia,
       togglePlayAll: handleTogglePlayAll,
       skipSection: handleSkipSection,
+      previousSection: handlePreviousSection,
+      nextSection: handleNextSection,
       downloadAll: handleDownloadAll,
       retry: handleRetry,
       resume: handleResume,
