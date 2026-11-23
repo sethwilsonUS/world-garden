@@ -213,23 +213,23 @@ export const ArticleListeningControls = ({
     isPlayAllLoading ? (
       <>
         <SpinnerIcon />
-        <span aria-live="polite">Stop</span>
+        <span>Stop</span>
       </>
     ) : isPaused ? (
       <>
         <PlayIcon />
-        <span aria-live="polite">Resume</span>
+        <span>Resume</span>
       </>
     ) : (
       <>
         <PauseIcon />
-        <span aria-live="polite">Pause</span>
+        <span>Pause</span>
       </>
     )
   ) : isGenerating ? (
     <>
       <SpinnerIcon />
-      <span aria-live="polite">Loading</span>
+      <span>Loading</span>
     </>
   ) : (
     <>

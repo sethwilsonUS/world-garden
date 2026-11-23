@@ -415,7 +415,11 @@ describe("TableOfContents narration", () => {
       ),
     );
 
-    expect(markup).toContain('aria-label="Stop playing all sections"');
+    const stopButton = markup.match(
+      /<button[^>]*aria-label="Stop playing all sections"[^>]*>.*?<\/button>/,
+    )?.[0];
+    expect(stopButton).toContain(">Stop<");
+    expect(stopButton).not.toContain("aria-live");
     expect(markup.match(/>Stop</g)).toHaveLength(1);
   });
 
