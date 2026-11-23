@@ -5,8 +5,8 @@
  *   npm run on-this-day:backfill-cards -- --preview-only --evergreen --day 10-18 --preview-out /tmp/previews
  *
  * Production backfill (uploads generated JPEGs to Convex `_storage`):
- *   NEXT_PUBLIC_CONVEX_URL=... PUBLIC_AUDIO_WRITE_SECRET=... npm run on-this-day:backfill-cards
- *   NEXT_PUBLIC_CONVEX_URL=... PUBLIC_AUDIO_WRITE_SECRET=... npm run on-this-day:backfill-cards -- --day 10-18 --force
+ *   NEXT_PUBLIC_CONVEX_URL=... TTS_QUOTA_BYPASS_SECRET=... npm run on-this-day:backfill-cards
+ *   NEXT_PUBLIC_CONVEX_URL=... TTS_QUOTA_BYPASS_SECRET=... npm run on-this-day:backfill-cards -- --day 10-18 --force
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -56,6 +56,7 @@ import {
   createConvexOnThisDayStore,
   shouldUseOnThisDaySnapshotCache,
 } from "@/lib/on-this-day-snapshot";
+import { requireServerAttestationSecret } from "@/lib/server-attestation";
 
 const DEFAULT_PREVIEW_OUT_DIR = path.resolve(
   ".reports",
@@ -610,10 +611,13 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  if (!options.previewOnly && !shouldUseOnThisDaySnapshotCache()) {
-    throw new Error(
-      "Convex upload mode requires NEXT_PUBLIC_CONVEX_URL and NEXT_PUBLIC_LOCAL_MODE !== 'true' (or pass --preview-only for local rendering).",
-    );
+  if (!options.previewOnly) {
+    if (!shouldUseOnThisDaySnapshotCache()) {
+      throw new Error(
+        "Convex upload mode requires NEXT_PUBLIC_CONVEX_URL and NEXT_PUBLIC_LOCAL_MODE !== 'true' (or pass --preview-only for local rendering).",
+      );
+    }
+    requireServerAttestationSecret();
   }
 
   const summary: {
