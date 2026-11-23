@@ -45,8 +45,14 @@ export const useAudioElement = ({
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
+    // Media events are queued. Another player may have interrupted this one
+    // between the original play request and delivery of its event.
+    const onPlay = () => {
+      if (!audio.paused) setPlaying(true);
+    };
+    const onPause = () => {
+      if (audio.paused) setPlaying(false);
+    };
     const onEndedEvt = () => {
       setPlaying(false);
       onEndedRef.current?.();
@@ -78,13 +84,10 @@ export const useAudioElement = ({
   }, [playbackRate, url]);
 
   const play = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const p = audio.play();
-    if (p && typeof p.catch === "function") {
-      p.then(() => setPlaying(true)).catch(() => {});
-    }
-  }, [setPlaying]);
+    audioRef.current?.play()?.catch(() => {
+      // Playback may be interrupted or blocked by the browser.
+    });
+  }, []);
 
   const pause = useCallback(() => {
     audioRef.current?.pause();
@@ -94,14 +97,11 @@ export const useAudioElement = ({
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.then(() => setPlaying(true)).catch(() => {});
-      }
+      play();
     } else {
       audio.pause();
     }
-  }, [setPlaying]);
+  }, [play]);
 
   const seek = useCallback((time: number) => {
     const audio = audioRef.current;

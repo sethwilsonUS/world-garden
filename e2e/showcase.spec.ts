@@ -2119,6 +2119,9 @@ test("the home sample pauses Play all and resuming preserves the section, time, 
   const resume = player.getByRole("button", { name: "Play Early life" });
   await expect(resume).toBeVisible();
   expect(await articleAudio.evaluate((audio) => audio.paused)).toBe(true);
+  // A play notification queued before the interruption can arrive after pause.
+  await articleAudio.evaluate((audio) => audio.dispatchEvent(new Event("play")));
+  await expect(resume).toBeVisible();
   await expect(sample.getByRole("button", { name: /^Pause:/ })).toBeVisible();
 
   await resume.click();

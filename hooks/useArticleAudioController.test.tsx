@@ -253,15 +253,23 @@ describe("useArticleAudioController", () => {
     mocks.convexAuth.isLoading = false;
     mocks.convexAuth.isAuthenticated = false;
 
+    const playingMedia = new WeakSet<HTMLMediaElement>();
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(
+      function (this: HTMLMediaElement) {
+        return !playingMedia.has(this);
+      },
+    );
     playSpy = vi
       .spyOn(HTMLMediaElement.prototype, "play")
       .mockImplementation(function (this: HTMLMediaElement) {
+        playingMedia.add(this);
         this.dispatchEvent(new Event("play"));
         return Promise.resolve();
       });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function (
       this: HTMLMediaElement,
     ) {
+      playingMedia.delete(this);
       this.dispatchEvent(new Event("pause"));
     });
 
@@ -580,6 +588,28 @@ describe("useArticleAudioController", () => {
       expect(controller().state.playback.slowLoading).toBe(false);
       expect(controller().state.playback.status).toBe("playing");
     });
+  });
+
+  it("keeps an interrupted article paused when a stale play event arrives", async () => {
+    mocks.generateTts.mockResolvedValueOnce(audioResult("blob:summary"));
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() => {
+      expect(controller().state.playback.status).toBe("playing");
+    });
+
+    const audio = container.querySelector("audio")!;
+    act(() => controller().actions.pauseForOtherMedia());
+    expect(audio.paused).toBe(true);
+    expect(controller().state.playback.status).toBe("paused");
+
+    // A queued native event can arrive after pause() changed the media state.
+    act(() => audio.dispatchEvent(new Event("play")));
+    expect(controller().state.playback.status).toBe("paused");
+
+    await act(async () => controller().actions.togglePlayback());
+    expect(audio.paused).toBe(false);
+    expect(controller().state.playback.status).toBe("playing");
+    expect(mocks.generateTts).toHaveBeenCalledTimes(1);
   });
 
   it("holds a pending track when another player starts until the listener resumes", async () => {
