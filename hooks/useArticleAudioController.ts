@@ -81,6 +81,8 @@ type UpdateProgress = (
 ) => void;
 
 type UseArticleAudioControllerArgs = {
+  claimPlayback?: () => void;
+  ownsMediaSession?: boolean;
   slug: string;
   article: ArticleAudioArticle | null;
   badgeTrackingEnabled: boolean;
@@ -143,6 +145,8 @@ export const useArticleAudioController = ({
   article,
   badgeTrackingEnabled,
   updateProgress,
+  claimPlayback,
+  ownsMediaSession = true,
 }: UseArticleAudioControllerArgs) => {
   const bypassAudioCacheForStress = shouldBypassAudioCacheForStress();
   const convex = useConvex();
@@ -218,7 +222,7 @@ export const useArticleAudioController = ({
     null,
   );
   const pendingAutoPlay = useRef(false);
-  const tocWarmRef = useRef<HTMLDivElement>(null);
+  const [warmRegion, setWarmRegion] = useState<HTMLDivElement | null>(null);
   const viewportWarmedArticleKey = useRef<string | null>(null);
   const fallbackNoticeArticleKey = useRef<string | null>(null);
   const activeAudioRequestKey = useRef<string | null>(null);
@@ -676,8 +680,7 @@ export const useArticleAudioController = ({
     if (viewportWarmedArticleKey.current === viewportWarmKey) return;
     if (typeof IntersectionObserver === "undefined") return;
 
-    const node = tocWarmRef.current;
-    if (!node) return;
+    if (!warmRegion) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -717,7 +720,7 @@ export const useArticleAudioController = ({
       { rootMargin: "160px 0px" },
     );
 
-    observer.observe(node);
+    observer.observe(warmRegion);
     return () => observer.disconnect();
   }, [
     article,
@@ -727,6 +730,7 @@ export const useArticleAudioController = ({
     slug,
     warmAudioForSection,
     warmSummaryForIntent,
+    warmRegion,
   ]);
 
   const generateAudio = useCallback(
@@ -766,6 +770,7 @@ export const useArticleAudioController = ({
         return;
       }
 
+      if (source !== "auto_next") claimPlayback?.();
       const previousRequestKey = activeAudioRequestKey.current;
       if (previousRequestKey && previousRequestKey !== sectionKey) {
         clearAudioRequest(ttsRequestCache.current, previousRequestKey);
@@ -933,6 +938,7 @@ export const useArticleAudioController = ({
     },
     [
       activeTtsProfile,
+      claimPlayback,
       clearSlowLoadingTimer,
       generateTtsFromApi,
       getCachedAudioResult,
@@ -1041,6 +1047,7 @@ export const useArticleAudioController = ({
       : null;
 
   useMediaSession({
+    enabled: ownsMediaSession && audioPlayback.status !== "error",
     title: mediaSessionTitle,
     artworkUrl: article?.thumbnailUrl,
     playing: audioElPlaying,
@@ -1332,7 +1339,7 @@ export const useArticleAudioController = ({
     audioElement: {
       ref: audioRef,
       src: audioUrl,
-      warmRegionRef: tocWarmRef,
+      warmRegionRef: setWarmRegion,
     },
   } as const;
 };

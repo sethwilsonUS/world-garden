@@ -1,5 +1,6 @@
 "use client";
 
+import Form from "next/form";
 import { usePathname } from "next/navigation";
 
 export type SearchFormVariant = "default" | "workbench" | "header";
@@ -38,8 +39,7 @@ export const SearchForm = ({
 
   if (variant === "header") {
     return (
-      <form
-        method="GET"
+      <Form
         action="/search"
         role="search"
         aria-label="Site search"
@@ -68,13 +68,12 @@ export const SearchForm = ({
             <SearchIcon size={18} />
           </button>
         </div>
-      </form>
+      </Form>
     );
   }
 
   return (
-    <form
-      method="GET"
+    <Form
       action="/search"
       role="search"
       aria-label="Search Wikipedia articles"
@@ -124,7 +123,7 @@ export const SearchForm = ({
           Search
         </button>
       </div>
-    </form>
+    </Form>
   );
 };
 

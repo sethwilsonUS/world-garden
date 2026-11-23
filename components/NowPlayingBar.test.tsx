@@ -131,6 +131,53 @@ describe("NowPlayingBar", () => {
     expect(slider?.getAttribute("aria-valuetext")).toBe("0:30 of 2:00");
   });
 
+  it("keeps the article title first and the section available when collapsed", () => {
+    act(() => root.render(<NowPlayingBar {...makeProps()} />));
+    act(() => button(container, "Player controls").click());
+    const region = container.querySelector("[data-now-playing-bar]")!;
+    const [article, section] = region.querySelectorAll("p");
+    expect(article.textContent).toBe("Example article");
+    expect(section.textContent).toBe("History");
+    expect(section.classList.contains("@max-[32em]:sr-only")).toBe(true);
+
+    act(() =>
+      root.render(
+        <NowPlayingBar {...makeProps({ sectionTitle: "Example article" })} />,
+      ),
+    );
+    expect(article.parentElement?.querySelectorAll("p")).toHaveLength(1);
+  });
+
+  it("keeps an off-page failure reachable for retry or dismissal", () => {
+    const props = makeProps({
+      playback: playback({ status: "error" }),
+      error: "Could not load this section.",
+      onRetry: vi.fn(),
+    });
+    act(() => root.render(<NowPlayingBar {...props} />));
+    expect(container.querySelector("[role='alert']")?.textContent).toBe(
+      props.error,
+    );
+    act(() => button(container, "Retry History").click());
+    expect(props.onRetry).toHaveBeenCalledOnce();
+    act(() => button(container, "Stop audio").click());
+    expect(props.onStop).toHaveBeenCalledOnce();
+  });
+
+  it("focuses the current page's main content after Stop away from the article", () => {
+    const render = (state: AudioPlaybackState) =>
+      root.render(
+        <>
+          <main id="main-content" tabIndex={-1} />
+          <NowPlayingBar {...makeProps({ playback: state })} />
+        </>,
+      );
+    act(() => render(playback()));
+    button(container, "Stop audio").focus();
+    act(() => render(idle));
+    expect(document.activeElement).toBe(container.querySelector("main"));
+  });
+
   it("publishes and removes its height variable and body padding", () => {
     act(() => root.render(<NowPlayingBar {...makeProps()} />));
 
@@ -178,7 +225,9 @@ describe("NowPlayingBar", () => {
     const focus = vi.spyOn(restore, "focus");
     act(() =>
       root.render(
-        <NowPlayingBar {...makeProps({ returnFocusRef: { current: restore } })} />,
+        <NowPlayingBar
+          {...makeProps({ returnFocusRef: { current: restore } })}
+        />,
       ),
     );
     button(container, "Stop audio").focus();

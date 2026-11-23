@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 
 type UseMediaSessionOptions = {
+  enabled?: boolean;
   title: string | null;
   artist?: string;
   album?: string;
@@ -21,6 +22,7 @@ type UseMediaSessionOptions = {
 };
 
 export const useMediaSession = ({
+  enabled = true,
   title,
   artist = "Wikipedia",
   album = "Curio Garden",
@@ -72,7 +74,7 @@ export const useMediaSession = ({
   const stableNextTrack = useCallback(() => onNextTrackRef.current?.(), []);
 
   useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
+    if (!enabled || !("mediaSession" in navigator)) return;
 
     navigator.mediaSession.setActionHandler("play", stablePlay);
     navigator.mediaSession.setActionHandler("pause", stablePause);
@@ -82,6 +84,8 @@ export const useMediaSession = ({
     navigator.mediaSession.setActionHandler("stop", stableStop);
 
     return () => {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = "none";
       navigator.mediaSession.setActionHandler("play", null);
       navigator.mediaSession.setActionHandler("pause", null);
       navigator.mediaSession.setActionHandler("seekforward", null);
@@ -90,6 +94,7 @@ export const useMediaSession = ({
       navigator.mediaSession.setActionHandler("stop", null);
     };
   }, [
+    enabled,
     stablePlay,
     stablePause,
     stableSeekForward,
@@ -99,7 +104,7 @@ export const useMediaSession = ({
   ]);
 
   useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
+    if (!enabled || !("mediaSession" in navigator)) return;
 
     if (onNextTrack) {
       navigator.mediaSession.setActionHandler("nexttrack", stableNextTrack);
@@ -110,10 +115,10 @@ export const useMediaSession = ({
     return () => {
       navigator.mediaSession.setActionHandler("nexttrack", null);
     };
-  }, [onNextTrack, stableNextTrack]);
+  }, [enabled, onNextTrack, stableNextTrack]);
 
   useEffect(() => {
-    if (!("mediaSession" in navigator) || !title) return;
+    if (!enabled || !("mediaSession" in navigator) || !title) return;
 
     const artwork: MediaImage[] = artworkUrl
       ? [{ src: artworkUrl }]
@@ -125,20 +130,20 @@ export const useMediaSession = ({
       album,
       artwork,
     });
-  }, [title, artist, album, artworkUrl]);
+  }, [enabled, title, artist, album, artworkUrl]);
 
   useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
+    if (!enabled || !("mediaSession" in navigator)) return;
 
     if (!title) {
       navigator.mediaSession.playbackState = "none";
     } else {
       navigator.mediaSession.playbackState = playing ? "playing" : "paused";
     }
-  }, [playing, title]);
+  }, [enabled, playing, title]);
 
   useEffect(() => {
-    if (!("mediaSession" in navigator) || !duration || !isFinite(duration))
+    if (!enabled || !("mediaSession" in navigator) || !duration || !isFinite(duration))
       return;
 
     try {
@@ -150,5 +155,5 @@ export const useMediaSession = ({
     } catch {
       // Some browsers throw if position > duration during transitions
     }
-  }, [currentTime, duration, playbackRate]);
+  }, [enabled, currentTime, duration, playbackRate]);
 };

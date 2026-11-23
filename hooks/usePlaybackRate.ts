@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "curio-garden-playback-rate";
 const LEGACY_KEY = "world-garden-playback-rate";
@@ -16,72 +16,82 @@ export const getNextPlaybackRate = (rate: PlaybackRate): PlaybackRate => {
   return PLAYBACK_RATES[(currentIndex + 1) % PLAYBACK_RATES.length];
 };
 
-const migrateLegacyKey = () => {
-  if (typeof window === "undefined") return;
-  try {
-    if (
-      !localStorage.getItem(STORAGE_KEY) &&
-      localStorage.getItem(LEGACY_KEY)
-    ) {
-      localStorage.setItem(STORAGE_KEY, localStorage.getItem(LEGACY_KEY)!);
-      localStorage.removeItem(LEGACY_KEY);
-    }
-  } catch {
-    // localStorage unavailable
-  }
-};
+const listeners = new Set<() => void>();
+let currentRate: PlaybackRate = DEFAULT_RATE;
+// A browser can allow reads while rejecting writes (for example, at quota).
+let hasUnsavedRate = false;
 
-const readStoredRate = (): PlaybackRate => {
-  if (typeof window === "undefined") return DEFAULT_RATE;
-  migrateLegacyKey();
+function readStoredRate(): PlaybackRate {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return DEFAULT_RATE;
-    const parsed = parseFloat(raw);
-    if (PLAYBACK_RATES.includes(parsed as PlaybackRate)) {
-      return parsed as PlaybackRate;
+    raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      raw = localStorage.getItem(LEGACY_KEY);
+      if (raw) {
+        localStorage.setItem(STORAGE_KEY, raw);
+        localStorage.removeItem(LEGACY_KEY);
+      }
     }
-  } catch {
-    // localStorage unavailable (private browsing, etc.)
+  } catch (error) {
+    console.debug("Could not read or migrate the playback speed.", error);
+    if (raw === null) return currentRate;
   }
-  return DEFAULT_RATE;
-};
+  const parsed = Number.parseFloat(raw ?? "");
+  return PLAYBACK_RATES.includes(parsed as PlaybackRate)
+    ? (parsed as PlaybackRate)
+    : DEFAULT_RATE;
+}
+
+function publish(rate: PlaybackRate) {
+  currentRate = rate;
+  for (const notify of listeners) notify();
+}
+
+function handleStorage(event: StorageEvent) {
+  if (
+    event.key === STORAGE_KEY ||
+    event.key === LEGACY_KEY ||
+    event.key === null
+  ) {
+    hasUnsavedRate = false;
+    publish(readStoredRate());
+  }
+}
+
+function subscribe(notify: () => void) {
+  if (!listeners.size) {
+    if (!hasUnsavedRate) currentRate = readStoredRate();
+    window.addEventListener("storage", handleStorage);
+  }
+  listeners.add(notify);
+  return () => {
+    listeners.delete(notify);
+    if (!listeners.size) window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function setRate(rate: PlaybackRate) {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(rate));
+    hasUnsavedRate = false;
+  } catch (error) {
+    console.debug("Could not save the playback speed.", error);
+    hasUnsavedRate = true;
+  }
+  publish(rate);
+}
+
+function cycleRate() {
+  const next = getNextPlaybackRate(currentRate);
+  setRate(next);
+  return next;
+}
+
+const getSnapshot = () => currentRate;
+const getServerSnapshot = () => DEFAULT_RATE;
 
 export const usePlaybackRate = () => {
-  const [rate, setRateState] = useState<PlaybackRate>(DEFAULT_RATE);
-  const rateRef = useRef<PlaybackRate>(DEFAULT_RATE);
-
-  useEffect(() => {
-    let active = true;
-    // Defer the storage-driven update to satisfy react-hooks/set-state-in-effect
-    // while keeping the first client render hydration-safe.
-    queueMicrotask(() => {
-      if (!active) return;
-      const storedRate = readStoredRate();
-      rateRef.current = storedRate;
-      setRateState(storedRate);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const setRate = useCallback((newRate: PlaybackRate) => {
-    rateRef.current = newRate;
-    setRateState(newRate);
-    try {
-      localStorage.setItem(STORAGE_KEY, String(newRate));
-    } catch {
-      // localStorage unavailable
-    }
-  }, []);
-
-  const cycleRate = useCallback(() => {
-    const next = getNextPlaybackRate(rateRef.current);
-    setRate(next);
-    return next;
-  }, [setRate]);
-
+  const rate = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   return { rate, setRate, cycleRate } as const;
 };
 

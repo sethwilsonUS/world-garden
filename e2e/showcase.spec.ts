@@ -1487,6 +1487,11 @@ test("Now playing can be minimized at double text size with the keyboard", async
   await expectVisibleFocusIndicator(disclosure);
   await expect(player.getByRole("slider")).toHaveCount(0);
   await expect(player.getByRole("button")).toHaveCount(2);
+  const articleTitle = player.getByText("Ada Lovelace", { exact: true });
+  const sectionTitle = player.locator("p").filter({ hasText: /Recognition$/ });
+  expect((await articleTitle.boundingBox())!.width).toBeGreaterThan(20);
+  // The section is still available to screen readers in the narrow player.
+  expect((await sectionTitle.boundingBox())!.width).toBeLessThanOrEqual(1);
   const compactHeight = (await player.boundingBox())!.height;
   expect(compactHeight).toBeLessThan(expandedHeight / 2);
   await expect
@@ -1519,6 +1524,181 @@ test("Now playing can be minimized at double text size with the keyboard", async
   await page.setViewportSize({ width: 1280, height: 800 });
   const label = disclosure.getByText("Player controls", { exact: true });
   expect((await label.boundingBox())!.width).toBeGreaterThan(25);
+  await disclosure.press("Enter");
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  expect((await articleTitle.boundingBox())!.width).toBeGreaterThan(20);
+  expect((await sectionTitle.boundingBox())!.width).toBeGreaterThan(20);
+});
+
+test("article playback survives search, browsing another article, and returning to its section", async ({
+  page,
+}) => {
+  await mockArticleData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  const otherTitle = "Analytical engine";
+  await page.route("**/api/local-wikipedia", (route) => {
+    const request = route.request().postDataJSON();
+    if (request.operation === "search") {
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              title: otherTitle,
+              wikiPageId: "1020",
+              description: "A mechanical computer.",
+            },
+          ],
+        },
+      });
+    }
+    if (
+      request.operation === "article" &&
+      request.slug === "Analytical_engine"
+    ) {
+      return route.fulfill({
+        json: {
+          data: {
+            title: otherTitle,
+            wikiPageId: "1020",
+            revisionId: "88",
+            language: "en",
+            narrationVersion: 2,
+            summary: "The analytical engine was a mechanical computer.",
+            sections: [],
+          },
+        },
+      });
+    }
+    return route.fallback();
+  });
+
+  await page.goto("/article/Ada_Lovelace");
+  const listen = page.getByRole("button", { name: "Listen to Recognition" });
+  await listen.click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  const media = await page
+    .locator("audio")
+    .evaluateHandle((audio: HTMLAudioElement) => {
+      audio.currentTime = 7;
+      audio.dispatchEvent(new Event("timeupdate"));
+      return audio;
+    });
+
+  const headerSearch = page.getByRole("searchbox", { name: "Search articles" });
+  await headerSearch.fill(otherTitle);
+  await headerSearch.press("Enter");
+  const result = page.getByRole("link", { name: /^Analytical engine/ });
+  await expect(result).toBeVisible();
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  await result.click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: otherTitle }),
+  ).toBeVisible();
+  expect(
+    await media.evaluate((audio) => ({
+      connected: audio.isConnected,
+      playing: !audio.paused,
+      position: audio.currentTime,
+    })),
+  ).toEqual({ connected: true, playing: true, position: 7 });
+  await expect(player.getByText("Ada Lovelace", { exact: true })).toBeVisible();
+
+  await player.getByRole("button", { name: "Jump to section" }).click();
+  await expect(page).toHaveURL(/\/article\/Ada_Lovelace(?:#.*)?$/);
+  await expect(
+    page
+      .getByRole("button", { name: /Recognition/ })
+      .and(page.locator('[id^="toc-listen-"]')),
+  ).toBeFocused();
+
+  const savedSection = await page.evaluate(() => {
+    const entries: { slug: string; lastSectionIndex?: number }[] = JSON.parse(
+      localStorage.getItem("curio-garden-history") ?? "[]",
+    );
+    return entries.find((entry) => entry.slug === "Ada_Lovelace")
+      ?.lastSectionIndex;
+  });
+  expect(savedSection).toBe(1);
+
+  await headerSearch.fill(otherTitle);
+  await headerSearch.press("Enter");
+  await result.click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: otherTitle }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^Play summary,/ }).click();
+  await expect(player.getByText(otherTitle, { exact: true })).toBeVisible();
+  await expect(player.getByText("Ada Lovelace", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect
+    .poll(() =>
+      page
+        .locator("audio")
+        .evaluateAll(
+          (elements) =>
+            elements.filter((audio) => !(audio as HTMLAudioElement).paused)
+              .length,
+        ),
+    )
+    .toBe(1);
+  await media.dispose();
+});
+
+test("Play all advances away from the article and keeps reading shortcuts out of search", async ({
+  page,
+}) => {
+  await mockArticleData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.goto("/article/Ada_Lovelace");
+  await page.getByRole("button", { name: /^Play all/ }).click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  await expect(
+    player.getByRole("button", { name: "Pause Summary" }),
+  ).toBeVisible();
+  const search = page.getByRole("searchbox", { name: "Search articles" });
+  await search.fill("Ada");
+  await search.press("Shift+N");
+  await expect(search).toHaveValue("AdaN");
+  await search.press("Enter");
+  const heading = page.getByRole("heading", { name: /Results for/ });
+  await heading.click();
+  await page.keyboard.press("Space");
+  await expect(
+    player.getByRole("button", { name: "Play Summary" }),
+  ).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(
+    player.getByRole("button", { name: "Pause Summary" }),
+  ).toBeVisible();
+  await page.locator("audio").dispatchEvent("ended");
+  await expect(
+    player.getByRole("button", { name: "Pause Early life" }),
+  ).toBeVisible();
+  await page.keyboard.press("Shift+N");
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  await player.getByRole("button", { name: "Stop audio" }).click();
+  await expect(player).toHaveCount(0);
+  await expect(page.getByRole("main")).toBeFocused();
 });
 
 test("article section controls and metadata reflow with enlarged text", async ({
