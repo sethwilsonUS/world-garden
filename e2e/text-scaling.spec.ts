@@ -308,9 +308,15 @@ test("shell, menu, and listening controls remain reachable", async ({
     page.getByRole("navigation", { name: "Mobile navigation" }),
   ).toBeVisible();
 
-  const themeButton = page.getByRole("button", {
+  await page.getByRole("button", { name: "Close menu" }).click();
+  const themeButton = page.getByRole("contentinfo").getByRole("button", {
     name: /switch to (light|dark) theme/i,
   });
+  await themeButton.focus();
+  const previousTheme = await themeButton.innerText();
+  await page.keyboard.press("Enter");
+  await expect(themeButton).not.toHaveText(previousTheme);
+  await expect(themeButton).toBeFocused();
   const themeButtonBox = await themeButton.boundingBox();
   expect(themeButtonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
   expect(themeButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);

@@ -1315,9 +1315,10 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   const lightStyleRequest = page.waitForRequest(
     "https://tiles.openfreemap.org/styles/liberty",
   );
-  const switchToLightTheme = page.locator(
-    'button[aria-label="Switch to light theme"]:visible',
-  );
+  const footer = page.getByRole("contentinfo");
+  const switchToLightTheme = footer.getByRole("button", {
+    name: "Switch to light theme",
+  });
   await switchToLightTheme.focus();
   await page.keyboard.press("Enter");
   await lightStyleRequest;
@@ -1328,7 +1329,7 @@ test("article context exposes equivalent semantics, provenance, and reporting", 
   );
   await expect.poll(reports.getMapTileRequests).toBeGreaterThan(darkTileCount);
   await expect(
-    page.locator('button[aria-label="Switch to dark theme"]:visible'),
+    footer.getByRole("button", { name: "Switch to dark theme" }),
   ).toBeVisible();
   await expect(interactiveStatus).toHaveText("Interactive map ready.");
   await expect(mapCard.getByRole("button", { name: "Zoom in" })).toBeEnabled();

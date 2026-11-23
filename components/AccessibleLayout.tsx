@@ -265,11 +265,10 @@ export const AccessibleLayout = ({
           <div className="hidden min-w-0 flex-1 flex-wrap items-center justify-end gap-2 lg:flex">
             <HeaderSearch />
             <SiteNavLinks variant="desktop" authEnabled={authEnabled} />
-            <ThemeToggle />
             {authControls}
           </div>
 
-          {/* Mobile: search + theme toggle + hamburger */}
+          {/* Mobile search and navigation */}
           <div className="flex items-center gap-1 lg:hidden">
             {showHeaderSearch ? (
               <button
@@ -287,7 +286,6 @@ export const AccessibleLayout = ({
                 {mobileSearchOpen ? <CloseIcon /> : <SearchIcon />}
               </button>
             ) : null}
-            <ThemeToggle />
             <button
               ref={hamburgerRef}
               onClick={() => {
@@ -351,7 +349,7 @@ export const AccessibleLayout = ({
 
       <footer role="contentinfo" className="border-t border-border py-8">
         <div className="container mx-auto px-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+          <div className="mb-6 flex flex-col items-center justify-between gap-4 sm:flex-row sm:flex-wrap">
             <div className="flex items-center gap-2">
               <LeafIcon size={20} />
               <span className="font-display font-semibold text-foreground">
@@ -376,6 +374,7 @@ export const AccessibleLayout = ({
                 Terms
               </Link>
             </nav>
+            <ThemeToggle />
           </div>
 
           <hr className="garden-divider" />

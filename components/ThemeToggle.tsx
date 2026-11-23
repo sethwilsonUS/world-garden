@@ -7,11 +7,9 @@ export const ThemeToggle = () => {
 
   return (
     <button
+      type="button"
       onClick={toggleTheme}
-      aria-label={
-        theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
-      }
-      className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-foreground-2 transition-colors duration-200 hover:bg-surface-2 hover:text-foreground"
+      className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-transparent px-2 text-sm text-foreground-2 transition-colors duration-200 hover:bg-surface-2 hover:text-foreground"
     >
       <svg
         className="theme-icon-sun"
@@ -45,6 +43,7 @@ export const ThemeToggle = () => {
           d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
         />
       </svg>
+      {theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
     </button>
   );
 };
