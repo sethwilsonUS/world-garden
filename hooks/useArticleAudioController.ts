@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -199,6 +206,7 @@ export const useArticleAudioController = ({
     createIdleAudioPlayback,
   );
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [pausedForOtherMedia, setPausedForOtherMedia] = useState(false);
   const [finishedPlaying, setFinishedPlaying] = useState(false);
   const [trackingSectionKey, setTrackingSectionKey] = useState<string | null>(
     null,
@@ -586,6 +594,7 @@ export const useArticleAudioController = ({
     onEnded: () => audioEndedRef.current(),
     onPlayingChange: (playing) => {
       if (playing) {
+        setPausedForOtherMedia(false);
         clearSlowLoadingTimer();
         setAudioPlayback((current) =>
           current.status === "idle" || current.status === "error"
@@ -607,35 +616,38 @@ export const useArticleAudioController = ({
     isPlayingAllRef.current = isPlayingAll;
   }, [isPlayingAll]);
 
+  const pauseForOtherMedia = useCallback(() => {
+    setPausedForOtherMedia(true);
+    audioElPause();
+  }, [audioElPause]);
+
+  const startReadyAudio = useEffectEvent((audio: HTMLAudioElement) => {
+    const currentRequest = requestId.current;
+    const leavePaused = () => {
+      if (requestId.current !== currentRequest) return;
+      clearSlowLoadingTimer();
+      setAudioPlayback((current) =>
+        current.status === "loading" || current.status === "playing"
+          ? { ...current, status: "paused", slowLoading: false }
+          : current,
+      );
+    };
+
+    // A sample or podcast can start while this track is still generating.
+    // Keep the resulting source and queue ready for an explicit resume.
+    if (pausedForOtherMedia) leavePaused();
+    else audio.play()?.catch(leavePaused);
+  });
+
   useEffect(() => {
     if (!audioUrl || !pendingAutoPlay.current) return;
-
     pendingAutoPlay.current = false;
-    const audio = audioRef.current;
-    if (audio) {
-      const playPromise = audio.play();
-      if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => {
-          clearSlowLoadingTimer();
-          setAudioPlayback((current) =>
-            current.status === "idle" || current.status === "error"
-              ? current
-              : { ...current, status: "paused", slowLoading: false },
-          );
-        });
-      }
-    }
+    if (audioRef.current) startReadyAudio(audioRef.current);
 
     if (isPlayingAll && playAllQueue.current.length > 0) {
       warmPlayAllQueue(playAllQueue.current);
     }
-  }, [
-    audioUrl,
-    audioRef,
-    clearSlowLoadingTimer,
-    isPlayingAll,
-    warmPlayAllQueue,
-  ]);
+  }, [audioUrl, audioRef, isPlayingAll, warmPlayAllQueue]);
 
   const activeAudioIdentity = activeNarrationHash
     ? `${activeNarrationHash}::${activeTtsCacheKey}`
@@ -770,7 +782,10 @@ export const useArticleAudioController = ({
         return;
       }
 
-      if (source !== "auto_next") claimPlayback?.();
+      if (source !== "auto_next") {
+        setPausedForOtherMedia(false);
+        claimPlayback?.();
+      }
       const previousRequestKey = activeAudioRequestKey.current;
       if (previousRequestKey && previousRequestKey !== sectionKey) {
         clearAudioRequest(ttsRequestCache.current, previousRequestKey);
@@ -1047,7 +1062,10 @@ export const useArticleAudioController = ({
       : null;
 
   useMediaSession({
-    enabled: ownsMediaSession && audioPlayback.status !== "error",
+    enabled:
+      ownsMediaSession &&
+      !pausedForOtherMedia &&
+      audioPlayback.status !== "error",
     title: mediaSessionTitle,
     artworkUrl: article?.thumbnailUrl,
     playing: audioElPlaying,
@@ -1325,6 +1343,7 @@ export const useArticleAudioController = ({
       warmSummary: warmSummaryForIntent,
       warmSection: handleWarmSection,
       stopPlayAll: handleStopPlayAll,
+      pauseForOtherMedia,
       togglePlayAll: handleTogglePlayAll,
       skipSection: handleSkipSection,
       downloadAll: handleDownloadAll,

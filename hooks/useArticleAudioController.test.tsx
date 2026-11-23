@@ -582,6 +582,28 @@ describe("useArticleAudioController", () => {
     });
   });
 
+  it("holds a pending track when another player starts until the listener resumes", async () => {
+    const request = deferred<TtsAudioUrlResult>();
+    mocks.generateTts.mockReturnValueOnce(request.promise);
+    act(() => controller().actions.listenSummary());
+    await waitForExpectation(() =>
+      expect(mocks.generateTts).toHaveBeenCalledTimes(1),
+    );
+
+    act(() => controller().actions.pauseForOtherMedia());
+    await act(async () => request.resolve(audioResult("blob:interrupted")));
+    await waitForExpectation(() => {
+      expect(controller().audioSrc).toBe("blob:interrupted");
+      expect(controller().state.playback.status).toBe("paused");
+    });
+    expect(playSpy).not.toHaveBeenCalled();
+
+    await act(async () => controller().actions.togglePlayback());
+    expect(controller().state.playback.status).toBe("playing");
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.generateTts).toHaveBeenCalledTimes(1);
+  });
+
   it("retains generated audio in a paused state when autoplay is rejected", async () => {
     const request = deferred<TtsAudioUrlResult>();
     mocks.generateTts.mockReturnValueOnce(request.promise);

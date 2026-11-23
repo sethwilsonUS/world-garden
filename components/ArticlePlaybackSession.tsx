@@ -59,7 +59,7 @@ function PlaybackSession({
     actions,
     audioElement: { ref: audioRef, src: audioSrc },
   } = controller;
-  const stop = actions.stopPlayAll;
+  const pauseForOtherMedia = actions.pauseForOtherMedia;
   const { sectionKey, sectionIdx, status } = state.playback;
   const pendingJump = useRef(false);
 
@@ -84,7 +84,7 @@ function PlaybackSession({
     if (!ownsPlayback) return;
     function onPlay(event: Event) {
       const media = event.target;
-      if (!(media instanceof HTMLMediaElement)) return;
+      if (!(media instanceof HTMLMediaElement) || media.paused) return;
       if (media === audioRef.current) {
         for (const other of document.querySelectorAll<HTMLMediaElement>(
           "audio, video",
@@ -92,12 +92,12 @@ function PlaybackSession({
           if (other !== media && !other.paused) other.pause();
         }
       } else {
-        stop();
+        pauseForOtherMedia();
       }
     }
     document.addEventListener("play", onPlay, true);
     return () => document.removeEventListener("play", onPlay, true);
-  }, [ownsPlayback, stop, audioRef]);
+  }, [ownsPlayback, pauseForOtherMedia, audioRef]);
 
   const jumpToSection = () => {
     if (!sectionKey) return;

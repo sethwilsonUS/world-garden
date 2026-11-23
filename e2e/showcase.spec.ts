@@ -2042,3 +2042,65 @@ test("shared shell stays in flow and its mobile navigation remains reachable wit
     ),
   ).toBe(true);
 });
+
+test("the home sample pauses Play all and resuming preserves the section, time, and queue", async ({
+  page,
+}) => {
+  await mockArticleData(page);
+  await mockHomeData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.goto("/article/Ada_Lovelace");
+  await page.getByRole("button", { name: /^Play all/ }).click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  await expect(
+    player.getByRole("button", { name: "Pause Summary" }),
+  ).toBeVisible();
+  await page.locator("audio").dispatchEvent("ended");
+  await expect(
+    player.getByRole("button", { name: "Pause Early life" }),
+  ).toBeVisible();
+  const articleAudio = await page
+    .locator("audio")
+    .evaluateHandle((audio: HTMLAudioElement) => {
+      audio.currentTime = 7;
+      audio.dispatchEvent(new Event("timeupdate"));
+      return audio;
+    });
+
+  await page
+    .getByRole("banner")
+    .getByRole("link", { name: "Curio Garden" })
+    .click();
+  const sample = page.getByRole("region", { name: "Hear it in 18 seconds" });
+  await sample
+    .getByRole("button", { name: "Play: Curio Garden listening sample" })
+    .click();
+  const resume = player.getByRole("button", { name: "Play Early life" });
+  await expect(resume).toBeVisible();
+  expect(await articleAudio.evaluate((audio) => audio.paused)).toBe(true);
+  await expect(sample.getByRole("button", { name: /^Pause:/ })).toBeVisible();
+
+  await resume.click();
+  await expect(
+    player.getByRole("button", { name: "Pause Early life" }),
+  ).toBeVisible();
+  await expect(sample.getByRole("button", { name: /^Resume:/ })).toBeVisible();
+  expect(
+    await articleAudio.evaluate(
+      (audio) => !audio.paused && audio.currentTime === 7,
+    ),
+  ).toBe(true);
+  await articleAudio.evaluate((audio) =>
+    audio.dispatchEvent(new Event("ended")),
+  );
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  await articleAudio.dispose();
+});
