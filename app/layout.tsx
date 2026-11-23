@@ -23,6 +23,9 @@ const fraunces = Fraunces({
 // readers: distinct I/l/1 and 0/O shapes, open counters, generous spacing.
 const bodyFont = Atkinson_Hyperlegible_Next({
   variable: "--font-body",
+  // Next has no automatic fallback metrics for the Atkinson families.
+  adjustFontFallback: false,
+  fallback: ["system-ui", "sans-serif"],
   subsets: ["latin", "latin-ext"],
   display: "swap",
 });
@@ -30,6 +33,8 @@ const bodyFont = Atkinson_Hyperlegible_Next({
 // Only used for timestamps and feed URLs, so it isn't worth a preload.
 const monoFont = Atkinson_Hyperlegible_Mono({
   variable: "--font-mono",
+  adjustFontFallback: false,
+  fallback: ["ui-monospace", "monospace"],
   subsets: ["latin"],
   display: "swap",
   preload: false,
@@ -163,7 +168,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${fraunces.variable} ${bodyFont.variable} ${monoFont.variable} antialiased animated-bg`}
-        style={{ fontFamily: "var(--font-body), system-ui, sans-serif" }}
+        style={{ fontFamily: "var(--font-body)" }}
       >
         {children}
         <Analytics />
