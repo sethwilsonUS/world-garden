@@ -2177,30 +2177,21 @@ test("article context reflows at a narrow viewport and honors reduced motion", a
     "transition-duration",
     "0s",
   );
-  const tocRows = page.locator(".toc-row");
-  expect(await tocRows.count()).toBeGreaterThan(0);
-  const tocRowLayoutViolations = await tocRows.evaluateAll((rows) =>
-    rows.flatMap((row, index) => {
-      const copy = row.children.item(0);
-      const action = row.children.item(1);
-      if (!(copy instanceof HTMLElement) || !(action instanceof HTMLElement)) {
-        return [];
-      }
-      const copyRect = copy.getBoundingClientRect();
-      const actionRect = action.getBoundingClientRect();
-      return copyRect.bottom <= actionRect.top + 0.5
-        ? []
-        : [
-            {
-              index,
-              copyBottom: copyRect.bottom,
-              actionTop: actionRect.top,
-              text: row.textContent?.replace(/\s+/g, " ").trim(),
-            },
-          ];
-    }),
-  );
-  expect(tocRowLayoutViolations).toEqual([]);
+  const sections = page.getByRole("navigation", { name: "Article sections" });
+  for (const title of ["Summary", "Early life"]) {
+    const row = sections.getByRole("listitem").filter({
+      has: page.getByText(title, { exact: true }),
+    });
+    const titleBox = await row.getByText(title, { exact: true }).boundingBox();
+    const listenBox = await row
+      .getByRole("button", { name: /^Listen to/ })
+      .boundingBox();
+    if (!titleBox || !listenBox)
+      throw new Error(`Missing controls for ${title}`);
+    expect(listenBox.x).toBeGreaterThan(titleBox.x + titleBox.width);
+    expect(listenBox.y).toBeLessThan(titleBox.y + titleBox.height);
+    expect(listenBox.y + listenBox.height).toBeGreaterThan(titleBox.y);
+  }
   const diagramCard = page.locator("#article-context-diagram-engine");
   await diagramCard.scrollIntoViewIfNeeded();
   const zoomIn = diagramCard.getByRole("button", { name: "Zoom in" });

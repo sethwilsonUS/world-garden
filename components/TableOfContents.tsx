@@ -122,7 +122,11 @@ const durationLabelAccessible = (
 };
 
 const rowClass =
-  "toc-row flex w-full flex-wrap items-start justify-between gap-[8px] rounded-xl px-[12px] py-[10px] text-left sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-y-[2px]";
+  "toc-row flex w-full flex-wrap items-start gap-x-2 gap-y-0.5 rounded-xl px-3 py-1.5 text-left sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:py-2.5";
+
+// Reserve enough text-scaled space for a readable title before wrapping Listen.
+const playableTitleClass =
+  "flex min-w-0 flex-[1_1_6rem] flex-wrap items-baseline gap-x-2 self-center sm:self-start";
 
 const pillClass =
   "inline-flex max-w-full flex-wrap items-center justify-center gap-[6px] rounded-full px-[14px] py-[5px] text-center text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]";
@@ -293,7 +297,7 @@ export const TableOfContents = ({
           {/* Summary entry */}
           <li className={`toc-item${isSummaryActive ? " bg-accent-bg" : ""}`}>
             <div className={rowClass}>
-              <span className="flex min-w-0 flex-[1_1_200px] flex-wrap items-baseline gap-[8px]">
+              <span className={playableTitleClass}>
                 <span
                   className={`font-semibold leading-[1.4] ${isSummaryActive ? "text-accent" : "text-foreground"}`}
                 >
@@ -457,7 +461,7 @@ export const TableOfContents = ({
                     indent > 0 ? { paddingLeft: `${indent + 12}px` } : undefined
                   }
                 >
-                  <span className="flex min-w-0 flex-[1_1_200px] flex-wrap items-baseline gap-[8px]">
+                  <span className={playableTitleClass}>
                     <span
                       className={`${titleClass} ${isActive ? "text-accent" : "text-foreground"}`}
                     >
