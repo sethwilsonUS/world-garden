@@ -413,8 +413,7 @@ describe("TableOfContents narration", () => {
     );
 
     expect(markup).toContain('aria-label="Stop playing all sections"');
-    expect(markup).toContain(">Loading<");
-    expect(markup).not.toContain(">Stop<");
+    expect(markup.match(/>Stop</g)).toHaveLength(1);
   });
 
   it("allows skipping a section while Play All is loading", () => {
@@ -444,7 +443,7 @@ describe("TableOfContents narration", () => {
       ),
     );
     const skipButton = markup.match(
-      /<button[^>]*aria-label="Skip to next section"[^>]*>/,
+      /<button[^>]*aria-label="Skip section"[^>]*>/,
     )?.[0];
 
     expect(skipButton).toBeDefined();
@@ -479,7 +478,7 @@ describe("TableOfContents narration", () => {
     );
 
     const downloadButton = markup.match(
-      /<button[^>]*aria-label="Download full article as one audio file"[^>]*>/,
+      /<button[^>]*aria-label="Download all audio as one file"[^>]*>/,
     )?.[0];
 
     expect(downloadButton).toBeDefined();
@@ -518,7 +517,7 @@ describe("TableOfContents narration", () => {
     expect(markup).not.toContain("1h");
     expect(markup).toContain('aria-label="Download summary as audio file"');
     expect(markup).not.toContain(
-      'aria-label="Download full article as one audio file"',
+      'aria-label="Download all audio as one file"',
     );
     expect(markup).toContain(
       'aria-label="1 visual: jump to timeline: A short chronology"',

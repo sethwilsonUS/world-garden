@@ -181,6 +181,14 @@ export const ArticleListeningControls = ({
     !allActual,
   );
 
+  const downloadLabel = summaryOnly ? "Download" : "Download all";
+  const downloadAccessibleLabel = summaryOnly
+    ? "Download summary as audio file"
+    : "Download all audio as one file";
+  const totalTracks = downloadProgress?.total ?? 0;
+  const renderedTracks = Math.min(downloadProgress?.current ?? 0, totalTracks);
+  const progressLabel = `${renderedTracks} of ${totalTracks} ready`;
+
   const playAllLabel = isPlayingAll
     ? isPlayAllLoading
       ? summaryOnly
@@ -190,22 +198,20 @@ export const ArticleListeningControls = ({
         ? summaryOnly
           ? "Resume playing summary"
           : "Resume playing all sections"
-        : !isSpeaking
-          ? "Generating audio, please wait"
-          : summaryOnly
-            ? "Pause summary"
-            : "Pause playing all sections"
+        : summaryOnly
+          ? "Pause summary"
+          : "Pause playing all sections"
     : isGenerating
-      ? "Generating audio, please wait"
+      ? "Loading audio, please wait"
       : summaryOnly
         ? `Play summary, ${totalPlaytimeAccessible}`
         : `Play all ${playableCount} audio items including summary, ${totalPlaytimeAccessible}`;
 
   const playAllContent = isPlayingAll ? (
-    isPlayAllLoading || !isSpeaking ? (
+    isPlayAllLoading ? (
       <>
         <SpinnerIcon />
-        <span aria-live="polite">Loading</span>
+        <span aria-live="polite">Stop</span>
       </>
     ) : isPaused ? (
       <>
@@ -227,9 +233,6 @@ export const ArticleListeningControls = ({
     <>
       <PlayIcon />
       <span>{summaryOnly ? "Play summary" : "Play all"}</span>
-      <span className="font-normal" data-play-all-duration>
-        {totalPlaytime}
-      </span>
     </>
   );
 
@@ -271,6 +274,15 @@ export const ArticleListeningControls = ({
         >
           {playAllContent}
         </button>
+        {!isPlayingAll && !isGenerating && (
+          <span
+            aria-hidden="true"
+            className="text-sm tabular-nums text-muted"
+            data-play-all-duration
+          >
+            {totalPlaytime}
+          </span>
+        )}
 
         {isPlayingAll && !isPlayAllLoading && (
           <button
@@ -294,7 +306,7 @@ export const ArticleListeningControls = ({
             className={`${secondaryButtonClass} ${
               !canSkipSection ? "cursor-not-allowed" : "cursor-pointer"
             }`}
-            aria-label="Skip to next section"
+            aria-label="Skip section"
           >
             <SkipNextIcon />
             <span className="hidden sm:inline">Skip section</span>
@@ -306,28 +318,22 @@ export const ArticleListeningControls = ({
             <ManagedAudioDownloadButton
               href={downloadHref}
               title={articleTitle}
-              label={summaryOnly ? "Download" : "Download all"}
-              ariaLabel={
-                summaryOnly
-                  ? "Download summary as audio file"
-                  : "Download full article as one audio file"
-              }
+              label={downloadLabel}
+              ariaLabel={downloadAccessibleLabel}
             />
           ) : onDownloadAll ? (
             <AudioDownloadButton
               onClick={onDownloadAll}
               disabled={downloading || isGenerating}
-              label={summaryOnly ? "Download" : "Download all"}
+              label={downloadLabel}
               ariaLabel={
                 downloadStatus === "queued"
-                  ? "Article download queued"
+                  ? "Queued article download"
                   : downloadStage === "packaging"
                     ? "Packaging article download"
                     : downloading
-                      ? `Preparing article download ${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)} of ${downloadProgress?.total ?? 0}`
-                      : summaryOnly
-                        ? "Download summary as audio file"
-                        : "Download full article as one audio file"
+                      ? `${progressLabel} for article download`
+                      : downloadAccessibleLabel
               }
             >
               {downloadStatus === "queued" ? (
@@ -338,12 +344,12 @@ export const ArticleListeningControls = ({
               ) : downloadStage === "packaging" ? (
                 <>
                   <DownloadSpinnerIcon />
-                  Packaging...
+                  Packaging
                 </>
               ) : downloading ? (
                 <>
                   <DownloadSpinnerIcon />
-                  {`${Math.min(downloadProgress?.current ?? 0, downloadProgress?.total ?? 0)}/${downloadProgress?.total ?? 0} ready`}
+                  {progressLabel}
                 </>
               ) : undefined}
             </AudioDownloadButton>

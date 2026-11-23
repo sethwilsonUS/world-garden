@@ -199,7 +199,7 @@ const clickStop = async (page) => {
 
 const clickSkip = async (page) => {
   await page
-    .getByRole("button", { name: /^Skip to next section$/i })
+    .getByRole("button", { name: /^Skip section$/i })
     .first()
     .click({ timeout: 5_000 });
 };
