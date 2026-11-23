@@ -344,11 +344,11 @@ export const refreshCalendarDay = async (
   const previousSnapshot = existing?.data ?? null;
   const previousState = existing?.state ?? null;
 
-  const shouldReResolveImages =
+  const shouldFullReResolveImages =
     force ||
-    !previousState ||
-    previousState.imagesCheckedAt <= 0 ||
-    now - previousState.imagesCheckedAt > IMAGE_RE_RESOLVE_MAX_AGE_MS;
+    (previousState != null &&
+      previousState.imagesCheckedAt > 0 &&
+      now - previousState.imagesCheckedAt > IMAGE_RE_RESOLVE_MAX_AGE_MS);
 
   try {
     const { snapshot: nextSnapshot, imageResolutionSucceeded } =
@@ -357,7 +357,7 @@ export const refreshCalendarDay = async (
         provider,
         resolveImages,
         previousSnapshot,
-        reResolveImages: shouldReResolveImages,
+        reResolveImages: shouldFullReResolveImages,
         checkedAt: now,
       });
 
@@ -396,10 +396,15 @@ export const refreshCalendarDay = async (
     }
 
     const nextHash = hashOnThisDaySnapshot(nextSnapshot);
-    const nextImagesCheckedAt =
-      shouldReResolveImages && imageResolutionSucceeded
+    const hasPendingImageEnrichment =
+      !previousState || previousState.imagesCheckedAt <= 0;
+    const nextImagesCheckedAt = !imageResolutionSucceeded
+      ? shouldFullReResolveImages
+        ? (previousState?.imagesCheckedAt ?? 0)
+        : 0
+      : shouldFullReResolveImages || hasPendingImageEnrichment
         ? now
-        : (previousState?.imagesCheckedAt ?? 0);
+        : previousState.imagesCheckedAt;
 
     const isUnchanged =
       existing !== null &&

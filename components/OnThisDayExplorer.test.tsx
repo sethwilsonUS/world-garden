@@ -520,6 +520,94 @@ describe("OnThisDayExplorer", () => {
     expect(container.textContent).not.toContain("Older cached highlight");
   });
 
+  it("discards in-flight trailing pagination when a newer day snapshot replaces the cache and reloads offset 0", async () => {
+    const t1 = Date.UTC(2026, 10, 19, 12, 0, 0);
+    const t2 = Date.UTC(2026, 10, 21, 12, 0, 0);
+    const initialOlder = {
+      ...responseFor("/api/on-this-day?day=07-30&category=selected"),
+      changedAt: t1,
+    };
+    const initialNewer = {
+      ...responseFor("/api/on-this-day?day=07-30&category=selected"),
+      changedAt: t2,
+    };
+
+    let currentChangedAt = t1;
+    let resolveTrailingPage: (() => void) | undefined;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      const parsed = new URL(url, "https://curiogarden.org");
+      const offset = Number(parsed.searchParams.get("offset") ?? 0);
+      if (parsed.searchParams.get("category") === "events" && offset === 25) {
+        return await new Promise<Response>((resolve) => {
+          resolveTrailingPage = () =>
+            resolve(
+              Response.json({
+                ...responseFor(url),
+                changedAt: t1,
+              }),
+            );
+        });
+      }
+      return Response.json({
+        ...responseFor(url),
+        changedAt: currentChangedAt,
+      });
+    });
+
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer
+            initialDay={{ month: 7, day: 30 }}
+            initialResponse={initialOlder}
+          />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+    await act(async () => undefined);
+
+    // Switch to Events and load offset 0 (25 items, changedAt=t1).
+    const eventsTab = container.querySelector<HTMLButtonElement>(
+      "#on-this-day-tab-events",
+    )!;
+    await act(async () => eventsTab.click());
+    await act(async () => undefined);
+    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(
+      25,
+    );
+
+    // Start in-flight offset=25 append request.
+    const showMore = container.querySelector<HTMLButtonElement>(
+      ".on-this-day-show-more",
+    )!;
+    await act(async () => showMore.click());
+    expect(resolveTrailingPage).toBeDefined();
+
+    // Newer server initialResponse replaces 07-30 cache entries mid-flight.
+    currentChangedAt = t2;
+    await act(async () =>
+      root.render(
+        <OnThisDaySessionProvider>
+          <OnThisDayExplorer
+            initialDay={{ month: 7, day: 30 }}
+            initialResponse={initialNewer}
+          />
+        </OnThisDaySessionProvider>,
+      ),
+    );
+
+    // Complete the stale offset=25 trailing slice from t1 -> must be discarded, NOT stored as whole list.
+    await act(async () => resolveTrailingPage?.());
+    await act(async () => undefined);
+
+    // Explorer reloaded Events cleanly from offset=0 (25 items, starting at item 1, NOT just 5 trailing items).
+    expect(container.querySelectorAll("ol.timeline-list > li")).toHaveLength(
+      25,
+    );
+    expect(container.textContent).toContain("events item 1 (07-30)");
+  });
+
   it("falls back to an available tab stop when navigating to a highlights-only day while Events is active", async () => {
     searchParamsRef.current = new URLSearchParams("category=events");
     window.history.replaceState(null, "", "/on-this-day/july-30?category=events");

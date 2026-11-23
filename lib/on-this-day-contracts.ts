@@ -26,6 +26,7 @@ export type OnThisDayImage = {
   articleTitle: string;
   altText?: string;
   attribution?: WikimediaMediaAttribution;
+  attributionIsFallback?: boolean;
 };
 
 export type OnThisDayEvent = {

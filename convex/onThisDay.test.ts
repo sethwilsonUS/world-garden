@@ -183,6 +183,100 @@ describe("Convex On This Day storage", () => {
     expect(insert).not.toHaveBeenCalled();
   });
 
+  it("rejects degraded saveDaySnapshot when a full snapshot already exists, while allowing degraded save if missing or already degraded", async () => {
+    process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
+    const handler = registeredInvoker(saveDaySnapshot);
+    const writeArgs = {
+      monthDay: "11-23",
+      schemaVersion: 2,
+      data: { monthDay: "11-23", provider: "featured-fallback" },
+      contentHash: "degraded-hash",
+      degraded: true,
+      checkedAt: 5000,
+      changedAt: 5000,
+      imagesCheckedAt: 0,
+      lastAttemptAt: 5000,
+      leaseToken: "lease-1",
+    };
+    const attestation = await createPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "save-record",
+      args: writeArgs,
+    });
+
+    // Full snapshot already stored (e.g. concurrent cold insert) -> rejected, releases lease only.
+    const patchFull = vi.fn(async () => undefined);
+    await expect(
+      handler(
+        {
+          db: {
+            query: vi.fn((table: string) => ({
+              withIndex: vi.fn(() => ({
+                first: vi.fn(async () =>
+                  table === "onThisDayDays"
+                    ? {
+                        _id: "day-full",
+                        data: { provider: "wikipedia-rest-v1" },
+                      }
+                    : {
+                        _id: "state-1",
+                        degraded: false,
+                        refreshLeaseToken: "lease-1",
+                      },
+                ),
+              })),
+            })),
+            patch: patchFull,
+            insert: vi.fn(),
+          },
+        },
+        { ...writeArgs, attestation },
+      ),
+    ).resolves.toEqual({ applied: false, superseded: true });
+    expect(patchFull).toHaveBeenCalledTimes(1);
+    expect(patchFull).toHaveBeenCalledWith(
+      "state-1",
+      expect.objectContaining({
+        refreshLeaseToken: undefined,
+        refreshLeaseUntil: undefined,
+      }),
+    );
+
+    // Already degraded -> allowed to update.
+    const patchDegraded = vi.fn(async () => undefined);
+    await expect(
+      handler(
+        {
+          db: {
+            query: vi.fn((table: string) => ({
+              withIndex: vi.fn(() => ({
+                first: vi.fn(async () =>
+                  table === "onThisDayDays"
+                    ? {
+                        _id: "day-degraded",
+                        data: { provider: "featured-fallback" },
+                      }
+                    : {
+                        _id: "state-1",
+                        degraded: true,
+                        refreshLeaseToken: "lease-1",
+                      },
+                ),
+              })),
+            })),
+            patch: patchDegraded,
+            insert: vi.fn(),
+          },
+        },
+        { ...writeArgs, attestation },
+      ),
+    ).resolves.toEqual({
+      applied: true,
+      superseded: false,
+      id: "day-degraded",
+    });
+  });
+
   it("insertDaySnapshotIfMissing inserts only when missing and returns existing data otherwise", async () => {
     process.env.TTS_QUOTA_BYPASS_SECRET = "publication-secret";
     const writeArgs = {

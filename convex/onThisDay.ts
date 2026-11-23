@@ -192,6 +192,21 @@ export const saveDaySnapshot = mutation({
       return { applied: false as const, superseded: true as const };
     }
 
+    const existingIsFullSnapshot =
+      existingDay != null &&
+      !(
+        existingState.degraded ||
+        existingDay.data?.provider === "featured-fallback"
+      );
+    if (args.degraded && existingIsFullSnapshot) {
+      await ctx.db.patch(existingState._id, {
+        refreshLeaseUntil: undefined,
+        refreshLeaseToken: undefined,
+        updatedAt: Date.now(),
+      });
+      return { applied: false as const, superseded: true as const };
+    }
+
     const now = Date.now();
     let dayId;
     if (existingDay) {

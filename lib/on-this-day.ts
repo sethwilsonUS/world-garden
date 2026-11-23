@@ -237,7 +237,13 @@ const extractReusableImageMetadata = (
 
   for (const events of Object.values(previousSnapshot.categories)) {
     for (const event of events) {
-      if (!event.image?.source || !event.image.attribution) continue;
+      if (
+        !event.image?.source ||
+        !event.image.attribution ||
+        event.image.attributionIsFallback
+      ) {
+        continue;
+      }
       if (reused.has(event.image.source)) continue;
       reused.set(event.image.source, {
         attribution: event.image.attribution,
@@ -361,15 +367,18 @@ export const buildOnThisDaySnapshotWithMeta = async ({
         fetchedMetadata.get(event.image.source) ??
         reusedMetadata.get(event.image.source) ??
         previousMetadata.get(event.image.source);
-      if (resolved?.altText) event.image.altText = resolved.altText;
-      event.image.attribution =
-        resolved?.attribution ??
-        buildWikimediaSourceFallback(
+      if (resolved) {
+        if (resolved.altText) event.image.altText = resolved.altText;
+        event.image.attribution = resolved.attribution;
+      } else {
+        event.image.attribution = buildWikimediaSourceFallback(
           candidate.sourceTitle,
           repository === "enwiki"
             ? "en.wikipedia.org"
             : "commons.wikimedia.org",
         );
+        event.image.attributionIsFallback = true;
+      }
     }
   }
 

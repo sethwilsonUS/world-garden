@@ -307,6 +307,109 @@ describe("refreshCalendarDay", () => {
     expect(states.get("03-05")?.changedAt).toBe(t4);
   });
 
+  it("keeps failed new-image enrichment pending and retries only the failed URL next pass while reusing verified URLs", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { store, states, days } = createMemoryStore();
+      const firstImage =
+        "https://upload.wikimedia.org/wikipedia/commons/first.jpg";
+      const secondImage =
+        "https://upload.wikimedia.org/wikipedia/commons/second.jpg";
+
+      let payload: OnThisDayFeedPayload = makeFeedPayload({
+        imageSource: firstImage,
+      });
+      const provider: OnThisDayProvider = {
+        fetchAll: vi.fn(async () => payload),
+      };
+      const resolveImages = vi.fn(async (requests: Array<{ imageUrl: string }>) =>
+        new Map(
+          requests.map(({ imageUrl }) => [
+            imageUrl,
+            {
+              altText: `Verified alt for ${imageUrl}`,
+              attribution: {
+                sourceTitle: "File:verified.jpg",
+                sourceUrl: "https://commons.wikimedia.org/wiki/File:verified.jpg",
+                creator: "Verified Author",
+                licenseName: "CC BY-SA 4.0",
+              },
+            },
+          ]),
+        ),
+      );
+
+      const t0 = Date.UTC(2026, 2, 5, 1, 0, 0);
+      await refreshCalendarDay(
+        { month: 3, day: 5 },
+        { store, provider, resolveImages, now: t0 },
+      );
+      expect(states.get("03-05")?.imagesCheckedAt).toBe(t0);
+      expect(resolveImages).toHaveBeenCalledTimes(1);
+
+      // Six days later, a second image is introduced and Commons fails for it.
+      payload = {
+        ...makeFeedPayload({ imageSource: firstImage }),
+        events: [
+          {
+            year: 2020,
+            text: "New event with a second image",
+            pages: [
+              {
+                titles: { normalized: "Second image page" },
+                pageid: 999,
+                thumbnail: { source: secondImage, width: 320, height: 240 },
+              },
+            ],
+          },
+          ...(payload.events ?? []),
+        ],
+      };
+      const t1 = t0 + 6 * 24 * 60 * 60 * 1000;
+      const failingResolve = vi.fn(async () => {
+        throw new Error("Commons timed out");
+      });
+
+      const partial = await refreshCalendarDay(
+        { month: 3, day: 5 },
+        { store, provider, resolveImages: failingResolve, now: t1 },
+      );
+      expect(partial.status).toBe("refreshed");
+      // Only the new image was attempted; first image stayed verified; enrichment stays pending (imagesCheckedAt = 0).
+      expect(failingResolve).toHaveBeenCalledWith([
+        expect.objectContaining({ imageUrl: secondImage }),
+      ]);
+      expect(states.get("03-05")?.imagesCheckedAt).toBe(0);
+      expect(
+        days.get("03-05")?.data.categories.events[0]?.image?.attributionIsFallback,
+      ).toBe(true);
+      expect(
+        days.get("03-05")?.data.categories.selected[0]?.image?.attributionIsFallback,
+      ).toBeUndefined();
+
+      // Next refresh retries ONLY the fallback URL (reusing the verified first image!) and clears pending enrichment.
+      resolveImages.mockClear();
+      const t2 = t1 + 60_000;
+      const retried = await refreshCalendarDay(
+        { month: 3, day: 5 },
+        { store, provider, resolveImages, now: t2 },
+      );
+      expect(retried.status).toBe("refreshed");
+      expect(resolveImages).toHaveBeenCalledWith([
+        expect.objectContaining({ imageUrl: secondImage }),
+      ]);
+      expect(states.get("03-05")?.imagesCheckedAt).toBe(t2);
+      expect(
+        days.get("03-05")?.data.categories.events[0]?.image?.attributionIsFallback,
+      ).toBeUndefined();
+      expect(
+        days.get("03-05")?.data.categories.events[0]?.image?.altText,
+      ).toBe(`Verified alt for ${secondImage}`);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("skips when another worker already holds the lease and detects superseded completions", async () => {
     const { store, states, leaseTokens } = createMemoryStore();
     const now = Date.UTC(2026, 2, 5, 12, 0, 0);

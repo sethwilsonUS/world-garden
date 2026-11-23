@@ -382,12 +382,40 @@ export const OnThisDayExplorer = ({
         if (controller.signal.aborted) return;
         session.setCache((current) => {
           const previous = current[key];
+          const existingDayEntry = Object.values(current).find(
+            (entry) => entry.calendarDay === targetDayKey,
+          );
+          if (
+            existingDayEntry &&
+            (next.changedAt < existingDayEntry.changedAt ||
+              (!existingDayEntry.degraded && next.degraded))
+          ) {
+            return current;
+          }
+          if (append) {
+            if (!previous) {
+              // The day's cache was replaced while this page was in flight;
+              // drop the trailing slice so the explorer reloads from offset 0.
+              return current;
+            }
+            if (
+              previous.changedAt !== next.changedAt ||
+              previous.degraded !== next.degraded
+            ) {
+              // Server snapshot rolled over mid-pagination; drop the key so
+              // the explorer reloads a consistent list from offset 0.
+              const nextCache = { ...current };
+              delete nextCache[key];
+              return nextCache;
+            }
+            return {
+              ...current,
+              [key]: { ...next, items: [...previous.items, ...next.items] },
+            };
+          }
           return {
             ...current,
-            [key]:
-              append && previous
-                ? { ...next, items: [...previous.items, ...next.items] }
-                : next,
+            [key]: next,
           };
         });
       } catch (error) {
