@@ -329,6 +329,9 @@ export const AccessibleLayout = ({
         >
           <div className="container mx-auto px-4 py-4 flex flex-col gap-1">
             <SiteNavLinks variant="mobile" authEnabled={authEnabled} />
+            <div>
+              <ThemeToggle />
+            </div>
             {mobileAuthControls ? (
               <div className="pt-3 mt-2 border-t border-border">
                 {mobileAuthControls}

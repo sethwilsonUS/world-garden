@@ -960,6 +960,24 @@ test("audio player labels and controls reflow inside a mobile surface with enlar
   ).toBe(true);
 });
 
+test("the footer names the theme action before the app hydrates", async ({
+  page,
+}) => {
+  await page.route("**/_next/static/**/*.js*", (route) => route.abort());
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/about");
+  const footer = page.getByRole("contentinfo");
+  await expect(
+    footer.getByRole("button", { name: "Switch to dark theme" }),
+  ).toBeVisible();
+
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  await page.reload();
+  await expect(
+    footer.getByRole("button", { name: "Switch to light theme" }),
+  ).toBeVisible();
+});
+
 test("ordinary editorial photos fill their frames without blurred bars", async ({
   page,
 }) => {

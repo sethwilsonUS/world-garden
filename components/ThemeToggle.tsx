@@ -3,7 +3,7 @@
 import { useTheme } from "./ThemeProvider";
 
 export const ThemeToggle = () => {
-  const { theme, toggleTheme } = useTheme();
+  const { toggleTheme } = useTheme();
 
   return (
     <button
@@ -12,7 +12,7 @@ export const ThemeToggle = () => {
       className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-transparent px-2 text-sm text-foreground-2 transition-colors duration-200 hover:bg-surface-2 hover:text-foreground"
     >
       <svg
-        className="theme-icon-sun"
+        className="theme-switch-to-light"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -28,7 +28,7 @@ export const ThemeToggle = () => {
         />
       </svg>
       <svg
-        className="theme-icon-moon"
+        className="theme-switch-to-dark"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -43,7 +43,8 @@ export const ThemeToggle = () => {
           d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
         />
       </svg>
-      {theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      <span className="theme-switch-to-light">Switch to light theme</span>
+      <span className="theme-switch-to-dark">Switch to dark theme</span>
     </button>
   );
 };

@@ -130,9 +130,8 @@ const osTextScaleInitScript = `
 `;
 
 const themeToggleCss = `
-.theme-icon-sun, .theme-icon-moon { display: none; }
-.dark .theme-icon-sun { display: inline-flex; }
-.light .theme-icon-moon { display: inline-flex; }
+.theme-switch-to-dark, .light .theme-switch-to-light { display: none; }
+.theme-switch-to-light, .light .theme-switch-to-dark { display: inline-flex; }
 `;
 
 const activeTtsMetadataScript = `window.__CURIO_ACTIVE_TTS_METADATA__=${serializeTtsMetadataForInlineScript(
