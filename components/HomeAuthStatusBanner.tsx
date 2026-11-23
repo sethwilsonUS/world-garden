@@ -45,7 +45,7 @@ const CloseIcon = () => (
 
 // Inline in a sentence (exempt from target-size minimums), padded for comfort.
 const inlineActionClass =
-  "inline cursor-pointer rounded border-0 bg-transparent px-1 py-2 font-[inherit] font-semibold text-accent underline decoration-accent/60 underline-offset-[3px] hover:text-accent-hover";
+  "inline cursor-pointer rounded border-0 bg-transparent p-0 px-1 align-baseline font-[inherit] leading-[inherit] font-semibold text-accent underline decoration-accent/60 underline-offset-[3px] hover:text-accent-hover";
 
 const readDismissed = (): string => {
   try {
