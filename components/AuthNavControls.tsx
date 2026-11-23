@@ -3,10 +3,10 @@
 import { Show, SignInButton, UserButton } from "@clerk/nextjs";
 
 const desktopButtonClass =
-  "btn-secondary min-h-11 cursor-pointer px-3 py-2 text-sm no-underline";
+  "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-control-border bg-transparent px-4 py-2 text-sm font-semibold text-foreground no-underline transition-colors duration-200 hover:border-accent hover:bg-surface-2";
 
 const mobileButtonClass =
-  "btn-secondary min-h-11 w-full cursor-pointer justify-center px-4 py-3 text-sm no-underline";
+  "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-lg border border-control-border bg-transparent px-4 py-3 text-[0.9375rem] font-semibold text-foreground no-underline transition-colors duration-200 hover:border-accent hover:bg-surface-2";
 
 const AccountDataIcon = () => (
   <svg

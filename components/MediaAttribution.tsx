@@ -26,7 +26,7 @@ export const MediaAttribution = ({
   if (compact) {
     return (
       <p
-        className={`break-words text-[0.6875rem] leading-relaxed [overflow-wrap:anywhere] ${textClass}`}
+        className={`break-words text-xs leading-relaxed [overflow-wrap:anywhere] ${textClass}`}
       >
         Image{creator ? ` by ${creator}` : " source"}
         {attribution.licenseName ? ` · ${attribution.licenseName}` : ""}

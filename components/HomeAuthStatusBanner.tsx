@@ -1,11 +1,30 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { SignInButton, useAuth, useUser } from "@clerk/nextjs";
 import { useConvexAuth } from "convex/react";
 import { useBookmarks } from "@/hooks/useBookmarks";
 import type { BookmarkEntry } from "@/lib/bookmarks";
+
+/**
+ * A quiet, one-line account note under the home search field. It replaces
+ * the old full-width banner so the page leads with search, and dismissal is
+ * remembered per note kind (dismissing the guest note does not hide the
+ * signed-in welcome after a later sign-in).
+ */
+
+export const ACCOUNT_NOTE_DISMISSED_KEY = "curio-home-account-note-dismissed";
+const DISMISS_EVENT = "curio:account-note-dismissed";
+
+type NoteKind = "guest" | "member" | "status";
+
+type NoteContent = {
+  kind: NoteKind;
+  title: string;
+  body: string;
+  action?: ReactNode;
+};
 
 const CloseIcon = () => (
   <svg
@@ -24,68 +43,31 @@ const CloseIcon = () => (
   </svg>
 );
 
-type BannerContent = {
-  eyebrow: string;
-  title: string;
-  body: string;
-  mobileBody: string;
-  actions?: ReactNode;
+// Inline in a sentence (exempt from target-size minimums), padded for comfort.
+const inlineActionClass =
+  "inline cursor-pointer rounded border-0 bg-transparent px-1 py-2 font-[inherit] font-semibold text-accent underline decoration-accent/60 underline-offset-[3px] hover:text-accent-hover";
+
+const readDismissed = (): string => {
+  try {
+    return window.localStorage.getItem(ACCOUNT_NOTE_DISMISSED_KEY) ?? "";
+  } catch {
+    return "";
+  }
 };
 
-const bannerLinkClass =
-  "inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold leading-snug no-underline";
-
-const secondaryActionClass =
-  "border border-border bg-surface-2 text-foreground-2 transition-colors duration-200 hover:border-accent-border hover:bg-surface-3 hover:text-foreground";
-
-const BannerShell = ({
-  eyebrow,
-  title,
-  body,
-  mobileBody,
-  actions,
-  onDismiss,
-}: BannerContent & {
-  onDismiss: (trigger: HTMLButtonElement) => void;
-}) => {
-  return (
-    <aside
-      aria-label="Account notice"
-      className="relative z-10 border-b border-accent-border bg-surface-nav backdrop-blur-2xl"
-    >
-      <div className="container mx-auto flex flex-col gap-2 py-2 pl-4 pr-16 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed sm:text-sm">
-          <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-foreground-2">
-            <span className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
-              {eyebrow}
-            </span>
-            <strong className="font-display text-sm font-semibold text-foreground sm:text-base">
-              {title}
-            </strong>
-            <span className="md:hidden">{mobileBody}</span>
-            <span className="hidden md:inline">{body}</span>
-          </p>
-        </div>
-
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:flex-initial">
-            {actions}
-          </div>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={(event) => onDismiss(event.currentTarget)}
-        aria-label="Dismiss account notice"
-        className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted transition-colors duration-200 hover:border-border hover:bg-surface-2 hover:text-foreground"
-      >
-        <CloseIcon />
-      </button>
-    </aside>
-  );
+const subscribe = (onChange: () => void) => {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(DISMISS_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(DISMISS_EVENT, onChange);
+  };
 };
 
-const getAuthenticatedBannerContent = ({
+const useDismissedKinds = () =>
+  useSyncExternalStore(subscribe, readDismissed, () => "");
+
+const getMemberContent = ({
   displayName,
   entries,
   isLoaded,
@@ -93,7 +75,7 @@ const getAuthenticatedBannerContent = ({
   displayName: string;
   entries: BookmarkEntry[];
   isLoaded: boolean;
-}): BannerContent => {
+}): NoteContent => {
   const savedSummary = !isLoaded
     ? "Syncing your saved articles."
     : entries.length === 0
@@ -101,78 +83,44 @@ const getAuthenticatedBannerContent = ({
       : `${entries.length} saved article${entries.length === 1 ? "" : "s"} waiting in Library.`;
 
   return {
-    eyebrow: "Signed in",
-    title: `Welcome back, ${displayName}`,
-    body: `${savedSummary} Dashboard has synced reading, playlists, and progress.`,
-    mobileBody: `${savedSummary} Dashboard is ready.`,
-    actions: (
-      <>
-        <Link
-          href="/dashboard"
-          className={`${bannerLinkClass} bg-btn-primary text-btn-primary-text transition-colors duration-200 hover:bg-btn-primary-hover`}
-        >
-          Dashboard
-        </Link>
-        <Link
-          href="/library"
-          className={`${bannerLinkClass} ${secondaryActionClass}`}
-        >
-          Library
-        </Link>
-      </>
+    kind: "member",
+    title: `Welcome back, ${displayName}.`,
+    body: savedSummary,
+    action: (
+      <Link href="/dashboard" className={inlineActionClass}>
+        Open Dashboard
+      </Link>
     ),
   };
 };
 
-const SignedOutBannerContent = (): BannerContent => ({
-  eyebrow: "Guest mode",
-  title: "Browse now, sync later",
-  body: "Curio Garden stays public without an account. Sign in for more natural article narration, synced bookmarks, your dashboard, and a personal playlist.",
-  mobileBody:
-    "Sign in for more natural article narration, bookmarks, and your playlist.",
-  actions: (
-    <>
-      <SignInButton>
-        <button
-          type="button"
-          className={`${bannerLinkClass} border-0 bg-btn-primary text-btn-primary-text transition-colors duration-200 hover:bg-btn-primary-hover`}
-        >
-          Sign in
-        </button>
-      </SignInButton>
-      <Link
-        href="/library"
-        className={`${bannerLinkClass} ${secondaryActionClass}`}
-      >
-        Library
-      </Link>
-    </>
+const guestContent = (): NoteContent => ({
+  kind: "guest",
+  title: "No account needed.",
+  body: "Sign in for more natural narration, a synced Library, and your personal podcast playlist.",
+  action: (
+    <SignInButton>
+      <button type="button" className={inlineActionClass}>
+        Sign in
+      </button>
+    </SignInButton>
   ),
 });
 
-const LoadingBannerContent = (): BannerContent => ({
-  eyebrow: "Account",
-  title: "Checking session",
-  body: "Account shortcuts will appear here when they are ready.",
-  mobileBody: "Loading account shortcuts.",
+const connectingContent = (): NoteContent => ({
+  kind: "status",
+  title: "Connecting your account.",
+  body: "Article audio uses the standard article voice until your account is ready.",
 });
 
-const ConnectingBannerContent = (): BannerContent => ({
-  eyebrow: "Account",
-  title: "Connecting your account",
-  body: "Your synced features are connecting. Article audio will use the standard article voice until your account is ready.",
-  mobileBody: "Connecting synced features; standard article voice for now.",
-});
-
-const DegradedBannerContent = (): BannerContent => ({
-  eyebrow: "Account",
-  title: "Account connection paused",
-  body: "Browsing still works. Synced bookmarks, playlists, and more natural article narration will be available when the account connection recovers.",
-  mobileBody: "Browsing works; synced account features are reconnecting.",
+const degradedContent = (): NoteContent => ({
+  kind: "status",
+  title: "Account connection paused.",
+  body: "Browsing still works. Synced bookmarks, playlists, and more natural narration return when the connection recovers.",
 });
 
 export const HomeAuthStatusBanner = () => {
-  const [dismissed, setDismissed] = useState(false);
+  const dismissedKinds = useDismissedKinds();
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { isLoading: isConvexAuthLoading, isAuthenticated } = useConvexAuth();
   const { user } = useUser();
@@ -183,33 +131,76 @@ export const HomeAuthStatusBanner = () => {
     user?.primaryEmailAddress?.emailAddress?.split("@")[0] ??
     "there";
 
-  if (dismissed) {
-    return null;
-  }
-
-  const content = !isAuthLoaded
-    ? LoadingBannerContent()
+  const content: NoteContent | null = !isAuthLoaded
+    ? null
     : !isSignedIn
-      ? SignedOutBannerContent()
+      ? guestContent()
       : isConvexAuthLoading
-        ? ConnectingBannerContent()
+        ? connectingContent()
         : isAuthenticated
-          ? getAuthenticatedBannerContent({
+          ? getMemberContent({
               displayName,
               entries,
               isLoaded: bookmarksLoaded,
             })
-          : DegradedBannerContent();
+          : degradedContent();
 
-  const dismissBanner = (trigger: HTMLButtonElement) => {
-    if (document.activeElement === trigger) {
-      const focusTarget =
-        document.getElementById("search-input") ??
-        document.getElementById("main-content");
-      focusTarget?.focus();
-    }
-    setDismissed(true);
-  };
+  const dismiss = useCallback(
+    (trigger: HTMLButtonElement, kind: NoteKind) => {
+      if (document.activeElement === trigger) {
+        const focusTarget =
+          document.getElementById("search-input") ??
+          document.getElementById("main-content");
+        focusTarget?.focus();
+      }
+      try {
+        const kinds = new Set(readDismissed().split(",").filter(Boolean));
+        kinds.add(kind);
+        window.localStorage.setItem(
+          ACCOUNT_NOTE_DISMISSED_KEY,
+          [...kinds].join(","),
+        );
+      } catch {
+        // Storage can be unavailable (private mode); fall through to the
+        // event so this page view still hides the note.
+      }
+      window.dispatchEvent(new Event(DISMISS_EVENT));
+    },
+    [],
+  );
 
-  return <BannerShell {...content} onDismiss={dismissBanner} />;
+  const isDismissed =
+    content !== null &&
+    content.kind !== "status" &&
+    dismissedKinds.split(",").includes(content.kind);
+
+  // Reserve the row's height while auth resolves to avoid layout shift.
+  if (!content || isDismissed) {
+    return <div className="mt-5 min-h-11" data-home-account-note="" />;
+  }
+
+  return (
+    <aside
+      aria-label="Account"
+      data-home-account-note=""
+      className="mx-auto mt-5 flex max-w-xl items-start justify-center gap-1 text-[0.9375rem] leading-[1.6] text-foreground-2"
+    >
+      <div className="m-0 min-w-0 py-2.5 text-center">
+        <strong className="font-semibold text-foreground">
+          {content.title}
+        </strong>{" "}
+        {content.body} {content.action}
+      </div>
+      {content.kind !== "status" ? (
+        <button
+          type="button"
+          onClick={(event) => dismiss(event.currentTarget, content.kind)}
+          aria-label="Dismiss account note"
+          className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted transition-colors duration-200 hover:bg-surface-2 hover:text-foreground"
+        >
+          <CloseIcon />
+        </button>
+      ) : null}
+    </aside>
+  );
 };

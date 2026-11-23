@@ -70,10 +70,10 @@ describe("formatTimeAgo", () => {
     expect(result).toMatch(/Dec\s+25/);
   });
 
-  it("labels visit-based history as recently opened", () => {
+  it("labels visit-based history without claiming it was listened to", () => {
     const markup = renderToStaticMarkup(createElement(RecentlyOpened));
 
-    expect(markup).toContain("Recently opened");
+    expect(markup).toContain("Jump back in");
     expect(markup).not.toContain("Recently listened");
   });
 });

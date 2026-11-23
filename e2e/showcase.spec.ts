@@ -524,50 +524,54 @@ test("home presents the product and expands the curated daily preview", async ({
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { level: 1, name: "Curio Garden" }),
+    page.getByRole("heading", {
+      level: 1,
+      name: "Listen to any Wikipedia article",
+    }),
   ).toBeVisible();
   const homeSearch = page.getByRole("searchbox", { name: "Search topic" });
   await expect(homeSearch).toBeVisible();
   await expect(homeSearch).not.toBeFocused();
   await expect(
     page.getByText(
-      "Explore any Wikipedia article as clear, section-by-section audio, then keep listening wherever curiosity takes you.",
+      "Search a topic, choose the sections you want, and press play.",
+      { exact: false },
     ),
   ).toBeVisible();
-  const listeningSample = page.getByRole("region", {
-    name: "Start with a short listen",
-  });
-  await expect(listeningSample).toBeVisible();
-  const searchWorkbench = page.locator("[data-home-search-workbench]");
+  // The header search is redundant on home, which leads with a large field.
+  await expect(page.getByRole("search", { name: "Site search" })).toHaveCount(0);
+
+  // Search leads the first screen; the listening sample lives in the
+  // "How it works" section after the daily content.
   const searchPane = page.locator("[data-home-search-pane]");
   const homeContent = page.locator("[data-home-content]");
-  const [workbenchBox, searchPaneBox, listeningSampleBox, homeContentBox] =
-    await Promise.all([
-      searchWorkbench.boundingBox(),
-      searchPane.boundingBox(),
-      listeningSample.boundingBox(),
-      homeContent.boundingBox(),
-    ]);
-  expect(workbenchBox).not.toBeNull();
-  expect(searchPaneBox).not.toBeNull();
-  expect(listeningSampleBox).not.toBeNull();
-  expect(homeContentBox).not.toBeNull();
-  expect(searchPaneBox!.x).toBeLessThan(listeningSampleBox!.x);
-  expect(
-    Math.abs(searchPaneBox!.y - listeningSampleBox!.y),
-  ).toBeLessThanOrEqual(1);
-  expect(searchPaneBox!.width / listeningSampleBox!.width).toBeCloseTo(2, 1);
-  expect(workbenchBox!.width).toBeGreaterThan(homeContentBox!.width);
-  const [searchBackground, playerBackground] = await Promise.all([
-    searchPane.evaluate((element) => getComputedStyle(element).backgroundColor),
-    listeningSample.evaluate(
-      (element) => getComputedStyle(element).backgroundColor,
-    ),
+  const listeningSample = page.getByRole("region", {
+    name: "Hear it in 18 seconds",
+  });
+  const howItWorks = page.getByRole("region", {
+    name: "New here? How Curio Garden works",
+  });
+  await expect(howItWorks).toHaveCount(1);
+  await expect(listeningSample).toHaveCount(1);
+  const [searchPaneBox, homeContentBox] = await Promise.all([
+    searchPane.boundingBox(),
+    homeContent.boundingBox(),
   ]);
-  expect(searchBackground).not.toBe(playerBackground);
+  expect(searchPaneBox).not.toBeNull();
+  expect(homeContentBox).not.toBeNull();
+  expect(searchPaneBox!.y + searchPaneBox!.height).toBeLessThan(
+    page.viewportSize()!.height,
+  );
+  await page.getByRole("link", { name: "New here? Hear how it works" }).click();
+  await expect(listeningSample).toBeInViewport();
+  const listeningSampleBox = await listeningSample.boundingBox();
+  const homeContentAfterScroll = await homeContent.boundingBox();
+  expect(listeningSampleBox!.y).toBeGreaterThan(
+    homeContentAfterScroll!.y + homeContentAfterScroll!.height - 1,
+  );
   await expect(
     listeningSample.getByText(
-      "Hear how a Wikipedia page becomes a clear listening path.",
+      "A short sample of how a Wikipedia page becomes a clear listening path.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -734,7 +738,7 @@ test("home presents the product and expands the curated daily preview", async ({
   await expectNoSeriousAxeViolations(page);
 });
 
-test("home listening sample and search reflow at 320 pixels", async ({
+test("home search and listening sample reflow at 320 pixels", async ({
   page,
   request,
 }) => {
@@ -759,8 +763,9 @@ test("home listening sample and search reflow at 320 pixels", async ({
 
   await expect(page.locator("html")).toHaveClass(/dark/);
   const listeningSample = page.getByRole("region", {
-    name: "Start with a short listen",
+    name: "Hear it in 18 seconds",
   });
+  await listeningSample.scrollIntoViewIfNeeded();
   await expect(listeningSample).toBeVisible();
   const searchPane = page.locator("[data-home-search-pane]");
   const [searchPaneBox, listeningSampleBox] = await Promise.all([

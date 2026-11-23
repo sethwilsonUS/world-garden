@@ -11,7 +11,7 @@ export const ThemeToggle = () => {
       aria-label={
         theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
       }
-      className="btn-secondary min-h-11 min-w-11 shrink-0 p-2 rounded-xl"
+      className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-foreground-2 transition-colors duration-200 hover:bg-surface-2 hover:text-foreground"
     >
       <svg
         className="theme-icon-sun"
