@@ -971,9 +971,10 @@ test("ordinary editorial photos fill their frames without blurred bars", async (
   await page.getByRole("button", { name: "Show all 4 facts" }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
 
+  // Did You Know is text-first on the home page (no thumbnails), so only the
+  // card images are checked here.
   const homepageImages = [
     { source: featuredRailImageUrl },
-    { source: didYouKnowImageUrl },
     { source: trendingPortraitImageUrl(0), portrait: true },
   ];
   for (const image of homepageImages) {
@@ -1025,7 +1026,7 @@ test.describe("date-only labels stay on the Wikimedia calendar date", () => {
       await page.goto("/");
 
       await expect(
-        page.getByText("Last updated: Jul 12, 2026", { exact: true }),
+        page.getByText("Most read on Jul 12, 2026", { exact: true }),
       ).toBeVisible();
     });
   });

@@ -291,7 +291,7 @@ export const FeaturedArticleCard = ({
           {article.extract}
         </p>
         {dateLabel ? (
-          <p className="mt-3 text-xs text-muted">Updated {dateLabel}</p>
+          <p className="mt-3 text-xs text-muted">Last updated: {dateLabel}</p>
         ) : null}
         <ImageCreditDisclosure
           attribution={article.thumbnail?.attribution}
