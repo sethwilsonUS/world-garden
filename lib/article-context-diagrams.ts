@@ -11,6 +11,7 @@ import {
   uniqueId,
   type BlockCandidate,
 } from "./article-context-foundations";
+import { isWikimediaMediaHostname } from "./wikimedia-media";
 
 export const normalizeCommonsImageUrl = (value: string): string | null => {
   const candidate = value.startsWith("//") ? `https:${value}` : value;
@@ -22,7 +23,7 @@ export const normalizeCommonsImageUrl = (value: string): string | null => {
   }
   if (
     url.protocol !== "https:" ||
-    url.hostname !== "upload.wikimedia.org" ||
+    !isWikimediaMediaHostname(url.hostname) ||
     !url.pathname.startsWith("/wikipedia/commons/") ||
     /\/math\//i.test(url.pathname) ||
     /\.svg$/i.test(url.pathname)

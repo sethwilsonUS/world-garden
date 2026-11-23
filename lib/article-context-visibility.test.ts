@@ -57,6 +57,32 @@ describe("article context diagram visibility", () => {
     ]);
   });
 
+  it("deduplicates across thumb.wikimedia.org and upload.wikimedia.org URLs with query parameters", () => {
+    const thumbDiagramUrl =
+      "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/USGS_WaterCycle_English_ONLINE_20221013.png/500px-USGS_WaterCycle_English_ONLINE_20221013.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail";
+    const uploadOriginalHeroUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/1/13/USGS_WaterCycle_English_ONLINE_20221013.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled";
+    const thumbHeroUrl =
+      "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/USGS_WaterCycle_English_ONLINE_20221013.png/960px-USGS_WaterCycle_English_ONLINE_20221013.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail";
+    const distinctThumbDiagram = baseDiagram(
+      "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Distinct.png/500px-Distinct.png?utm_source=en.wikipedia.org",
+    );
+
+    expect(
+      getVisibleArticleContextBlocks(
+        [baseDiagram(thumbDiagramUrl), distinctThumbDiagram],
+        uploadOriginalHeroUrl,
+      ),
+    ).toEqual([distinctThumbDiagram]);
+
+    expect(
+      getVisibleArticleContextBlocks(
+        [baseDiagram(waterDiagram), distinctThumbDiagram],
+        thumbHeroUrl,
+      ),
+    ).toEqual([distinctThumbDiagram]);
+  });
+
   it("keeps a matching hero diagram when Gallery would exclude the figure", () => {
     const tooSmall = baseDiagram(waterDiagram, { width: 99 });
     const tooWide = baseDiagram(waterDiagram, { width: 601, height: 200 });

@@ -5,6 +5,7 @@ import {
   getWikimediaFileTitleFromUrl,
   getWikimediaMediaIdentity,
   getWikimediaMediaRepositoryFromUrl,
+  isWikimediaMediaHostname,
   WIKIMEDIA_MEDIA_TIMEOUT_MS,
 } from "./wikimedia-media";
 
@@ -39,15 +40,34 @@ describe("Wikimedia media attribution", () => {
     ).toBe("enwiki");
   });
 
+  it("recognizes upload.wikimedia.org and thumb.wikimedia.org as Wikimedia media hosts", () => {
+    expect(isWikimediaMediaHostname("upload.wikimedia.org")).toBe(true);
+    expect(isWikimediaMediaHostname("thumb.wikimedia.org")).toBe(true);
+    expect(isWikimediaMediaHostname("THUMB.WIKIMEDIA.ORG")).toBe(true);
+    expect(isWikimediaMediaHostname("evil-thumb.wikimedia.org")).toBe(false);
+    expect(isWikimediaMediaHostname("commons.wikimedia.org")).toBe(false);
+    expect(isWikimediaMediaHostname("example.com")).toBe(false);
+  });
+
   it("builds repository-aware identities across Wikimedia renditions", () => {
     const commonsThumbnail =
       "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.svg/500px-Example.svg.png";
+    const commonsThumbHost =
+      "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.svg/500px-Example.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail";
+    const commonsProtocolRelativeThumb =
+      "//thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.svg/330px-Example.svg.png?utm_source=en.wikipedia.org";
     const commonsOriginal =
-      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.svg";
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.svg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled";
     const enwikiThumbnail =
-      "https://upload.wikimedia.org/wikipedia/en/thumb/a/ab/Example.svg/500px-Example.svg.png";
+      "https://thumb.wikimedia.org/wikipedia/en/thumb/a/ab/Example.svg/500px-Example.svg.png?utm_source=en.wikipedia.org";
 
     expect(getWikimediaMediaIdentity(commonsThumbnail)).toBe(
+      getWikimediaMediaIdentity(commonsOriginal),
+    );
+    expect(getWikimediaMediaIdentity(commonsThumbHost)).toBe(
+      getWikimediaMediaIdentity(commonsOriginal),
+    );
+    expect(getWikimediaMediaIdentity(commonsProtocolRelativeThumb)).toBe(
       getWikimediaMediaIdentity(commonsOriginal),
     );
     expect(getWikimediaMediaIdentity(commonsThumbnail)).toBe(
@@ -56,6 +76,14 @@ describe("Wikimedia media attribution", () => {
     expect(getWikimediaMediaIdentity(enwikiThumbnail)).toBe(
       "enwiki:file:Example.svg",
     );
+    expect(
+      getWikimediaMediaIdentity(
+        "https://evil-thumb.wikimedia.org/wikipedia/commons/a/ab/Example.svg",
+      ),
+    ).toBeUndefined();
+    expect(
+      getWikimediaMediaIdentity("javascript:alert(1)"),
+    ).toBeUndefined();
   });
 
   it("normalizes imageinfo metadata and keeps a source fallback", async () => {

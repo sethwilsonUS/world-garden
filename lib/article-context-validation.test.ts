@@ -126,3 +126,86 @@ describe("article context legend validation", () => {
     },
   );
 });
+
+describe("article context diagram image URL validation", () => {
+  it("accepts thumb.wikimedia.org Commons raster thumbnails with query parameters", () => {
+    const thumbManifest: ContextManifest = {
+      ...manifest,
+      blocks: [
+        {
+          ...diagram,
+          diagram: {
+            ...diagram.diagram,
+            image: {
+              src: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Medal_map.svg/500px-Medal_map.svg.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail",
+              originalSrc:
+                "https://upload.wikimedia.org/wikipedia/commons/a/ab/Medal_map.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+              alt: "World map showing medal achievements",
+            },
+          },
+        },
+      ],
+    };
+
+    expect(validateContextManifest(thumbManifest)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "spoofed host",
+      "https://evil-thumb.wikimedia.org/wikipedia/commons/a/ab/Medal_map.png",
+    ],
+    [
+      "English-Wikipedia local path",
+      "https://thumb.wikimedia.org/wikipedia/en/thumb/a/ab/Poster.png/330px-Poster.png",
+    ],
+    [
+      "raw SVG with query parameters",
+      "https://thumb.wikimedia.org/wikipedia/commons/a/ab/Medal_map.svg?utm_source=en.wikipedia.org",
+    ],
+    [
+      "math asset on thumb host",
+      "https://thumb.wikimedia.org/wikipedia/commons/math/a/ab/Formula.png",
+    ],
+  ])("rejects diagram image with %s", (_label, src) => {
+    const invalid: ContextManifest = {
+      ...manifest,
+      blocks: [
+        {
+          ...diagram,
+          diagram: {
+            ...diagram.diagram,
+            image: {
+              src,
+              alt: "Unsafe diagram image",
+            },
+          },
+        },
+      ],
+    };
+
+    expect(validateContextManifest(invalid)).toContain(
+      "Diagram olympics-medal-map is missing its safe semantic equivalent",
+    );
+
+    const invalidOriginal: ContextManifest = {
+      ...manifest,
+      blocks: [
+        {
+          ...diagram,
+          diagram: {
+            ...diagram.diagram,
+            image: {
+              ...diagram.diagram.image,
+              originalSrc: src,
+            },
+          },
+        },
+      ],
+    };
+
+    expect(validateContextManifest(invalidOriginal)).toContain(
+      "Diagram olympics-medal-map is missing its safe semantic equivalent",
+    );
+  });
+});
