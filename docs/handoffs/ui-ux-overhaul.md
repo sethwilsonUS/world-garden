@@ -1,6 +1,6 @@
 # Curio Garden accessibility and playback handoff
 
-The home page leads with article search. Its listening sample lives in “How Curio Garden works.” On article pages, playback starts under the title, and the full summary is available through a disclosure. The Now Playing bar keeps controls available while scrolling through the article. Minimize keeps the section title and play/pause within reach. The browser remembers that preference.
+The home page leads with article search. Its listening sample lives in “How Curio Garden works.” On article pages, playback starts under the title, and the full summary is available through a disclosure. The Now Playing bar keeps controls available while scrolling through the article. Collapsing Player controls keeps the section title and play/pause within reach. The browser remembers that preference.
 
 ## Conventions for future changes
 
@@ -27,3 +27,5 @@ The [search accessibility matrix](../search-accessibility-test-matrix.md) record
 - Keep article audio playing when the listener navigates to another route. This needs a playback owner that survives article unmounts and a way to return to the playing section.
 - Design and document keyboard shortcuts for play/pause, seeking, and skipping a section. Preserve native typing, scrolling, and focused control behavior.
 - Revisit theme toggle placement separately from playback.
+- When new pageviews arrive before their narration, consider showing the latest published brief on Home and Trending with its own pageview date.
+- Preserve the first publication timestamp across later episode edits. RSS currently uses the ready record's `updatedAt`, and the archive displays that same date in UTC.
