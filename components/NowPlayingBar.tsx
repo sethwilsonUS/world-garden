@@ -1,6 +1,15 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import {
   PLAYBACK_RATES,
   type PlaybackRate,
@@ -30,6 +39,7 @@ const readMinimized = (): boolean => {
 };
 
 type NowPlayingBarProps = {
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
   articleTitle: string;
   /** Title of the section that is loaded, e.g. "Summary" or "History". */
   sectionTitle: string | null;
@@ -138,6 +148,7 @@ const JumpIcon = () => (
  * visible above it.
  */
 export const NowPlayingBar = ({
+  returnFocusRef,
   articleTitle,
   sectionTitle,
   playback,
@@ -152,10 +163,31 @@ export const NowPlayingBar = ({
   onJumpToSection,
 }: NowPlayingBarProps) => {
   const barRef = useRef<HTMLElement>(null);
+  const hadFocusOnRemoval = useRef(false);
+  const attachBar = useCallback((bar: HTMLElement | null) => {
+    if (!bar) {
+      // React detaches this ref before removing the focused descendant.
+      hadFocusOnRemoval.current =
+        barRef.current?.contains(document.activeElement) ?? false;
+    }
+    barRef.current = bar;
+  }, []);
   const controlsId = useId();
   const [minimized, setMinimized] = useState(readMinimized);
   const [rateAnnouncement, setRateAnnouncement] = useState("");
   const visible = isNowPlayingVisible(playback);
+
+  useLayoutEffect(() => {
+    // A route unmount never runs this update. An outside control keeps focus.
+    if (
+      !visible &&
+      hadFocusOnRemoval.current &&
+      document.activeElement === document.body
+    ) {
+      returnFocusRef.current?.focus();
+    }
+    hadFocusOnRemoval.current = false;
+  }, [visible, returnFocusRef]);
 
   useEffect(() => {
     if (!visible) return;
@@ -248,7 +280,7 @@ export const NowPlayingBar = ({
     <>
       {liveRegions}
       <section
-        ref={barRef}
+        ref={attachBar}
         aria-label="Now playing"
         data-now-playing-bar
         className="fixed inset-x-0 bottom-0 z-50 max-h-[60dvh] overflow-y-auto border-t border-border bg-surface-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.18)] [overflow-wrap:anywhere]"

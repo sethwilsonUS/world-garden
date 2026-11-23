@@ -33,7 +33,7 @@ import { BookmarkButton } from "./BookmarkButton";
 import { NowPlayingBar } from "./NowPlayingBar";
 import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
-import { TableOfContents, tocListenButtonId } from "./TableOfContents";
+import { TableOfContents, tocFocusTargetId } from "./TableOfContents";
 
 type ArticleData = Article & {
   _id?: string;
@@ -88,6 +88,7 @@ const ArticleViewContent = ({
   const [heroImageAnalysis, setHeroImageAnalysis] =
     useState<AdaptiveImageAnalysis | null>(null);
   const fetchTriggered = useRef(false);
+  const playAllButtonRef = useRef<HTMLButtonElement>(null);
 
   const articleContext = useArticleContext(
     displayArticle
@@ -264,7 +265,7 @@ const ArticleViewContent = ({
 
   const jumpToActiveSection = () => {
     if (!activeSectionKey) return;
-    const target = document.getElementById(tocListenButtonId(activeSectionKey));
+    const target = document.getElementById(tocFocusTargetId(activeSectionKey));
     if (!target) return;
     const reduceMotion = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
@@ -286,6 +287,7 @@ const ArticleViewContent = ({
 
           <div className="mt-5">
             <ArticleListeningControls
+              playAllButtonRef={playAllButtonRef}
               identity={displayArticle}
               summaryText={displayArticle.summary}
               sections={sections}
@@ -445,6 +447,7 @@ const ArticleViewContent = ({
       {/* Outside the animated <article>: its lingering transform would
           otherwise become the containing block for position: fixed. */}
       <NowPlayingBar
+        returnFocusRef={playAllButtonRef}
         articleTitle={displayArticle.title}
         sectionTitle={nowPlayingSectionTitle}
         playback={audioState.playback}

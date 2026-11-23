@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Ref } from "react";
 import type { Section, WikipediaRevisionIdentity } from "@/lib/data-context";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
 import {
@@ -27,6 +27,7 @@ import {
 } from "@/components/TableOfContents";
 
 type ArticleListeningControlsProps = {
+  playAllButtonRef?: Ref<HTMLButtonElement>;
   identity: Pick<WikipediaRevisionIdentity, "title" | "revisionId"> & {
     narrationVersion: number;
   };
@@ -91,6 +92,7 @@ const SkipNextIcon = () => (
  * under the article title so listening never waits behind the summary.
  */
 export const ArticleListeningControls = ({
+  playAllButtonRef,
   identity,
   summaryText,
   sections,
@@ -244,6 +246,7 @@ export const ArticleListeningControls = ({
       <h2 className="sr-only">Listen to this article</h2>
       <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
         <button
+          ref={playAllButtonRef}
           type="button"
           onMouseEnter={onWarmPlayAll}
           onFocus={onWarmPlayAll}

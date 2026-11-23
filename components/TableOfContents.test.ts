@@ -372,6 +372,9 @@ describe("TableOfContents narration", () => {
     );
 
     expect(markup).toContain("Chapter transition");
+    expect(markup).toMatch(
+      /<span id="toc-listen-section-1" tabindex="-1"[^>]*>Career<\/span>/,
+    );
     expect(markup).toContain("No source text");
     expect(markup).toContain(
       "Wikipedia has no text under this heading, so there is nothing to narrate.",

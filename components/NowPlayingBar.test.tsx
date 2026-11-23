@@ -36,6 +36,7 @@ const idle: AudioPlaybackState = {
 type BarProps = ComponentProps<typeof NowPlayingBar>;
 
 const makeProps = (overrides: Partial<BarProps> = {}): BarProps => ({
+  returnFocusRef: { current: null },
   articleTitle: "Example article",
   sectionTitle: "History",
   playback: playback(),
@@ -147,6 +148,42 @@ describe("NowPlayingBar", () => {
     );
     expect(root_.style.getPropertyValue(NOW_PLAYING_HEIGHT_VARIABLE)).toBe("");
     expect(document.body.style.paddingBottom).toBe("");
+  });
+
+  it("returns focus to the article control only when playback removes a focused player", () => {
+    const returnFocusRef: BarProps["returnFocusRef"] = { current: null };
+    const renderPlayback = (state: AudioPlaybackState) =>
+      root.render(
+        <>
+          <button ref={returnFocusRef}>Play all</button>
+          <button>Elsewhere</button>
+          <NowPlayingBar {...makeProps({ returnFocusRef, playback: state })} />
+        </>,
+      );
+    act(() => renderPlayback(playback()));
+    button(container, "Stop audio").focus();
+    act(() => renderPlayback(idle));
+    expect(document.activeElement).toBe(returnFocusRef.current);
+
+    act(() => renderPlayback(playback()));
+    button(container, "Pause History").focus();
+    const outside = button(container, "Elsewhere");
+    outside.focus();
+    act(() => renderPlayback(idle));
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("leaves navigation in charge of focus when the entire player unmounts", () => {
+    const restore = document.createElement("button");
+    const focus = vi.spyOn(restore, "focus");
+    act(() =>
+      root.render(
+        <NowPlayingBar {...makeProps({ returnFocusRef: { current: restore } })} />,
+      ),
+    );
+    button(container, "Stop audio").focus();
+    act(() => root.render(null));
+    expect(focus).not.toHaveBeenCalled();
   });
 
   it("keeps focus and playback when minimized, and remembers both choices across articles", () => {

@@ -45,8 +45,8 @@ type TableOfContentsProps = {
   contextBlocks?: ContextBlock[];
 };
 
-/** DOM id of a row's Listen control, used by "Jump to section". */
-export const tocListenButtonId = (sectionKey: string): string =>
+/** Jump to the Listen button, or to the title of a heading-only track. */
+export const tocFocusTargetId = (sectionKey: string): string =>
   `toc-listen-${sectionKey}`;
 
 export const TTS_WORDS_PER_SECOND = 2.5;
@@ -322,7 +322,7 @@ export const TableOfContents = ({
               </span>
               <button
                 type="button"
-                id={tocListenButtonId("summary")}
+                id={tocFocusTargetId("summary")}
                 onMouseEnter={onWarmSummary}
                 onFocus={onWarmSummary}
                 onPointerDown={onWarmSummary}
@@ -416,7 +416,11 @@ export const TableOfContents = ({
                     data-toc-heading-only
                   >
                     <span className="flex min-w-0 flex-[1_1_200px] flex-col gap-[2px]">
-                      <span className={`${titleClass} text-foreground-2`}>
+                      <span
+                        id={tocFocusTargetId(`section-${index}`)}
+                        tabIndex={-1}
+                        className={`${titleClass} text-foreground-2`}
+                      >
                         {section.title}
                       </span>
                       <span className="text-sm leading-snug text-muted">
@@ -485,7 +489,7 @@ export const TableOfContents = ({
 
                   <button
                     type="button"
-                    id={tocListenButtonId(`section-${index}`)}
+                    id={tocFocusTargetId(`section-${index}`)}
                     onMouseEnter={() => onWarmSection?.(index)}
                     onFocus={() => onWarmSection?.(index)}
                     onPointerDown={() => onWarmSection?.(index)}
