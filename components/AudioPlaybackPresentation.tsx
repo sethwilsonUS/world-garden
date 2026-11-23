@@ -101,8 +101,8 @@ export const SpeedButton = ({
     type="button"
     onClick={onClick}
     aria-label={`Playback speed ${formatRate(rate)}. Activate to change.`}
-    className={`pointer-events-auto inline-flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-[8px] py-[5px] font-mono text-xs font-bold leading-none transition-colors duration-150 ${
-      rate !== 1 ? "text-accent" : "text-muted"
+    className={`pointer-events-auto inline-flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-[10px] py-[5px] font-mono text-sm font-bold leading-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+      rate !== 1 ? "text-accent" : "text-foreground-2"
     }`}
   >
     {formatRate(rate)}

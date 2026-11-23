@@ -194,7 +194,6 @@ const ControllerHarness = ({
     article: articleValue,
     badgeTrackingEnabled: false,
     updateProgress: mocks.updateProgress,
-    shouldFocusPlayAll: false,
   });
 
   useEffect(() => {
@@ -285,6 +284,18 @@ describe("useArticleAudioController", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("leaves focus at the document start and exposes Now playing actions", async () => {
+    await act(async () => {
+      root.render(<Harness onChange={captureController} />);
+    });
+
+    await waitForExpectation(() => {
+      expect(typeof controller().actions.skipBy).toBe("function");
+      expect(typeof controller().actions.togglePlayback).toBe("function");
+    });
+    expect(document.activeElement).toBe(document.body);
   });
 
   it("ignores a ready combined export generated with another TTS profile", async () => {

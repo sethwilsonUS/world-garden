@@ -17,57 +17,70 @@ type ArticleHeroProps = {
 };
 
 const summaryTextClassName =
-  "break-words text-sm leading-relaxed text-muted [overflow-wrap:anywhere]";
+  "m-0 max-w-[70ch] break-words text-[1.0625rem] leading-relaxed text-foreground-2 [overflow-wrap:anywhere]";
 
-export const ResponsiveArticleSummary = ({ summary }: { summary: string }) => {
-  const { lead } = splitArticleSummary(summary);
+/**
+ * The article summary on every breakpoint: the lead sentence at a comfortable
+ * reading size, with the remainder behind one "Read full summary" disclosure
+ * so listening controls and sections are never pushed screens away.
+ */
+export const ArticleSummary = ({ summary }: { summary?: string }) => {
+  const { lead, remainder } = splitArticleSummary(summary ?? "");
   if (!lead) return null;
+  const remainderParagraphs = remainder
+    ? remainder
+        .split(/\n+/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean)
+    : [];
 
   return (
-    <div className="mb-4">
-      <p
-        className={`${summaryTextClassName} sm:hidden`}
-        data-mobile-article-summary-lead
-      >
+    <div className="min-w-0" data-article-summary>
+      <p className={summaryTextClassName} data-article-summary-lead>
         {lead}
       </p>
-      <p
-        className={`hidden ${summaryTextClassName} sm:block`}
-        data-desktop-article-summary
-      >
-        {summary}
-      </p>
+      {remainderParagraphs.length > 0 ? (
+        <details className="group mt-2" data-article-summary-disclosure>
+          <summary className="btn-tertiary -ml-3 cursor-pointer list-none text-sm font-semibold [&::-webkit-details-marker]:hidden">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              width={14}
+              height={14}
+              aria-hidden="true"
+              focusable="false"
+              className="shrink-0 transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <span className="group-open:hidden">Read full summary</span>
+            <span className="hidden group-open:inline">Hide full summary</span>
+          </summary>
+          <div
+            className="mt-2 flex flex-col gap-3"
+            data-article-summary-remainder
+          >
+            {remainderParagraphs.map((paragraph, index) => (
+              <p key={index} className={summaryTextClassName}>
+                {paragraph}
+              </p>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 };
 
-export const MobileArticleSummaryDisclosure = ({
-  summary,
-}: {
-  summary?: string;
-}) => {
-  const { remainder } = splitArticleSummary(summary ?? "");
-  if (!remainder) return null;
-
-  return (
-    <details
-      className="group mb-6 sm:hidden"
-      data-mobile-article-summary-disclosure
-    >
-      <summary className="inline-flex min-h-11 max-w-full cursor-pointer items-center rounded-xl border border-border bg-surface-2 px-4 py-2.5 text-sm font-semibold leading-snug text-foreground transition-colors duration-200 [overflow-wrap:anywhere] hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-        <span className="group-open:hidden">Show full text summary</span>
-        <span className="hidden group-open:inline">Hide full text summary</span>
-      </summary>
-      <p
-        className={`${summaryTextClassName} mt-3`}
-        data-mobile-article-summary-remainder
-      >
-        {remainder}
-      </p>
-    </details>
-  );
-};
-
+/**
+ * Summary plus lead image. The image is capped in height and, on wide screens,
+ * sits beside the summary instead of above it. Summary comes first in reading
+ * order on every breakpoint.
+ */
 export const ArticleHero = ({
   article,
   imageAnalysis,
@@ -77,7 +90,11 @@ export const ArticleHero = ({
   const { summary, thumbnailAttribution, thumbnailUrl } = article;
 
   if (!thumbnailUrl) {
-    return summary ? <ResponsiveArticleSummary summary={summary} /> : null;
+    return summary ? (
+      <section aria-label="Article summary" className="mb-8">
+        <ArticleSummary summary={summary} />
+      </section>
+    ) : null;
   }
 
   const width = article.thumbnailWidth ?? 0;
@@ -102,78 +119,83 @@ export const ArticleHero = ({
   };
 
   return (
-    <>
-      {isPortrait ? (
-        <div className="relative mb-4 overflow-hidden rounded-xl">
-          <button
-            type="button"
-            onClick={openLightbox}
-            aria-label={`View full image for ${article.title}`}
-            className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
-          />
-          <Image
-            src={thumbnailUrl}
-            alt=""
-            aria-hidden="true"
-            fill
-            sizes="100vw"
-            className="object-cover"
-            style={{
-              transform: "scale(1.8)",
-              filter: "blur(80px) brightness(0.65)",
-            }}
-            unoptimized
-          />
-          <div className="absolute inset-0 bg-black/45" />
-          <div className="relative flex items-center justify-center gap-16 p-6 sm:p-10">
-            <div
-              className={
-                hasTransparentHero
-                  ? "shrink-0 rounded-[20px] border border-white/15 p-3 sm:p-4 shadow-2xl"
-                  : "shrink-0"
-              }
-              style={imagePanelStyle}
-            >
-              <Image
-                src={thumbnailUrl}
-                alt={article.title}
-                width={intrinsicWidth}
-                height={intrinsicHeight}
-                className="max-h-56 sm:max-h-72 w-auto object-contain rounded-lg shrink-0"
-                priority
-                unoptimized
-              />
+    <section
+      aria-label="Article summary"
+      className="mb-8 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-start lg:gap-6"
+    >
+      {summary ? <ArticleSummary summary={summary} /> : <div />}
+
+      <figure className="m-0 min-w-0">
+        {isPortrait ? (
+          <div className="relative overflow-hidden rounded-xl">
+            <button
+              type="button"
+              onClick={openLightbox}
+              aria-label={`View full image for ${article.title}`}
+              className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
+            />
+            <Image
+              src={thumbnailUrl}
+              alt=""
+              aria-hidden="true"
+              fill
+              sizes="(min-width: 1024px) 16rem, 100vw"
+              className="object-cover"
+              style={{
+                transform: "scale(1.8)",
+                filter: "blur(80px) brightness(0.65)",
+              }}
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-black/45" />
+            <div className="relative flex items-center justify-center p-4 sm:p-6">
+              <div
+                className={
+                  hasTransparentHero
+                    ? "shrink-0 rounded-[20px] border border-white/15 p-3 shadow-2xl"
+                    : "shrink-0"
+                }
+                style={imagePanelStyle}
+              >
+                <Image
+                  src={thumbnailUrl}
+                  alt={article.title}
+                  width={intrinsicWidth}
+                  height={intrinsicHeight}
+                  className="max-h-56 w-auto shrink-0 rounded-lg object-contain sm:max-h-72"
+                  priority
+                  unoptimized
+                />
+              </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="relative mb-4 overflow-hidden rounded-xl">
-          <AdaptiveImageFrame
-            src={thumbnailUrl}
-            alt={article.title}
-            width={width}
-            height={height}
-            sizes="100vw"
-            className="h-48 w-full sm:h-64"
-            priority
-            unoptimized
-          />
-          <button
-            type="button"
-            onClick={openLightbox}
-            aria-label={`View full image for ${article.title}`}
-            className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
-          />
-        </div>
-      )}
+        ) : (
+          <div className="relative overflow-hidden rounded-xl">
+            <AdaptiveImageFrame
+              src={thumbnailUrl}
+              alt={article.title}
+              width={width}
+              height={height}
+              sizes="(min-width: 1024px) 16rem, 100vw"
+              className="h-48 w-full sm:h-64 lg:h-44"
+              priority
+              unoptimized
+            />
+            <button
+              type="button"
+              onClick={openLightbox}
+              aria-label={`View full image for ${article.title}`}
+              className="absolute inset-0 z-20 cursor-zoom-in rounded-xl border-0 bg-transparent focus-visible:[box-shadow:inset_0_0_0_2px_white,inset_0_0_0_4px_rgba(0,0,0,0.9)]"
+            />
+          </div>
+        )}
 
-      {thumbnailAttribution ? (
-        <div className="-mt-1 mb-4 px-1">
-          <MediaAttribution attribution={thumbnailAttribution} compact />
-        </div>
-      ) : null}
-
-      {summary ? <ResponsiveArticleSummary summary={summary} /> : null}
+        {thumbnailAttribution ? (
+          <figcaption className="mt-1 px-1">
+            <MediaAttribution attribution={thumbnailAttribution} compact />
+          </figcaption>
+        ) : null}
+      </figure>
 
       {lightbox && (
         <GalleryLightbox
@@ -190,7 +212,7 @@ export const ArticleHero = ({
           onClose={() => onLightboxChange(null)}
         />
       )}
-    </>
+    </section>
   );
 };
 
@@ -284,13 +306,13 @@ export const ResumeBanner = ({
     <div className="flex max-w-full flex-wrap gap-2">
       <button
         onClick={onResume}
-        className="btn-primary min-h-[44px] max-w-full flex-wrap px-4 py-2 text-center text-[0.8125rem]"
+        className="btn-primary min-h-[44px] max-w-full flex-wrap px-4 py-2 text-center text-sm"
       >
         Resume
       </button>
       <button
         onClick={onStartOver}
-        className="btn-secondary min-h-[44px] max-w-full flex-wrap px-4 py-2 text-center text-[0.8125rem]"
+        className="btn-secondary min-h-[44px] max-w-full flex-wrap px-4 py-2 text-center text-sm"
       >
         Start over
       </button>

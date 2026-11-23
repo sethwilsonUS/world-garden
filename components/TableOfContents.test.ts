@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createElement } from "react";
+import { createElement, Fragment, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   TableOfContents,
@@ -10,6 +10,7 @@ import {
   TTS_WORDS_PER_SECOND,
   type AudioPlaybackState,
 } from "./TableOfContents";
+import { ArticleListeningControls } from "./ArticleListeningControls";
 import { DataContext, type DataContextValue } from "@/lib/data-context";
 import type { ContextBlock } from "@/lib/article-context-types";
 import { createTestSection } from "@/lib/test-section-narration";
@@ -266,13 +267,25 @@ describe("durationLabel", () => {
   });
 });
 
+type ArticleAudioProps = ComponentProps<typeof TableOfContents> &
+  ComponentProps<typeof ArticleListeningControls>;
+
+/** The listening bar and the section list, as ArticleView composes them. */
+const ArticleAudio = (props: ArticleAudioProps) =>
+  createElement(
+    Fragment,
+    null,
+    createElement(ArticleListeningControls, props),
+    createElement(TableOfContents, props),
+  );
+
 describe("TableOfContents narration", () => {
   it("keeps structured sections playable and discloses their adaptation", () => {
     const markup = renderToStaticMarkup(
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection, adaptedResultsSection],
@@ -286,8 +299,14 @@ describe("TableOfContents narration", () => {
       ),
     );
 
-    expect(markup).toContain("Play all");
-    expect(markup).toContain("(3)");
+    expect(markup).toContain(">Play all<");
+    expect(markup).toMatch(
+      /aria-label="Play all 3 audio items including summary, approximately [^"]+"/,
+    );
+    expect(markup).toContain("data-play-all-duration");
+    expect(markup).not.toContain("opacity-80");
+    expect(markup).toContain(">Sections<");
+    expect(markup).not.toContain("Explore this article");
     expect(markup).toContain("Adapted for audio");
     expect(markup).toContain("How Election results was adapted for audio");
     expect(markup).toContain("View complete source data");
@@ -302,7 +321,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -338,7 +357,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary.",
           sections: [adaptedResultsSection, parent, leaf],
@@ -354,6 +373,10 @@ describe("TableOfContents narration", () => {
 
     expect(markup).toContain("Chapter transition");
     expect(markup).toContain("No source text");
+    expect(markup).toContain(
+      "Wikipedia has no text under this heading, so there is nothing to narrate.",
+    );
+    expect(markup).not.toContain("About no source text");
     expect(markup).not.toContain("Listen to Career");
     expect(markup).not.toContain("Listen to Unwritten appendix");
     expect(markup).toContain(
@@ -367,7 +390,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -399,7 +422,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -433,7 +456,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -468,7 +491,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "A short summary.",
           sections: [],
@@ -488,7 +511,7 @@ describe("TableOfContents narration", () => {
       ),
     );
 
-    expect(markup).toContain('aria-label="Play summary"');
+    expect(markup).toMatch(/aria-label="Play summary, [^"]+"/);
     expect(markup).not.toContain("Play all");
     expect(markup).not.toContain("(2)");
     expect(markup).toContain('aria-hidden="true">10s</span>');
@@ -531,7 +554,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "A short summary.",
           sections: [firstHistory, laterHistory],
@@ -560,7 +583,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -600,7 +623,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -640,7 +663,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [historySection],
@@ -673,7 +696,7 @@ describe("TableOfContents narration", () => {
       createElement(
         DataContext.Provider,
         { value: dataContextValue },
-        createElement(TableOfContents, {
+        createElement(ArticleAudio, {
           identity: articleIdentity,
           summaryText: "Lead summary with enough text to estimate a duration.",
           sections: [],

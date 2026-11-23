@@ -161,7 +161,7 @@ const articleUrl = (baseUrl, article, params = {}) => {
 
 const waitForArticleUi = async (page) => {
   await page
-    .getByRole("heading", { name: /Explore this article/i })
+    .getByRole("heading", { name: /^Sections$/i })
     .waitFor({ timeout: 45_000 });
 };
 
@@ -498,7 +498,7 @@ const scenarios = {
         params: { ttsViewportWarm: "1" },
       });
       await run.page
-        .getByRole("heading", { name: /Explore this article/i })
+        .getByRole("heading", { name: /^Sections$/i })
         .scrollIntoViewIfNeeded();
       await run.page.waitForTimeout(1_000);
 

@@ -173,7 +173,7 @@ export const ArticleAudioExportTray = ({
 
       <section
         aria-label="Audio downloads"
-        className="pointer-events-none fixed inset-x-[16px] bottom-[16px] z-[70] flex justify-end"
+        className="pointer-events-none fixed inset-x-[16px] bottom-[calc(16px+var(--now-playing-height,0px))] z-[70] flex justify-end"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="pointer-events-auto flex max-h-[calc(100dvh_-_32px_-_env(safe-area-inset-bottom))] w-full max-w-[26rem] flex-col gap-[12px] overflow-y-auto overscroll-contain pr-[2px]">

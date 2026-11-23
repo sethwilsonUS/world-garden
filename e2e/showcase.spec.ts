@@ -539,7 +539,9 @@ test("home presents the product and expands the curated daily preview", async ({
     ),
   ).toBeVisible();
   // The header search is redundant on home, which leads with a large field.
-  await expect(page.getByRole("search", { name: "Site search" })).toHaveCount(0);
+  await expect(page.getByRole("search", { name: "Site search" })).toHaveCount(
+    0,
+  );
 
   // Search leads the first screen; the listening sample lives in the
   // "How it works" section after the daily content.
@@ -1154,143 +1156,123 @@ test("article exposes revision and media provenance in an accessible lightbox", 
   await expectNoSeriousAxeViolations(page);
 });
 
-test("mobile article puts one summary sentence before audio and the remainder after it", async ({
-  page,
-}) => {
-  const lead = "Ada Lovelace was an English mathematician and writer.";
-  const remainder =
-    "Her notes on the Analytical Engine helped shape the history of computing.";
-  const fullSummary = `${lead} ${remainder}`;
+for (const viewport of [
+  { name: "mobile", width: 390, height: 844 },
+  { name: "desktop", width: 1280, height: 900 },
+]) {
+  test(`${viewport.name} article puts listening first and the summary remainder behind one disclosure`, async ({
+    page,
+  }) => {
+    const lead = "Ada Lovelace was an English mathematician and writer.";
+    const remainder =
+      "Her notes on the Analytical Engine helped shape the history of computing.";
+    const fullSummary = `${lead} ${remainder}`;
 
-  await page.setViewportSize({ width: 639, height: 844 });
-  await mockArticleData(page, { summary: fullSummary });
-  await page.goto("/article/Ada_Lovelace");
+    await page.setViewportSize({
+      width: viewport.width,
+      height: viewport.height,
+    });
+    await mockArticleData(page, { summary: fullSummary });
+    await page.goto("/article/Ada_Lovelace");
 
-  const mobileLead = page.locator("[data-mobile-article-summary-lead]");
-  const desktopSummary = page.locator("[data-desktop-article-summary]");
-  const articleSections = page.getByRole("navigation", {
-    name: "Article sections",
+    const title = page.getByRole("heading", { level: 1 });
+    const summaryLead = page.locator("[data-article-summary-lead]");
+    const articleSections = page.getByRole("navigation", {
+      name: "Article sections",
+    });
+    const playControl = page.getByRole("button", {
+      name: /^Play all \d+ audio items including summary, /,
+    });
+    const disclosure = page.locator("details[data-article-summary-disclosure]");
+    const disclosureControl = disclosure.locator("summary");
+    const disclosedRemainder = disclosure.locator(
+      "[data-article-summary-remainder]",
+    );
+
+    await expect(title).toBeVisible();
+    await expect(summaryLead).toHaveText(lead);
+    await expect(summaryLead).toBeVisible();
+    await expect(playControl).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /^Playback speed / }).first(),
+    ).toBeVisible();
+    await expect(articleSections).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Sections" }),
+    ).toBeVisible();
+    await expect(page.locator("[data-desktop-article-summary]")).toHaveCount(0);
+
+    // Play all is above the fold and nothing steals focus on load.
+    const playBox = await playControl.boundingBox();
+    expect(playBox).not.toBeNull();
+    expect(playBox!.y + playBox!.height).toBeLessThanOrEqual(viewport.height);
+    expect(
+      await page.evaluate(
+        () =>
+          document.activeElement === document.body ||
+          document.activeElement === document.documentElement,
+      ),
+    ).toBe(true);
+
+    expect(
+      await title.evaluate((heading) => {
+        const audio = document.querySelector(
+          "[data-article-listening-controls]",
+        );
+        const summary = document.querySelector("[data-article-summary-lead]");
+        const sections = document.querySelector(
+          'nav[aria-label="Article sections"]',
+        );
+        const feedback = document.querySelector("[data-article-feedback-link]");
+        if (!audio || !summary || !sections || !feedback) return false;
+        const follows = (a: Node, b: Node) =>
+          Boolean(
+            a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING,
+          );
+        return (
+          follows(heading, audio) &&
+          follows(audio, summary) &&
+          follows(summary, sections) &&
+          follows(sections, feedback)
+        );
+      }),
+    ).toBe(true);
+
+    await expect(disclosure).not.toHaveAttribute("open", "");
+    await expect(disclosureControl).toHaveAccessibleName("Read full summary");
+    await expect(disclosedRemainder).toHaveText(remainder);
+    await expect(disclosedRemainder).toBeHidden();
+    await expect(disclosure).not.toContainText(lead);
+
+    await disclosureControl.focus();
+    await expectVisibleFocusIndicator(disclosureControl);
+    await disclosureControl.press("Enter");
+    await expect(disclosure).toHaveAttribute("open", "");
+    await expect(disclosedRemainder).toBeVisible();
+    await expect(disclosureControl).toBeFocused();
+    await expect(disclosureControl).toHaveAccessibleName("Hide full summary");
+
+    await disclosureControl.press("Enter");
+    await expect(disclosure).not.toHaveAttribute("open", "");
+    await expect(disclosedRemainder).toBeHidden();
+    await expect(disclosureControl).toHaveAccessibleName("Read full summary");
+    await expectNoSeriousAxeViolations(page);
   });
-  const playControl = page.getByRole("button", {
-    name: /^Play all \d+ audio items including summary$/,
-  });
-  const disclosure = page.locator(
-    "details[data-mobile-article-summary-disclosure]",
-  );
-  const disclosureControl = disclosure.locator("summary");
-  const showDisclosureLabel = disclosureControl.getByText(
-    "Show full text summary",
-    { exact: true },
-  );
-  const hideDisclosureLabel = disclosureControl.getByText(
-    "Hide full text summary",
-    { exact: true },
-  );
-  const disclosedRemainder = disclosure.locator(
-    "[data-mobile-article-summary-remainder]",
-  );
+}
 
-  await expect(mobileLead).toHaveText(lead);
-  await expect(mobileLead).toBeVisible();
-  await expect(desktopSummary).toHaveText(fullSummary);
-  await expect(desktopSummary).toBeHidden();
-  await expect(playControl).toBeVisible();
-  await expect(articleSections).toBeVisible();
-  await expect(disclosure).toBeVisible();
-  await expect(disclosure).not.toHaveAttribute("open", "");
-  await expect(disclosureControl).toHaveAccessibleName(
-    "Show full text summary",
-  );
-  await expect(showDisclosureLabel).toBeVisible();
-  await expect(hideDisclosureLabel).toBeHidden();
-  await expect(disclosedRemainder).toHaveText(remainder);
-  await expect(disclosedRemainder).toBeHidden();
-  await expect(disclosure).not.toContainText(lead);
-
-  expect(
-    await mobileLead.evaluate((element) => {
-      const audio = document.querySelector(
-        'button[aria-label^="Play all "][aria-label$=" audio items including summary"]',
-      );
-      const fullSummaryDisclosure = document.querySelector(
-        "[data-mobile-article-summary-disclosure]",
-      );
-      const sections = document.querySelector(
-        'nav[aria-label="Article sections"]',
-      );
-      if (!audio || !fullSummaryDisclosure || !sections) return false;
-      return (
-        Boolean(
-          element.compareDocumentPosition(audio) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-        ) &&
-        Boolean(
-          audio.compareDocumentPosition(fullSummaryDisclosure) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-        ) &&
-        Boolean(
-          fullSummaryDisclosure.compareDocumentPosition(sections) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-        )
-      );
-    }),
-  ).toBe(true);
-
-  await disclosureControl.focus();
-  await expectVisibleFocusIndicator(disclosureControl);
-  await disclosureControl.press("Enter");
-  await expect(disclosure).toHaveAttribute("open", "");
-  await expect(disclosedRemainder).toBeVisible();
-  await expect(disclosureControl).toBeFocused();
-  await expect(disclosureControl).toHaveAccessibleName(
-    "Hide full text summary",
-  );
-  await expect(showDisclosureLabel).toBeHidden();
-  await expect(hideDisclosureLabel).toBeVisible();
-
-  await disclosureControl.press("Enter");
-  await expect(disclosure).not.toHaveAttribute("open", "");
-  await expect(disclosedRemainder).toBeHidden();
-  await expect(disclosureControl).toBeFocused();
-  await expect(disclosureControl).toHaveAccessibleName(
-    "Show full text summary",
-  );
-  await expectNoSeriousAxeViolations(page);
-});
-
-test("desktop article keeps its existing full summary presentation", async ({
-  page,
-}) => {
-  const lead = "Ada Lovelace was an English mathematician and writer.";
-  const fullSummary = `${lead} Her notes on the Analytical Engine helped shape the history of computing.`;
-
-  await page.setViewportSize({ width: 640, height: 900 });
-  await mockArticleData(page, { summary: fullSummary });
-  await page.goto("/article/Ada_Lovelace");
-
-  await expect(page.locator("[data-desktop-article-summary]")).toHaveText(
-    fullSummary,
-  );
-  await expect(page.locator("[data-desktop-article-summary]")).toBeVisible();
-  await expect(page.locator("[data-mobile-article-summary-lead]")).toBeHidden();
-  await expect(
-    page.locator("[data-mobile-article-summary-disclosure]"),
-  ).toBeHidden();
-});
-
-test("single-sentence mobile summaries do not render an empty disclosure", async ({
+test("single-sentence summaries do not render an empty disclosure", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockArticleData(page);
   await page.goto("/article/Ada_Lovelace");
 
-  await expect(page.locator("[data-mobile-article-summary-lead]")).toHaveText(
+  await expect(page.locator("[data-article-summary-lead]")).toHaveText(
     "Ada Lovelace was an English mathematician and writer.",
   );
-  await expect(
-    page.locator("[data-mobile-article-summary-disclosure]"),
-  ).toHaveCount(0);
+  await expect(page.locator("[data-article-summary-disclosure]")).toHaveCount(
+    0,
+  );
 });
 
 test("article summary and media attribution remain fully available at large text", async ({
@@ -1304,16 +1286,11 @@ test("article summary and media attribution remain fully available at large text
   await page.goto("/article/Ada_Lovelace");
   await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
 
-  await expect(page.locator("[data-mobile-article-summary-lead]")).toHaveText(
-    lead,
-  );
-  await expect(
-    page.locator("[data-mobile-article-summary-lead]"),
-  ).toBeVisible();
-  await expect(page.locator("[data-desktop-article-summary]")).toBeHidden();
+  await expect(page.locator("[data-article-summary-lead]")).toHaveText(lead);
+  await expect(page.locator("[data-article-summary-lead]")).toBeVisible();
 
   const disclosureControl = page
-    .locator("[data-mobile-article-summary-disclosure]")
+    .locator("[data-article-summary-disclosure]")
     .locator("summary");
   await disclosureControl.scrollIntoViewIfNeeded();
   await expect(disclosureControl).toBeVisible();
@@ -1368,7 +1345,7 @@ test("article keeps structured source sections playable with an accessible adapt
   await page.goto("/article/Ada_Lovelace");
 
   await expect(
-    page.getByRole("heading", { level: 2, name: "Explore this article" }),
+    page.getByRole("heading", { level: 2, name: "Sections" }),
   ).toBeVisible();
   await expect(
     page.getByText("Adapted for audio", { exact: true }),
@@ -1466,7 +1443,7 @@ test("article section controls and metadata reflow with enlarged text", async ({
   await page.goto("/article/Ada_Lovelace");
 
   const tableOfContents = page
-    .getByRole("heading", { level: 2, name: "Explore this article" })
+    .getByRole("heading", { level: 2, name: "Sections" })
     .locator("xpath=ancestor::*[contains(@class, 'toc-section')]");
   const adaptationInfo = tableOfContents.getByRole("button", {
     name: "How Recognition was adapted for audio",

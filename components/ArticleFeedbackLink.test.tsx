@@ -38,8 +38,10 @@ describe("ArticleFeedbackLink", () => {
       }),
     );
 
-    expect(markup).toContain("href=\"/feedback?");
+    expect(markup).toContain('href="/feedback?');
     expect(markup).toContain("Give feedback on this article");
+    expect(markup).toContain("btn-tertiary");
+    expect(markup).not.toContain("btn-secondary");
   });
 
   it("omits an unavailable or malformed revision identifier", () => {
