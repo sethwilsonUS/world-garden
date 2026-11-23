@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ARTWORK_IMAGE_USER_AGENT } from "./artwork-image";
 import {
   formatTrendingArtworkDate,
+  renderTrendingPodcastArtworkResponse,
   selectTrendingArtworkTiles,
 } from "./trending-podcast-artwork";
+
+const SAMPLE_PNG_BYTES = Uint8Array.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+  0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+  0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+]);
 
 describe("formatTrendingArtworkDate", () => {
   it("formats the trending date for artwork badges", () => {
@@ -56,5 +67,51 @@ describe("selectTrendingArtworkTiles", () => {
       { title: "One", imageUrl: "1.png" },
       { title: "Two", imageUrl: undefined },
     ]);
+  });
+});
+
+describe("renderTrendingPodcastArtworkResponse", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sends Curio Garden's User-Agent for collage tiles and degrades gracefully on 429", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(SAMPLE_PNG_BYTES, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("Too many requests", { status: 429 }));
+
+    const urlOne =
+      "https://upload.wikimedia.org/wikipedia/commons/a/ab/One.png";
+    const urlTwo =
+      "https://upload.wikimedia.org/wikipedia/commons/b/bc/Two.png";
+    const response = await renderTrendingPodcastArtworkResponse({
+      trendingDate: "2026-11-22",
+      artworkItems: [
+        { title: "One", imageUrl: urlOne },
+        { title: "Two", imageUrl: urlTwo },
+      ],
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("image/png");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    for (const expectedUrl of [urlOne, urlTwo]) {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expectedUrl,
+        expect.objectContaining({
+          cache: "no-store",
+          signal: expect.any(AbortSignal),
+          headers: expect.objectContaining({
+            "User-Agent": ARTWORK_IMAGE_USER_AGENT,
+          }),
+        }),
+      );
+    }
   });
 });

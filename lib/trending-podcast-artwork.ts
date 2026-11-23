@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { createElement as h } from "react";
 import { loadOgFonts } from "@/app/og-fonts";
+import { fetchArtworkImageDataUrl } from "@/lib/artwork-image";
 import { convertArtworkToJpeg } from "@/lib/podcast-artwork-encode";
 
 const ARTWORK_SIZE = 3000;
@@ -35,8 +36,6 @@ export type TrendingArtworkInput = {
   articleTitles?: string[];
   imageUrls?: string[];
 };
-
-const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
 
 const getInitials = (title: string): string =>
   title
@@ -92,28 +91,13 @@ export const selectTrendingArtworkTiles = (
   return tiles;
 };
 
-const fetchImageDataUrl = async (url: string): Promise<string | null> => {
-  try {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) return null;
-
-    const contentType = response.headers.get("content-type")?.split(";")[0]?.trim();
-    if (!contentType?.startsWith("image/")) return null;
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length === 0) return null;
-
-    return `data:${contentType};base64,${toBase64(bytes)}`;
-  } catch {
-    return null;
-  }
-};
-
 const buildTileData = async (tiles: ArtworkTile[]) =>
   await Promise.all(
     tiles.map(async (tile) => ({
       title: tile.title,
-      imageDataUrl: tile.imageUrl ? await fetchImageDataUrl(tile.imageUrl) : null,
+      imageDataUrl: tile.imageUrl
+        ? await fetchArtworkImageDataUrl(tile.imageUrl)
+        : null,
     })),
   );
 
