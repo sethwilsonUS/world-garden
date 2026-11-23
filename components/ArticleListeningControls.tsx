@@ -312,7 +312,7 @@ export const ArticleListeningControls = ({
             aria-label="Skip section"
           >
             <SkipNextIcon />
-            <span className="hidden sm:inline">Skip section</span>
+            <span>Skip section</span>
           </button>
         )}
 

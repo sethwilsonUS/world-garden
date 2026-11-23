@@ -276,6 +276,17 @@ test("article section titles and Listen targets reflow at maximum text size", as
   expect(listenBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   expect(listenBox.width).toBeGreaterThanOrEqual(44);
   expect(listenBox.height).toBeGreaterThanOrEqual(44);
+
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.getByRole("button", { name: /^Play all/ }).click();
+  const skip = page.getByRole("button", { name: "Skip section", exact: true });
+  await expect(skip.getByText("Skip section", { exact: true })).toBeVisible();
+  await expectNoPageOverflow(page);
 });
 
 test("shell, menu, and listening controls remain reachable", async ({
