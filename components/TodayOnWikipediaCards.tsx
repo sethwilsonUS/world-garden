@@ -725,6 +725,20 @@ const PictureAudioStatus = ({ audio }: { audio?: PictureAudio }) => {
 
 export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
   const image = picture.thumbnail ?? picture.image;
+  const imageCredit = image?.attribution ?? picture.image?.attribution;
+  const sourceUrl = imageCredit?.sourceUrl ?? picture.filePage;
+  const attribution = imageCredit && sourceUrl
+    ? {
+        ...imageCredit,
+        sourceUrl,
+        licenseUrl: imageCredit.licenseUrl ?? (
+          imageCredit.licenseName === picture.license?.type ? picture.license?.url : undefined
+        ),
+      }
+    : undefined;
+  const additionalCredit = picture.credit !== attribution?.credit && picture.credit !== attribution?.creator;
+  const additionalLicense = picture.license?.type !== attribution?.licenseName ||
+    (picture.license?.url && picture.license.url !== attribution?.licenseUrl);
 
   return (
     <figure className={`m-0 ${cardClass}`} data-today-pick="picture">
@@ -765,7 +779,7 @@ export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
             Image credit
           </summary>
           <dl className="mt-1 grid gap-1 leading-[1.6]">
-            {picture.artist ? (
+            {picture.artist && picture.artist !== attribution?.creator ? (
               <div>
                 <dt className="inline font-semibold text-foreground-2">
                   Artist:{" "}
@@ -773,7 +787,7 @@ export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
                 <dd className="inline">{picture.artist}</dd>
               </div>
             ) : null}
-            {picture.credit ? (
+            {picture.credit && additionalCredit ? (
               <div>
                 <dt className="inline font-semibold text-foreground-2">
                   Credit:{" "}
@@ -781,7 +795,7 @@ export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
                 <dd className="inline">{picture.credit}</dd>
               </div>
             ) : null}
-            {picture.license?.type ? (
+            {picture.license?.type && additionalLicense ? (
               <div>
                 <dt className="inline font-semibold text-foreground-2">
                   License:{" "}
@@ -804,7 +818,7 @@ export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
               </div>
             ) : null}
           </dl>
-          {picture.filePage ? (
+          {picture.filePage && picture.filePage !== attribution?.sourceUrl ? (
             <a
               href={picture.filePage}
               target="_blank"
@@ -814,9 +828,10 @@ export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
               View on Wikimedia Commons
               <span className="sr-only"> (opens in new tab)</span>
             </a>
-          ) : image?.attribution ? (
+          ) : null}
+          {attribution ? (
             <div className="mt-1">
-              <MediaAttribution attribution={image.attribution} />
+              <MediaAttribution attribution={attribution} />
             </div>
           ) : null}
         </details>

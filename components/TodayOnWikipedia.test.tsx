@@ -300,6 +300,49 @@ describe("TodayOnWikipediaContent", () => {
     expect(firstTrendIndex).toBeGreaterThan(trendingHeadingIndex);
   });
 
+  it.each([
+    ["matching source", "https://commons.wikimedia.org/wiki/File:Bee.jpg"],
+    ["additional source", "https://en.wikipedia.org/wiki/File:Bee.jpg"],
+  ])("keeps normalized picture credits alongside a Commons file page (%s)", (_, sourceUrl) => {
+    const filePage = "https://commons.wikimedia.org/wiki/File:Bee.jpg";
+    const licenseUrl = "https://creativecommons.org/licenses/by-sa/4.0/";
+    const markup = renderToStaticMarkup(
+      createElement(TodayOnWikipediaContent, {
+        data: {
+          pictureOfDay: {
+            title: "Bee",
+            pictureKey: "File:Bee.jpg",
+            altText: "A bee on a flower",
+            description: "A bee on a flower",
+            filePage,
+            credit: "Museum collection",
+            thumbnail: {
+              source: "https://upload.wikimedia.org/bee.jpg",
+              width: 640,
+              height: 480,
+              attribution: {
+                creator: "A. Photographer",
+                credit: "Museum collection",
+                licenseName: "CC BY-SA 4.0",
+                licenseUrl,
+                sourceUrl,
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    const disclosure = markup.match(/<details[^>]*>[\s\S]*?Image credit[\s\S]*?<\/details>/)?.[0];
+    expect(disclosure).toBeDefined();
+    expect(disclosure).toContain("A. Photographer");
+    expect(disclosure?.split("Museum collection")).toHaveLength(2);
+    expect(disclosure).toContain("CC BY-SA 4.0");
+    for (const url of [filePage, sourceUrl, licenseUrl]) {
+      expect(disclosure?.split(`href="${url}"`)).toHaveLength(2);
+    }
+  });
+
   it("renders a polite pending status instead of an audio player", () => {
     const markup = renderToStaticMarkup(
       createElement(TodayOnWikipediaContent, {
