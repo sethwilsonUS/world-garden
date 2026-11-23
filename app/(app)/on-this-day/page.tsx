@@ -6,11 +6,26 @@ import { getInitialOnThisDayPageResponse } from "@/lib/on-this-day-page-data";
 
 export const dynamic = "force-dynamic";
 
+const ON_THIS_DAY_TITLE = "On This Day — Curio Garden";
+const ON_THIS_DAY_DESCRIPTION =
+  "Explore today's historical events, births, deaths, and holidays in an accessible timeline.";
+
 export const metadata: Metadata = {
-  title: "On This Day — Curio Garden",
-  description:
-    "Explore today's historical events, births, deaths, and holidays in an accessible timeline.",
+  title: ON_THIS_DAY_TITLE,
+  description: ON_THIS_DAY_DESCRIPTION,
   alternates: { canonical: "/on-this-day" },
+  openGraph: {
+    title: ON_THIS_DAY_TITLE,
+    description: ON_THIS_DAY_DESCRIPTION,
+    type: "website",
+    siteName: "Curio Garden",
+    url: "/on-this-day",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: ON_THIS_DAY_TITLE,
+    description: ON_THIS_DAY_DESCRIPTION,
+  },
 };
 
 export default async function OnThisDayPage() {
