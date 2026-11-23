@@ -98,7 +98,7 @@ describe("AccessibleTimeline", () => {
     expect(container.querySelector("ol.timeline-list")).not.toBeNull();
   });
 
-  it("keeps timeline markers off nested lists such as related-article chips", async () => {
+  it("counts an event with related articles as a single timeline entry", async () => {
     await act(async () =>
       root.render(
         <AccessibleTimeline
@@ -120,10 +120,16 @@ describe("AccessibleTimeline", () => {
       ),
     );
 
-    const timeline = container.querySelector("ol.context-timeline-list");
-    expect(timeline?.className).toContain("[&_li_li]:before:hidden!");
-    expect(timeline?.className).toContain("[&_li_li]:after:hidden!");
-    expect(timeline?.className).toContain("[&_li_li]:block!");
-    expect(timeline?.querySelectorAll(":scope > li")).toHaveLength(1);
+    const events = container.querySelectorAll("ol > li");
+    expect(events).toHaveLength(1);
+    expect(
+      Array.from(
+        events[0].querySelectorAll('ul[aria-label="Related articles"] > li'),
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Apollo 11", "Moon landing"]);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "1 event",
+    );
   });
 });

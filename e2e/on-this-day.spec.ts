@@ -182,6 +182,15 @@ test("explores, caches, sorts, and progressively reveals On This Day", async ({
     "A speaker addressing an audience at a historical commemoration.",
   );
   await expect(page.getByRole("link", { name: "Related article 1" }).first()).toBeVisible();
+  const relatedItem = page.locator(".on-this-day-event-links > li").first();
+  for (const marker of ["::before", "::after"]) {
+    expect(
+      await relatedItem.evaluate(
+        (item, pseudo) => getComputedStyle(item, pseudo).content,
+        marker,
+      ),
+    ).toBe("none");
+  }
   await expect(
     page.getByRole("link", { name: /File:On this day.jpg/ }).first(),
   ).toBeVisible();

@@ -1851,43 +1851,6 @@ fieldset {
 }
 
 /* ── On This Day ── */
-.on-this-day-page-header {
-  position: relative;
-  margin-bottom: 20px;
-  padding: clamp(16px, 3vw, 30px);
-  overflow: hidden;
-  border: 1px solid var(--color-accent-border);
-  border-radius: 22px;
-  background:
-    radial-gradient(
-      circle at 88% 12%,
-      color-mix(in srgb, var(--color-accent) 12%, transparent) 0,
-      transparent 38%
-    ),
-    var(--color-surface-2);
-}
-
-.on-this-day-page-header::after {
-  content: "";
-  position: absolute;
-  right: clamp(18px, 5vw, 52px);
-  bottom: -42px;
-  width: 118px;
-  height: 118px;
-  border: 1px solid var(--color-accent-border);
-  border-radius: 50%;
-  opacity: 0.45;
-  pointer-events: none;
-}
-
-.on-this-day-page-header .eyebrow {
-  margin: 0 0 10px;
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
 .on-this-day-edition {
   display: flex;
   flex-wrap: wrap;
@@ -2106,13 +2069,10 @@ fieldset {
 }
 
 @media (max-width: 40rem) {
-  .on-this-day-back-link,
-  .on-this-day-page-intro,
   .on-this-day-event-text {
     font-size: 1rem !important;
   }
 
-  .on-this-day-page-header .eyebrow,
   .on-this-day-tabs [role="tab"] > span:nth-child(2) {
     font-size: 0.75rem;
   }
@@ -2154,7 +2114,6 @@ fieldset {
 }
 
 @media (forced-colors: active) {
-  .on-this-day-page-header,
   .on-this-day-tabs [role="tab"][aria-selected="true"],
   .on-this-day-tabpanel,
   .on-this-day-event-links a {

@@ -128,10 +128,7 @@ export const AccessibleTimeline = ({
           )}
         </p>
       ) : null}
-      {/* The shared timeline CSS draws a marker dot and axis line on every
-          descendant <li>. Reset nested lists (e.g. related-article chips) so
-          only real timeline entries get markers. */}
-      <ol className="context-timeline-list timeline-list [&_li_li]:block! [&_li_li]:before:hidden! [&_li_li]:after:hidden!">
+      <ol className="context-timeline-list timeline-list">
         {visibleItems.map((item) => (
           <li key={item.id}>
             <div className="context-timeline-date timeline-date">
