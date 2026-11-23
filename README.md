@@ -52,7 +52,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 
 | Home and daily discovery                                                                                         | Article listening                                                                                                          | Wikimedia gallery                                                                                      |
 | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| ![Curio Garden home page with search, daily Wikipedia features, and recent listening cards](screenshot-home.png) | ![Ada Lovelace article page with section playback controls, a table of contents, and article text](screenshot-article.png) | ![Stonehenge Wikimedia gallery showing licensed image cards and captions](gallery-full-screenshot.png) |
+| ![Search-first home with recently opened articles, daily Wikipedia picks, and a listening sample](screenshot-home.png) | ![Ada Lovelace with Play all beneath the title, a short summary beside her portrait, and the first section’s Listen button](screenshot-article.png) | ![Stonehenge Wikimedia gallery showing licensed image cards and captions](gallery-full-screenshot.png) |
 
 The live product stays focused on listening. The [/about](https://curiogarden.org/about) page gives technical reviewers a shorter account of the motivation, architecture, provenance model, and major engineering tradeoffs.
 
