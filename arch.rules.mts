@@ -247,6 +247,29 @@ const transitivelyImportsConvexNextjs = (
     }
   }
 
+  for (const literal of root.getImportStringLiterals()) {
+    const parent = literal.getParent();
+    if (!parent || parent.getKindName() !== "CallExpression") continue;
+    const specifier = literal.getLiteralValue();
+    if (
+      specifier === "convex/nextjs" ||
+      specifier.startsWith("convex/nextjs/")
+    ) {
+      return true;
+    }
+    const symbol = literal.getSymbol();
+    const target =
+      symbol?.getValueDeclaration()?.getSourceFile() ??
+      symbol?.getDeclarations()?.[0]?.getSourceFile();
+    if (
+      target &&
+      !target.isInNodeModules() &&
+      transitivelyImportsConvexNextjs(target, visited)
+    ) {
+      return true;
+    }
+  }
+
   return false;
 };
 
@@ -273,7 +296,37 @@ const getExportedGenerateStaticParamsNode = (sourceFile: ProjectSourceFile) => {
       return fn;
     }
   }
-  return getExportedInitializerText(sourceFile, "generateStaticParams")?.node ?? null;
+
+  const variableExport = getExportedInitializerText(
+    sourceFile,
+    "generateStaticParams",
+  );
+  if (variableExport) {
+    return variableExport.node;
+  }
+
+  for (const declaration of sourceFile.getExportDeclarations()) {
+    if (declaration.isTypeOnly()) continue;
+    for (const specifier of declaration.getNamedExports()) {
+      if (specifier.isTypeOnly()) continue;
+      const exportedName =
+        specifier.getAliasNode()?.getText() ?? specifier.getName();
+      if (exportedName === "generateStaticParams") {
+        return specifier;
+      }
+    }
+    if (
+      declaration.getNamedExports().length === 0 &&
+      !declaration.getNamespaceExport()
+    ) {
+      const target = declaration.getModuleSpecifierSourceFile();
+      if (target?.getExportedDeclarations().has("generateStaticParams")) {
+        return declaration;
+      }
+    }
+  }
+
+  return null;
 };
 
 const stayCompatibleWithProductionDynamicRuntimes =
