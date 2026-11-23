@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { formatUtcCalendarDate } from "@/lib/date-format";
 import {
   DidYouKnowCard,
@@ -101,6 +101,13 @@ export const TodayOnWikipediaContent = ({
   );
 };
 
+const subscribeToHash = (onChange: () => void) => {
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+};
+
+const hasDidYouKnowHash = () => window.location.hash === "#today-dyk-heading";
+
 export const TodayOnWikipedia = () => {
   const [data, setData] = useState<TodayOnWikipediaData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -156,10 +163,14 @@ export const TodayOnWikipedia = () => {
   }, []);
 
   // The legacy /did-you-know link redirects here before the feed has loaded.
-  const isDidYouKnowLanding =
-    !loading && window.location.hash === "#today-dyk-heading";
+  const isDidYouKnowLanding = useSyncExternalStore(
+    subscribeToHash,
+    hasDidYouKnowHash,
+    () => false,
+  );
   useEffect(() => {
     if (
+      loading ||
       !isDidYouKnowLanding ||
       document.activeElement !== document.body ||
       window.scrollY > 0
@@ -167,7 +178,7 @@ export const TodayOnWikipedia = () => {
     const heading = document.getElementById("today-dyk-heading");
     heading?.focus({ preventScroll: true });
     heading?.scrollIntoView({ block: "start" });
-  }, [isDidYouKnowLanding]);
+  }, [isDidYouKnowLanding, loading]);
 
   if (loading) {
     return (

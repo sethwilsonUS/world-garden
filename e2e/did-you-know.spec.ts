@@ -32,3 +32,17 @@ test("an empty facts feed leaves a visitor who started searching in place", asyn
   await expect(search).toBeFocused();
   await expect(search).toBeInViewport();
 });
+
+test("the empty facts card follows same-page fragment navigation", async ({ page }) => {
+  const releaseFeed = await holdFeed(page, []);
+  releaseFeed();
+  const heading = page.getByRole("heading", { name: "Did you know?" });
+  await expect(heading).toBeFocused();
+
+  await page.evaluate(() => {
+    window.location.hash = "";
+  });
+  await expect(heading).toHaveCount(0);
+  await page.goBack();
+  await expect(heading).toBeVisible();
+});
