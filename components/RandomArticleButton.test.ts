@@ -135,13 +135,38 @@ describe("isUnsuitableForRandom", () => {
     });
   });
 
-  describe("disambiguation category filtering", () => {
+  describe("disambiguation filtering", () => {
     it("flags articles with disambiguation categories", () => {
       expect(
         isUnsuitableForRandom("Mercury", [
           { title: "Category:All disambiguation pages" },
         ]),
       ).toBe(true);
+    });
+
+    it("flags articles with MediaWiki pageprops.disambiguation even without categories", () => {
+      expect(
+        isUnsuitableForRandom("Mercury", [], {
+          pageprops: { disambiguation: "" },
+        }),
+      ).toBe(true);
+    });
+  });
+
+  describe("minimum byte-length stub filtering", () => {
+    it("flags articles below minByteLength when a threshold is provided", () => {
+      expect(
+        isUnsuitableForRandom("Tiny Stub", safe, {
+          byteLength: 1_800,
+          minByteLength: 4_000,
+        }),
+      ).toBe(true);
+      expect(
+        isUnsuitableForRandom("Substantive Article", safe, {
+          byteLength: 4_500,
+          minByteLength: 4_000,
+        }),
+      ).toBe(false);
     });
   });
 
