@@ -27,10 +27,12 @@ const bodyFont = Atkinson_Hyperlegible_Next({
   display: "swap",
 });
 
+// Only used for timestamps and feed URLs, so it isn't worth a preload.
 const monoFont = Atkinson_Hyperlegible_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
