@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { anyApi } from "convex/server";
 import type { Id } from "../convex/_generated/dataModel";
 import {
+  deleteUnreferencedShareCardBlob,
   generateShareCardUploadUrl,
   getShareCardByMonthDay,
   listShareCardStatuses,
@@ -141,6 +142,7 @@ describe("on-this-day-share-card-store", () => {
           generatedAt: 1_780_000_000_000,
           byteSize: 112_000,
           plateCount: 5,
+          hasBlob: true,
         },
         {
           monthDay: "10-18",
@@ -148,6 +150,7 @@ describe("on-this-day-share-card-store", () => {
           generatedAt: 1_780_000_010_000,
           byteSize: 134_200,
           plateCount: 5,
+          hasBlob: false,
         },
       ];
       fetchQueryMock.mockResolvedValueOnce(statuses);
@@ -436,13 +439,68 @@ describe("on-this-day-share-card-store", () => {
       expect(fetchMutationMock).toHaveBeenCalledTimes(1);
     });
 
-    it("throws when saveShareCard returns no valid record", async () => {
+    it("retries saveShareCard reusing the uploaded storageId and succeeds without deleting the blob", async () => {
+      vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "false");
+      vi.stubEnv("NEXT_PUBLIC_CONVEX_URL", "https://example.convex.cloud");
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+
+      fetchMutationMock
+        .mockResolvedValueOnce("https://upload.example.test/share-card")
+        .mockRejectedValueOnce(new Error("transient network blip"))
+        .mockResolvedValueOnce({
+          monthDay: "10-18",
+          version: 1,
+          storageId: "storage-reused",
+          replaced: false,
+          rejectedStaleVersion: false,
+        });
+      const fetchMock = vi.fn(async () =>
+        Response.json({ storageId: "storage-reused" }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await uploadAndSaveOnThisDayShareCard({
+        monthDay: "10-18",
+        version: 1,
+        data: new Uint8Array([1, 2, 3, 4]),
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        generatedAt: 1_780_000_000_000,
+        plates: samplePlates,
+      });
+
+      expect(result).toEqual({
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-reused",
+        replaced: false,
+        rejectedStaleVersion: false,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMutationMock).toHaveBeenCalledTimes(3);
+      expect(fetchMutationMock.mock.calls[1]?.[0]).toEqual(
+        anyApi.onThisDay.saveShareCard,
+      );
+      expect(fetchMutationMock.mock.calls[2]?.[0]).toEqual(
+        anyApi.onThisDay.saveShareCard,
+      );
+      expect(
+        (fetchMutationMock.mock.calls[2]?.[1] as { storageId?: string })
+          .storageId,
+      ).toBe("storage-reused");
+    });
+
+    it("retries saveShareCard, deletes unreferenced blob on exhaustion, and throws", async () => {
       vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "false");
       vi.stubEnv("NEXT_PUBLIC_CONVEX_URL", "https://example.convex.cloud");
       vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
       fetchMutationMock
         .mockResolvedValueOnce("https://upload.example.test")
-        .mockResolvedValueOnce(null);
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ deleted: true });
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => Response.json({ storageId: "storage-1" })),
@@ -460,6 +518,63 @@ describe("on-this-day-share-card-store", () => {
           plates: samplePlates,
         }),
       ).rejects.toThrow("saveShareCard did not return a valid result");
+
+      expect(fetchMutationMock).toHaveBeenCalledTimes(5);
+      expect(fetchMutationMock.mock.calls[4]?.[0]).toEqual(
+        anyApi.onThisDay.deleteUnreferencedShareCardBlob,
+      );
+      const cleanupArgs = fetchMutationMock.mock.calls[4]?.[1] as {
+        storageId: string;
+        attestation?: Parameters<
+          typeof verifyPublicAudioWriteAttestation
+        >[0]["attestation"];
+      };
+      expect(cleanupArgs.storageId).toBe("storage-1");
+      await expect(
+        verifyPublicAudioWriteAttestation({
+          pipeline: "on-this-day",
+          operation: "finalize-job",
+          args: { storageId: "storage-1" },
+          attestation: cleanupArgs.attestation,
+        }),
+      ).resolves.toBe(true);
+    });
+
+    it("still rethrows original saveShareCard error when best-effort blob cleanup fails", async () => {
+      vi.stubEnv("NEXT_PUBLIC_LOCAL_MODE", "false");
+      vi.stubEnv("NEXT_PUBLIC_CONVEX_URL", "https://example.convex.cloud");
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+
+      fetchMutationMock
+        .mockResolvedValueOnce("https://upload.example.test")
+        .mockRejectedValueOnce(new Error("save failed"))
+        .mockRejectedValueOnce(new Error("save failed"))
+        .mockRejectedValueOnce(new Error("save failed"))
+        .mockRejectedValueOnce(new Error("cleanup failed"));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ storageId: "storage-orphan" })),
+      );
+
+      await expect(
+        uploadAndSaveOnThisDayShareCard({
+          monthDay: "10-18",
+          version: 1,
+          data: new Uint8Array([1, 2, 3]),
+          mimeType: "image/jpeg",
+          width: 1200,
+          height: 630,
+          generatedAt: 1_780_000_000_000,
+          plates: samplePlates,
+        }),
+      ).rejects.toThrow("save failed");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("storage-orphan"),
+        expect.any(Error),
+      );
     });
 
     it("propagates Convex query errors on read", async () => {
@@ -536,8 +651,13 @@ describe("on-this-day-share-card-store", () => {
       ).resolves.toBeNull();
     });
 
-    it("returns compact status summaries in listShareCardStatuses", async () => {
+    it("returns compact status summaries with hasBlob in listShareCardStatuses", async () => {
       const handler = registeredInvoker(listShareCardStatuses);
+      const getUrl = vi
+        .fn()
+        .mockResolvedValueOnce("https://storage.convex.test/10-18.jpg")
+        .mockResolvedValueOnce(null);
+
       await expect(
         handler(
           {
@@ -548,14 +668,24 @@ describe("on-this-day-share-card-store", () => {
                     {
                       monthDay: "10-18",
                       version: 1,
+                      storageId: "storage-present" as Id<"_storage">,
                       generatedAt: 1_780_000_000_000,
                       byteSize: 123_456,
+                      plates: samplePlates,
+                    },
+                    {
+                      monthDay: "10-19",
+                      version: 1,
+                      storageId: "storage-missing" as Id<"_storage">,
+                      generatedAt: 1_780_000_010_000,
+                      byteSize: 120_000,
                       plates: samplePlates,
                     },
                   ]),
                 })),
               })),
             },
+            storage: { getUrl },
           },
           {},
         ),
@@ -566,8 +696,19 @@ describe("on-this-day-share-card-store", () => {
           generatedAt: 1_780_000_000_000,
           byteSize: 123_456,
           plateCount: 2,
+          hasBlob: true,
+        },
+        {
+          monthDay: "10-19",
+          version: 1,
+          generatedAt: 1_780_000_010_000,
+          byteSize: 120_000,
+          plateCount: 2,
+          hasBlob: false,
         },
       ]);
+      expect(getUrl).toHaveBeenCalledWith("storage-present");
+      expect(getUrl).toHaveBeenCalledWith("storage-missing");
     });
 
     it("attests generateShareCardUploadUrl and returns Convex storage upload URL", async () => {
@@ -633,6 +774,7 @@ describe("on-this-day-share-card-store", () => {
         version: 1,
         storageId: "storage-v2",
         replaced: false,
+        rejectedStaleVersion: false,
       });
       expect(insert).toHaveBeenCalledWith("onThisDayShareCards", writeArgs);
       expect(deleteStorage).not.toHaveBeenCalled();
@@ -654,6 +796,8 @@ describe("on-this-day-share-card-store", () => {
                 withIndex: vi.fn(() => ({
                   first: vi.fn(async () => ({
                     _id: "existing-card-id",
+                    monthDay: "10-18",
+                    version: 1,
                     storageId: "storage-v1" as Id<"_storage">,
                   })),
                 })),
@@ -670,6 +814,7 @@ describe("on-this-day-share-card-store", () => {
         version: 1,
         storageId: "storage-v2",
         replaced: true,
+        rejectedStaleVersion: false,
       });
       expect(patch).toHaveBeenCalledWith("existing-card-id", writeArgs);
       expect(failingDelete).toHaveBeenCalledWith("storage-v1");
@@ -688,6 +833,8 @@ describe("on-this-day-share-card-store", () => {
                 withIndex: vi.fn(() => ({
                   first: vi.fn(async () => ({
                     _id: "existing-card-id",
+                    monthDay: "10-18",
+                    version: 1,
                     storageId: "storage-v2" as Id<"_storage">,
                   })),
                 })),
@@ -704,6 +851,7 @@ describe("on-this-day-share-card-store", () => {
         version: 1,
         storageId: "storage-v2",
         replaced: true,
+        rejectedStaleVersion: false,
       });
       expect(sameBlobDelete).not.toHaveBeenCalled();
 
@@ -718,6 +866,8 @@ describe("on-this-day-share-card-store", () => {
                 withIndex: vi.fn(() => ({
                   first: vi.fn(async () => ({
                     _id: "existing-card-id",
+                    monthDay: "10-18",
+                    version: 1,
                     storageId: "storage-v1" as Id<"_storage">,
                   })),
                 })),
@@ -734,9 +884,174 @@ describe("on-this-day-share-card-store", () => {
         version: 1,
         storageId: "storage-v2",
         replaced: true,
+        rejectedStaleVersion: false,
       });
       expect(cleanDelete).toHaveBeenCalledWith("storage-v1");
       expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects lower-version saveShareCard writes without overwriting existing card and cleans up stale uploaded blob", async () => {
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+      const handler = registeredInvoker(saveShareCard);
+      const writeArgs = {
+        monthDay: "10-18",
+        version: 1,
+        storageId: "storage-stale-v1" as Id<"_storage">,
+        mimeType: "image/jpeg",
+        width: 1200,
+        height: 630,
+        byteSize: 120_000,
+        generatedAt: 1_780_000_000_000,
+        plates: samplePlates,
+      };
+      const attestation = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "save-show-asset",
+        args: writeArgs,
+      });
+
+      const patch = vi.fn();
+      const deleteStorage = vi.fn(async () => undefined);
+
+      await expect(
+        handler(
+          {
+            db: {
+              query: vi.fn(() => ({
+                withIndex: vi.fn(() => ({
+                  first: vi.fn(async () => ({
+                    _id: "existing-v2-id",
+                    monthDay: "10-18",
+                    version: 2,
+                    storageId: "storage-current-v2" as Id<"_storage">,
+                  })),
+                })),
+              })),
+              insert: vi.fn(),
+              patch,
+            },
+            storage: { delete: deleteStorage },
+          },
+          { ...writeArgs, attestation },
+        ),
+      ).resolves.toEqual({
+        monthDay: "10-18",
+        version: 2,
+        storageId: "storage-current-v2",
+        replaced: false,
+        rejectedStaleVersion: true,
+      });
+      expect(patch).not.toHaveBeenCalled();
+      expect(deleteStorage).toHaveBeenCalledTimes(1);
+      expect(deleteStorage).toHaveBeenCalledWith("storage-stale-v1");
+
+      // Same storageId on lower version must NOT delete the active blob
+      const deleteSame = vi.fn();
+      await expect(
+        handler(
+          {
+            db: {
+              query: vi.fn(() => ({
+                withIndex: vi.fn(() => ({
+                  first: vi.fn(async () => ({
+                    _id: "existing-v2-id",
+                    monthDay: "10-18",
+                    version: 2,
+                    storageId: "storage-stale-v1" as Id<"_storage">,
+                  })),
+                })),
+              })),
+              insert: vi.fn(),
+              patch: vi.fn(),
+            },
+            storage: { delete: deleteSame },
+          },
+          { ...writeArgs, attestation },
+        ),
+      ).resolves.toEqual({
+        monthDay: "10-18",
+        version: 2,
+        storageId: "storage-stale-v1",
+        replaced: false,
+        rejectedStaleVersion: true,
+      });
+      expect(deleteSame).not.toHaveBeenCalled();
+    });
+
+    it("deletes only unreferenced blobs in deleteUnreferencedShareCardBlob", async () => {
+      vi.stubEnv("TTS_QUOTA_BYPASS_SECRET", "publication-secret");
+      const handler = registeredInvoker(deleteUnreferencedShareCardBlob);
+      const storageId = "storage-orphan" as Id<"_storage">;
+      const attestation = await createPublicAudioWriteAttestation({
+        pipeline: "on-this-day",
+        operation: "finalize-job",
+        args: { storageId },
+      });
+
+      // Unreferenced -> deletes blob
+      const deleteOrphan = vi.fn(async () => undefined);
+      await expect(
+        handler(
+          {
+            db: {
+              query: vi.fn(() => ({
+                withIndex: vi.fn(() => ({
+                  collect: vi.fn(async () => [
+                    { storageId: "storage-other" as Id<"_storage"> },
+                  ]),
+                })),
+              })),
+            },
+            storage: { delete: deleteOrphan },
+          },
+          { storageId, attestation },
+        ),
+      ).resolves.toEqual({ deleted: true });
+      expect(deleteOrphan).toHaveBeenCalledWith(storageId);
+
+      // Referenced -> preserves blob
+      const deleteReferenced = vi.fn(async () => undefined);
+      await expect(
+        handler(
+          {
+            db: {
+              query: vi.fn(() => ({
+                withIndex: vi.fn(() => ({
+                  collect: vi.fn(async () => [{ storageId }]),
+                })),
+              })),
+            },
+            storage: { delete: deleteReferenced },
+          },
+          { storageId, attestation },
+        ),
+      ).resolves.toEqual({ deleted: false });
+      expect(deleteReferenced).not.toHaveBeenCalled();
+
+      // Storage error -> warns and returns { deleted: false }
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      await expect(
+        handler(
+          {
+            db: {
+              query: vi.fn(() => ({
+                withIndex: vi.fn(() => ({
+                  collect: vi.fn(async () => []),
+                })),
+              })),
+            },
+            storage: {
+              delete: vi.fn(async () => {
+                throw new Error("storage missing");
+              }),
+            },
+          },
+          { storageId, attestation },
+        ),
+      ).resolves.toEqual({ deleted: false });
+      expect(warnSpy).toHaveBeenCalled();
     });
 
     it("rejects saveShareCard when attestation is invalid", async () => {

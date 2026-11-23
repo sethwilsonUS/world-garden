@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { loadOgFonts } from "@/app/og-fonts";
+import { isPublicDomainOrCc0License } from "@/lib/on-this-day-share-card-selection";
 
 export const ON_THIS_DAY_OG_SIZE = { width: 1200, height: 630 } as const;
 
@@ -8,6 +9,9 @@ export type OnThisDayOgPlate = {
   alt: string;
   yearLabel?: string;
   isPortrait?: boolean;
+  creator?: string;
+  licenseName?: string;
+  sourceUrl?: string;
 };
 
 export type RenderOnThisDayOgImageOptions = {
@@ -15,6 +19,7 @@ export type RenderOnThisDayOgImageOptions = {
   eyebrow?: string;
   subtitle?: string;
   plates?: readonly OnThisDayOgPlate[];
+  creditPath?: string;
 };
 
 type PlateSlot = {
@@ -653,11 +658,59 @@ function ArchivalPlate({
   );
 }
 
+const DEFAULT_SHARE_CARD_CREDIT_PATH = "/api/on-this-day/share-card-credits";
+const MAX_CREATOR_LABEL_LENGTH = 26;
+const MAX_ATTRIBUTION_CREDITS_LENGTH = 68;
+
+const truncateInlineLabel = (value: string, maxLength: number): string => {
+  const collapsed = value.replace(/\s+/gu, " ").trim();
+  if (collapsed.length <= maxLength) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+};
+
+export function buildShareCardAttributionLine(
+  plates: readonly OnThisDayOgPlate[],
+  creditPath?: string,
+): string | null {
+  const entries: string[] = [];
+  const seen = new Set<string>();
+
+  for (const plate of plates) {
+    const license = plate.licenseName?.trim();
+    if (!license || isPublicDomainOrCc0License(license)) {
+      continue;
+    }
+
+    const creator = plate.creator?.trim()
+      ? truncateInlineLabel(plate.creator, MAX_CREATOR_LABEL_LENGTH)
+      : "Wikimedia Commons";
+    const entry = `${creator} (${truncateInlineLabel(license, 24)})`;
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      entries.push(entry);
+    }
+  }
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const creditsSummary = truncateInlineLabel(
+    entries.join(", "),
+    MAX_ATTRIBUTION_CREDITS_LENGTH,
+  );
+  const resolvedPath = creditPath?.trim() || DEFAULT_SHARE_CARD_CREDIT_PATH;
+  return `Photo credits: ${creditsSummary} · ${resolvedPath}`;
+}
+
 export async function renderOnThisDayOgImage({
   dayLabel,
   eyebrow: customEyebrow,
   subtitle: customSubtitle,
   plates,
+  creditPath,
 }: RenderOnThisDayOgImageOptions = {}): Promise<ImageResponse> {
   const fonts = await loadOgFonts();
   const activePlates = (plates ?? [])
@@ -830,6 +883,10 @@ export async function renderOnThisDayOgImage({
   const slots = getGalleryPlateSlots(activePlates);
   const headlineFontSize = getGalleryHeadlineFontSize(headline);
   const subtitleLines = formatGallerySubtitleLines(subtitle);
+  const attributionLine = buildShareCardAttributionLine(
+    activePlates,
+    creditPath,
+  );
 
   return new ImageResponse(
     (
@@ -958,19 +1015,42 @@ export async function renderOnThisDayOgImage({
             style={{
               position: "absolute",
               left: "36px",
-              bottom: "34px",
+              bottom: attributionLine ? "26px" : "34px",
+              width: "432px",
               display: "flex",
-              alignItems: "center",
-              fontSize: "12px",
-              color: colors.ink,
-              letterSpacing: "0.16em",
+              flexDirection: "column",
+              gap: "10px",
             }}
           >
-            EVENTS
-            <span style={{ margin: "0 12px", color: colors.gold }}>•</span>
-            NOTABLE LIVES
-            <span style={{ margin: "0 12px", color: colors.gold }}>•</span>
-            HOLIDAYS
+            {attributionLine ? (
+              <div
+                style={{
+                  display: "flex",
+                  fontSize: "11px",
+                  lineHeight: 1.35,
+                  color: colors.galleryMutedInk,
+                  opacity: 0.9,
+                }}
+              >
+                {attributionLine}
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                fontSize: "12px",
+                color: colors.ink,
+                letterSpacing: "0.16em",
+              }}
+            >
+              EVENTS
+              <span style={{ margin: "0 12px", color: colors.gold }}>•</span>
+              NOTABLE LIVES
+              <span style={{ margin: "0 12px", color: colors.gold }}>•</span>
+              HOLIDAYS
+            </div>
           </div>
 
           {slots.map((slot) => {

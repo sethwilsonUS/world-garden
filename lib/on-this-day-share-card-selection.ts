@@ -224,14 +224,7 @@ const isCommonsMediaUrl = (parsedUrl: URL): boolean => {
   if (getWikimediaMediaRepositoryFromUrl(parsedUrl.toString()) !== "commons") {
     return false;
   }
-  const lowerPathname = parsedUrl.pathname.toLowerCase();
-  if (
-    lowerPathname.startsWith("/wikipedia/") &&
-    !lowerPathname.startsWith("/wikipedia/commons/")
-  ) {
-    return false;
-  }
-  return true;
+  return parsedUrl.pathname.toLowerCase().startsWith("/wikipedia/commons/");
 };
 
 const isVectorSvgAsset = (

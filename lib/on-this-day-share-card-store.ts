@@ -35,6 +35,7 @@ export type OnThisDayShareCardStatus = {
   generatedAt: number;
   byteSize: number;
   plateCount: number;
+  hasBlob: boolean;
 };
 
 export type UploadAndSaveOnThisDayShareCardInput = {
@@ -54,7 +55,14 @@ export type UploadAndSaveOnThisDayShareCardResult = {
   version: number;
   storageId: string;
   replaced: boolean;
+  rejectedStaleVersion?: boolean;
 };
+
+const SAVE_SHARE_CARD_MAX_RETRIES = 2;
+const SAVE_SHARE_CARD_RETRY_BASE_MS = 100;
+
+const waitMs = async (ms: number): Promise<void> =>
+  await new Promise((resolve) => setTimeout(resolve, ms));
 
 const withOnThisDayWriteAttestation = async <
   TArgs extends Record<string, unknown>,
@@ -193,16 +201,43 @@ export const uploadAndSaveOnThisDayShareCard = async ({
     saveArgs.snapshotCheckedAt = snapshotCheckedAt;
   }
 
-  const saved = (await fetchMutation(
-    anyApi.onThisDay.saveShareCard,
-    await withOnThisDayWriteAttestation("save-show-asset", saveArgs),
-  )) as UploadAndSaveOnThisDayShareCardResult | null;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= SAVE_SHARE_CARD_MAX_RETRIES; attempt += 1) {
+    try {
+      const saved = (await fetchMutation(
+        anyApi.onThisDay.saveShareCard,
+        await withOnThisDayWriteAttestation("save-show-asset", saveArgs),
+      )) as UploadAndSaveOnThisDayShareCardResult | null;
 
-  if (!saved?.storageId) {
-    throw new Error(
-      `Convex saveShareCard did not return a valid result for ${monthDay}`,
+      if (saved?.storageId) {
+        return saved;
+      }
+
+      lastError = new Error(
+        `Convex saveShareCard did not return a valid result for ${monthDay}`,
+      );
+    } catch (error: unknown) {
+      lastError = error;
+    }
+
+    if (attempt < SAVE_SHARE_CARD_MAX_RETRIES) {
+      await waitMs(SAVE_SHARE_CARD_RETRY_BASE_MS * (attempt + 1));
+    }
+  }
+
+  try {
+    await fetchMutation(
+      anyApi.onThisDay.deleteUnreferencedShareCardBlob,
+      await withOnThisDayWriteAttestation("finalize-job", { storageId }),
+    );
+  } catch (cleanupError: unknown) {
+    console.warn(
+      `[on-this-day-share-card-store] Failed to reconcile unreferenced blob ${storageId} for ${monthDay}:`,
+      cleanupError,
     );
   }
 
-  return saved;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Convex saveShareCard failed for ${monthDay}`);
 };

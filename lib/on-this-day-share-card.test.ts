@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildShareCardAttributionLine,
   ON_THIS_DAY_OG_SIZE,
   type OnThisDayOgPlate,
 } from "@/app/(app)/on-this-day/og-card";
@@ -375,5 +376,96 @@ describe("renderOnThisDayShareCardJpeg", () => {
     expect(
       Buffer.from(galleryBytes ?? []).equals(Buffer.from(fallbackBytes ?? [])),
     ).toBe(false);
+
+    // PD/CC0-only plates stay byte-identical while CC BY plates render an unobtrusive credit line.
+    const pdLabeledPlates = samplePlates.map((plate, index) => ({
+      ...plate,
+      licenseName: index === 2 ? "CC0" : "Public domain",
+      creator: "Archive Creator",
+    }));
+    const pdBytes = await renderOnThisDayShareCardJpeg({
+      dayLabel: "September 28",
+      subtitle: "54 events · 258 births · 127 deaths · 10 holidays",
+      plates: pdLabeledPlates,
+      creditPath: "/api/on-this-day/share-card-credits?day=09-28",
+    });
+    expect(Buffer.from(pdBytes).equals(Buffer.from(galleryBytes ?? []))).toBe(
+      true,
+    );
+
+    const ccByPlates = pdLabeledPlates.map((plate, index) =>
+      index === 1
+        ? {
+            ...plate,
+            licenseName: "CC BY-SA 4.0",
+            creator: "Jane Photographer",
+            sourceUrl: "https://commons.wikimedia.org/wiki/File:Example.jpg",
+          }
+        : plate,
+    );
+    const ccByBytes = await renderOnThisDayShareCardJpeg({
+      dayLabel: "September 28",
+      subtitle: "54 events · 258 births · 127 deaths · 10 holidays",
+      plates: ccByPlates,
+      creditPath: "/api/on-this-day/share-card-credits?day=09-28",
+    });
+    const ccByMeta = await sharp(Buffer.from(ccByBytes)).metadata();
+    expect(ccByMeta.format).toBe("jpeg");
+    expect(ccByMeta.width).toBe(ON_THIS_DAY_OG_SIZE.width);
+    expect(ccByMeta.height).toBe(ON_THIS_DAY_OG_SIZE.height);
+    expect(Buffer.from(ccByBytes).equals(Buffer.from(pdBytes))).toBe(false);
   }, 30_000);
+});
+
+describe("buildShareCardAttributionLine", () => {
+  it("returns null for PD/CC0-only or unlabeled plates", () => {
+    expect(
+      buildShareCardAttributionLine([
+        {
+          imageDataUrl: "data:image/jpeg;base64,AA==",
+          alt: "Apollo 11",
+          licenseName: "Public domain",
+          creator: "NASA",
+        },
+        {
+          imageDataUrl: "data:image/jpeg;base64,BB==",
+          alt: "Venera 4",
+          licenseName: "CC0 1.0",
+        },
+        {
+          imageDataUrl: "data:image/jpeg;base64,CC==",
+          alt: "Bundled plate",
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("formats concise CC BY attribution with creator, license, and credit path", () => {
+    expect(
+      buildShareCardAttributionLine(
+        [
+          {
+            imageDataUrl: "data:image/jpeg;base64,AA==",
+            alt: "PD photo",
+            licenseName: "Public domain",
+            creator: "NASA",
+          },
+          {
+            imageDataUrl: "data:image/jpeg;base64,BB==",
+            alt: "CC photo",
+            licenseName: "CC BY-SA 4.0",
+            creator: "Jane Photographer",
+          },
+          {
+            imageDataUrl: "data:image/jpeg;base64,CC==",
+            alt: "No creator CC photo",
+            licenseName: "CC BY 3.0",
+          },
+        ],
+        "/api/on-this-day/share-card-credits?day=10-18",
+      ),
+    ).toBe(
+      "Photo credits: Jane Photographer (CC BY-SA 4.0), Wikimedia Commons (CC BY 3.0) · /api/on-this-day/share-card-credits?day=10-18",
+    );
+  });
 });

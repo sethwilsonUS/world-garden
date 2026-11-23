@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const ON_THIS_DAY_TITLE = "On This Day — Curio Garden";
 const ON_THIS_DAY_DESCRIPTION =
-  "Explore today's historical events, births, deaths, and holidays in an accessible timeline.";
+  "Explore historical events, notable lives, and holidays from any day of the year — and listen to the stories behind them on Curio Garden.";
 
 export const metadata: Metadata = {
   title: ON_THIS_DAY_TITLE,

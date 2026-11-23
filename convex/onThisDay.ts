@@ -485,13 +485,19 @@ export const listShareCardStatuses = query({
       .withIndex("by_monthDay")
       .collect();
 
-    return rows.map((row) => ({
-      monthDay: row.monthDay,
-      version: row.version,
-      generatedAt: row.generatedAt,
-      byteSize: row.byteSize,
-      plateCount: row.plates.length,
-    }));
+    return await Promise.all(
+      rows.map(async (row) => {
+        const blobUrl = await ctx.storage.getUrl(row.storageId);
+        return {
+          monthDay: row.monthDay,
+          version: row.version,
+          generatedAt: row.generatedAt,
+          byteSize: row.byteSize,
+          plateCount: row.plates.length,
+          hasBlob: Boolean(blobUrl),
+        };
+      }),
+    );
   },
 });
 
@@ -505,6 +511,41 @@ export const generateShareCardUploadUrl = mutation({
       attestation,
     });
     return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const deleteUnreferencedShareCardBlob = mutation({
+  args: {
+    storageId: v.id("_storage"),
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "finalize-job",
+      args: writeArgs,
+      attestation,
+    });
+
+    const rows = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay")
+      .collect();
+    if (rows.some((row) => row.storageId === args.storageId)) {
+      return { deleted: false };
+    }
+
+    try {
+      await ctx.storage.delete(args.storageId);
+      return { deleted: true };
+    } catch (error) {
+      console.warn(
+        `[on-this-day] Failed to delete unreferenced share card blob ${args.storageId}`,
+        error,
+      );
+      return { deleted: false };
+    }
   },
 });
 
@@ -535,6 +576,26 @@ export const saveShareCard = mutation({
       .query("onThisDayShareCards")
       .withIndex("by_monthDay", (q) => q.eq("monthDay", args.monthDay))
       .first();
+
+    if (existing && args.version < existing.version) {
+      if (args.storageId !== existing.storageId) {
+        try {
+          await ctx.storage.delete(args.storageId);
+        } catch (error) {
+          console.warn(
+            `[on-this-day] Failed to delete stale lower-version share card blob ${args.storageId} for ${args.monthDay}`,
+            error,
+          );
+        }
+      }
+      return {
+        monthDay: existing.monthDay,
+        version: existing.version,
+        storageId: existing.storageId,
+        replaced: false,
+        rejectedStaleVersion: true,
+      };
+    }
 
     const record = {
       monthDay: args.monthDay,
@@ -570,6 +631,7 @@ export const saveShareCard = mutation({
       version: args.version,
       storageId: args.storageId,
       replaced: Boolean(existing),
+      rejectedStaleVersion: false,
     };
   },
 });

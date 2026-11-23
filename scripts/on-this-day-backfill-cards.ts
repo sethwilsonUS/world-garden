@@ -11,6 +11,8 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import {
   ON_THIS_DAY_OG_SIZE,
   type OnThisDayOgPlate,
@@ -50,6 +52,7 @@ import {
 import {
   listStoredOnThisDayShareCardStatuses,
   uploadAndSaveOnThisDayShareCard,
+  type OnThisDayShareCardStatus,
   type StoredOnThisDayShareCardPlate,
 } from "@/lib/on-this-day-share-card-store";
 import {
@@ -70,13 +73,22 @@ const DEFAULT_RETRY_AFTER_MS = 5_000;
 const MAX_RETRY_AFTER_MS = 60_000;
 const INTER_DAY_PAUSE_MS = 400;
 
-type CliOptions = {
+export type CliOptions = {
   previewOnly: boolean;
   previewOutDir: string;
   evergreen: boolean;
   day: CalendarDay | null;
   force: boolean;
   help: boolean;
+};
+
+export type PoliteWikimediaFetchOptions = {
+  fetchImpl?: typeof fetch;
+  minRequestIntervalMs?: number;
+  perAttemptTimeoutMs?: number;
+  maxRetries?: number;
+  defaultRetryAfterMs?: number;
+  maxRetryAfterMs?: number;
 };
 
 type LoadedCandidatePlate = {
@@ -114,49 +126,91 @@ type DayRunReport = {
   plates?: PlateReportEntry[];
 };
 
-const sleep = async (ms: number): Promise<void> =>
-  await new Promise((resolve) => setTimeout(resolve, ms));
+const createAbortError = (signal: AbortSignal): Error => {
+  if (signal.reason instanceof Error) {
+    return signal.reason;
+  }
+  return new DOMException("The operation was aborted.", "AbortError");
+};
 
-const parseRetryAfterMs = (headerValue: string | null): number => {
-  if (!headerValue) return DEFAULT_RETRY_AFTER_MS;
+export const waitAbortable = async (
+  ms: number,
+  signal?: AbortSignal,
+): Promise<void> => {
+  if (signal?.aborted) {
+    throw createAbortError(signal);
+  }
+  if (ms <= 0) {
+    return;
+  }
+  try {
+    await delay(ms, undefined, signal ? { signal } : undefined);
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw signal?.aborted ? createAbortError(signal) : error;
+    }
+    throw error;
+  }
+};
+
+const parseRetryAfterMs = (
+  headerValue: string | null,
+  defaultMs = DEFAULT_RETRY_AFTER_MS,
+  maxMs = MAX_RETRY_AFTER_MS,
+): number => {
+  if (!headerValue) return defaultMs;
   const trimmed = headerValue.trim();
   if (/^\d+$/u.test(trimmed)) {
     const seconds = Number(trimmed);
-    return Math.min(MAX_RETRY_AFTER_MS, Math.max(1_000, seconds * 1_000));
+    return Math.min(maxMs, Math.max(1_000, seconds * 1_000));
   }
   const parsedDate = Date.parse(trimmed);
   if (!Number.isNaN(parsedDate)) {
-    return Math.min(
-      MAX_RETRY_AFTER_MS,
-      Math.max(1_000, parsedDate - Date.now()),
-    );
+    return Math.min(maxMs, Math.max(1_000, parsedDate - Date.now()));
   }
-  return DEFAULT_RETRY_AFTER_MS;
+  return defaultMs;
 };
 
-const createPoliteWikimediaFetch = (): typeof fetch => {
+export const createPoliteWikimediaFetch = ({
+  fetchImpl = fetch,
+  minRequestIntervalMs = WIKIMEDIA_MIN_REQUEST_INTERVAL_MS,
+  perAttemptTimeoutMs = WIKIMEDIA_PER_ATTEMPT_TIMEOUT_MS,
+  maxRetries = WIKIMEDIA_MAX_RETRIES,
+  defaultRetryAfterMs = DEFAULT_RETRY_AFTER_MS,
+  maxRetryAfterMs = MAX_RETRY_AFTER_MS,
+}: PoliteWikimediaFetchOptions = {}): typeof fetch => {
   let lastRequestAt = 0;
 
   return async (input, init) => {
-    for (let attempt = 0; attempt <= WIKIMEDIA_MAX_RETRIES; attempt += 1) {
+    const callerSignal = init?.signal ?? undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      if (callerSignal?.aborted) {
+        throw createAbortError(callerSignal);
+      }
+
       const elapsed = Date.now() - lastRequestAt;
-      if (lastRequestAt > 0 && elapsed < WIKIMEDIA_MIN_REQUEST_INTERVAL_MS) {
-        await sleep(WIKIMEDIA_MIN_REQUEST_INTERVAL_MS - elapsed);
+      if (lastRequestAt > 0 && elapsed < minRequestIntervalMs) {
+        await waitAbortable(minRequestIntervalMs - elapsed, callerSignal);
+      }
+
+      if (callerSignal?.aborted) {
+        throw createAbortError(callerSignal);
       }
       lastRequestAt = Date.now();
 
       const attemptController = new AbortController();
-      const attemptSignal = init?.signal
-        ? AbortSignal.any([init.signal, attemptController.signal])
+      const attemptSignal = callerSignal
+        ? AbortSignal.any([callerSignal, attemptController.signal])
         : attemptController.signal;
       const timeout = setTimeout(
         () => attemptController.abort(),
-        WIKIMEDIA_PER_ATTEMPT_TIMEOUT_MS,
+        perAttemptTimeoutMs,
       );
 
       let response: Response;
       try {
-        response = await fetch(input, {
+        response = await fetchImpl(input, {
           ...init,
           signal: attemptSignal,
         });
@@ -166,10 +220,12 @@ const createPoliteWikimediaFetch = (): typeof fetch => {
 
       if (
         (response.status === 429 || response.status === 503) &&
-        attempt < WIKIMEDIA_MAX_RETRIES
+        attempt < maxRetries
       ) {
         const retryAfterMs = parseRetryAfterMs(
           response.headers.get("retry-after"),
+          defaultRetryAfterMs,
+          maxRetryAfterMs,
         );
         try {
           await response.body?.cancel();
@@ -182,13 +238,13 @@ const createPoliteWikimediaFetch = (): typeof fetch => {
           );
         }
         const backoffMs = Math.min(
-          MAX_RETRY_AFTER_MS,
+          maxRetryAfterMs,
           retryAfterMs + attempt * 2_000,
         );
         console.warn(
-          `[on-this-day:backfill-cards] Wikimedia returned HTTP ${response.status}; waiting ${Math.ceil(backoffMs / 1000)}s before retry ${attempt + 1}/${WIKIMEDIA_MAX_RETRIES}…`,
+          `[on-this-day:backfill-cards] Wikimedia returned HTTP ${response.status}; waiting ${Math.ceil(backoffMs / 1000)}s before retry ${attempt + 1}/${maxRetries}…`,
         );
-        await sleep(backoffMs);
+        await waitAbortable(backoffMs, callerSignal);
         continue;
       }
 
@@ -201,10 +257,14 @@ const createPoliteWikimediaFetch = (): typeof fetch => {
 
 const buildLiveSnapshotWithRetry = async (
   day: CalendarDay,
+  signal?: AbortSignal,
 ): Promise<OnThisDaySnapshot> => {
   const monthDay = calendarDayKey(day);
 
   for (let attempt = 0; attempt <= WIKIMEDIA_MAX_RETRIES; attempt += 1) {
+    if (signal?.aborted) {
+      throw createAbortError(signal);
+    }
     try {
       return await buildOnThisDaySnapshot({ day });
     } catch (error: unknown) {
@@ -221,7 +281,7 @@ const buildLiveSnapshotWithRetry = async (
         console.warn(
           `[on-this-day:backfill-cards] Wikipedia returned HTTP ${error.status} for ${monthDay}; waiting ${Math.ceil(waitMs / 1000)}s before retry ${attempt + 1}/${WIKIMEDIA_MAX_RETRIES}…`,
         );
-        await sleep(waitMs);
+        await waitAbortable(waitMs, signal);
         continue;
       }
 
@@ -263,7 +323,7 @@ const loadSnapshotForDay = async (
   return { snapshot: liveSnapshot, source: "live" };
 };
 
-const parseCliArgs = (argv: readonly string[]): CliOptions => {
+export const parseCliArgs = (argv: readonly string[]): CliOptions => {
   let previewOnly = false;
   let previewOutRaw: string | null = null;
   let evergreen = false;
@@ -338,6 +398,30 @@ const parseCliArgs = (argv: readonly string[]): CliOptions => {
   };
 };
 
+export const resolveTargetCalendarDays = ({
+  day,
+  evergreen,
+}: Pick<CliOptions, "day" | "evergreen">): readonly CalendarDay[] => {
+  if (day) return [day];
+  if (evergreen) return [];
+  return ALL_CALENDAR_DAYS;
+};
+
+export const shouldSkipStoredShareCard = (
+  status: Pick<
+    OnThisDayShareCardStatus,
+    "version" | "plateCount" | "hasBlob"
+  > | null | undefined,
+  force: boolean,
+): boolean => {
+  if (force || !status) return false;
+  return (
+    status.version === ON_THIS_DAY_SHARE_CARD_VERSION &&
+    status.plateCount > 0 &&
+    status.hasBlob
+  );
+};
+
 const printUsage = (): void => {
   console.log(`Usage: tsx scripts/on-this-day-backfill-cards.ts [options]
 
@@ -394,6 +478,7 @@ const renderEvergreenPreview = async (
     alt: plate.title,
     yearLabel: plate.yearLabel,
     isPortrait: plate.isPortrait,
+    licenseName: "Public domain",
   }));
 
   const jpegBytes = await renderOnThisDayShareCardJpeg({
@@ -505,17 +590,30 @@ const processCalendarDay = async ({
     };
   }
 
-  const ogPlates: OnThisDayOgPlate[] = slotted.map((plate) => ({
-    imageDataUrl: plate.normalized.imageDataUrl,
-    alt: plate.candidate.alt,
-    yearLabel: plate.candidate.yearLabel,
-    isPortrait: plate.normalized.isPortrait,
-  }));
+  const ogPlates: OnThisDayOgPlate[] = slotted.map((plate) => {
+    const licenseName =
+      plate.candidate.licenseName ??
+      (plate.candidate.licenseTier === "pd-cc0"
+        ? "Public domain"
+        : "Wikimedia Commons");
+    return {
+      imageDataUrl: plate.normalized.imageDataUrl,
+      alt: plate.candidate.alt,
+      yearLabel: plate.candidate.yearLabel,
+      isPortrait: plate.normalized.isPortrait,
+      ...(plate.candidate.creator ? { creator: plate.candidate.creator } : {}),
+      licenseName,
+      ...(plate.candidate.sourceUrl
+        ? { sourceUrl: plate.candidate.sourceUrl }
+        : {}),
+    };
+  });
 
   const jpegBytes = await renderOnThisDayShareCardJpeg({
     dayLabel,
     subtitle,
     plates: ogPlates,
+    creditPath: `/api/on-this-day/share-card-credits?day=${monthDay}`,
   });
 
   const reportPlates: PlateReportEntry[] = slotted.map((plate, index) => ({
@@ -611,7 +709,9 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  if (!options.previewOnly) {
+  const targetDays = resolveTargetCalendarDays(options);
+
+  if (!options.previewOnly && targetDays.length > 0) {
     if (!shouldUseOnThisDaySnapshotCache()) {
       throw new Error(
         "Convex upload mode requires NEXT_PUBLIC_CONVEX_URL and NEXT_PUBLIC_LOCAL_MODE !== 'true' (or pass --preview-only for local rendering).",
@@ -637,7 +737,7 @@ const main = async (): Promise<void> => {
     };
     days: DayRunReport[];
   } = {
-    mode: options.previewOnly ? "preview-only" : "upload",
+    mode: options.previewOnly || targetDays.length === 0 ? "preview-only" : "upload",
     version: ON_THIS_DAY_SHARE_CARD_VERSION,
     totals: {
       rendered: 0,
@@ -658,23 +758,11 @@ const main = async (): Promise<void> => {
     summary.evergreen = await renderEvergreenPreview(options.previewOutDir);
   }
 
-  const targetDays: readonly CalendarDay[] = options.day
-    ? [options.day]
-    : options.previewOnly && options.evergreen
-      ? []
-      : ALL_CALENDAR_DAYS;
-
-  const existingByMonthDay = new Map<
-    string,
-    { version: number; plateCount: number }
-  >();
+  const existingByMonthDay = new Map<string, OnThisDayShareCardStatus>();
   if (!options.previewOnly && !options.force && targetDays.length > 0) {
     const statuses = await listStoredOnThisDayShareCardStatuses();
     for (const status of statuses) {
-      existingByMonthDay.set(status.monthDay, {
-        version: status.version,
-        plateCount: status.plateCount,
-      });
+      existingByMonthDay.set(status.monthDay, status);
     }
   }
 
@@ -685,20 +773,16 @@ const main = async (): Promise<void> => {
     const monthDay = calendarDayKey(day);
     const dayLabel = formatCalendarDay(day);
 
-    if (!options.previewOnly && !options.force) {
+    if (!options.previewOnly) {
       const existing = existingByMonthDay.get(monthDay);
-      if (
-        existing &&
-        existing.version === ON_THIS_DAY_SHARE_CARD_VERSION &&
-        existing.plateCount > 0
-      ) {
+      if (shouldSkipStoredShareCard(existing, options.force)) {
         summary.totals.skipped += 1;
         summary.days.push({
           monthDay,
           dayLabel,
           status: "skipped",
-          plateCount: existing.plateCount,
-          reason: `Already stored at v${existing.version} with ${existing.plateCount} plates`,
+          plateCount: existing?.plateCount ?? 0,
+          reason: `Already stored at v${existing?.version ?? ON_THIS_DAY_SHARE_CARD_VERSION} with ${existing?.plateCount ?? 0} plates`,
         });
         continue;
       }
@@ -739,7 +823,7 @@ const main = async (): Promise<void> => {
     }
 
     if (index + 1 < targetDays.length) {
-      await sleep(INTER_DAY_PAUSE_MS);
+      await waitAbortable(INTER_DAY_PAUSE_MS);
     }
   }
 
@@ -751,7 +835,15 @@ const main = async (): Promise<void> => {
   }
 };
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isMainModule = (): boolean => {
+  const entryArg = process.argv[1];
+  if (!entryArg) return false;
+  return path.resolve(entryArg) === fileURLToPath(import.meta.url);
+};
+
+if (isMainModule()) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

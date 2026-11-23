@@ -323,6 +323,17 @@ describe("selectShareCardPlateCandidates", () => {
           height: 240,
         }),
         makeEvent({
+          id: "valid-commons-original",
+          year: 1450,
+          image: {
+            source: commonsOriginalUrl("Gutenberg_Bible.jpg"),
+            width: 320,
+            height: 240,
+            articleTitle: "Gutenberg Bible",
+            attribution: { licenseName: "Public domain" },
+          },
+        }),
+        makeEvent({
           id: "reject-enwiki",
           year: 1985,
           image: {
@@ -342,6 +353,30 @@ describe("selectShareCardPlateCandidates", () => {
             width: 320,
             height: 240,
             articleTitle: "Local Fr",
+            attribution: { licenseName: "Public domain" },
+          },
+        }),
+        makeEvent({
+          id: "reject-wikisource",
+          year: 1988,
+          image: {
+            source:
+              "https://upload.wikimedia.org/wikisource/en/a/ab/Example.jpg",
+            width: 320,
+            height: 240,
+            articleTitle: "Wikisource Scan",
+            attribution: { licenseName: "Public domain" },
+          },
+        }),
+        makeEvent({
+          id: "reject-wikibooks",
+          year: 1989,
+          image: {
+            source:
+              "https://upload.wikimedia.org/wikibooks/en/thumb/a/ab/Textbook.jpg/320px-Textbook.jpg",
+            width: 320,
+            height: 240,
+            articleTitle: "Wikibooks Cover",
             attribution: { licenseName: "Public domain" },
           },
         }),
@@ -433,6 +468,7 @@ describe("selectShareCardPlateCandidates", () => {
       "valid-min-ratio",
       "valid-max-ratio",
       "valid-svg-in-name-jpg",
+      "valid-commons-original",
     ]);
   });
 
