@@ -33,6 +33,13 @@ const WIKIMEDIA_COMMONS_ACTION_API =
 const WIKIMEDIA_ENGLISH_WIKIPEDIA_HOST = "en.wikipedia.org";
 const WIKIMEDIA_ENGLISH_WIKIPEDIA_ACTION_API =
   `https://${WIKIMEDIA_ENGLISH_WIKIPEDIA_HOST}/w/api.php`;
+const WIKIMEDIA_MEDIA_HOSTNAMES = new Set([
+  "upload.wikimedia.org",
+  "thumb.wikimedia.org",
+]);
+
+export const isWikimediaMediaHostname = (hostname: string): boolean =>
+  WIKIMEDIA_MEDIA_HOSTNAMES.has(hostname.toLocaleLowerCase("en-US"));
 const USER_AGENT =
   "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 const IMAGE_INFO_BATCH_SIZE = 20;
@@ -112,7 +119,12 @@ export const getWikimediaMediaIdentity = (
   let absoluteUrl: string;
   try {
     const url = new URL(imageUrl, "https://upload.wikimedia.org");
-    if (url.hostname !== "upload.wikimedia.org") return undefined;
+    if (
+      (url.protocol !== "https:" && url.protocol !== "http:") ||
+      !isWikimediaMediaHostname(url.hostname)
+    ) {
+      return undefined;
+    }
     absoluteUrl = url.toString();
   } catch {
     return undefined;

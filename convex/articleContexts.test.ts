@@ -617,6 +617,66 @@ describe("article context cache validation", () => {
       ),
     ).not.toThrow();
   });
+
+  it("accepts thumb.wikimedia.org Commons thumbnails with query parameters and rejects unsafe thumb URLs", () => {
+    const thumbDiagram = {
+      id: "diagram-thumb-host",
+      kind: "diagram",
+      title: "Heart diagram",
+      caption: "Anatomical diagram of the human heart.",
+      longDescription: "Anatomical diagram showing exterior chambers and vessels.",
+      diagram: {
+        image: {
+          src: "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Heart_anterior_exterior_view.png/330px-Heart_anterior_exterior_view.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail",
+          originalSrc:
+            "https://upload.wikimedia.org/wikipedia/commons/1/1b/Heart_anterior_exterior_view.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+          alt: "Anatomical diagram of the human heart",
+          width: 330,
+          height: 412,
+        },
+        parts: [],
+        relationships: [],
+        walkthrough: ["Anatomical diagram of the human heart."],
+        caption: "Anatomical diagram of the human heart.",
+      },
+      provenance: {
+        sourceHash: cacheKey.sourceHash,
+        extractorVersion: cacheKey.extractorVersion,
+      },
+    };
+
+    expect(() =>
+      validateAndNormalizeManifestJson(
+        manifestJson(cacheKey, [thumbDiagram]),
+        cacheKey,
+      ),
+    ).not.toThrow();
+
+    for (const badSrc of [
+      "https://evil-thumb.wikimedia.org/wikipedia/commons/a/ab/Example.png",
+      "https://thumb.wikimedia.org/wikipedia/en/thumb/a/ab/Example.png/330px-Example.png",
+      "https://thumb.wikimedia.org/wikipedia/commons/a/ab/Example.svg?utm_source=en.wikipedia.org",
+      "https://thumb.wikimedia.org/wikipedia/commons/math/a/ab/Formula.png",
+    ]) {
+      expect(() =>
+        validateAndNormalizeManifestJson(
+          manifestJson(cacheKey, [
+            {
+              ...thumbDiagram,
+              diagram: {
+                ...thumbDiagram.diagram,
+                image: {
+                  ...thumbDiagram.diagram.image,
+                  src: badSrc,
+                },
+              },
+            },
+          ]),
+          cacheKey,
+        ),
+      ).toThrow("invalid diagram data");
+    }
+  });
 });
 
 describe("article context cache persistence", () => {

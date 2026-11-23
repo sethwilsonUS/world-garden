@@ -11,6 +11,7 @@ import {
   MAX_TABLE_CELLS,
   MAX_TABLE_ROWS,
 } from "./article-context-limits";
+import { isWikimediaMediaHostname } from "./wikimedia-media";
 
 const legendTextFields = (block: ContextBlock): string[] => {
   if (
@@ -51,7 +52,7 @@ const isSafeCommonsImage = (value: string): boolean => {
     const url = new URL(value.startsWith("//") ? `https:${value}` : value);
     return (
       url.protocol === "https:" &&
-      url.hostname === "upload.wikimedia.org" &&
+      isWikimediaMediaHostname(url.hostname) &&
       url.pathname.startsWith("/wikipedia/commons/") &&
       !url.pathname.toLocaleLowerCase().includes("/math/") &&
       !url.pathname.toLocaleLowerCase().endsWith(".svg")
@@ -199,6 +200,8 @@ export const validateContextManifest = (
     } else if (block.kind === "diagram") {
       if (
         !isSafeCommonsImage(block.diagram.image.src) ||
+        (block.diagram.image.originalSrc !== undefined &&
+          !isSafeCommonsImage(block.diagram.image.originalSrc)) ||
         !block.diagram.caption ||
         block.diagram.walkthrough.length === 0
       ) {

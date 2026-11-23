@@ -748,6 +748,111 @@ describe("extractArticleContextFromDocument", () => {
     });
   });
 
+  it("extracts thumb.wikimedia.org Commons diagrams with query parameters while rejecting unsafe URLs", () => {
+    const thumbUrl =
+      "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Heart_anterior_exterior_view.png/330px-Heart_anterior_exterior_view.png?utm_source=en.wikipedia.org&utm_campaign=parser&utm_content=thumbnail";
+    const document = documentWithTable();
+    const sections = document.sections.map((section) =>
+      section.key === "1"
+        ? {
+            ...section,
+            blocks: [
+              {
+                kind: "figure" as const,
+                id: "figure-thumb-ok",
+                sourceOrder: 12,
+                contentHash: "figure-thumb-ok-hash",
+                caption:
+                  "Anatomical diagram of the anterior exterior view of the human heart.",
+                media: [
+                  {
+                    kind: "image" as const,
+                    src: thumbUrl,
+                    resourceTitle: "File:Heart_anterior_exterior_view.png",
+                    alt: "Anatomical diagram of the human heart",
+                    width: 330,
+                    height: 412,
+                  },
+                ],
+                regions: [],
+              },
+              {
+                kind: "figure" as const,
+                id: "figure-thumb-svg",
+                sourceOrder: 13,
+                contentHash: "figure-thumb-svg-hash",
+                caption: "Raw SVG diagram that must stay excluded.",
+                media: [
+                  {
+                    kind: "image" as const,
+                    src: "https://thumb.wikimedia.org/wikipedia/commons/a/ab/Raw.svg?utm_source=en.wikipedia.org",
+                    resourceTitle: "File:Raw.svg",
+                    alt: "Raw SVG diagram",
+                    width: 400,
+                    height: 300,
+                  },
+                ],
+                regions: [],
+              },
+              {
+                kind: "figure" as const,
+                id: "figure-thumb-math",
+                sourceOrder: 14,
+                contentHash: "figure-thumb-math-hash",
+                caption: "Math diagram that must stay excluded.",
+                media: [
+                  {
+                    kind: "image" as const,
+                    src: "https://thumb.wikimedia.org/wikipedia/commons/math/a/ab/Formula.png?utm_source=en.wikipedia.org",
+                    resourceTitle: "File:Formula.png",
+                    alt: "Formula diagram",
+                    width: 400,
+                    height: 300,
+                  },
+                ],
+                regions: [],
+              },
+              {
+                kind: "figure" as const,
+                id: "figure-spoofed-host",
+                sourceOrder: 15,
+                contentHash: "figure-spoofed-host-hash",
+                caption: "Spoofed host diagram that must stay excluded.",
+                media: [
+                  {
+                    kind: "image" as const,
+                    src: "https://evil-thumb.wikimedia.org/wikipedia/commons/a/ab/Spoof.png",
+                    resourceTitle: "File:Spoof.png",
+                    alt: "Spoofed diagram",
+                    width: 400,
+                    height: 300,
+                  },
+                ],
+                regions: [],
+              },
+            ],
+          }
+        : section,
+    );
+
+    const blocks = extractArticleContextFromDocument({
+      ...document,
+      sections,
+    }).blocks;
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      kind: "diagram",
+      diagram: {
+        image: {
+          src: thumbUrl,
+          width: 330,
+          height: 412,
+        },
+      },
+    });
+  });
+
   it("preserves a typed source legend without expanding it into a walkthrough", () => {
     const document = documentWithTable();
     const description =

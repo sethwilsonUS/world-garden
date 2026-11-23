@@ -1,6 +1,7 @@
 import { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
 import { isValidContextDiagramLegend } from "../lib/article-context-legend";
 import { MAX_BLOCKS_PER_ARTICLE } from "../lib/article-context-limits";
+import { isWikimediaMediaHostname } from "../lib/wikimedia-media";
 
 export { ARTICLE_CONTEXT_SCHEMA_VERSION } from "../lib/article-context-types";
 
@@ -156,7 +157,7 @@ const isSafeContextImageUrl = (value: unknown): value is string => {
     const url = new URL(value);
     return (
       url.protocol === "https:" &&
-      url.hostname === "upload.wikimedia.org" &&
+      isWikimediaMediaHostname(url.hostname) &&
       url.pathname.startsWith("/wikipedia/commons/") &&
       !url.pathname.toLocaleLowerCase().includes("/math/") &&
       !url.pathname.toLocaleLowerCase().endsWith(".svg")
