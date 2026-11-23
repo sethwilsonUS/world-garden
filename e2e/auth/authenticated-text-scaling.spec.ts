@@ -35,6 +35,31 @@ for (const route of privateRoutes) {
   });
 }
 
+test("the member note leads to private feed controls and keyboard-accessible badges at 320px", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto("/");
+  const dashboardLink = page.getByRole("complementary", { name: "Account" })
+    .getByRole("link", { name: "Open Dashboard" });
+  await expect(dashboardLink).toBeVisible();
+  await expectNoPageOverflow(page);
+  await dashboardLink.press("Enter");
+
+  const feed = page.getByRole("region", { name: /your private feed/i });
+  await expect(feed.getByRole("button").first()).toBeVisible();
+  await expectNoPageOverflow(page);
+
+  const badge = page.getByRole("button", { name: /^open .+ badge details/i }).first();
+  await badge.press("Enter");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("button", { name: /^close .+ badge details/i })).toBeFocused();
+  await expect(dialog).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(badge).toBeFocused();
+});
+
 test("signed-in dashboard keeps navigation and focus usable", async ({
   page,
 }) => {
