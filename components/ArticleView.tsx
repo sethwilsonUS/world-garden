@@ -205,19 +205,15 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
   }
 
   if (!displayArticle) return null;
-  if (!controller) return <ArticleLoadingState />;
-  const {
-    state: audioState,
-    actions: audioActions,
-    audioElement: { warmRegionRef },
-  } = controller;
+  const audioState = controller?.state;
+  const audioActions = controller?.actions;
 
   const sections = displayArticle.sections ?? [];
 
   const handleResume = () => {
     if (!savedProgressState?.sectionKey) return;
     setShowResumeBanner(false);
-    audioActions.resume(
+    audioActions?.resume(
       savedProgressState.sectionKey,
       savedProgressState.sectionIndex ?? null,
     );
@@ -225,7 +221,7 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
 
   const handleStartFromBeginning = () => {
     setShowResumeBanner(false);
-    audioActions.startFromBeginning();
+    audioActions?.startFromBeginning();
   };
 
   return (
@@ -236,33 +232,42 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
         </h1>
 
         <div className="mt-5">
-          <ArticleListeningControls
-            playAllButtonRef={playAllButtonRef}
-            identity={displayArticle}
-            summaryText={displayArticle.summary}
-            sections={sections}
-            sectionDurations={audioState.sectionDurations}
-            playback={audioState.playback}
-            onPlayAll={audioActions.playAll}
-            onWarmPlayAll={audioActions.warmPlayAll}
-            onStopPlayAll={audioActions.stopPlayAll}
-            onTogglePlayAll={audioActions.togglePlayAll}
-            onSkipSection={audioActions.skipSection}
-            onDownloadAll={audioActions.downloadAll}
-            downloadHref={audioState.download.href}
-            downloading={audioState.download.downloading}
-            downloadProgress={audioState.download.progress}
-            downloadStatus={audioState.download.status}
-            downloadStage={audioState.download.stage}
-            playbackRate={audioState.playbackRate}
-            onPlaybackRateChange={audioActions.changePlaybackRate}
-            fallbackVoiceNotice={audioState.fallbackVoiceNotice}
-          />
+          {audioState && audioActions ? (
+            <ArticleListeningControls
+              playAllButtonRef={playAllButtonRef}
+              identity={displayArticle}
+              summaryText={displayArticle.summary}
+              sections={sections}
+              sectionDurations={audioState.sectionDurations}
+              playback={audioState.playback}
+              onPlayAll={audioActions.playAll}
+              onWarmPlayAll={audioActions.warmPlayAll}
+              onStopPlayAll={audioActions.stopPlayAll}
+              onTogglePlayAll={audioActions.togglePlayAll}
+              onSkipSection={audioActions.skipSection}
+              onDownloadAll={audioActions.downloadAll}
+              downloadHref={audioState.download.href}
+              downloading={audioState.download.downloading}
+              downloadProgress={audioState.download.progress}
+              downloadStatus={audioState.download.status}
+              downloadStage={audioState.download.stage}
+              playbackRate={audioState.playbackRate}
+              onPlaybackRateChange={audioActions.changePlaybackRate}
+              fallbackVoiceNotice={audioState.fallbackVoiceNotice}
+            />
+          ) : (
+            <p
+              role="status"
+              className="my-0 flex min-h-12 items-center text-sm text-muted"
+            >
+              Loading listening controls…
+            </p>
+          )}
         </div>
 
         {showResumeBanner &&
           savedProgressState &&
-          audioState.playback.status === "idle" && (
+          audioState?.playback.status === "idle" && (
             <div className="mt-4">
               <ResumeBanner
                 sectionLabel={
@@ -277,7 +282,7 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
             </div>
           )}
 
-        {audioState.error && (
+        {audioState?.error && audioActions && (
           <div className="mt-4">
             <AudioErrorNotice
               error={audioState.error}
@@ -334,20 +339,23 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
         <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
       </div>
 
-      <div ref={warmRegionRef} className="animate-fade-in-up-delay-2 mb-6">
+      <div
+        ref={controller?.audioElement.warmRegionRef}
+        className="animate-fade-in-up-delay-2 mb-6"
+      >
         <TableOfContents
           identity={displayArticle}
           summaryText={displayArticle.summary}
           sections={sections}
-          sectionDurations={audioState.sectionDurations}
-          playback={audioState.playback}
-          onListenSection={audioActions.listenSection}
-          onListenSummary={audioActions.listenSummary}
-          onWarmSummary={audioActions.warmSummary}
-          onWarmSection={audioActions.warmSection}
-          playbackRate={audioState.playbackRate}
-          audioProgress={audioState.audioProgress}
-          onSeek={audioActions.seek}
+          sectionDurations={audioState?.sectionDurations}
+          playback={audioState?.playback}
+          onListenSection={audioActions?.listenSection}
+          onListenSummary={audioActions?.listenSummary}
+          onWarmSummary={audioActions?.warmSummary}
+          onWarmSection={audioActions?.warmSection}
+          playbackRate={audioState?.playbackRate}
+          audioProgress={audioState?.audioProgress}
+          onSeek={audioActions?.seek}
           contextBlocks={contextBlocks}
         />
       </div>
@@ -362,7 +370,7 @@ const ArticleViewContent = ({ slug }: { slug: string }) => {
         className="animate-fade-in-up-delay-2 mb-6 mt-10 border-t border-border pt-8"
       />
 
-      {audioState.finishedPlaying && (
+      {audioState?.finishedPlaying && (
         <div className="animate-fade-in-up mb-6">
           <RelatedArticles identity={displayArticle} />
         </div>

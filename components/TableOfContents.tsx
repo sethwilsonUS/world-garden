@@ -34,9 +34,9 @@ type TableOfContentsProps = {
   summaryText?: string;
   sections: Section[];
   sectionDurations?: Record<string, number>;
-  playback: AudioPlaybackState;
-  onListenSection: (index: number) => void;
-  onListenSummary: () => void;
+  playback?: AudioPlaybackState;
+  onListenSection?: (index: number) => void;
+  onListenSummary?: () => void;
   onWarmSummary?: () => void;
   onWarmSection?: (index: number) => void;
   playbackRate?: number;
@@ -132,7 +132,7 @@ const pillClass =
   "inline-flex max-w-full flex-wrap items-center justify-center gap-[6px] rounded-full px-[14px] py-[5px] text-center text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]";
 
 const listenButtonClass = (active: boolean, busy: boolean) =>
-  `${pillClass} pointer-events-auto min-h-[44px] shrink-0 self-start border sm:col-start-2 sm:row-span-2 sm:row-start-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+  `${pillClass} pointer-events-auto disabled:cursor-wait disabled:border-dashed disabled:border-control-border disabled:bg-surface-2 disabled:text-muted min-h-[44px] shrink-0 self-start border sm:col-start-2 sm:row-span-2 sm:row-start-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
     busy ? "cursor-wait" : "cursor-pointer"
   } ${
     active && !busy
@@ -226,13 +226,12 @@ export const TableOfContents = ({
     });
   };
 
-  const activeSectionIndex = playback.sectionIdx;
-  const isGenerating = playback.status === "loading";
-  const isPaused = playback.status === "paused";
-  const isSpeaking =
-    playback.status === "playing" || playback.status === "paused";
+  const activeSectionIndex = playback?.sectionIdx;
+  const isGenerating = playback?.status === "loading";
+  const isPaused = playback?.status === "paused";
+  const isSpeaking = playback?.status === "playing" || isPaused;
 
-  const isSummarySelected = playback.sectionKey === "summary";
+  const isSummarySelected = playback?.sectionKey === "summary";
   const isSummaryPlaying = isSummarySelected && isSpeaking && !isPaused;
   const isSummaryPaused = isSummarySelected && isSpeaking && isPaused;
   const isSummaryActive = isSummaryPlaying || isSummaryPaused;
@@ -323,12 +322,13 @@ export const TableOfContents = ({
               <button
                 type="button"
                 id={tocFocusTargetId("summary")}
+                disabled={!onListenSummary}
                 onMouseEnter={onWarmSummary}
                 onFocus={onWarmSummary}
                 onPointerDown={onWarmSummary}
                 onTouchStart={onWarmSummary}
                 onClick={(e) => {
-                  onListenSummary();
+                  onListenSummary?.();
                   e.currentTarget.focus();
                 }}
                 aria-label={`Listen to summary of ${articleTitle}`}
@@ -490,13 +490,14 @@ export const TableOfContents = ({
                   <button
                     type="button"
                     id={tocFocusTargetId(`section-${index}`)}
+                    disabled={!onListenSection}
                     onMouseEnter={() => onWarmSection?.(index)}
                     onFocus={() => onWarmSection?.(index)}
                     onPointerDown={() => onWarmSection?.(index)}
                     onTouchStart={() => onWarmSection?.(index)}
                     onClick={(e) => {
                       if (!isLoading) {
-                        onListenSection(index);
+                        onListenSection?.(index);
                         e.currentTarget.focus();
                       }
                     }}
