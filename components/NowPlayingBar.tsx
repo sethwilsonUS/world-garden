@@ -15,6 +15,10 @@ import {
   type PlaybackRate,
   formatRate,
 } from "@/hooks/usePlaybackRate";
+import {
+  PlayerKeyboardShortcuts,
+  SKIP_SECONDS,
+} from "./PlayerKeyboardShortcuts";
 import { formatTime } from "@/lib/formatTime";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
 import {
@@ -26,7 +30,6 @@ import {
 
 export const NOW_PLAYING_HEIGHT_VARIABLE = "--now-playing-height";
 const MINIMIZED_STORAGE_KEY = "curio-now-playing-minimized";
-const SKIP_SECONDS = 10;
 
 const readMinimized = (): boolean => {
   if (typeof window === "undefined") return false;
@@ -39,8 +42,11 @@ const readMinimized = (): boolean => {
 };
 
 type NowPlayingBarProps = {
-  returnFocusRef: RefObject<HTMLButtonElement | null>;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
+  error?: string | null;
+  onRetry?: () => void;
   articleTitle: string;
+  isPlayingArticlePage: boolean;
   /** Title of the section that is loaded, e.g. "Summary" or "History". */
   sectionTitle: string | null;
   playback: AudioPlaybackState;
@@ -149,7 +155,10 @@ const JumpIcon = () => (
  */
 export const NowPlayingBar = ({
   returnFocusRef,
+  error,
+  onRetry,
   articleTitle,
+  isPlayingArticlePage,
   sectionTitle,
   playback,
   audioProgress,
@@ -175,7 +184,7 @@ export const NowPlayingBar = ({
   const controlsId = useId();
   const [minimized, setMinimized] = useState(readMinimized);
   const [rateAnnouncement, setRateAnnouncement] = useState("");
-  const visible = isNowPlayingVisible(playback);
+  const visible = isNowPlayingVisible(playback) || Boolean(error);
 
   useLayoutEffect(() => {
     // A route unmount never runs this update. An outside control keeps focus.
@@ -184,7 +193,9 @@ export const NowPlayingBar = ({
       hadFocusOnRemoval.current &&
       document.activeElement === document.body
     ) {
-      returnFocusRef.current?.focus();
+      (
+        returnFocusRef?.current ?? document.getElementById("main-content")
+      )?.focus();
     }
     hadFocusOnRemoval.current = false;
   }, [visible, returnFocusRef]);
@@ -243,7 +254,20 @@ export const NowPlayingBar = ({
   const isLoading = playback.status === "loading";
   const isPaused = playback.status === "paused";
   const isPlayingAll = playback.mode === "play_all";
-  const displayTitle = sectionTitle ?? "Article audio";
+  const displayTitle = sectionTitle ?? articleTitle;
+  const controlLabel = error
+    ? "Retry"
+    : isLoading
+      ? "Loading"
+      : isPaused
+        ? "Play"
+        : "Pause";
+  const sectionDescription = [
+    isLoading ? "Loading audio" : isPaused ? "Paused" : null,
+    sectionTitle !== articleTitle ? sectionTitle : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const duration =
     audioProgress &&
@@ -256,7 +280,7 @@ export const NowPlayingBar = ({
       ? Math.min(duration, Math.max(0, audioProgress.currentTime))
       : 0;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const canSeek = !isLoading && duration > 0;
+  const canSeek = !error && !isLoading && duration > 0;
 
   const cycleSpeed = () => {
     const idx = PLAYBACK_RATES.indexOf(playbackRate as PlaybackRate);
@@ -284,41 +308,39 @@ export const NowPlayingBar = ({
         data-now-playing-bar
         className="fixed inset-x-0 bottom-0 z-50 max-h-[60dvh] overflow-y-auto border-t border-border bg-surface-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.18)] [overflow-wrap:anywhere]"
       >
-        <div className="@container mx-auto flex max-w-3xl flex-col gap-1 px-3 sm:px-4">
+        <div className="@container mx-auto flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 px-3 sm:px-4">
           <div
-            className={`flex min-w-0 gap-2 ${minimized ? "items-center" : "items-start"}`}
+            className={`flex min-w-0 gap-2 ${minimized ? "flex-[1_1_17em] items-center" : "w-full items-start"}`}
           >
             <div className="min-w-0 flex-1">
-              <p
-                className={`m-0 text-sm font-semibold leading-snug text-foreground sm:text-base ${minimized ? "line-clamp-2" : ""}`}
-              >
-                {displayTitle}
+              <p className="m-0 line-clamp-2 text-sm font-semibold leading-snug text-foreground sm:text-base">
+                {articleTitle}
               </p>
-              {!minimized && (
-                <p className="m-0 line-clamp-1 text-xs leading-snug text-muted sm:text-sm">
-                  {isLoading ? "Loading audio · " : isPaused ? "Paused · " : ""}
-                  {articleTitle}
+              {error && (
+                <p role="alert" className="m-0 text-sm text-critical">
+                  {error}
+                </p>
+              )}
+              {sectionDescription && (
+                <p className="@max-[32em]:sr-only @min-[32em]:m-0 @min-[32em]:line-clamp-1 @min-[32em]:text-sm @min-[32em]:leading-snug @min-[32em]:text-muted">
+                  {sectionDescription}
                 </p>
               )}
             </div>
             <button
               type="button"
-              onClick={() => {
-                if (!isLoading) onTogglePlayback();
-              }}
-              aria-disabled={isLoading || undefined}
-              aria-label={
-                isLoading
-                  ? `Loading ${displayTitle}`
-                  : isPaused
-                    ? `Play ${displayTitle}`
-                    : `Pause ${displayTitle}`
+              onClick={
+                error ? onRetry : isLoading ? undefined : onTogglePlayback
               }
+              aria-disabled={isLoading || undefined}
+              aria-label={`${controlLabel} ${displayTitle}`}
               className={`${controlBaseClass} min-w-12 border-transparent bg-btn-primary px-[14px] text-btn-primary-text hover:bg-btn-primary-hover [&>svg]:size-[1.1em] ${
                 isLoading ? "cursor-wait" : ""
               }`}
             >
-              {isLoading ? (
+              {error ? (
+                "Retry"
+              ) : isLoading ? (
                 <SpinnerIcon />
               ) : isPaused ? (
                 <PlayIcon />
@@ -326,7 +348,7 @@ export const NowPlayingBar = ({
                 <PauseIcon />
               )}
               <span className="hidden @min-[24em]:inline">
-                {isLoading ? "Loading" : isPaused ? "Play" : "Pause"}
+                {error ? null : controlLabel}
               </span>
             </button>
             <button
@@ -348,13 +370,11 @@ export const NowPlayingBar = ({
               >
                 <path d="m5 9 7 7 7-7" />
               </svg>
-              <span className="@max-[16em]:sr-only">
-                Player controls
-              </span>
+              <span className="@max-[16em]:sr-only">Player controls</span>
             </button>
           </div>
 
-          <div id={controlsId} hidden={minimized}>
+          <div id={controlsId} hidden={minimized} className="w-full">
             <div
               role="group"
               aria-label="Playback controls"
@@ -443,6 +463,12 @@ export const NowPlayingBar = ({
               </span>
             </div>
           </div>
+          <PlayerKeyboardShortcuts
+            scopeRef={isPlayingArticlePage ? undefined : barRef}
+            onTogglePlayback={error || isLoading ? undefined : onTogglePlayback}
+            onSkipBy={canSeek ? onSkipBy : undefined}
+            onNextSection={isPlayingAll ? onSkipSection : undefined}
+          />
         </div>
       </section>
     </>

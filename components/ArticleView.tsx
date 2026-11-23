@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { useData, type Article } from "@/lib/data-context";
 import { useHistory } from "@/hooks/useHistory";
-import { useArticleAudioController } from "@/hooks/useArticleAudioController";
+import { useArticlePlayback } from "./ArticlePlaybackProvider";
 import {
   useArticleContext,
   type ArticleContextLoadState,
@@ -30,10 +29,9 @@ import {
 } from "./ArticleViewPresentation";
 import { ArticleListeningControls } from "./ArticleListeningControls";
 import { BookmarkButton } from "./BookmarkButton";
-import { NowPlayingBar } from "./NowPlayingBar";
 import { PlaylistActionButton } from "./PlaylistActionButton";
 import { RelatedArticles } from "./RelatedArticles";
-import { TableOfContents, tocFocusTargetId } from "./TableOfContents";
+import { TableOfContents } from "./TableOfContents";
 
 type ArticleData = Article & {
   _id?: string;
@@ -42,39 +40,15 @@ type ArticleData = Article & {
 const isLocal = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 const EMPTY_CONTEXT_BLOCKS: ContextBlock[] = [];
 
-const AuthenticatedArticleView = ({ slug }: { slug: string }) => {
-  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+export const ArticleView = ({ slug }: { slug: string }) => (
+  <ArticleViewContent key={slug} slug={slug} />
+);
 
-  return (
-    <ArticleViewContent
-      key={slug}
-      slug={slug}
-      badgeTrackingEnabled={isAuthLoaded && isSignedIn === true}
-    />
-  );
-};
-
-export const ArticleView = ({ slug }: { slug: string }) => {
-  if (isLocal) {
-    return (
-      <ArticleViewContent key={slug} slug={slug} badgeTrackingEnabled={false} />
-    );
-  }
-
-  return <AuthenticatedArticleView slug={slug} />;
-};
-
-const ArticleViewContent = ({
-  slug,
-  badgeTrackingEnabled,
-}: {
-  slug: string;
-  badgeTrackingEnabled: boolean;
-}) => {
+const ArticleViewContent = ({ slug }: { slug: string }) => {
   const { fetchArticle } = useData();
-  const { recordVisit, updateProgress, getProgress } = useHistory();
+  const { recordVisit, getProgress } = useHistory();
 
-  const [displayArticle, setDisplayArticle] = useState<ArticleData | null>(
+  const [fetchedArticle, setFetchedArticle] = useState<ArticleData | null>(
     null,
   );
   const [fetching, setFetching] = useState(true);
@@ -89,6 +63,11 @@ const ArticleViewContent = ({
     useState<AdaptiveImageAnalysis | null>(null);
   const fetchTriggered = useRef(false);
   const playAllButtonRef = useRef<HTMLButtonElement>(null);
+  const { article: displayArticle, controller } = useArticlePlayback(
+    slug,
+    fetchedArticle,
+    playAllButtonRef,
+  );
 
   const articleContext = useArticleContext(
     displayArticle
@@ -166,7 +145,7 @@ const ArticleViewContent = ({
     fetchArticle({ slug })
       .then((result) => {
         const article = result as ArticleData;
-        setDisplayArticle(article);
+        setFetchedArticle(article);
         updateResumePrompt();
         recordVisit(slug, article.title);
       })
@@ -208,22 +187,11 @@ const ArticleViewContent = ({
     };
   }, [displayArticle?.thumbnailUrl]);
 
-  const {
-    state: audioState,
-    actions: audioActions,
-    audioElement: { ref: audioRef, src: audioSrc, warmRegionRef },
-  } = useArticleAudioController({
-    slug,
-    article: displayArticle,
-    badgeTrackingEnabled,
-    updateProgress,
-  });
-
   if (fetching && !displayArticle) {
     return <ArticleLoadingState />;
   }
 
-  if (fetchError) {
+  if (fetchError && !displayArticle) {
     return (
       <ArticleLoadError
         error={fetchError}
@@ -237,13 +205,15 @@ const ArticleViewContent = ({
   }
 
   if (!displayArticle) return null;
+  const audioState = controller?.state;
+  const audioActions = controller?.actions;
 
   const sections = displayArticle.sections ?? [];
 
   const handleResume = () => {
     if (!savedProgressState?.sectionKey) return;
     setShowResumeBanner(false);
-    audioActions.resume(
+    audioActions?.resume(
       savedProgressState.sectionKey,
       savedProgressState.sectionIndex ?? null,
     );
@@ -251,41 +221,18 @@ const ArticleViewContent = ({
 
   const handleStartFromBeginning = () => {
     setShowResumeBanner(false);
-    audioActions.startFromBeginning();
-  };
-
-  const activeSectionKey = audioState.playback.sectionKey;
-  const activeSectionIdx = audioState.playback.sectionIdx;
-  const nowPlayingSectionTitle =
-    activeSectionKey === "summary"
-      ? "Summary"
-      : activeSectionIdx !== null
-        ? (sections[activeSectionIdx]?.title ?? null)
-        : null;
-
-  const jumpToActiveSection = () => {
-    if (!activeSectionKey) return;
-    const target = document.getElementById(tocFocusTargetId(activeSectionKey));
-    if (!target) return;
-    const reduceMotion = window.matchMedia?.(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
-    target.scrollIntoView({
-      block: "center",
-      behavior: reduceMotion ? "auto" : "smooth",
-    });
-    target.focus({ preventScroll: true });
+    audioActions?.startFromBeginning();
   };
 
   return (
-    <>
-      <article className="animate-fade-in-up">
-        <header className="mb-6">
-          <h1 className="type-page-title m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
-            {displayArticle.title}
-          </h1>
+    <article className="animate-fade-in-up">
+      <header className="mb-6">
+        <h1 className="type-page-title m-0 font-display text-[clamp(2rem,5vw,3rem)] font-bold leading-[1.15] text-foreground">
+          {displayArticle.title}
+        </h1>
 
-          <div className="mt-5">
+        <div className="mt-5">
+          {audioState && audioActions ? (
             <ArticleListeningControls
               playAllButtonRef={playAllButtonRef}
               identity={displayArticle}
@@ -308,9 +255,19 @@ const ArticleViewContent = ({
               onPlaybackRateChange={audioActions.changePlaybackRate}
               fallbackVoiceNotice={audioState.fallbackVoiceNotice}
             />
-          </div>
+          ) : (
+            <p
+              role="status"
+              className="my-0 flex min-h-12 items-center text-sm text-muted"
+            >
+              Loading listening controls…
+            </p>
+          )}
+        </div>
 
-          {showResumeBanner && savedProgressState && (
+        {showResumeBanner &&
+          savedProgressState &&
+          audioState?.playback.status === "idle" && (
             <div className="mt-4">
               <ResumeBanner
                 sectionLabel={
@@ -325,142 +282,116 @@ const ArticleViewContent = ({
             </div>
           )}
 
-          {audioState.error && (
-            <div className="mt-4">
-              <AudioErrorNotice
-                error={audioState.error}
-                retryLabel={audioState.retryLabel}
-                onRetry={audioActions.retry}
-              />
-            </div>
-          )}
-
-          <div
-            role="group"
-            aria-label="Save this article"
-            className="mt-4 flex flex-wrap items-center gap-2"
-          >
-            <BookmarkButton
-              slug={slug}
-              title={displayArticle.title}
-              variant="labeled"
+        {audioState?.error && audioActions && (
+          <div className="mt-4">
+            <AudioErrorNotice
+              error={audioState.error}
+              retryLabel={audioState.retryLabel}
+              onRetry={audioActions.retry}
             />
-            <PlaylistActionButton
-              slug={slug}
-              title={displayArticle.title}
-              variant="labeled"
-            />
-            <details className="group basis-full" data-save-options-help>
-              <summary className="btn-tertiary -ml-3 cursor-pointer list-none text-sm [&::-webkit-details-marker]:hidden">
-                <span className="group-open:hidden">
-                  What’s the difference?
-                </span>
-                <span className="hidden group-open:inline">
-                  Hide the difference
-                </span>
-              </summary>
-              <p className="mb-0 mt-1 max-w-[70ch] text-sm leading-relaxed text-foreground-2">
-                {isLocal
-                  ? "Library keeps the article on this device for later."
-                  : "Library keeps the article for later. Playlist generates a full-article podcast episode for your private feed."}
-              </p>
-            </details>
-          </div>
-        </header>
-
-        <ArticleHero
-          article={displayArticle}
-          imageAnalysis={heroImageAnalysis}
-          lightbox={heroLightbox}
-          onLightboxChange={setHeroLightbox}
-        />
-
-        <div className="mb-6 flex flex-col gap-3">
-          <ArticleSourceLine
-            language={displayArticle.language}
-            revisionId={displayArticle.revisionId}
-            wikiPageId={displayArticle.wikiPageId}
-          />
-          <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
-        </div>
-
-        <audio
-          ref={audioRef}
-          src={audioSrc ?? undefined}
-          preload="metadata"
-          aria-hidden="true"
-          className="hidden"
-        />
-
-        <div ref={warmRegionRef} className="animate-fade-in-up-delay-2 mb-6">
-          <TableOfContents
-            identity={displayArticle}
-            summaryText={displayArticle.summary}
-            sections={sections}
-            sectionDurations={audioState.sectionDurations}
-            playback={audioState.playback}
-            onListenSection={audioActions.listenSection}
-            onListenSummary={audioActions.listenSummary}
-            onWarmSummary={audioActions.warmSummary}
-            onWarmSection={audioActions.warmSection}
-            playbackRate={audioState.playbackRate}
-            audioProgress={audioState.audioProgress}
-            onSeek={audioActions.seek}
-            contextBlocks={contextBlocks}
-          />
-        </div>
-
-        <ArticleContextLane
-          state={visibleArticleContext}
-          retry={articleContext.retry}
-        />
-
-        <ArticleGallery
-          identity={displayArticle}
-          className="animate-fade-in-up-delay-2 mb-6 mt-10 border-t border-border pt-8"
-        />
-
-        {audioState.finishedPlaying && (
-          <div className="animate-fade-in-up mb-6">
-            <RelatedArticles identity={displayArticle} />
           </div>
         )}
 
-        <ArticleHeader
-          title={displayArticle.title}
+        <div
+          role="group"
+          aria-label="Save this article"
+          className="mt-4 flex flex-wrap items-center gap-2"
+        >
+          <BookmarkButton
+            slug={slug}
+            title={displayArticle.title}
+            variant="labeled"
+          />
+          <PlaylistActionButton
+            slug={slug}
+            title={displayArticle.title}
+            variant="labeled"
+          />
+          <details className="group basis-full" data-save-options-help>
+            <summary className="btn-tertiary -ml-3 cursor-pointer list-none text-sm [&::-webkit-details-marker]:hidden">
+              <span className="group-open:hidden">What’s the difference?</span>
+              <span className="hidden group-open:inline">
+                Hide the difference
+              </span>
+            </summary>
+            <p className="mb-0 mt-1 max-w-[70ch] text-sm leading-relaxed text-foreground-2">
+              {isLocal
+                ? "Library keeps the article on this device for later."
+                : "Library keeps the article for later. Playlist generates a full-article podcast episode for your private feed."}
+            </p>
+          </details>
+        </div>
+      </header>
+
+      <ArticleHero
+        article={displayArticle}
+        imageAnalysis={heroImageAnalysis}
+        lightbox={heroLightbox}
+        onLightboxChange={setHeroLightbox}
+      />
+
+      <div className="mb-6 flex flex-col gap-3">
+        <ArticleSourceLine
           language={displayArticle.language}
           revisionId={displayArticle.revisionId}
-          lastEdited={displayArticle.lastEdited}
           wikiPageId={displayArticle.wikiPageId}
         />
+        <ArticleTopics badgeKeys={displayArticle.badgeKeys} />
+      </div>
 
-        <p className="mt-6 text-sm text-muted">
-          Something off with this article or its audio?{" "}
-          <ArticleFeedbackLink
-            title={displayArticle.title}
-            slug={slug}
-            revisionId={displayArticle.revisionId}
-          />
-        </p>
-      </article>
+      <div
+        ref={controller?.audioElement.warmRegionRef}
+        className="animate-fade-in-up-delay-2 mb-6"
+      >
+        <TableOfContents
+          identity={displayArticle}
+          summaryText={displayArticle.summary}
+          sections={sections}
+          sectionDurations={audioState?.sectionDurations}
+          playback={audioState?.playback}
+          onListenSection={audioActions?.listenSection}
+          onListenSummary={audioActions?.listenSummary}
+          onWarmSummary={audioActions?.warmSummary}
+          onWarmSection={audioActions?.warmSection}
+          playbackRate={audioState?.playbackRate}
+          audioProgress={audioState?.audioProgress}
+          onSeek={audioActions?.seek}
+          contextBlocks={contextBlocks}
+        />
+      </div>
 
-      {/* Outside the animated <article>: its lingering transform would
-          otherwise become the containing block for position: fixed. */}
-      <NowPlayingBar
-        returnFocusRef={playAllButtonRef}
-        articleTitle={displayArticle.title}
-        sectionTitle={nowPlayingSectionTitle}
-        playback={audioState.playback}
-        audioProgress={audioState.audioProgress}
-        playbackRate={audioState.playbackRate}
-        onTogglePlayback={audioActions.togglePlayback}
-        onSkipBy={audioActions.skipBy}
-        onSkipSection={audioActions.skipSection}
-        onStop={audioActions.stopPlayAll}
-        onSeek={audioActions.seek}
-        onPlaybackRateChange={audioActions.changePlaybackRate}
-        onJumpToSection={jumpToActiveSection}
+      <ArticleContextLane
+        state={visibleArticleContext}
+        retry={articleContext.retry}
       />
-    </>
+
+      <ArticleGallery
+        identity={displayArticle}
+        className="animate-fade-in-up-delay-2 mb-6 mt-10 border-t border-border pt-8"
+      />
+
+      {audioState?.finishedPlaying && (
+        <div className="animate-fade-in-up mb-6">
+          <RelatedArticles identity={displayArticle} />
+        </div>
+      )}
+
+      <ArticleHeader
+        title={displayArticle.title}
+        language={displayArticle.language}
+        revisionId={displayArticle.revisionId}
+        lastEdited={displayArticle.lastEdited}
+        wikiPageId={displayArticle.wikiPageId}
+      />
+
+      <p className="mt-6 text-sm text-muted">
+        Something off with this article or its audio?{" "}
+        <ArticleFeedbackLink
+          title={displayArticle.title}
+          slug={slug}
+          revisionId={displayArticle.revisionId}
+        />
+      </p>
+    </article>
   );
 };

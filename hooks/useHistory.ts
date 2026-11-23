@@ -86,9 +86,10 @@ export const useHistory = () => {
 
   const recordVisit = useCallback((slug: string, title: string) => {
     const prev = getSnapshot();
+    const existing = prev.find((entry) => entry.slug === slug);
     const filtered = prev.filter((e) => e.slug !== slug);
     const next: HistoryEntry[] = [
-      { slug, title, lastVisitedAt: Date.now() },
+      { ...existing, slug, title, lastVisitedAt: Date.now() },
       ...filtered,
     ].slice(0, MAX_ENTRIES);
     writeHistory(next);

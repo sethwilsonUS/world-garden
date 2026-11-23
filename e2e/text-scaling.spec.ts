@@ -287,6 +287,14 @@ test("article section titles and Listen targets reflow at maximum text size", as
   const skip = page.getByRole("button", { name: "Skip section", exact: true });
   await expect(skip.getByText("Skip section", { exact: true })).toBeVisible();
   await expectNoPageOverflow(page);
+
+  await page.getByRole("button", { name: "Open menu" }).click();
+  const theme = page.getByRole("navigation", { name: "Mobile navigation" })
+    .getByRole("button", { name: /Switch to (light|dark) theme/ });
+  const originalAction = await theme.innerText();
+  // The expanded player overlaps this part of the menu at maximum text size.
+  await theme.click();
+  await expect(theme).not.toHaveAccessibleName(originalAction);
 });
 
 test("shell, menu, and listening controls remain reachable", async ({
@@ -304,13 +312,21 @@ test("shell, menu, and listening controls remain reachable", async ({
   expect(menuButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
 
   await menuButton.click();
-  await expect(
-    page.getByRole("navigation", { name: "Mobile navigation" }),
-  ).toBeVisible();
-
-  const themeButton = page.getByRole("button", {
+  const mobileMenu = page.getByRole("navigation", { name: "Mobile navigation" });
+  await expect(mobileMenu).toBeVisible();
+  const menuTheme = mobileMenu.getByRole("button", { name: /switch to (light|dark) theme/i });
+  const originalAction = await menuTheme.innerText();
+  await menuTheme.press("Enter");
+  await expect(menuTheme).not.toHaveAccessibleName(originalAction);
+  await expect(menuTheme).toBeFocused();
+  await page.getByRole("button", { name: "Close menu" }).click();
+  const themeButton = page.getByRole("contentinfo").getByRole("button", {
     name: /switch to (light|dark) theme/i,
   });
+  await themeButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(themeButton).toHaveAccessibleName(originalAction);
+  await expect(themeButton).toBeFocused();
   const themeButtonBox = await themeButton.boundingBox();
   expect(themeButtonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
   expect(themeButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
