@@ -47,7 +47,7 @@ export default function AboutPage() {
             aria-hidden="true"
           />
           <div className="relative max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+            <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
               About this project
             </p>
             <h1 className="type-hero-title mt-4 font-display font-semibold leading-[1.02] tracking-[-0.025em] text-foreground">
@@ -66,7 +66,7 @@ export default function AboutPage() {
           aria-labelledby="why-heading"
           className="mx-auto mt-14 max-w-3xl"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             The idea
           </p>
           <h2
@@ -104,7 +104,7 @@ export default function AboutPage() {
           aria-labelledby="research-heading"
           className="garden-bed mx-auto mt-10 max-w-3xl overflow-hidden p-6 sm:p-8"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
             Help the garden learn
           </p>
           <h2
@@ -132,7 +132,7 @@ export default function AboutPage() {
 
         <section aria-labelledby="engineering-heading" className="mt-16">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+            <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
               Under the garden bed
             </p>
             <h2
@@ -172,7 +172,7 @@ export default function AboutPage() {
           aria-labelledby="ai-transparency-heading"
           className="mx-auto mt-16 max-w-3xl"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Plain-language provenance
           </p>
           <h2

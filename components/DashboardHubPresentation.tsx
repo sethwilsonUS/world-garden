@@ -34,7 +34,7 @@ export const SectionShell = ({
 }) => {
   return (
     <section aria-labelledby="dashboard-heading" className="mb-8">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+      <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
         {eyebrow}
       </p>
       <h1
@@ -73,7 +73,7 @@ export const DashboardSummaryCard = ({
       }`}
     >
       <div className="min-w-0">
-        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+        <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
           {eyebrow}
         </p>
         <h2 className="type-section-title mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
@@ -114,7 +114,7 @@ const FeatureCard = ({
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-[1_1_220px]">
-          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             {status}
           </p>
           <h2 className="type-section-title mt-2 font-display text-[1.35rem] font-semibold leading-[1.2] text-foreground">
@@ -280,7 +280,7 @@ export const DashboardPlaylistCard = ({
     <article className="garden-bed h-full p-6 sm:p-7">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-[1_1_220px]">
-          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Personalized queue
           </p>
           <h2
@@ -290,7 +290,7 @@ export const DashboardPlaylistCard = ({
             Playlist
           </h2>
         </div>
-        <span className="inline-flex max-w-full flex-wrap rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase leading-snug tracking-[0.12em] text-accent">
+        <span className="inline-flex max-w-full flex-wrap rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.8125rem] font-semibold leading-snug tracking-[0.01em] text-accent">
           {entries.length === 0
             ? "Ready to plant"
             : `${entries.length} in queue`}
@@ -341,10 +341,10 @@ export const DashboardPlaylistCard = ({
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0 flex-[1_1_240px]">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex min-h-7 items-center rounded-full border border-border bg-surface-2 px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-muted">
+                      <span className="inline-flex min-h-7 items-center rounded-full border border-border bg-surface-2 px-2.5 text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
                         #{index + 1}
                       </span>
-                      <span className="inline-flex min-h-7 items-center rounded-full border border-accent-border bg-accent-bg px-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-accent">
+                      <span className="inline-flex min-h-7 items-center rounded-full border border-accent-border bg-accent-bg px-2.5 text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
                         {playlistStageLabel(entry)}
                       </span>
                     </div>

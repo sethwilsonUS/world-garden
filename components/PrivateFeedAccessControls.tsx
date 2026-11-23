@@ -161,7 +161,7 @@ export const PrivateFeedAccessControls = ({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Private RSS access
           </p>
           <h3

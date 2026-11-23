@@ -33,7 +33,7 @@ export const SectionDetailsBadge = ({
       }}
       aria-expanded={isOpen}
       aria-label={label}
-      className="linked-article-link pointer-events-auto inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[3px] break-words rounded-full border border-border bg-transparent px-[8px] py-[4px] text-center text-[0.6875rem] font-medium leading-[1.4] text-muted transition-colors duration-150 [overflow-wrap:anywhere] cursor-pointer sm:text-[0.625rem]"
+      className="linked-article-link pointer-events-auto inline-flex min-h-[44px] max-w-full flex-wrap items-center justify-center gap-[3px] break-words rounded-full border border-border bg-transparent px-[8px] py-[4px] text-center text-xs font-medium leading-[1.4] text-muted transition-colors duration-150 [overflow-wrap:anywhere] cursor-pointer sm:text-xs"
     >
       <svg
         viewBox="0 0 24 24"
@@ -85,12 +85,12 @@ export const SectionDetailsPanel = ({
 
   return (
     <div className="px-3 pt-1 pb-2">
-      {loading && <p className="text-[0.6875rem] text-muted m-0">Loading...</p>}
+      {loading && <p className="text-xs text-muted m-0">Loading...</p>}
 
       {!linksLoading && links !== null && links.length > 0 && (
         <nav aria-label={`Links in ${sectionLabel}`}>
           {showBoth && (
-            <p className="text-[0.65625rem] sm:text-[0.5625rem] font-semibold text-muted uppercase tracking-[0.05em] ml-1.5 mb-0.5">
+            <p className="text-[0.8125rem] sm:text-[0.8125rem] font-semibold text-muted tracking-[0.01em] ml-1.5 mb-0.5">
               Links
             </p>
           )}
@@ -119,7 +119,7 @@ export const SectionDetailsPanel = ({
           className={showBoth && links && links.length > 0 ? "mt-2" : ""}
         >
           {showBoth && (
-            <p className="text-[0.65625rem] sm:text-[0.5625rem] font-semibold text-muted uppercase tracking-[0.05em] ml-1.5 mb-0.5">
+            <p className="text-[0.8125rem] sm:text-[0.8125rem] font-semibold text-muted tracking-[0.01em] ml-1.5 mb-0.5">
               Citations
             </p>
           )}
@@ -131,11 +131,11 @@ export const SectionDetailsPanel = ({
               >
                 <span
                   aria-hidden="true"
-                  className="shrink-0 w-6 font-mono text-[0.6875rem] sm:text-[0.625rem] font-semibold text-muted text-right leading-[1.65]"
+                  className="shrink-0 w-6 font-mono text-xs sm:text-xs font-semibold text-muted text-right leading-[1.65]"
                 >
                   {citation.index}
                 </span>
-                <span className="flex-1 min-w-0 text-[0.8125rem] sm:text-[0.6875rem] leading-[1.65] text-foreground-2 break-words">
+                <span className="flex-1 min-w-0 text-[0.8125rem] sm:text-xs leading-[1.65] text-foreground-2 break-words">
                   {citation.text}
                   {citation.url && (
                     <>
@@ -145,7 +145,7 @@ export const SectionDetailsPanel = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label={`Source for citation ${citation.index} (opens in new tab)`}
-                        className="linked-article-link inline-flex min-h-[44px] items-center gap-0.5 rounded px-[6px] text-[0.6875rem] text-muted no-underline align-baseline transition-colors duration-150 sm:text-[0.625rem]"
+                        className="linked-article-link inline-flex min-h-[44px] items-center gap-0.5 rounded px-[6px] text-xs text-muted no-underline align-baseline transition-colors duration-150 sm:text-xs"
                       >
                         <svg
                           viewBox="0 0 24 24"
@@ -175,7 +175,7 @@ export const SectionDetailsPanel = ({
       {!loading &&
         (links === null || links.length === 0) &&
         (citations === null || citations.length === 0) && (
-          <p className="text-[0.6875rem] text-muted m-0">
+          <p className="text-xs text-muted m-0">
             No details available for this section.
           </p>
         )}

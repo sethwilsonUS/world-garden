@@ -454,7 +454,7 @@ export const TableOfContents = ({
               </svg>
               {summaryOnly ? "Play" : "Play all"}
               {!summaryOnly && (
-                <span className="text-[0.6875rem] opacity-80 font-medium">
+                <span className="text-xs opacity-80 font-medium">
                   ({playableCount})
                 </span>
               )}
@@ -564,12 +564,12 @@ export const TableOfContents = ({
         )}
       </div>
 
-      <p className="mb-3 text-[0.6875rem] leading-normal text-muted">
+      <p className="mb-3 text-xs leading-normal text-muted">
         Audio is generated with synthetic speech.
       </p>
       {fallbackVoiceNotice ? (
         <p
-          className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
+          className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs leading-normal text-muted"
           role="status"
           aria-live="polite"
         >
@@ -578,7 +578,7 @@ export const TableOfContents = ({
       ) : null}
       {playback.status === "loading" && playback.slowLoading ? (
         <p
-          className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-[0.6875rem] leading-normal text-muted"
+          className="mb-3 rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs leading-normal text-muted"
           role="status"
           aria-live="polite"
         >
@@ -600,7 +600,7 @@ export const TableOfContents = ({
                   Summary
                 </span>
                 {summaryText && (
-                  <span className="shrink-0 font-mono text-xs font-normal text-muted sm:text-[0.6875rem]">
+                  <span className="shrink-0 font-mono text-xs font-normal text-muted sm:text-xs">
                     <span aria-hidden="true">
                       {durationLabel(
                         "summary",
@@ -785,7 +785,7 @@ export const TableOfContents = ({
                     >
                       {section.title}
                     </span>
-                    <span className="shrink-0 font-mono text-xs font-normal text-muted sm:text-[0.6875rem]">
+                    <span className="shrink-0 font-mono text-xs font-normal text-muted sm:text-xs">
                       <span aria-hidden="true">
                         {durationLabel(
                           `section-${index}`,
@@ -936,7 +936,7 @@ export const TableOfContents = ({
       </nav>
 
       {(hasAdaptedSections || hasEmptySections) && (
-        <p className="mt-3.5 text-[0.6875rem] text-muted leading-normal text-center">
+        <p className="mt-3.5 text-xs text-muted leading-normal text-center">
           {hasAdaptedSections &&
             "Tables and lists are adapted from Wikipedia’s source structure for audio. "}
           {hasEmptySections && "Headings without source text remain visible. "}

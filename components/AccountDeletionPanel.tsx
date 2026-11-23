@@ -228,7 +228,7 @@ export const AccountDeletionPanel = ({
       className="garden-bed overflow-hidden border-critical/35"
     >
       <div className="border-b border-critical/25 bg-surface-2 p-6 sm:p-7">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-critical">
+        <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-critical">
           Permanent action
         </p>
         <h2

@@ -233,7 +233,7 @@ export const FeaturedArticleCard = ({
           />
         )}
         <div className="min-w-0 px-5 py-4">
-          <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+          <p className="m-0 text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Featured article
           </p>
           <h3 className="mt-2 font-display text-[1.05rem] font-bold leading-[1.3]">
@@ -360,7 +360,7 @@ export const OnThisDayCard = ({ items }: { items: OnThisDayItem[] }) => {
     >
       <h3
         id="today-on-this-day-heading"
-        className="text-xs font-semibold uppercase tracking-[0.16em] text-muted"
+        className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted"
       >
         On This Day
       </h3>
@@ -517,7 +517,7 @@ export const TrendingArticles = ({
     <section aria-labelledby="today-trending-heading" className="lg:col-span-2">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <p className="m-0 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+          <p className="m-0 text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Trending
           </p>
           <h3
@@ -607,7 +607,7 @@ export const TrendingArticles = ({
                           {article.extract}
                         </span>
                         {article.views > 0 && (
-                          <span className="mt-2 text-[0.6875rem] text-muted">
+                          <span className="mt-2 text-xs text-muted">
                             {formatViews(article.views)} views yesterday
                           </span>
                         )}
@@ -714,7 +714,7 @@ export const PictureOfDayFigure = ({ picture }: { picture: PictureOfDay }) => {
       )}
 
       <figcaption className="px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+        <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
           Picture of the Day
         </p>
         <p className="mt-2 text-sm leading-[1.7] text-foreground-2">

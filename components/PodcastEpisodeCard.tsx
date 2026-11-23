@@ -51,7 +51,7 @@ export const PodcastEpisodeCard = ({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">
+            <span className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
               {dateLabel}
             </span>
             {durationLabel && (
@@ -60,7 +60,7 @@ export const PodcastEpisodeCard = ({
                   className="inline-block h-[3px] w-[3px] rounded-full bg-muted"
                   aria-hidden="true"
                 />
-                <span className="font-mono text-[0.68rem] text-muted">
+                <span className="font-mono text-xs text-muted">
                   {durationLabel}
                 </span>
               </>

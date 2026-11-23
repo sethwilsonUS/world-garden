@@ -44,7 +44,7 @@ export const DashboardBadgeCard = ({
     <article className="garden-bed p-6">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-[1_1_220px]">
-          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Signed-in progress
           </p>
           <h2
@@ -54,7 +54,7 @@ export const DashboardBadgeCard = ({
             Badges
           </h2>
         </div>
-        <span className="inline-flex max-w-full flex-wrap rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.68rem] font-semibold uppercase leading-snug tracking-[0.12em] text-accent">
+        <span className="inline-flex max-w-full flex-wrap rounded-full border border-accent-border bg-accent-bg px-2.5 py-1 text-[0.8125rem] font-semibold leading-snug tracking-[0.01em] text-accent">
           Growing now
         </span>
       </div>

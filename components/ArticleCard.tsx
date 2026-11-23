@@ -87,7 +87,7 @@ export const ArticleCard = ({
               {article.extract}
             </span>
             {article.views > 0 && (
-              <span className="mt-1.5 block text-[0.6875rem] text-muted opacity-70">
+              <span className="mt-1.5 block text-xs text-muted opacity-70">
                 <span aria-hidden="true">
                   {formatViews(article.views)} views yesterday
                 </span>

@@ -187,7 +187,7 @@ export const BadgeDetailsDialog = ({
                   />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-muted">
+                  <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
                     Badge details
                   </p>
                   <h2
@@ -241,7 +241,7 @@ export const BadgeDetailsDialog = ({
               >
                 {badge.exp} EXP
               </span>
-              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 font-mono text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-muted">
+              <span className="inline-flex items-center rounded-full border border-border bg-surface px-3 py-1.5 text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
                 {badge.creditedArticleCount} article
                 {badge.creditedArticleCount === 1 ? "" : "s"}
               </span>
@@ -249,10 +249,10 @@ export const BadgeDetailsDialog = ({
 
             <div className="mt-5 rounded-[19.2px] border border-border bg-surface-2 p-4">
               <div className="flex flex-wrap items-center justify-between gap-[12px]">
-                <p className="font-mono text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-muted">
+                <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
                   Progress
                 </p>
-                <p className="font-mono text-[0.72rem] text-muted">
+                <p className="font-mono text-xs text-muted">
                   {progressLabel}
                 </p>
               </div>
@@ -297,7 +297,7 @@ export const BadgeDetailsDialog = ({
                   Contributing articles
                 </h3>
                 {resolvedCredits.length > 1 ? (
-                  <p className="font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted">
+                  <p className="text-[0.8125rem] tracking-[0.01em] text-muted">
                     Most recent first
                   </p>
                 ) : null}
@@ -333,11 +333,11 @@ export const BadgeDetailsDialog = ({
                           <span className="block text-sm leading-[1.45] text-foreground">
                             {credit.title}
                           </span>
-                          <span className="mt-1 block font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted">
+                          <span className="mt-1 block text-[0.8125rem] tracking-[0.01em] text-muted">
                             Listened on {formatBadgeCreditDate(credit.earnedAt)}
                           </span>
                         </span>
-                        <span className="mt-0.5 shrink-0 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-muted transition-colors duration-200 group-hover:text-accent">
+                        <span className="mt-0.5 shrink-0 text-[0.8125rem] tracking-[0.01em] text-muted transition-colors duration-200 group-hover:text-accent">
                           View
                         </span>
                       </ArticleLink>

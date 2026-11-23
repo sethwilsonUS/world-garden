@@ -45,7 +45,7 @@ Your Wikipedia listening library and personal podcast queue — an accessibility
 - **AI:** Direct OpenAI Responses API for daily trend brief generation, web search, and optional context-description enhancement
 - **Rich context:** MapLibre GL and Apache ECharts as progressive visual enhancements over semantic HTML views
 - **Styling:** Tailwind CSS 4 + CSS custom properties
-- **Fonts:** Fraunces (display), DM Sans (body), JetBrains Mono (code)
+- **Fonts:** Fraunces (display), Atkinson Hyperlegible Next (body), Atkinson Hyperlegible Mono (timestamps and code)
 - **Testing:** Vitest unit/integration tests plus Playwright Chromium journeys and axe accessibility scans
 
 ## Product Tour

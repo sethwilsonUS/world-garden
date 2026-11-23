@@ -16,7 +16,7 @@ export const ArticleTopics = ({ badgeKeys }: ArticleTopicsProps) => {
       aria-label="Article topics"
       className="flex flex-wrap items-center gap-2"
     >
-      <span className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-foreground/65">
+      <span className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[0.8125rem] font-semibold tracking-[0.01em] text-foreground/65">
         Related topics
       </span>
 

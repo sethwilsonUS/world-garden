@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => ({
   Fraunces: () => ({ variable: "fraunces" }),
-  DM_Sans: () => ({ variable: "dm-sans" }),
-  JetBrains_Mono: () => ({ variable: "jetbrains-mono" }),
+  Atkinson_Hyperlegible_Next: () => ({ variable: "atkinson-next" }),
+  Atkinson_Hyperlegible_Mono: () => ({ variable: "atkinson-mono" }),
 }));
 
 vi.mock("@clerk/nextjs", () => {

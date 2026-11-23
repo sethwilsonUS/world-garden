@@ -137,7 +137,7 @@ export default async function PodcastDetailPage({
           </p>
 
           <div className="garden-bed p-5 sm:p-6 mt-6">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-3">
+            <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-3">
               Follow this show
             </p>
             <p className="text-sm text-foreground-2 leading-[1.7] mb-5 max-w-2xl">

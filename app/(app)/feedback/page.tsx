@@ -100,7 +100,7 @@ export default async function FeedbackPage({
         </nav>
 
         <header>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
             Feedback &amp; research
           </p>
           <h1 className="type-page-title mt-3 font-display text-[clamp(2.25rem,6vw,4rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-foreground">

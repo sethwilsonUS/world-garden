@@ -172,7 +172,7 @@ export default function TrendingPage() {
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
+                  <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-2">
                     AI-generated daily audio briefing
                   </p>
                   <h2
@@ -260,7 +260,7 @@ export default function TrendingPage() {
               aria-labelledby="daily-brief-heading"
               className="garden-bed p-6 mb-8"
             >
-              <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
+              <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-2">
                 Daily audio briefing
               </p>
               <h2
@@ -279,7 +279,7 @@ export default function TrendingPage() {
               aria-labelledby="daily-brief-heading"
               className="garden-bed p-6 mb-8"
             >
-              <p className="text-xs uppercase tracking-[0.18em] text-muted font-semibold mb-2">
+              <p className="text-[0.8125rem] tracking-[0.01em] text-muted font-semibold mb-2">
                 Daily audio briefing
               </p>
               <h2

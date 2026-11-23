@@ -47,7 +47,7 @@ export default function Home() {
                 className="mx-auto max-w-[480px] text-center lg:mx-0 lg:min-h-[416px] lg:max-w-none lg:bg-surface-2 lg:px-9 lg:py-8 lg:text-left xl:px-11 xl:py-10"
               >
                 <div className="hidden lg:block">
-                  <p className="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-accent">
+                  <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
                     Your next curiosity
                   </p>
                   <h2

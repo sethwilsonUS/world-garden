@@ -155,13 +155,13 @@ export const InlineProgressBar = ({
       </div>
       <div className="flex items-center justify-between mt-1.5 px-0.5">
         <span
-          className="font-mono text-[0.625rem] tracking-wide font-medium text-accent select-none tabular-nums"
+          className="font-mono text-xs tracking-wide font-medium text-accent select-none tabular-nums"
           aria-hidden="true"
         >
           {formatTime(normalizedCurrentTime)}
         </span>
         <span
-          className="font-mono text-[0.625rem] tracking-wide font-medium text-muted select-none tabular-nums"
+          className="font-mono text-xs tracking-wide font-medium text-muted select-none tabular-nums"
           aria-hidden="true"
         >
           {normalizedDuration > 0 ? formatTime(normalizedDuration) : "--:--"}

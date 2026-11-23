@@ -67,7 +67,7 @@ export const HomeListeningSample = () => {
           </span>
 
           <div className="min-w-0">
-            <p className="font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-accent">
+            <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
               Listening sample
             </p>
             <h2

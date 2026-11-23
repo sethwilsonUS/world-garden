@@ -133,7 +133,7 @@ const ArticleContextSummary = ({
   >
     <p
       id="feedback-article-heading"
-      className="text-xs font-semibold uppercase tracking-[0.14em] text-accent"
+      className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent"
     >
       Feedback on this article
     </p>

@@ -66,7 +66,7 @@ export const PodcastEpisodePlayer = ({
         </button>
 
         <div className="min-w-[min(100%,10rem)] flex-[1_1_10rem] break-words [overflow-wrap:anywhere]">
-          <p className="m-0 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">
+          <p className="m-0 text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
             Episode audio
           </p>
           <p className="m-0 mt-0.5 font-display text-[0.92rem] font-semibold leading-snug text-foreground">
@@ -100,7 +100,7 @@ export const PodcastEpisodePlayer = ({
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="justify-self-end font-mono text-[0.68rem] text-muted tabular-nums">
+        <span className="justify-self-end font-mono text-xs text-muted tabular-nums">
           {formatTime(currentTime)} / {formatTime(effectiveDuration)}
         </span>
       </div>

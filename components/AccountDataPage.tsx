@@ -60,7 +60,7 @@ const AccountDataFrame = ({ children }: { children: ReactNode }) => (
       </nav>
 
       <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+        <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
           Account
         </p>
         <h1 className="type-page-title mt-3 font-display text-[2rem] font-bold leading-[1.08] text-foreground sm:text-[2.45rem]">
@@ -83,7 +83,7 @@ const LocalAccountData = () => (
       aria-labelledby="local-account-data-heading"
       className="garden-bed pattern-leaves p-6 sm:p-7"
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+      <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
         Local garden
       </p>
       <h2
@@ -127,7 +127,7 @@ const SignedOutAccountData = () => (
       aria-labelledby="signed-out-account-data-heading"
       className="garden-bed pattern-leaves p-6 sm:p-7"
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+      <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-muted">
         Sign-in needed
       </p>
       <h2
@@ -307,7 +307,7 @@ const SignedInAccountData = () => {
         className="garden-bed overflow-hidden border-accent-border"
       >
         <div className="border-b border-accent-border bg-accent-bg p-6 sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+          <p className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
             Portable JSON
           </p>
           <h2

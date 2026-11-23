@@ -56,7 +56,7 @@ const BannerShell = ({
       <div className="container mx-auto flex flex-col gap-2 py-2 pl-4 pr-16 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1 text-[0.8125rem] leading-relaxed sm:text-sm">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-foreground-2">
-            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-accent">
+            <span className="text-[0.8125rem] font-semibold tracking-[0.01em] text-accent">
               {eyebrow}
             </span>
             <strong className="font-display text-sm font-semibold text-foreground sm:text-base">

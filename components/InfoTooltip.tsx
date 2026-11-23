@@ -199,7 +199,7 @@ export const InfoTooltip = ({
         {children ?? (
           <span
             aria-hidden="true"
-            className="font-mono text-[0.6875rem] leading-none"
+            className="font-mono text-xs leading-none"
           >
             ?
           </span>
