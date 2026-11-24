@@ -17,6 +17,25 @@ export type WikipediaSearchResult = Readonly<{
   url: string;
 }>;
 
+export type WikipediaSearchSuggestionThumbnail = Readonly<{
+  source: string;
+  width: number;
+  height: number;
+}>;
+
+export type WikipediaSearchSuggestion = Readonly<{
+  wikiPageId: string;
+  key: string;
+  title: string;
+  description?: string;
+  thumbnail?: WikipediaSearchSuggestionThumbnail;
+}>;
+
+export type WikipediaSearchResponse = Readonly<{
+  results: WikipediaSearchResult[];
+  suggestion?: string;
+}>;
+
 export type WikipediaSection = NarratedSection;
 
 export type WikipediaArticle = WikipediaRevisionIdentity &
@@ -94,6 +113,7 @@ export type WikipediaParsedPageData = {
 
 export type LocalWikipediaRequest =
   | { operation: "search"; term: string }
+  | { operation: "suggest"; term: string }
   | { operation: "article"; slug: string }
   | { operation: "metadata"; identity: WikipediaRevisionIdentity }
   | { operation: "related"; identity: WikipediaRevisionIdentity }
@@ -106,13 +126,15 @@ export type LocalWikipediaRequest =
 
 export type LocalWikipediaResponseFor<Request extends LocalWikipediaRequest> =
   Request extends { operation: "search" }
-    ? WikipediaSearchResult[]
-    : Request extends { operation: "article" }
-      ? WikipediaArticle
-      : Request extends { operation: "metadata" }
-        ? WikipediaParsedPageData
-        : Request extends { operation: "related" }
-          ? WikipediaRelatedArticle[]
-          : Request extends { operation: "section-links" }
-            ? WikipediaLinkedArticle[]
-            : never;
+    ? WikipediaSearchResult[] | WikipediaSearchResponse
+    : Request extends { operation: "suggest" }
+      ? WikipediaSearchSuggestion[]
+      : Request extends { operation: "article" }
+        ? WikipediaArticle
+        : Request extends { operation: "metadata" }
+          ? WikipediaParsedPageData
+          : Request extends { operation: "related" }
+            ? WikipediaRelatedArticle[]
+            : Request extends { operation: "section-links" }
+              ? WikipediaLinkedArticle[]
+              : never;

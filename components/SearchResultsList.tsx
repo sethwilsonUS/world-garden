@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   formatWikipediaSearchStatus,
+  normalizeWikipediaSearchResponse,
   normalizeWikipediaSearchTerm,
 } from "@/lib/wikipedia-search";
 import type { WikipediaSearchResult } from "@/lib/wikipedia-contracts";
@@ -15,6 +17,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
   const { search: searchAction } = useData();
   const normalizedTerm = normalizeWikipediaSearchTerm(term);
   const [results, setResults] = useState<WikipediaSearchResult[]>([]);
+  const [suggestion, setSuggestion] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(Boolean(normalizedTerm));
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
@@ -33,9 +36,15 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
     searchAction({ term: normalizedTerm })
       .then((data) => {
         if (!cancelled) {
-          setResults(data);
+          const normalized = normalizeWikipediaSearchResponse(data);
+          setResults(normalized.results);
+          setSuggestion(normalized.suggestion);
           setStatusMessage(
-            formatWikipediaSearchStatus(normalizedTerm, data.length),
+            formatWikipediaSearchStatus(
+              normalizedTerm,
+              normalized.results.length,
+              normalized.suggestion,
+            ),
           );
         }
       })
@@ -44,6 +53,7 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
           setError(
             err instanceof Error && err.message ? err.message : "Search failed",
           );
+          setSuggestion(undefined);
           setStatusMessage("");
         }
       })
@@ -69,6 +79,21 @@ const SearchResultsForTerm = ({ term }: { term: string }) => {
       >
         {statusMessage}
       </p>
+
+      {!loading && !error && suggestion && (
+        <div className="mb-4 rounded-xl border border-accent-border bg-surface-2 px-4 py-2 text-base leading-relaxed text-foreground-2">
+          <p className="m-0 [overflow-wrap:anywhere]">
+            Did you mean{" "}
+            <Link
+              href={`/search?q=${encodeURIComponent(suggestion)}`}
+              className="inline-flex min-h-[44px] max-w-full items-center break-words py-1 font-semibold text-accent underline decoration-2 underline-offset-4 transition-colors duration-150 hover:text-foreground [overflow-wrap:anywhere]"
+            >
+              {suggestion}
+            </Link>
+            ?
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <div aria-hidden="true">

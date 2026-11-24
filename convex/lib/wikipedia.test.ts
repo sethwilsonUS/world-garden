@@ -28,9 +28,11 @@ import {
   MAX_SECTION_LINK_SOURCE_TITLES,
   parseSections,
   searchWikipedia,
+  searchWikipediaWithMeta,
   SECTION_LINKS_TIMEOUT_MS,
   slugToTitle,
   stripHtml,
+  suggestWikipediaTitles,
   titleToSlug,
   WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL,
 } from "./wikipedia";
@@ -132,12 +134,185 @@ describe("Wikipedia title utilities", () => {
       "Tom & Jerry",
     );
     expect(
+      stripHtml(
+        "Ada&apos;s &ldquo;notes&rdquo; &mdash; 1843&ndash;1844&nbsp;(&#39;quote&#x2019; &amp;lt;tag&amp;gt; &hellip;)",
+      ),
+    ).toBe("Ada's &ldquo;notes&rdquo; — 1843–1844 ('quote’ &lt;tag&gt; …)");
+    expect(
       cleanSectionContent(
         "Text[1][citation needed][edit]\n=== Heading ===\nMore",
       ),
     ).toBe("Text\n\nMore");
     expect(cleanContentForTts("Einstein[1] developed relativity.")).toBe(
       "Einstein developed relativity.",
+    );
+  });
+
+  it("fetches short descriptions and typo suggestions in one search request", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          query: {
+            searchinfo: {
+              suggestion: "albert einstein",
+            },
+            search: [
+              {
+                pageid: 736,
+                title: "Albert Einstein",
+                snippet: "German-born <span class=\"searchmatch\">theoretical</span> physicist &amp; author",
+              },
+              {
+                pageid: 999,
+                title: "Einstein&#39;s Brain",
+                snippet: "Fallback <span>snippet</span> &mdash; preserved when description is absent",
+              },
+            ],
+            pages: [
+              {
+                pageid: 736,
+                title: "Albert Einstein",
+                description: "German-born theoretical physicist (1879&ndash;1955)",
+              },
+              {
+                pageid: 999,
+                title: "Einstein's Brain",
+              },
+            ],
+          },
+        }),
+      ),
+    );
+
+    const response = await searchWikipediaWithMeta("  Albrt  Einstien ");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(requestUrl.searchParams.get("list")).toBe("search");
+    expect(requestUrl.searchParams.get("srinfo")).toBe("suggestion");
+    expect(requestUrl.searchParams.get("generator")).toBe("search");
+    expect(requestUrl.searchParams.get("gsrnamespace")).toBe("0");
+    expect(requestUrl.searchParams.get("prop")).toBe("description");
+    expect(response).toEqual({
+      results: [
+        {
+          wikiPageId: "736",
+          title: "Albert Einstein",
+          description: "German-born theoretical physicist (1879–1955)",
+          url: "https://en.wikipedia.org/wiki/Albert_Einstein",
+        },
+        {
+          wikiPageId: "999",
+          title: "Einstein's Brain",
+          description: "Fallback snippet — preserved when description is absent",
+          url: "https://en.wikipedia.org/wiki/Einstein's_Brain",
+        },
+      ],
+      suggestion: "albert einstein",
+    });
+  });
+
+  it("omits identical typo suggestions and handles empty or failed searches", async () => {
+    expect(await searchWikipediaWithMeta("   ")).toEqual({ results: [] });
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              searchinfo: { suggestion: "ada lovelace" },
+              search: [],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+
+    expect(await searchWikipediaWithMeta("Ada Lovelace")).toEqual({
+      results: [],
+    });
+    await expect(searchWikipediaWithMeta("Broken")).rejects.toThrow(
+      "Wikipedia search failed: 400",
+    );
+  });
+
+  it("fetches Core REST typeahead suggestions with normalized thumbnails and deduplication", async () => {
+    expect(await suggestWikipediaTitles("   ")).toEqual([]);
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            pages: [
+              {
+                id: 974,
+                key: "Ada_Lovelace",
+                title: "Ada Lovelace",
+                description: "English mathematician &amp; writer (1815&ndash;1852)",
+                thumbnail: {
+                  mimetype: "image/jpeg",
+                  width: 60,
+                  height: 75,
+                  url: "//thumb.wikimedia.org/thumb/ada.jpg/60px-ada.jpg",
+                },
+              },
+              {
+                id: 974,
+                key: "Ada_Lovelace",
+                title: "Ada Lovelace duplicate",
+              },
+              {
+                id: 1271,
+                key: "Analytical_engine",
+                title: "Analytical engine",
+                description: "Proposed mechanical general-purpose computer",
+                thumbnail: {
+                  mimetype: "image/jpeg",
+                  width: 0,
+                  height: 60,
+                  url: "//thumb.wikimedia.org/invalid.jpg",
+                },
+              },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response("bad request", { status: 400 }));
+
+    const suggestions = await suggestWikipediaTitles("  Ada   Lov ", {
+      limit: 6,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const requestUrl = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(requestUrl.origin + requestUrl.pathname).toBe(
+      "https://en.wikipedia.org/w/rest.php/v1/search/title",
+    );
+    expect(requestUrl.searchParams.get("q")).toBe("Ada Lov");
+    expect(requestUrl.searchParams.get("limit")).toBe("6");
+    expect(suggestions).toEqual([
+      {
+        wikiPageId: "974",
+        key: "Ada_Lovelace",
+        title: "Ada Lovelace",
+        description: "English mathematician & writer (1815–1852)",
+        thumbnail: {
+          source: "https://thumb.wikimedia.org/thumb/ada.jpg/60px-ada.jpg",
+          width: 60,
+          height: 75,
+        },
+      },
+      {
+        wikiPageId: "1271",
+        key: "Analytical_engine",
+        title: "Analytical engine",
+        description: "Proposed mechanical general-purpose computer",
+      },
+    ]);
+
+    await expect(suggestWikipediaTitles("Broken")).rejects.toThrow(
+      "Wikipedia title search failed: 400",
     );
   });
 });

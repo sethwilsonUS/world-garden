@@ -34,7 +34,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
           {/* Pre-filled so readers can refine without hunting for the field. */}
           <div className="mb-8">
-            <SearchForm defaultValue={term} />
+            <SearchForm key={term} defaultValue={term} />
           </div>
 
           {!term ? (

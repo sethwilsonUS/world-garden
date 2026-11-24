@@ -58,6 +58,7 @@ describe("usePrefetch", () => {
     }));
     const data: DataContextValue = {
       search: async () => [],
+      suggestTitles: async () => [],
       fetchArticle,
       getSectionLinkCounts: async () => [],
       getCitationCounts: async () => [],

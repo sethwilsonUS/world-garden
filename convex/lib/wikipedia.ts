@@ -50,10 +50,15 @@ import type {
   WikipediaRelatedArticle,
   WikipediaRelatedArticleThumbnail,
   WikipediaRevisionIdentity,
+  WikipediaSearchResponse,
+  WikipediaSearchSuggestion,
 } from "../../lib/wikipedia-contracts";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
+export const WIKI_CORE_REST_API = "https://en.wikipedia.org/w/rest.php/v1";
+export const SEARCH_SUGGESTION_LIMIT = 6;
+export const SEARCH_SUGGESTION_TIMEOUT_MS = 5_000;
 
 /** Keep related-article UI work bounded while preserving source order. */
 export const MAX_SECTION_LINK_SOURCE_TITLES = 250;
@@ -264,39 +269,177 @@ const fetchSummaryThumbnail = async (
   }
 };
 
-export const searchWikipedia = async (
+export const searchWikipediaWithMeta = async (
   term: string,
-): Promise<WikiSearchResult[]> => {
-  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
-    action: "query",
-    list: "search",
-    srsearch: term,
-    srlimit: "10",
-    srprop: "snippet",
-  });
+  options: { signal?: AbortSignal } = {},
+): Promise<WikipediaSearchResponse> => {
+  const normalizedTerm = term.replace(/\s+/gu, " ").trim();
+  if (!normalizedTerm) return { results: [] };
+  throwIfAborted(options.signal);
+
+  const response = await fetchWikimediaActionApi(
+    WIKI_ACTION_API,
+    {
+      action: "query",
+      list: "search",
+      srsearch: normalizedTerm,
+      srlimit: "10",
+      srprop: "snippet",
+      srinfo: "suggestion",
+      generator: "search",
+      gsrsearch: normalizedTerm,
+      gsrlimit: "10",
+      gsrnamespace: "0",
+      prop: "description",
+    },
+    { signal: options.signal },
+  );
 
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error(`Wikipedia search failed: ${response.status}`);
   }
 
-  const data = await response.json();
-  const results = data.query?.search ?? [];
+  const data: unknown = await response.json();
+  const query = isRecord(data) && isRecord(data.query) ? data.query : undefined;
 
-  return results.flatMap(
-    (item: { pageid: number; title: string; snippet: string }) => {
-      const wikiPageId = normalizeMediaWikiNumericId(item.pageid);
-      return wikiPageId
-        ? [
-            {
-              wikiPageId,
-              title: item.title,
-              description: stripHtml(item.snippet),
-              url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title.replace(/ /g, "_"))}`,
-            },
-          ]
-        : [];
-    },
-  );
+  const shortDescriptions = new Map<string, string>();
+  const pages = extractActionApiPages<{
+    pageid?: number | string;
+    description?: unknown;
+  }>(query?.pages);
+  if (pages) {
+    for (const page of pages) {
+      const pageId = normalizeMediaWikiNumericId(page.pageid);
+      const description =
+        typeof page.description === "string"
+          ? stripHtml(page.description).trim()
+          : "";
+      if (pageId && description) {
+        shortDescriptions.set(pageId, description);
+      }
+    }
+  }
+
+  const rawSearch = Array.isArray(query?.search) ? query.search : [];
+  const results: WikiSearchResult[] = [];
+  for (const rawItem of rawSearch) {
+    if (!isRecord(rawItem)) continue;
+    const wikiPageId = normalizeMediaWikiNumericId(rawItem.pageid);
+    const title =
+      typeof rawItem.title === "string" ? stripHtml(rawItem.title).trim() : "";
+    if (!wikiPageId || !title) continue;
+
+    const snippet =
+      typeof rawItem.snippet === "string" ? stripHtml(rawItem.snippet).trim() : "";
+    const description = shortDescriptions.get(wikiPageId) || snippet;
+
+    results.push({
+      wikiPageId,
+      title,
+      description,
+      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+    });
+  }
+
+  const searchInfo = isRecord(query?.searchinfo) ? query.searchinfo : undefined;
+  const rawSuggestion =
+    typeof searchInfo?.suggestion === "string"
+      ? stripHtml(searchInfo.suggestion).replace(/\s+/gu, " ").trim()
+      : "";
+  const suggestion =
+    rawSuggestion &&
+    rawSuggestion.toLocaleLowerCase("en-US") !==
+      normalizedTerm.toLocaleLowerCase("en-US")
+      ? rawSuggestion
+      : undefined;
+
+  return {
+    results,
+    ...(suggestion ? { suggestion } : {}),
+  };
+};
+
+export const searchWikipedia = async (
+  term: string,
+): Promise<WikiSearchResult[]> => (await searchWikipediaWithMeta(term)).results;
+
+export const suggestWikipediaTitles = async (
+  term: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<WikipediaSearchSuggestion[]> => {
+  const normalizedTerm = term.replace(/\s+/gu, " ").trim();
+  if (!normalizedTerm) return [];
+  throwIfAborted(options.signal);
+
+  const resolvedLimit =
+    options.limit !== undefined &&
+    Number.isFinite(options.limit) &&
+    options.limit > 0
+      ? Math.min(20, Math.floor(options.limit))
+      : SEARCH_SUGGESTION_LIMIT;
+
+  const url = new URL(`${WIKI_CORE_REST_API}/search/title`);
+  url.searchParams.set("q", normalizedTerm);
+  url.searchParams.set("limit", String(resolvedLimit));
+
+  const response = await fetchWikimedia(url, {
+    headers: { Accept: "application/json" },
+    timeoutMs: SEARCH_SUGGESTION_TIMEOUT_MS,
+    maxRetries: 1,
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Wikipedia title search failed: ${response.status}`);
+  }
+
+  const data: unknown = await response.json();
+  const rawPages =
+    isRecord(data) && Array.isArray(data.pages) ? data.pages : [];
+
+  const suggestions: WikipediaSearchSuggestion[] = [];
+  const seenIds = new Set<string>();
+
+  for (const rawPage of rawPages) {
+    if (!isRecord(rawPage)) continue;
+    const wikiPageId = normalizeMediaWikiNumericId(rawPage.id);
+    const title =
+      typeof rawPage.title === "string" ? stripHtml(rawPage.title).trim() : "";
+    if (!wikiPageId || !title || seenIds.has(wikiPageId)) continue;
+    seenIds.add(wikiPageId);
+
+    const key =
+      typeof rawPage.key === "string" && rawPage.key.trim()
+        ? rawPage.key.trim()
+        : title.replace(/ /g, "_");
+    const description =
+      typeof rawPage.description === "string" && rawPage.description.trim()
+        ? stripHtml(rawPage.description).trim()
+        : undefined;
+
+    let thumbnail: WikipediaSearchSuggestion["thumbnail"];
+    if (isRecord(rawPage.thumbnail) && typeof rawPage.thumbnail.url === "string") {
+      thumbnail = normalizeRelatedArticleThumbnail({
+        source: rawPage.thumbnail.url,
+        width: rawPage.thumbnail.width,
+        height: rawPage.thumbnail.height,
+      });
+    }
+
+    suggestions.push({
+      wikiPageId,
+      key,
+      title,
+      ...(description ? { description } : {}),
+      ...(thumbnail ? { thumbnail } : {}),
+    });
+
+    if (suggestions.length >= resolvedLimit) break;
+  }
+
+  return suggestions;
 };
 
 export const WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL =
@@ -967,14 +1110,45 @@ export const cleanSectionContent = (text: string): string => {
     .trim();
 };
 
+const HTML_NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  hellip: "\u2026",
+  lt: "<",
+  mdash: "\u2014",
+  nbsp: " ",
+  ndash: "\u2013",
+  quot: '"',
+};
+
 export const stripHtml = (html: string): string => {
   return html
     .replace(/<[^>]*>/g, "")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&#039;/g, "'");
+    .replace(
+      /&(?:#x([0-9a-f]+)|#(\d+)|([a-z]+));/gi,
+      (match, hex: string | undefined, decimal: string | undefined, named: string | undefined) => {
+        if (hex !== undefined) {
+          const codePoint = Number.parseInt(hex, 16);
+          return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+            ? String.fromCodePoint(codePoint)
+            : match;
+        }
+        if (decimal !== undefined) {
+          const codePoint = Number.parseInt(decimal, 10);
+          return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+            ? String.fromCodePoint(codePoint)
+            : match;
+        }
+        if (named !== undefined) {
+          return HTML_NAMED_ENTITIES[named.toLowerCase()] ?? match;
+        }
+        return match;
+      },
+    )
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 export type WikiSectionLinkCount = {

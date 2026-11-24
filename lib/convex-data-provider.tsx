@@ -67,7 +67,8 @@ const relatedCacheKey = (identity: WikipediaRevisionIdentity): string =>
   ]);
 
 const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
-  const searchAction = useAction(api.search.search);
+  const searchWithMetaAction = useAction(api.search.searchWithMeta);
+  const suggestTitlesAction = useAction(api.search.suggestTitles);
   const fetchAndCacheBySlug = useAction(api.articles.fetchAndCacheBySlug);
   const articleMetadataAction = useAction(api.articles.getArticleMetadata);
   const sectionLinksAction = useAction(api.articles.getSectionLinks);
@@ -93,7 +94,16 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
 
   const value = useMemo<DataContextValue>(
     () => ({
-      search: searchAction,
+      search: searchWithMetaAction,
+
+      suggestTitles: ({ term, signal }) => {
+        const normalized = term.trim();
+        if (!normalized) return Promise.resolve([]);
+        return runAbortableAction(
+          () => suggestTitlesAction({ term: normalized }),
+          signal,
+        );
+      },
 
       fetchArticle: async ({ slug }) => {
         const result = await fetchAndCacheBySlug({ slug });
@@ -159,7 +169,8 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
         }, signal),
     }),
     [
-      searchAction,
+      searchWithMetaAction,
+      suggestTitlesAction,
       fetchAndCacheBySlug,
       metadataClient,
       sectionLinksAction,

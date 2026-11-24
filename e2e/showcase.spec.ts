@@ -529,7 +529,7 @@ test("home presents the product and expands the curated daily preview", async ({
       name: "Listen to any Wikipedia article",
     }),
   ).toBeVisible();
-  const homeSearch = page.getByRole("searchbox", { name: "Search topic" });
+  const homeSearch = page.getByRole("combobox", { name: "Search topic" });
   await expect(homeSearch).toBeVisible();
   await expect(homeSearch).not.toBeFocused();
   await expect(
@@ -1575,7 +1575,7 @@ test("returning to a revised article keeps the playing revision and queue until 
     player.getByRole("button", { name: "Pause Summary" }),
   ).toBeVisible();
 
-  const search = page.getByRole("searchbox", { name: "Search articles" });
+  const search = page.getByRole("combobox", { name: "Search articles" });
   await search.fill("Ada");
   await search.press("Enter");
   await expect(
@@ -1693,7 +1693,7 @@ test("article playback survives search, browsing another article, and returning 
       return audio;
     });
 
-  const headerSearch = page.getByRole("searchbox", { name: "Search articles" });
+  const headerSearch = page.getByRole("combobox", { name: "Search articles" });
   await headerSearch.fill(otherTitle);
   await headerSearch.press("Enter");
   const result = page.getByRole("link", { name: /^Analytical engine/ });
@@ -1779,7 +1779,7 @@ test("Play all advances away from the article and keeps reading shortcuts out of
   await page.keyboard.press("Space");
   await expect(player.getByRole("button", { name: "Pause Summary" })).toBeVisible();
 
-  const search = page.getByRole("searchbox", { name: "Search articles" });
+  const search = page.getByRole("combobox", { name: "Search articles" });
   await search.fill("Ada");
   await search.press("Shift+N");
   await expect(search).toHaveValue("AdaN");

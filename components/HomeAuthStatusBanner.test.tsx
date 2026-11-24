@@ -16,6 +16,11 @@ let authState: "loading" | "signed-in" | "signed-out" = "signed-out";
 let convexAuthState: "loading" | "authenticated" | "unauthenticated" =
   "unauthenticated";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) =>
     createElement("div", { "data-clerk-button": "sign-in" }, children),

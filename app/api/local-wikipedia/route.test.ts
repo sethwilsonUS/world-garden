@@ -5,7 +5,8 @@ import type {
 } from "@/lib/wikipedia-contracts";
 
 const {
-  searchWikipedia,
+  searchWikipediaWithMeta,
+  suggestWikipediaTitles,
   fetchArticleWithDocumentByTitle,
   fetchArticleBadgeKeys,
   enrichParsedPageDataFromDocument,
@@ -14,7 +15,8 @@ const {
   fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
 } = vi.hoisted(() => ({
-  searchWikipedia: vi.fn(),
+  searchWikipediaWithMeta: vi.fn(),
+  suggestWikipediaTitles: vi.fn(),
   fetchArticleWithDocumentByTitle: vi.fn(),
   fetchArticleBadgeKeys: vi.fn(),
   enrichParsedPageDataFromDocument: vi.fn(),
@@ -25,7 +27,8 @@ const {
 }));
 
 vi.mock("@/convex/lib/wikipedia", () => ({
-  searchWikipedia,
+  searchWikipediaWithMeta,
+  suggestWikipediaTitles,
   fetchArticleWithDocumentByTitle,
   fetchArticleBadgeKeys,
   enrichParsedPageDataFromDocument,
@@ -87,7 +90,7 @@ describe("POST /api/local-wikipedia", () => {
 
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(searchWikipedia).not.toHaveBeenCalled();
+    expect(searchWikipediaWithMeta).not.toHaveBeenCalled();
   });
 
   it("rejects incomplete or mutable article identities", async () => {
@@ -231,14 +234,17 @@ describe("POST /api/local-wikipedia", () => {
   });
 
   it("keeps search and article retrieval behind the server boundary", async () => {
-    searchWikipedia.mockResolvedValue([
-      {
-        wikiPageId: "4401",
-        title: "Walter Savage Landor",
-        description: "English writer",
-        url: "https://en.wikipedia.org/wiki/Walter_Savage_Landor",
-      },
-    ]);
+    searchWikipediaWithMeta.mockResolvedValue({
+      results: [
+        {
+          wikiPageId: "4401",
+          title: "Walter Savage Landor",
+          description: "English writer",
+          url: "https://en.wikipedia.org/wiki/Walter_Savage_Landor",
+        },
+      ],
+      suggestion: "walter savage landor",
+    });
     fetchArticleWithDocumentByTitle.mockResolvedValue({
       article: {
         ...identity("4401", "701"),
@@ -257,7 +263,20 @@ describe("POST /api/local-wikipedia", () => {
     });
 
     expect(searchResponse.status).toBe(200);
-    expect(searchWikipedia).toHaveBeenCalledWith("Landor");
+    expect(searchWikipediaWithMeta).toHaveBeenCalledWith("Landor");
+    await expect(searchResponse.json()).resolves.toEqual({
+      data: {
+        results: [
+          {
+            wikiPageId: "4401",
+            title: "Walter Savage Landor",
+            description: "English writer",
+            url: "https://en.wikipedia.org/wiki/Walter_Savage_Landor",
+          },
+        ],
+        suggestion: "walter savage landor",
+      },
+    });
     expect(fetchArticleWithDocumentByTitle).toHaveBeenCalledWith(
       "Walter Savage Landor",
     );
@@ -440,5 +459,45 @@ describe("POST /api/local-wikipedia", () => {
     await expect(firstSuccess.json()).resolves.toEqual({ data: relatedResults });
     await expect(cachedHit.json()).resolves.toEqual({ data: relatedResults });
     expect(fetchRelatedArticles).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves and caches typeahead title suggestions while evicting failed lookups", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const suggestions = [
+      {
+        wikiPageId: "974",
+        key: "Ada_Lovelace",
+        title: "Ada Lovelace",
+        description: "English mathematician and writer",
+        thumbnail: {
+          source: "https://thumb.wikimedia.org/thumb.jpg",
+          width: 60,
+          height: 80,
+        },
+      },
+    ];
+    suggestWikipediaTitles
+      .mockRejectedValueOnce(new Error("Upstream 503"))
+      .mockResolvedValueOnce(suggestions);
+
+    const blank = await post({ operation: "suggest", term: "   " });
+    expect(blank.status).toBe(400);
+
+    const failed = await post({ operation: "suggest", term: "Ada Lov" });
+    expect(failed.status).toBe(502);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+
+    const firstSuccess = await post({
+      operation: "suggest",
+      term: "  Ada   Lov ",
+    });
+    const cachedHit = await post({ operation: "suggest", term: "ada lov" });
+
+    expect(firstSuccess.status).toBe(200);
+    expect(cachedHit.status).toBe(200);
+    await expect(firstSuccess.json()).resolves.toEqual({ data: suggestions });
+    await expect(cachedHit.json()).resolves.toEqual({ data: suggestions });
+    expect(suggestWikipediaTitles).toHaveBeenCalledTimes(2);
+    expect(suggestWikipediaTitles).toHaveBeenLastCalledWith("Ada Lov");
   });
 });

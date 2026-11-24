@@ -13,11 +13,24 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
   const value = useMemo<DataContextValue>(
     () => ({
       search: async ({ term }) => {
-        if (!term.trim()) return [];
+        const normalized = term.trim();
+        if (!normalized) return { results: [] };
         return requestLocalWikipedia({
           operation: "search",
-          term: term.trim(),
+          term: normalized,
         });
+      },
+
+      suggestTitles: ({ term, signal }) => {
+        const normalized = term.trim();
+        if (!normalized) return Promise.resolve([]);
+        return requestLocalWikipedia(
+          {
+            operation: "suggest",
+            term: normalized,
+          },
+          signal,
+        );
       },
 
       fetchArticle: ({ slug }) =>
