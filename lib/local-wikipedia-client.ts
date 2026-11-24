@@ -4,48 +4,10 @@ import type {
   WikipediaParsedPageData,
   WikipediaRevisionIdentity,
 } from "@/lib/wikipedia-contracts";
-import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
-
-const MAX_PARSED_CACHE_ENTRIES = 32;
-const parsedCache = new Map<string, WikipediaParsedPageData>();
-const parsedInFlight = new Map<string, Promise<WikipediaParsedPageData>>();
-let parsedCacheGeneration = 0;
-
-/** Test-only isolation hook; production callers never invoke this. */
-export const resetLocalWikipediaClientCachesForTests = (): void => {
-  parsedCacheGeneration += 1;
-  parsedCache.clear();
-  parsedInFlight.clear();
-};
+import { createRevisionMetadataClient } from "@/lib/wikipedia-metadata-client";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-const abortReason = (signal: AbortSignal): unknown =>
-  signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
-
-const waitForCaller = <Value>(
-  pending: Promise<Value>,
-  signal?: AbortSignal,
-): Promise<Value> => {
-  if (!signal) return pending;
-  if (signal.aborted) return Promise.reject(abortReason(signal));
-
-  return new Promise<Value>((resolve, reject) => {
-    const handleAbort = () => reject(abortReason(signal));
-    signal.addEventListener("abort", handleAbort, { once: true });
-    pending.then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", handleAbort);
-    });
-  });
-};
-
-const cacheParsedPage = (key: string, data: WikipediaParsedPageData): void => {
-  parsedCache.set(key, data);
-  if (parsedCache.size <= MAX_PARSED_CACHE_ENTRIES) return;
-  const oldestKey = parsedCache.keys().next().value as string | undefined;
-  if (oldestKey && oldestKey !== key) parsedCache.delete(oldestKey);
-};
 
 export const requestLocalWikipedia = async <
   Request extends LocalWikipediaRequest,
@@ -62,8 +24,11 @@ export const requestLocalWikipedia = async <
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch {
-    throw new Error("Local Wikipedia request failed");
+  } catch (error: unknown) {
+    if (error instanceof SyntaxError || error instanceof TypeError) {
+      throw new Error("Local Wikipedia request failed");
+    }
+    throw error;
   }
   const error =
     isRecord(payload) && typeof payload.error === "string"
@@ -78,6 +43,18 @@ export const requestLocalWikipedia = async <
   return payload.data as LocalWikipediaResponseFor<Request>;
 };
 
+const localMetadataClient = createRevisionMetadataClient((identity) =>
+  requestLocalWikipedia({
+    operation: "metadata",
+    identity,
+  }),
+);
+
+/** Test-only isolation hook; production callers never invoke this. */
+export const resetLocalWikipediaClientCachesForTests = (): void => {
+  localMetadataClient.reset();
+};
+
 /**
  * Share revision metadata work without sharing caller cancellation. Aborting a
  * component request stops only that caller from observing the result; the
@@ -87,30 +64,5 @@ export const requestLocalWikipedia = async <
 export const requestLocalWikipediaMetadata = (
   identity: WikipediaRevisionIdentity,
   signal?: AbortSignal,
-): Promise<WikipediaParsedPageData> => {
-  if (signal?.aborted) return Promise.reject(abortReason(signal));
-
-  const key = wikipediaRevisionKey(identity);
-  const cached = parsedCache.get(key);
-  if (cached) return waitForCaller(Promise.resolve(cached), signal);
-
-  let pending = parsedInFlight.get(key);
-  if (!pending) {
-    const requestGeneration = parsedCacheGeneration;
-    pending = requestLocalWikipedia({
-      operation: "metadata",
-      identity,
-    })
-      .then((data) => {
-        if (requestGeneration === parsedCacheGeneration) {
-          cacheParsedPage(key, data);
-        }
-        return data;
-      })
-      .finally(() => {
-        if (parsedInFlight.get(key) === pending) parsedInFlight.delete(key);
-      });
-    parsedInFlight.set(key, pending);
-  }
-  return waitForCaller(pending, signal);
-};
+): Promise<WikipediaParsedPageData> =>
+  localMetadataClient.requestMetadata(identity, signal);

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import {
+  enrichParsedPageDataFromDocument,
   fetchArticleBadgeKeys,
-  fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
   searchWikipedia,
@@ -13,7 +14,10 @@ import type {
   WikipediaParsedPageData,
   WikipediaRevisionIdentity,
 } from "@/lib/wikipedia-contracts";
-import { normalizeMediaWikiNumericId } from "@/lib/mediawiki-document/types";
+import {
+  normalizeMediaWikiNumericId,
+  type MediaWikiDocument,
+} from "@/lib/mediawiki-document/types";
 import {
   normalizeWikipediaSectionTitle,
   slugToWikipediaTitle,
@@ -105,14 +109,11 @@ const parseRequest = (value: unknown): LocalWikipediaRequest | null => {
   return null;
 };
 
-const getParsedPage = (
-  identity: WikipediaRevisionIdentity,
+const storeParsedPagePromise = (
+  key: string,
+  loader: () => Promise<WikipediaParsedPageData>,
 ): Promise<WikipediaParsedPageData> => {
-  const key = wikipediaRevisionKey(identity);
-  const cached = parsedCache.get(key);
-  if (cached) return cached;
-
-  const pending = fetchParsedPageData(identity).catch((error) => {
+  const pending = loader().catch((error) => {
     if (parsedCache.get(key) === pending) parsedCache.delete(key);
     throw error;
   });
@@ -122,6 +123,57 @@ const getParsedPage = (
     if (oldestKey && oldestKey !== key) parsedCache.delete(oldestKey);
   }
   return pending;
+};
+
+const getParsedPage = (
+  identity: WikipediaRevisionIdentity,
+): Promise<WikipediaParsedPageData> => {
+  const key = wikipediaRevisionKey(identity);
+  const cached = parsedCache.get(key);
+  if (cached) return cached;
+
+  return storeParsedPagePromise(key, () => fetchParsedPageData(identity));
+};
+
+const seedParsedPageFromDocument = async (
+  source: Pick<
+    WikipediaArticle,
+    "wikiPageId" | "revisionId" | "title" | "language"
+  >,
+  parsedDocument: MediaWikiDocument | undefined,
+): Promise<void> => {
+  if (
+    !parsedDocument ||
+    parsedDocument.sourceFormat === "plaintext" ||
+    parsedDocument.fallbackReason
+  ) {
+    return;
+  }
+
+  const identity = normalizeIdentity(source);
+  const documentIdentity = normalizeIdentity(parsedDocument.identity);
+  if (
+    !identity ||
+    !documentIdentity ||
+    wikipediaRevisionKey(identity) !== wikipediaRevisionKey(documentIdentity)
+  ) {
+    return;
+  }
+
+  const key = wikipediaRevisionKey(identity);
+  if (parsedCache.has(key)) return;
+
+  const pending = storeParsedPagePromise(key, () =>
+    enrichParsedPageDataFromDocument(parsedDocument),
+  );
+  try {
+    await pending;
+  } catch (error: unknown) {
+    console.warn(
+      "[/api/local-wikipedia] Failed to seed parsed page cache from article document",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 };
 
 const findSectionIndex = (
@@ -191,15 +243,20 @@ export const POST = async (request: Request) => {
     }
 
     if (input.operation === "article") {
-      const source = await fetchArticleByTitle(
-        slugToWikipediaTitle(input.slug),
-      );
-      let badgeKeys: WikipediaArticle["badgeKeys"];
-      try {
-        badgeKeys = await fetchArticleBadgeKeys(source.wikiPageId);
-      } catch {
-        badgeKeys = undefined;
-      }
+      const { article: source, parsedDocument } =
+        await fetchArticleWithDocumentByTitle(
+          slugToWikipediaTitle(input.slug),
+        );
+      const [badgeKeys] = await Promise.all([
+        fetchArticleBadgeKeys(source.wikiPageId).catch((error: unknown) => {
+          console.warn(
+            "[/api/local-wikipedia] Failed to fetch badge keys",
+            error instanceof Error ? error.message : String(error),
+          );
+          return undefined;
+        }),
+        seedParsedPageFromDocument(source, parsedDocument),
+      ]);
       const article: WikipediaArticle = {
         wikiPageId: source.wikiPageId,
         revisionId: source.revisionId,

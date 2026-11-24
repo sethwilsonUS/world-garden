@@ -6,22 +6,25 @@ import type {
 
 const {
   searchWikipedia,
-  fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchArticleBadgeKeys,
+  enrichParsedPageDataFromDocument,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
 } = vi.hoisted(() => ({
   searchWikipedia: vi.fn(),
-  fetchArticleByTitle: vi.fn(),
+  fetchArticleWithDocumentByTitle: vi.fn(),
   fetchArticleBadgeKeys: vi.fn(),
+  enrichParsedPageDataFromDocument: vi.fn(),
   fetchParsedPageData: vi.fn(),
   fetchSectionLinksByIndex: vi.fn(),
 }));
 
 vi.mock("@/convex/lib/wikipedia", () => ({
   searchWikipedia,
-  fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchArticleBadgeKeys,
+  enrichParsedPageDataFromDocument,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
 }));
@@ -229,12 +232,14 @@ describe("POST /api/local-wikipedia", () => {
         url: "https://en.wikipedia.org/wiki/Walter_Savage_Landor",
       },
     ]);
-    fetchArticleByTitle.mockResolvedValue({
-      ...identity("4401", "701"),
-      narrationVersion: 4,
-      summary: "English writer.",
-      sections: [],
-      contentText: "server-only legacy source",
+    fetchArticleWithDocumentByTitle.mockResolvedValue({
+      article: {
+        ...identity("4401", "701"),
+        narrationVersion: 4,
+        summary: "English writer.",
+        sections: [],
+        contentText: "server-only legacy source",
+      },
     });
     fetchArticleBadgeKeys.mockResolvedValue(["biography"]);
 
@@ -246,7 +251,9 @@ describe("POST /api/local-wikipedia", () => {
 
     expect(searchResponse.status).toBe(200);
     expect(searchWikipedia).toHaveBeenCalledWith("Landor");
-    expect(fetchArticleByTitle).toHaveBeenCalledWith("Walter Savage Landor");
+    expect(fetchArticleWithDocumentByTitle).toHaveBeenCalledWith(
+      "Walter Savage Landor",
+    );
     const articlePayload = await articleResponse.json();
     expect(articlePayload.data).toMatchObject({
       wikiPageId: "4401",
@@ -254,5 +261,65 @@ describe("POST /api/local-wikipedia", () => {
       badgeKeys: ["biography"],
     });
     expect(articlePayload.data).not.toHaveProperty("contentText");
+  });
+
+  it("seeds the local metadata cache from the article ingestion document without re-parsing", async () => {
+    const articleIdentity = identity("4501", "801");
+    const seededMetadata: WikipediaParsedPageData = {
+      linkCounts: [{ index: "__summary__", title: "__summary__", count: 3 }],
+      citations: [{ id: "cite_note-1", index: 1, text: "Citation 1." }],
+      sectionCitations: [
+        {
+          index: "__summary__",
+          title: "__summary__",
+          count: 1,
+          citationIds: ["cite_note-1"],
+        },
+      ],
+      sectionIndexMap: [],
+      images: [],
+    };
+    const parsedDocument = {
+      schemaVersion: 1,
+      identity: articleIdentity,
+      sourceFormat: "parsoid",
+      sourceHash: "hash-1",
+      documentHash: "doc-1",
+      sections: [],
+      citations: [],
+      issues: [],
+    };
+    fetchArticleWithDocumentByTitle.mockResolvedValue({
+      article: {
+        ...articleIdentity,
+        narrationVersion: 4,
+        summary: "Lead summary.",
+        sections: [],
+        contentText: "Lead summary.",
+      },
+      parsedDocument,
+    });
+    fetchArticleBadgeKeys.mockResolvedValue(["history"]);
+    enrichParsedPageDataFromDocument.mockResolvedValue(seededMetadata);
+
+    const articleResponse = await post({
+      operation: "article",
+      slug: "Article_4501",
+    });
+    const metadataResponse = await post({
+      operation: "metadata",
+      identity: articleIdentity,
+    });
+
+    expect(articleResponse.status).toBe(200);
+    expect(metadataResponse.status).toBe(200);
+    await expect(metadataResponse.json()).resolves.toEqual({
+      data: seededMetadata,
+    });
+    expect(enrichParsedPageDataFromDocument).toHaveBeenCalledTimes(1);
+    expect(enrichParsedPageDataFromDocument).toHaveBeenCalledWith(
+      parsedDocument,
+    );
+    expect(fetchParsedPageData).not.toHaveBeenCalled();
   });
 });

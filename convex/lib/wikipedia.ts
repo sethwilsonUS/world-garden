@@ -320,9 +320,64 @@ export const fetchArticleBadgeKeys = async (
   return matches.filter((key): key is BadgeKey => key !== null);
 };
 
-export const fetchArticleByPageId = async (
+export type FetchedArticleWithDocument = {
+  article: WikiArticle;
+  /**
+   * Revision-matched semantic HTML document produced during ingestion,
+   * present only when Parsoid/legacy HTML parsing succeeded without
+   * falling back to plaintext.
+   */
+  parsedDocument?: MediaWikiDocument;
+};
+
+const hydrateFetchedWikipediaPage = async (
+  page: Record<string, unknown>,
+): Promise<FetchedArticleWithDocument> => {
+  const revisions = page.revisions as
+    | Array<Record<string, unknown>>
+    | undefined;
+  const revision = revisions?.[0];
+  const wikiPageId = requirePageId(page.pageid);
+  const revisionId = requireRevisionId(revision?.revid);
+  const fullText = (page.extract as string) ?? "";
+  const contentText = cleanContentForTts(fullText);
+  const thumbnail =
+    (page.thumbnail as WikiThumbnail | undefined) ??
+    (await fetchSummaryThumbnail(page.title as string));
+  const [{ summary, sections, parsedDocument }, thumbnailAttribution] =
+    await Promise.all([
+      buildRevisionNarration({
+        wikiPageId,
+        title: page.title as string,
+        revisionId,
+        fullText,
+      }),
+      getAttributionForImageUrl(thumbnail?.source),
+    ]);
+
+  return {
+    article: {
+      wikiPageId,
+      title: page.title as string,
+      language: "en",
+      revisionId,
+      lastEdited: (revision?.timestamp as string) ?? new Date().toISOString(),
+      summary,
+      contentText,
+      sections,
+      narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
+      thumbnailUrl: thumbnail?.source,
+      thumbnailWidth: thumbnail?.width,
+      thumbnailHeight: thumbnail?.height,
+      thumbnailAttribution,
+    },
+    ...(parsedDocument ? { parsedDocument } : {}),
+  };
+};
+
+export const fetchArticleWithDocumentByPageId = async (
   pageId: string,
-): Promise<WikiArticle> => {
+): Promise<FetchedArticleWithDocument> => {
   const canonicalPageId = requirePageId(pageId);
   const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
     action: "query",
@@ -351,43 +406,13 @@ export const fetchArticleByPageId = async (
     throw new Error(`Wikipedia article not found: pageId ${canonicalPageId}`);
   }
 
-  const revisions = page.revisions as
-    | Array<Record<string, unknown>>
-    | undefined;
-  const revision = revisions?.[0];
-  const wikiPageId = requirePageId(page.pageid);
-  const revisionId = requireRevisionId(revision?.revid);
-  const fullText = (page.extract as string) ?? "";
-  const contentText = cleanContentForTts(fullText);
-  const thumbnail =
-    (page.thumbnail as WikiThumbnail | undefined) ??
-    (await fetchSummaryThumbnail(page.title as string));
-  const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
-    buildRevisionNarration({
-      wikiPageId,
-      title: page.title as string,
-      revisionId,
-      fullText,
-    }),
-    getAttributionForImageUrl(thumbnail?.source),
-  ]);
-
-  return {
-    wikiPageId,
-    title: page.title as string,
-    language: "en",
-    revisionId,
-    lastEdited: (revision?.timestamp as string) ?? new Date().toISOString(),
-    summary,
-    contentText,
-    sections,
-    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
-    thumbnailUrl: thumbnail?.source,
-    thumbnailWidth: thumbnail?.width,
-    thumbnailHeight: thumbnail?.height,
-    thumbnailAttribution,
-  };
+  return await hydrateFetchedWikipediaPage(page);
 };
+
+export const fetchArticleByPageId = async (
+  pageId: string,
+): Promise<WikiArticle> =>
+  (await fetchArticleWithDocumentByPageId(pageId)).article;
 
 export const titleToSlug = (title: string): string => {
   return title.replace(/ /g, "_");
@@ -397,9 +422,9 @@ export const slugToTitle = (slug: string): string => {
   return slug.replace(/_/g, " ");
 };
 
-export const fetchArticleByTitle = async (
+export const fetchArticleWithDocumentByTitle = async (
   title: string,
-): Promise<WikiArticle> => {
+): Promise<FetchedArticleWithDocument> => {
   const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
     action: "query",
     titles: title,
@@ -425,43 +450,13 @@ export const fetchArticleByTitle = async (
     throw new Error(`Wikipedia article not found: "${title}"`);
   }
 
-  const revisions = page.revisions as
-    | Array<Record<string, unknown>>
-    | undefined;
-  const revision = revisions?.[0];
-  const wikiPageId = requirePageId(page.pageid);
-  const revisionId = requireRevisionId(revision?.revid);
-  const fullText = (page.extract as string) ?? "";
-  const contentText = cleanContentForTts(fullText);
-  const thumbnail =
-    (page.thumbnail as WikiThumbnail | undefined) ??
-    (await fetchSummaryThumbnail(page.title as string));
-  const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
-    buildRevisionNarration({
-      wikiPageId,
-      title: page.title as string,
-      revisionId,
-      fullText,
-    }),
-    getAttributionForImageUrl(thumbnail?.source),
-  ]);
-
-  return {
-    wikiPageId,
-    title: page.title as string,
-    language: "en",
-    revisionId,
-    lastEdited: (revision?.timestamp as string) ?? new Date().toISOString(),
-    summary,
-    contentText,
-    sections,
-    narrationVersion: ARTICLE_SECTION_NARRATION_VERSION,
-    thumbnailUrl: thumbnail?.source,
-    thumbnailWidth: thumbnail?.width,
-    thumbnailHeight: thumbnail?.height,
-    thumbnailAttribution,
-  };
+  return await hydrateFetchedWikipediaPage(page);
 };
+
+export const fetchArticleByTitle = async (
+  title: string,
+): Promise<WikiArticle> =>
+  (await fetchArticleWithDocumentByTitle(title)).article;
 
 const NOISE_SECTIONS = new Set([
   "see also",
@@ -510,7 +505,11 @@ const buildRevisionNarration = async ({
   title: string;
   revisionId: string;
   fullText: string;
-}): Promise<{ summary: string; sections: WikiSection[] }> => {
+}): Promise<{
+  summary: string;
+  sections: WikiSection[];
+  parsedDocument?: MediaWikiDocument;
+}> => {
   const plaintext = splitPlaintextArticle(fullText);
   const sourceSections: SectionNarrationSource[] = plaintext.sections
     .filter((section) => !NOISE_SECTIONS.has(section.title.toLowerCase()))
@@ -529,9 +528,12 @@ const buildRevisionNarration = async ({
       language: "en",
       plaintext,
     });
+    const isCacheableHtml =
+      document.sourceFormat !== "plaintext" && !document.fallbackReason;
     return {
       summary: plaintext.lead,
       sections: createSectionNarrationsFromDocument(document),
+      ...(isCacheableHtml ? { parsedDocument: document } : {}),
     };
   } catch (error) {
     if (
@@ -684,43 +686,22 @@ export const createCacheableParsedPageData = (
   return createParsedPageDataFromDocument(document);
 };
 
-/**
- * Single parse API call that extracts link counts, citations, per-section
- * citation mappings, and section index mappings. Callers should cache the
- * result in Convex so subsequent requests hit the database.
- */
-export const fetchParsedPageData = async (
-  identity: WikipediaRevisionIdentity,
+export const enrichParsedPageDataFromDocument = async (
+  document: MediaWikiDocument,
   signal?: AbortSignal,
 ): Promise<ParsedPageData> => {
   throwIfAborted(signal);
-  const empty: ParsedPageData = {
-    linkCounts: [],
-    citations: [],
-    sectionCitations: [],
-    sectionIndexMap: [],
-    images: [],
-  };
-  if (identity.language !== "en") {
-    return empty;
-  }
-  const document = await loadMediaWikiDocument(
-    {
-      wikiPageId: identity.wikiPageId,
-      title: identity.title,
-      revisionId: identity.revisionId,
-      language: "en",
-    },
-    { signal },
-  );
   const parsed = createCacheableParsedPageData(document);
-
   const images = parsed.images;
   const mediaRequests = images.flatMap((image) => {
     const sourceTitle = image.attribution?.sourceTitle;
     const imageUrl = image.videoSrc ?? image.originalSrc ?? image.src;
     return sourceTitle ? [{ sourceTitle, imageUrl }] : [];
   });
+  if (mediaRequests.length === 0) {
+    return parsed;
+  }
+
   const mediaDetails = await fetchWikimediaMediaDetails(
     mediaRequests,
     fetch,
@@ -755,6 +736,38 @@ export const fetchParsedPageData = async (
       };
     }),
   };
+};
+
+/**
+ * Single parse API call that extracts link counts, citations, per-section
+ * citation mappings, and section index mappings. Callers should cache the
+ * result in Convex so subsequent requests hit the database.
+ */
+export const fetchParsedPageData = async (
+  identity: WikipediaRevisionIdentity,
+  signal?: AbortSignal,
+): Promise<ParsedPageData> => {
+  throwIfAborted(signal);
+  const empty: ParsedPageData = {
+    linkCounts: [],
+    citations: [],
+    sectionCitations: [],
+    sectionIndexMap: [],
+    images: [],
+  };
+  if (identity.language !== "en") {
+    return empty;
+  }
+  const document = await loadMediaWikiDocument(
+    {
+      wikiPageId: identity.wikiPageId,
+      title: identity.title,
+      revisionId: identity.revisionId,
+      language: "en",
+    },
+    { signal },
+  );
+  return await enrichParsedPageDataFromDocument(document, signal);
 };
 
 /**

@@ -3040,12 +3040,13 @@ const fetchParseAttempt = async (
   const abort = () => timeoutController.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
   try {
+    // Revision-pinned (`oldid`) parses are immutable, so allow standard caching
+    // instead of forcing `cache: "no-store"` on every request.
     const response = await fetchWikimediaActionApi(endpoint, params, {
       fetchImpl,
       headers: { Accept: "application/json" },
       signal: timeoutController.signal,
       timeoutMs: FETCH_TIMEOUT_MS,
-      cache: "no-store",
     });
     const payload = await readLimitedResponse(response);
     if (!response.ok) {
