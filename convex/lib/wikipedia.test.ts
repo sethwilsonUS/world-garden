@@ -5,6 +5,7 @@ import {
   WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV,
   WIKIMEDIA_USER_AGENT,
 } from "../../lib/wikimedia-client";
+import { WIKIMEDIA_THUMBNAIL_WIDTH } from "../../lib/wikimedia-media";
 import {
   ARTICLE_COMBINED_QUERY_TIMEOUT_MS,
   ARTICLE_QUERY_DEADLINE_MS,
@@ -1203,6 +1204,9 @@ describe("fetchArticleBadgeKeys single-request topic classification", () => {
       if (url.searchParams.get("action") === "query") {
         expect(url.searchParams.get("prop")).toContain("cirrusdoc");
         expect(url.searchParams.get("cdincludes")).toBe("weighted_tags");
+        expect(url.searchParams.get("pithumbsize")).toBe(
+          String(WIKIMEDIA_THUMBNAIL_WIDTH),
+        );
         return new Response(
           JSON.stringify({
             query: {
@@ -1463,6 +1467,101 @@ describe("fetchArticleBadgeKeys single-request topic classification", () => {
     expect(queryUrls).toHaveLength(2);
     expect(queryUrls[0]?.searchParams.get("prop")).toContain("cirrusdoc");
     expect(queryUrls[1]?.searchParams.get("prop")).not.toContain("cirrusdoc");
+  });
+
+  it("requests canonical hero pithumbsize and routes /wikipedia/en/ hero attribution to en.wikipedia.org", async () => {
+    const heroThumbUrl =
+      "https://upload.wikimedia.org/wikipedia/en/f/f6/Fair_Use_Poster.png";
+    let heroThumbSize: string | null = null;
+    let attributionHost: string | null = null;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+
+      if (
+        url.hostname === "en.wikipedia.org" &&
+        url.searchParams.get("action") === "query" &&
+        url.searchParams.get("prop") === "imageinfo"
+      ) {
+        attributionHost = url.hostname;
+        expect(url.searchParams.has("iiurlwidth")).toBe(false);
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  title: "File:Fair Use Poster.png",
+                  imageinfo: [
+                    {
+                      descriptionurl:
+                        "https://en.wikipedia.org/wiki/File:Fair_Use_Poster.png",
+                      extmetadata: {
+                        Credit: { value: "Publisher cover" },
+                        LicenseShortName: { value: "Fair use" },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      if (url.searchParams.get("action") === "query") {
+        heroThumbSize = url.searchParams.get("pithumbsize");
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 555,
+                  title: "Fair Use Film",
+                  extract: "Fair Use Film is an example article.",
+                  revisions: [
+                    { revid: 77, timestamp: "2026-11-24T00:00:00Z" },
+                  ],
+                  thumbnail: {
+                    source: heroThumbUrl,
+                    width: 300,
+                    height: 450,
+                  },
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 555,
+              revid: 77,
+              title: "Fair Use Film",
+              text: '<section data-mw-section-id="0"><p>Fair Use Film is an example article.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+
+    const fetched = await fetchArticleWithDocumentByTitle("Fair Use Film");
+
+    expect(heroThumbSize).toBe(String(WIKIMEDIA_THUMBNAIL_WIDTH));
+    expect(attributionHost).toBe("en.wikipedia.org");
+    expect(fetched.article.thumbnailAttribution).toEqual({
+      creator: undefined,
+      credit: "Publisher cover",
+      licenseName: "Fair use",
+      licenseUrl: undefined,
+      sourceTitle: "File:Fair Use Poster.png",
+      sourceUrl: "https://en.wikipedia.org/wiki/File:Fair_Use_Poster.png",
+    });
   });
 
   it("classifies topics in 1 Lift Wing outlink-topic-model request when cirrusdoc tags are absent", async () => {

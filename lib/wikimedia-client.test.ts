@@ -4,6 +4,7 @@ import {
   buildWikimediaHeaders,
   DEFAULT_WIKIMEDIA_TIMEOUT_MS,
   extractActionApiPages,
+  extractActionApiTitleMappings,
   fetchWikimedia,
   fetchWikimediaActionApi,
   isMissingActionApiPage,
@@ -11,6 +12,7 @@ import {
   isWikimediaTimeoutError,
   parseRetryAfterMs,
   parseRetryAfterSeconds,
+  resolveActionApiCanonicalTitle,
   WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV,
   WIKIMEDIA_USER_AGENT,
 } from "./wikimedia-client";
@@ -792,6 +794,44 @@ describe("lib/wikimedia-client", () => {
         expect(response.status).toBe(status);
         expect(fetchMock).toHaveBeenCalledTimes(1);
       }
+    });
+  });
+
+  describe("Action API title normalization and redirect resolution", () => {
+    it("resolves normalized, converted, and multi-hop redirect chains including case changes", () => {
+      const mappings = extractActionApiTitleMappings({
+        normalized: [
+          { from: "ada_lovelace", to: "Ada lovelace" },
+          { from: "wwii", to: "Wwii" },
+        ],
+        converted: [{ from: "Wwii", to: "WWII" }],
+        redirects: [
+          { from: "Ada lovelace", to: "Ada Lovelace" },
+          { from: "Ada Lovelace", to: "Augusta Ada King" },
+          { from: "WWII", to: "World War II" },
+        ],
+      });
+
+      expect(resolveActionApiCanonicalTitle("ada_lovelace", mappings)).toBe(
+        "Augusta Ada King",
+      );
+      expect(resolveActionApiCanonicalTitle("wwii", mappings)).toBe(
+        "World War II",
+      );
+      expect(resolveActionApiCanonicalTitle("Unchanged Title", mappings)).toBe(
+        "Unchanged Title",
+      );
+    });
+
+    it("guards against redirect cycles cleanly", () => {
+      const mappings = extractActionApiTitleMappings({
+        redirects: [
+          { from: "Loop A", to: "Loop B" },
+          { from: "Loop B", to: "Loop A" },
+        ],
+      });
+
+      expect(resolveActionApiCanonicalTitle("Loop A", mappings)).toBe("Loop A");
     });
   });
 });

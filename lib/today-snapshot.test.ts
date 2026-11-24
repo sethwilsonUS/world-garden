@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { enrichDidYouKnowThumbnails } from "./today-snapshot";
 import type { WikipediaDidYouKnowItem } from "./featured-article";
+import { WIKIMEDIA_FEED_THUMBNAIL_WIDTH } from "./wikimedia-media";
 
 const originalFetch = global.fetch;
 const originalLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE;
@@ -228,6 +229,110 @@ describe("enrichDidYouKnowThumbnails", () => {
 
     await expect(enrichDidYouKnowThumbnails(items)).resolves.toBe(items);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies MediaWiki normalized and redirects mappings, uses canonical pithumbsize, and routes /wikipedia/en/ thumbnails to enwiki", async () => {
+    const enwikiThumb =
+      "https://upload.wikimedia.org/wikipedia/en/thumb/f/f6/Fair_Use_Cover.png/500px-Fair_Use_Cover.png";
+    let pageImagesThumbSize: string | null = null;
+    const attributionHosts: string[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+
+      if (url.searchParams.get("prop") === "pageimages|info") {
+        pageImagesThumbSize = url.searchParams.get("pithumbsize");
+        expect(url.searchParams.get("redirects")).toBe("1");
+        return Response.json({
+          query: {
+            normalized: [{ from: "wwii", to: "Wwii" }],
+            redirects: [{ from: "Wwii", to: "World War II" }],
+            pages: [
+              {
+                pageid: 32927,
+                ns: 0,
+                title: "World War II",
+                thumbnail: {
+                  source: enwikiThumb,
+                  width: 500,
+                  height: 333,
+                },
+              },
+            ],
+          },
+        });
+      }
+
+      if (url.searchParams.get("prop") === "imageinfo") {
+        attributionHosts.push(url.hostname);
+        expect(url.hostname).toBe("en.wikipedia.org");
+        expect(url.searchParams.has("iiurlwidth")).toBe(false);
+        return Response.json({
+          query: {
+            pages: [
+              {
+                title: "File:Fair Use Cover.png",
+                imageinfo: [
+                  {
+                    descriptionurl:
+                      "https://en.wikipedia.org/wiki/File:Fair_Use_Cover.png",
+                    extmetadata: {
+                      Credit: { value: "English Wikipedia archive" },
+                      LicenseShortName: { value: "Fair use" },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+    global.fetch = fetchMock;
+
+    const items: WikipediaDidYouKnowItem[] = [
+      {
+        text: "... that wwii reshaped global history?",
+        links: [
+          {
+            title: "wwii",
+            slug: "wwii",
+            text: "wwii",
+          },
+        ],
+        segments: [
+          { type: "text", text: "... that " },
+          { type: "link", title: "wwii", slug: "wwii", text: "wwii" },
+          { type: "text", text: " reshaped global history?" },
+        ],
+      },
+    ];
+
+    const enriched = await enrichDidYouKnowThumbnails(items);
+
+    expect(pageImagesThumbSize).toBe(String(WIKIMEDIA_FEED_THUMBNAIL_WIDTH));
+    expect(attributionHosts).toEqual(["en.wikipedia.org"]);
+    expect(enriched[0]?.links[0]).toEqual({
+      title: "wwii",
+      slug: "wwii",
+      text: "wwii",
+      wikiPageId: "32927",
+      thumbnail: {
+        source: enwikiThumb,
+        width: 500,
+        height: 333,
+        attribution: {
+          creator: undefined,
+          credit: "English Wikipedia archive",
+          licenseName: "Fair use",
+          licenseUrl: undefined,
+          sourceTitle: "File:Fair Use Cover.png",
+          sourceUrl: "https://en.wikipedia.org/wiki/File:Fair_Use_Cover.png",
+        },
+      },
+    });
   });
 });
 

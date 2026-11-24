@@ -37,6 +37,7 @@ import {
 import {
   fetchWikimediaMediaDetails,
   getAttributionForImageUrl,
+  WIKIMEDIA_THUMBNAIL_WIDTH,
   type WikimediaMediaAttribution,
 } from "../../lib/wikimedia-media";
 import type { WikipediaRevisionIdentity } from "../../lib/wikipedia-contracts";
@@ -653,7 +654,7 @@ const fetchWikipediaArticleQueryPayload = async (
     rvprop: "ids|timestamp",
     inprop: "url",
     piprop: "thumbnail",
-    pithumbsize: "800",
+    pithumbsize: String(WIKIMEDIA_THUMBNAIL_WIDTH),
   };
 
   const deadlineAt = Date.now() + ARTICLE_QUERY_DEADLINE_MS;

@@ -562,6 +562,130 @@ export const isMissingActionApiPage = (page: {
   missing?: unknown;
 }): boolean => page.missing === true || page.missing === "";
 
+export type ActionApiTitleMappings = {
+  normalized: Map<string, string>;
+  normalizedLower: Map<string, string>;
+  converted: Map<string, string>;
+  convertedLower: Map<string, string>;
+  redirects: Map<string, string>;
+  redirectsLower: Map<string, string>;
+};
+
+const MAX_ACTION_API_REDIRECT_HOPS = 16;
+
+const normalizeActionApiTitleSpaces = (title: string): string =>
+  title.replace(/_/g, " ").trim();
+
+const recordActionApiTitleMappings = (
+  exactMap: Map<string, string>,
+  lowerMap: Map<string, string>,
+  rawMappings: unknown,
+): void => {
+  if (!Array.isArray(rawMappings)) return;
+  for (const entry of rawMappings) {
+    if (!isRecord(entry)) continue;
+    if (typeof entry.from !== "string" || typeof entry.to !== "string") {
+      continue;
+    }
+    const from = normalizeActionApiTitleSpaces(entry.from);
+    const to = normalizeActionApiTitleSpaces(entry.to);
+    if (!from || !to) continue;
+    exactMap.set(from, to);
+    const fromLower = from.toLowerCase();
+    if (!lowerMap.has(fromLower)) {
+      lowerMap.set(fromLower, to);
+    }
+  }
+};
+
+/**
+ * Extract MediaWiki Action API `query.normalized`, `query.converted`, and
+ * `query.redirects` title mappings for resolving requested titles to returned
+ * canonical pages.
+ */
+export const extractActionApiTitleMappings = (
+  queryData: unknown,
+): ActionApiTitleMappings => {
+  const mappings: ActionApiTitleMappings = {
+    normalized: new Map(),
+    normalizedLower: new Map(),
+    converted: new Map(),
+    convertedLower: new Map(),
+    redirects: new Map(),
+    redirectsLower: new Map(),
+  };
+  if (!isRecord(queryData)) return mappings;
+
+  recordActionApiTitleMappings(
+    mappings.normalized,
+    mappings.normalizedLower,
+    queryData.normalized,
+  );
+  recordActionApiTitleMappings(
+    mappings.converted,
+    mappings.convertedLower,
+    queryData.converted,
+  );
+  recordActionApiTitleMappings(
+    mappings.redirects,
+    mappings.redirectsLower,
+    queryData.redirects,
+  );
+  return mappings;
+};
+
+const lookupActionApiTitleMapping = (
+  title: string,
+  exactMap: ReadonlyMap<string, string>,
+  lowerMap: ReadonlyMap<string, string>,
+): string | undefined =>
+  exactMap.get(title) ?? lowerMap.get(title.toLowerCase());
+
+/**
+ * Resolve a requested title through MediaWiki Action API `normalized`,
+ * `converted`, and `redirects` mappings with cycle protection.
+ */
+export const resolveActionApiCanonicalTitle = (
+  rawTitle: string,
+  mappings: ActionApiTitleMappings,
+): string => {
+  let current = normalizeActionApiTitleSpaces(rawTitle);
+  if (!current) return current;
+
+  const normalized = lookupActionApiTitleMapping(
+    current,
+    mappings.normalized,
+    mappings.normalizedLower,
+  );
+  if (normalized) {
+    current = normalized;
+  }
+
+  const converted = lookupActionApiTitleMapping(
+    current,
+    mappings.converted,
+    mappings.convertedLower,
+  );
+  if (converted) {
+    current = converted;
+  }
+
+  const visited = new Set<string>();
+  for (let hop = 0; hop < MAX_ACTION_API_REDIRECT_HOPS; hop += 1) {
+    if (visited.has(current)) break;
+    visited.add(current);
+    const next = lookupActionApiTitleMapping(
+      current,
+      mappings.redirects,
+      mappings.redirectsLower,
+    );
+    if (!next || next === current) break;
+    current = next;
+  }
+
+  return current;
+};
+
 /**
  * Perform a server-side HTTP request to a Wikimedia API with:
  * - policy-compliant `User-Agent`

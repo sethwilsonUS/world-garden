@@ -155,6 +155,14 @@ describe("createParsedPageDataFromDocument", () => {
                 },
                 {
                   kind: "image",
+                  src: "https://upload.wikimedia.org/wikipedia/en/thumb/c/cd/Local_Poster.jpg/330px-Local_Poster.jpg",
+                  resourceTitle: "File:Local Poster.jpg",
+                  alt: "Local English Wikipedia poster",
+                  width: 330,
+                  height: 440,
+                },
+                {
+                  kind: "image",
                   src: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Icon.png",
                   alt: "Tiny icon",
                   width: 48,
@@ -211,6 +219,19 @@ describe("createParsedPageDataFromDocument", () => {
           height: 480,
           attribution: expect.objectContaining({
             sourceTitle: "File:History.png",
+            sourceUrl: "https://commons.wikimedia.org/wiki/File%3AHistory.png",
+          }),
+        },
+        {
+          src: "https://upload.wikimedia.org/wikipedia/en/thumb/c/cd/Local_Poster.jpg/330px-Local_Poster.jpg",
+          alt: "Local English Wikipedia poster",
+          caption: "A labeled historical diagram.",
+          width: 330,
+          height: 440,
+          attribution: expect.objectContaining({
+            sourceTitle: "File:Local Poster.jpg",
+            sourceUrl:
+              "https://en.wikipedia.org/wiki/File%3ALocal_Poster.jpg",
           }),
         },
       ],

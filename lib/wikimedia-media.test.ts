@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  fetchWikimediaMediaDetails,
   fetchWikimediaMediaAttributions,
+  fetchWikimediaMediaAttributionsForUrls,
+  fetchWikimediaMediaDetails,
+  getAttributionForImageUrl,
   getWikimediaFileTitleFromUrl,
   getWikimediaMediaIdentity,
   getWikimediaMediaRepositoryFromUrl,
   isWikimediaMediaHostname,
+  WIKIMEDIA_LIGHTBOX_RENDITION_WIDTH,
   WIKIMEDIA_MEDIA_TIMEOUT_MS,
 } from "./wikimedia-media";
 
@@ -200,7 +203,7 @@ describe("Wikimedia media attribution", () => {
     );
   });
 
-  it("uses the API-returned 1600px Commons rendition and canonical original", async () => {
+  it("uses the API-returned 1920px Commons rendition and canonical original", async () => {
     const imageUrl =
       "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/330px-Example.jpg";
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
@@ -208,7 +211,9 @@ describe("Wikimedia media attribution", () => {
       expect(url.hostname).toBe("commons.wikimedia.org");
       expect(url.searchParams.get("formatversion")).toBe("2");
       expect(url.searchParams.has("origin")).toBe(false);
-      expect(url.searchParams.get("iiurlwidth")).toBe("1600");
+      expect(url.searchParams.get("iiurlwidth")).toBe(
+        String(WIKIMEDIA_LIGHTBOX_RENDITION_WIDTH),
+      );
       expect(url.searchParams.get("iiprop")).toBe(
         "url|size|mime|extmetadata",
       );
@@ -227,9 +232,9 @@ describe("Wikimedia media attribution", () => {
                     width: 4000,
                     height: 3000,
                     thumburl:
-                      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1600px-Example.jpg",
-                    thumbwidth: 1600,
-                    thumbheight: 1200,
+                      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1920px-Example.jpg",
+                    thumbwidth: 1920,
+                    thumbheight: 1440,
                     descriptionurl:
                       "https://commons.wikimedia.org/wiki/File:Example.jpg",
                     extmetadata: {
@@ -259,9 +264,9 @@ describe("Wikimedia media attribution", () => {
       originalSrc:
         "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
       lightboxSrc:
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1600px-Example.jpg",
-      lightboxWidth: 1600,
-      lightboxHeight: 1200,
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Example.jpg/1920px-Example.jpg",
+      lightboxWidth: 1920,
+      lightboxHeight: 1440,
       altText: "A monarch butterfly resting on a purple coneflower.",
       attribution: {
         licenseName: "CC BY-SA 4.0",
@@ -276,6 +281,7 @@ describe("Wikimedia media attribution", () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = new URL(String(input));
       expect(url.hostname).toBe("en.wikipedia.org");
+      expect(url.searchParams.has("iiurlwidth")).toBe(false);
 
       return new Response(
         JSON.stringify({
@@ -290,9 +296,9 @@ describe("Wikimedia media attribution", () => {
                     width: 640,
                     height: 480,
                     thumburl:
-                      "https://upload.wikimedia.org/wikipedia/en/thumb/a/ab/Poster.jpg/1600px-Poster.jpg",
-                    thumbwidth: 1600,
-                    thumbheight: 1200,
+                      "https://upload.wikimedia.org/wikipedia/en/thumb/a/ab/Poster.jpg/1920px-Poster.jpg",
+                    thumbwidth: 1920,
+                    thumbheight: 1440,
                     extmetadata: {
                       LicenseShortName: { value: "Fair use" },
                     },
@@ -532,6 +538,249 @@ describe("Wikimedia media attribution", () => {
         sourceTitle: "File:Partial.jpg",
         sourceUrl: expect.stringContaining("commons.wikimedia.org/wiki/"),
       }),
+    });
+  });
+
+  it("routes single-image /wikipedia/en/ attribution to English Wikipedia with enwiki fallback", async () => {
+    const enwikiUrl =
+      "https://upload.wikimedia.org/wikipedia/en/f/f6/Album_Cover.png";
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      expect(url.hostname).toBe("en.wikipedia.org");
+      expect(url.searchParams.get("iiprop")).toBe("url|extmetadata");
+      expect(url.searchParams.has("iiurlwidth")).toBe(false);
+      expect(url.searchParams.get("titles")).toBe("File:Album Cover.png");
+
+      return new Response(
+        JSON.stringify({
+          query: {
+            pages: [
+              {
+                title: "File:Album Cover.png",
+                imagerepository: "local",
+                imageinfo: [
+                  {
+                    descriptionurl:
+                      "https://en.wikipedia.org/wiki/File:Album_Cover.png",
+                    extmetadata: {
+                      Artist: { value: "Record Label Studio" },
+                      Credit: { value: "Official album cover" },
+                      LicenseShortName: { value: "Fair use" },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    const attribution = await getAttributionForImageUrl(enwikiUrl, fetchMock);
+    expect(attribution).toEqual({
+      creator: "Record Label Studio",
+      credit: "Official album cover",
+      licenseName: "Fair use",
+      licenseUrl: undefined,
+      sourceTitle: "File:Album Cover.png",
+      sourceUrl: "https://en.wikipedia.org/wiki/File:Album_Cover.png",
+    });
+
+    const failingFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(null, { status: 500 }),
+    );
+    const fallback = await getAttributionForImageUrl(enwikiUrl, failingFetch);
+    expect(fallback).toEqual({
+      sourceTitle: "File:Album Cover.png",
+      sourceUrl: "https://en.wikipedia.org/wiki/File%3AAlbum_Cover.png",
+    });
+  });
+
+  it("routes mixed batch URL attributions to Commons and English Wikipedia without collisions", async () => {
+    const commonsUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Shared.jpg/500px-Shared.jpg";
+    const enwikiUrl =
+      "https://thumb.wikimedia.org/wikipedia/en/thumb/a/ab/Shared.jpg/500px-Shared.jpg";
+    const missingEnwikiUrl =
+      "https://upload.wikimedia.org/wikipedia/en/b/bc/Local_Missing.png";
+    const calledHosts: string[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      calledHosts.push(url.hostname);
+      expect(url.searchParams.get("iiprop")).toBe("url|extmetadata");
+      expect(url.searchParams.has("iiurlwidth")).toBe(false);
+
+      if (url.hostname === "commons.wikimedia.org") {
+        expect(url.searchParams.get("titles")).toBe("File:Shared.jpg");
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  title: "File:Shared.jpg",
+                  imageinfo: [
+                    {
+                      descriptionurl:
+                        "https://commons.wikimedia.org/wiki/File:Shared.jpg",
+                      extmetadata: {
+                        Artist: { value: "Commons Photographer" },
+                        LicenseShortName: { value: "CC BY 4.0" },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      expect(url.hostname).toBe("en.wikipedia.org");
+      expect(url.searchParams.get("titles")).toBe(
+        "File:Shared.jpg|File:Local Missing.png",
+      );
+      return new Response(
+        JSON.stringify({
+          query: {
+            pages: [
+              {
+                title: "File:Shared.jpg",
+                imageinfo: [
+                  {
+                    descriptionurl:
+                      "https://en.wikipedia.org/wiki/File:Shared.jpg",
+                    extmetadata: {
+                      Credit: { value: "English Wikipedia fair-use poster" },
+                      LicenseShortName: { value: "Fair use" },
+                    },
+                  },
+                ],
+              },
+              {
+                title: "File:Local Missing.png",
+                missing: true,
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    const attributions = await fetchWikimediaMediaAttributionsForUrls(
+      [commonsUrl, enwikiUrl, missingEnwikiUrl],
+      fetchMock,
+    );
+
+    expect(calledHosts).toEqual(["commons.wikimedia.org", "en.wikipedia.org"]);
+    expect(attributions.get(commonsUrl)).toMatchObject({
+      creator: "Commons Photographer",
+      licenseName: "CC BY 4.0",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File:Shared.jpg",
+    });
+    expect(attributions.get(enwikiUrl)).toMatchObject({
+      credit: "English Wikipedia fair-use poster",
+      licenseName: "Fair use",
+      sourceUrl: "https://en.wikipedia.org/wiki/File:Shared.jpg",
+    });
+    expect(attributions.get(missingEnwikiUrl)).toEqual({
+      sourceTitle: "File:Local Missing.png",
+      sourceUrl: "https://en.wikipedia.org/wiki/File%3ALocal_Missing.png",
+    });
+  });
+
+  it("supports rendition-free metadata queries without iiurlwidth", async () => {
+    const commonsUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Apollo.jpg/330px-Apollo.jpg";
+    const enwikiUrl =
+      "https://upload.wikimedia.org/wikipedia/en/a/ab/FairUse.png";
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("iiprop")).toBe("url|extmetadata");
+      expect(url.searchParams.has("iiurlwidth")).toBe(false);
+
+      if (url.hostname === "commons.wikimedia.org") {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  title: "File:Apollo.jpg",
+                  imageinfo: [
+                    {
+                      descriptionurl:
+                        "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+                      extmetadata: {
+                        ImageDescription: { value: "Apollo splashdown." },
+                        Artist: { value: "NASA" },
+                        LicenseShortName: { value: "Public domain" },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          query: {
+            pages: [
+              {
+                title: "File:FairUse.png",
+                imageinfo: [
+                  {
+                    descriptionurl:
+                      "https://en.wikipedia.org/wiki/File:FairUse.png",
+                    extmetadata: {
+                      ImageDescription: { value: "Poster cover." },
+                      LicenseShortName: { value: "Fair use" },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    const details = await fetchWikimediaMediaDetails(
+      [
+        { sourceTitle: "File:Apollo.jpg", imageUrl: commonsUrl },
+        { sourceTitle: "File:FairUse.png", imageUrl: enwikiUrl },
+      ],
+      fetchMock,
+      { includeRendition: false },
+    );
+
+    expect(details.get(commonsUrl)).toEqual({
+      repository: "commons",
+      resolved: true,
+      altText: "Apollo splashdown.",
+      attribution: {
+        creator: "NASA",
+        credit: undefined,
+        licenseName: "Public domain",
+        licenseUrl: undefined,
+        sourceTitle: "File:Apollo.jpg",
+        sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+      },
+    });
+    expect(details.get(enwikiUrl)).toEqual({
+      repository: "enwiki",
+      resolved: true,
+      altText: "Poster cover.",
+      attribution: {
+        creator: undefined,
+        credit: undefined,
+        licenseName: "Fair use",
+        licenseUrl: undefined,
+        sourceTitle: "File:FairUse.png",
+        sourceUrl: "https://en.wikipedia.org/wiki/File:FairUse.png",
+      },
     });
   });
 });

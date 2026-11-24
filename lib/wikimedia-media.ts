@@ -48,7 +48,14 @@ const WIKIMEDIA_MEDIA_HOSTNAMES = new Set([
 export const isWikimediaMediaHostname = (hostname: string): boolean =>
   WIKIMEDIA_MEDIA_HOSTNAMES.has(hostname.toLocaleLowerCase("en-US"));
 const IMAGE_INFO_BATCH_SIZE = 20;
-const LIGHTBOX_RENDITION_WIDTH = 1_600;
+/**
+ * Canonical Wikimedia `$wgThumbnailSteps` buckets (`20, 40, 60, 120, 250, 330,
+ * 500, 960, 1280, 1920, 3840`) so requested dimensions match served files
+ * without silent server-side rounding.
+ */
+export const WIKIMEDIA_THUMBNAIL_WIDTH = 960;
+export const WIKIMEDIA_FEED_THUMBNAIL_WIDTH = 500;
+export const WIKIMEDIA_LIGHTBOX_RENDITION_WIDTH = 1_920;
 export const WIKIMEDIA_MEDIA_TIMEOUT_MS = 8_000;
 
 export type WikimediaMediaRepository = "commons" | "enwiki";
@@ -56,6 +63,16 @@ export type WikimediaMediaRepository = "commons" | "enwiki";
 export type WikimediaMediaRequest = {
   sourceTitle: string;
   imageUrl: string;
+};
+
+export type FetchWikimediaMediaDetailsOptions = {
+  /**
+   * When `false`, requests only `url|extmetadata` without `iiurlwidth` so
+   * callers that only need attribution and alt text (such as On This Day sync)
+   * do not ask Wikimedia to render unused lightbox sizes.
+   */
+  includeRendition?: boolean;
+  signal?: AbortSignal;
 };
 
 export type WikimediaMediaDetails = {
@@ -173,6 +190,9 @@ const projectHostForRepository = (
     ? WIKIMEDIA_ENGLISH_WIKIPEDIA_HOST
     : WIKIMEDIA_COMMONS_HOST;
 
+export const getWikimediaProjectHostFromUrl = (imageUrl: string): string =>
+  projectHostForRepository(getWikimediaMediaRepositoryFromUrl(imageUrl));
+
 const actionApiForRepository = (
   repository: WikimediaMediaRepository,
 ): string =>
@@ -212,12 +232,16 @@ const fetchImageInfoBatch = async (
   actionApi: string,
   sourceTitles: string[],
   fetchImpl: typeof fetch,
-  options: { includeRendition: boolean; signal?: AbortSignal },
+  options: {
+    includeSizeAndMime?: boolean;
+    renditionWidth?: number;
+    signal?: AbortSignal;
+  },
 ): Promise<{ ok: boolean; pages: ImageInfoPage[] }> => {
   const params: Record<string, string> = {
     action: "query",
     prop: "imageinfo",
-    iiprop: options.includeRendition
+    iiprop: options.includeSizeAndMime
       ? "url|size|mime|extmetadata"
       : "url|extmetadata",
     titles: sourceTitles.join("|"),
@@ -225,8 +249,8 @@ const fetchImageInfoBatch = async (
     iiextmetadatafilter:
       "ImageDescription|Artist|Credit|LicenseShortName|UsageTerms|LicenseUrl",
   };
-  if (options.includeRendition) {
-    params.iiurlwidth = String(LIGHTBOX_RENDITION_WIDTH);
+  if (options.renditionWidth !== undefined) {
+    params.iiurlwidth = String(options.renditionWidth);
   }
 
   try {
@@ -236,7 +260,10 @@ const fetchImageInfoBatch = async (
       timeoutMs: WIKIMEDIA_MEDIA_TIMEOUT_MS,
       maxRetries: 1,
     });
-    if (!response.ok) return { ok: false, pages: [] };
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return { ok: false, pages: [] };
+    }
 
     const payload = (await response.json()) as {
       query?: { pages?: unknown };
@@ -275,40 +302,37 @@ const attributionFromImageInfo = (
 export const fetchWikimediaMediaAttributions = async (
   sourceTitles: string[],
   fetchImpl: typeof fetch = fetch,
+  repository: WikimediaMediaRepository = "commons",
 ): Promise<Map<string, WikimediaMediaAttribution>> => {
   const uniqueTitles = [...new Set(sourceTitles.filter(Boolean))];
   const results = new Map<string, WikimediaMediaAttribution>();
+  const projectHost = projectHostForRepository(repository);
+  const actionApi = actionApiForRepository(repository);
 
   for (const title of uniqueTitles) {
-    results.set(title, buildWikimediaSourceFallback(title));
+    results.set(title, buildWikimediaSourceFallback(title, projectHost));
   }
 
   for (let index = 0; index < uniqueTitles.length; index += IMAGE_INFO_BATCH_SIZE) {
     const batch = uniqueTitles.slice(index, index + IMAGE_INFO_BATCH_SIZE);
-    const { pages } = await fetchImageInfoBatch(
-      WIKIMEDIA_COMMONS_ACTION_API,
-      batch,
-      fetchImpl,
-      { includeRendition: false },
-    );
+    const { pages } = await fetchImageInfoBatch(actionApi, batch, fetchImpl, {
+      includeSizeAndMime: false,
+    });
 
     const requestedTitles = new Map(
       batch.map((title) => [normalizeSourceTitle(title), title]),
     );
     for (const page of pages) {
       const sourceTitle = page.title;
-      if (typeof sourceTitle !== "string" || !sourceTitle) continue;
+      const info = page.imageinfo?.[0];
+      if (typeof sourceTitle !== "string" || !sourceTitle || !info) continue;
       const requestedTitle = requestedTitles.get(
         normalizeSourceTitle(sourceTitle),
       );
       if (!requestedTitle) continue;
       results.set(
         requestedTitle,
-        attributionFromImageInfo(
-          sourceTitle,
-          page.imageinfo?.[0],
-          WIKIMEDIA_COMMONS_HOST,
-        ),
+        attributionFromImageInfo(sourceTitle, info, projectHost),
       );
     }
   }
@@ -317,16 +341,119 @@ export const fetchWikimediaMediaAttributions = async (
 };
 
 /**
- * Resolve canonical originals, a Wikimedia-generated 1600px rendition, and
- * attribution for article-gallery media. Requests are grouped by repository
- * because English Wikipedia's local (often non-free) files are not available
- * from the Commons API.
+ * Batch-resolve media attributions for Wikimedia image URLs, routing
+ * `/wikipedia/en/` URLs to English Wikipedia's Action API and Commons URLs to
+ * Wikimedia Commons without requesting image renditions.
+ */
+export const fetchWikimediaMediaAttributionsForUrls = async (
+  imageUrls: readonly string[],
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<Map<string, WikimediaMediaAttribution>> => {
+  type RequestedAttribution = {
+    sourceTitle: string;
+    imageUrls: Set<string>;
+  };
+
+  const results = new Map<string, WikimediaMediaAttribution>();
+  const grouped = new Map<
+    WikimediaMediaRepository,
+    Map<string, RequestedAttribution>
+  >([
+    ["commons", new Map()],
+    ["enwiki", new Map()],
+  ]);
+
+  for (const imageUrl of imageUrls) {
+    if (!imageUrl) continue;
+    const sourceTitle = getWikimediaFileTitleFromUrl(imageUrl);
+    if (!sourceTitle) continue;
+    const repository = getWikimediaMediaRepositoryFromUrl(imageUrl);
+    const projectHost = projectHostForRepository(repository);
+
+    results.set(
+      imageUrl,
+      buildWikimediaSourceFallback(sourceTitle, projectHost),
+    );
+
+    const key = normalizeSourceTitle(sourceTitle);
+    const repositoryGroup = grouped.get(repository)!;
+    const existing = repositoryGroup.get(key);
+    if (existing) {
+      existing.imageUrls.add(imageUrl);
+    } else {
+      repositoryGroup.set(key, {
+        sourceTitle,
+        imageUrls: new Set([imageUrl]),
+      });
+    }
+  }
+
+  for (const repository of ["commons", "enwiki"] as const) {
+    const repositoryGroup = grouped.get(repository)!;
+    const media = [...repositoryGroup.values()];
+    const projectHost = projectHostForRepository(repository);
+    const actionApi = actionApiForRepository(repository);
+
+    for (let index = 0; index < media.length; index += IMAGE_INFO_BATCH_SIZE) {
+      const batch = media.slice(index, index + IMAGE_INFO_BATCH_SIZE);
+      const { pages } = await fetchImageInfoBatch(
+        actionApi,
+        batch.map((item) => item.sourceTitle),
+        fetchImpl,
+        { includeSizeAndMime: false, signal },
+      );
+
+      for (const page of pages) {
+        const sourceTitle = page.title;
+        const info = page.imageinfo?.[0];
+        if (typeof sourceTitle !== "string" || !sourceTitle || !info) continue;
+        const requested = repositoryGroup.get(
+          normalizeSourceTitle(sourceTitle),
+        );
+        if (!requested) continue;
+        const attribution = attributionFromImageInfo(
+          sourceTitle,
+          info,
+          projectHost,
+        );
+        for (const imageUrl of requested.imageUrls) {
+          results.set(imageUrl, attribution);
+        }
+      }
+    }
+  }
+
+  return results;
+};
+
+const isAbortSignal = (
+  value: AbortSignal | FetchWikimediaMediaDetailsOptions | undefined,
+): value is AbortSignal =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  "aborted" in value &&
+  typeof value.addEventListener === "function";
+
+/**
+ * Resolve Wikimedia file metadata, attribution, and (optionally) canonical
+ * originals plus a 1920px Commons lightbox rendition. Requests are grouped by
+ * repository because English Wikipedia's local (often non-free) files are not
+ * available from the Commons API.
  */
 export const fetchWikimediaMediaDetails = async (
   requests: WikimediaMediaRequest[],
   fetchImpl: typeof fetch = fetch,
-  signal?: AbortSignal,
+  signalOrOptions?: AbortSignal | FetchWikimediaMediaDetailsOptions,
 ): Promise<Map<string, WikimediaMediaDetails>> => {
+  const options: FetchWikimediaMediaDetailsOptions = isAbortSignal(
+    signalOrOptions,
+  )
+    ? { signal: signalOrOptions }
+    : (signalOrOptions ?? {});
+  const includeRendition = options.includeRendition ?? true;
+  const signal = options.signal;
+
   type RequestedMedia = {
     sourceTitle: string;
     imageUrls: Set<string>;
@@ -376,7 +503,14 @@ export const fetchWikimediaMediaDetails = async (
         actionApiForRepository(repository),
         batch.map((item) => item.sourceTitle),
         fetchImpl,
-        { includeRendition: true, signal },
+        {
+          includeSizeAndMime: includeRendition,
+          renditionWidth:
+            includeRendition && repository === "commons"
+              ? WIKIMEDIA_LIGHTBOX_RENDITION_WIDTH
+              : undefined,
+          signal,
+        },
       );
 
       for (const page of pages) {
@@ -417,45 +551,59 @@ export const fetchWikimediaMediaDetails = async (
           projectHost,
         );
         const altText = metadataText(info.extmetadata, "ImageDescription");
-        const originalSrc = normalizeHttpUrl(info.url);
-        const originalWidth = positiveDimension(info.width);
-        const originalHeight = positiveDimension(info.height);
-        const thumbSrc = normalizeHttpUrl(info.thumburl);
-        const thumbWidth = positiveDimension(info.thumbwidth);
-        const thumbHeight = positiveDimension(info.thumbheight);
+        const originalSrc = includeRendition
+          ? normalizeHttpUrl(info.url)
+          : undefined;
+        const originalWidth = includeRendition
+          ? positiveDimension(info.width)
+          : undefined;
+        const originalHeight = includeRendition
+          ? positiveDimension(info.height)
+          : undefined;
+        const thumbSrc = includeRendition
+          ? normalizeHttpUrl(info.thumburl)
+          : undefined;
+        const thumbWidth = includeRendition
+          ? positiveDimension(info.thumbwidth)
+          : undefined;
+        const thumbHeight = includeRendition
+          ? positiveDimension(info.thumbheight)
+          : undefined;
 
         let lightboxSrc: string | undefined;
         let lightboxWidth: number | undefined;
         let lightboxHeight: number | undefined;
 
-        const completeOriginal =
-          originalSrc && originalWidth && originalHeight
-            ? {
-                src: originalSrc,
-                width: originalWidth,
-                height: originalHeight,
-              }
-            : undefined;
-        const completeThumb =
-          thumbSrc && thumbWidth && thumbHeight
-            ? { src: thumbSrc, width: thumbWidth, height: thumbHeight }
-            : undefined;
+        if (includeRendition) {
+          const completeOriginal =
+            originalSrc && originalWidth && originalHeight
+              ? {
+                  src: originalSrc,
+                  width: originalWidth,
+                  height: originalHeight,
+                }
+              : undefined;
+          const completeThumb =
+            thumbSrc && thumbWidth && thumbHeight
+              ? { src: thumbSrc, width: thumbWidth, height: thumbHeight }
+              : undefined;
 
-        // Local English-Wikipedia media can be non-free. Use its native file
-        // exactly as supplied instead of selecting a generated enlargement.
-        const rendition =
-          repository === "enwiki"
-            ? completeOriginal
-            : completeThumb &&
-                (!completeOriginal ||
-                  (completeThumb.width <= completeOriginal.width &&
-                    completeThumb.height <= completeOriginal.height))
-              ? completeThumb
-              : completeOriginal;
-        if (rendition) {
-          lightboxSrc = rendition.src;
-          lightboxWidth = rendition.width;
-          lightboxHeight = rendition.height;
+          // Local English-Wikipedia media can be non-free. Use its native file
+          // exactly as supplied instead of selecting a generated enlargement.
+          const rendition =
+            repository === "enwiki"
+              ? completeOriginal
+              : completeThumb &&
+                  (!completeOriginal ||
+                    (completeThumb.width <= completeOriginal.width &&
+                      completeThumb.height <= completeOriginal.height))
+                ? completeThumb
+                : completeOriginal;
+          if (rendition) {
+            lightboxSrc = rendition.src;
+            lightboxWidth = rendition.width;
+            lightboxHeight = rendition.height;
+          }
         }
 
         for (const imageUrl of requested.imageUrls) {
@@ -481,8 +629,18 @@ export const getAttributionForImageUrl = async (
   imageUrl: string | undefined,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WikimediaMediaAttribution | undefined> => {
+  if (!imageUrl) return undefined;
   const title = getWikimediaFileTitleFromUrl(imageUrl);
   if (!title) return undefined;
-  const attributions = await fetchWikimediaMediaAttributions([title], fetchImpl);
-  return attributions.get(title) ?? buildWikimediaSourceFallback(title);
+  const attributions = await fetchWikimediaMediaAttributionsForUrls(
+    [imageUrl],
+    fetchImpl,
+  );
+  return (
+    attributions.get(imageUrl) ??
+    buildWikimediaSourceFallback(
+      title,
+      getWikimediaProjectHostFromUrl(imageUrl),
+    )
+  );
 };
