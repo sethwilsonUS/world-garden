@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ARTICLE_SECTION_NARRATION_VERSION } from "../../lib/section-narration";
 import { MediaWikiSourceError } from "../../lib/mediawiki-document";
-import { WIKIMEDIA_USER_AGENT } from "../../lib/wikimedia-client";
 import {
+  WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV,
+  WIKIMEDIA_USER_AGENT,
+} from "../../lib/wikimedia-client";
+import {
+  BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
   cleanContentForTts,
   cleanSectionContent,
   createCacheableParsedPageData,
+  fetchArticleBadgeKeys,
   fetchArticleByPageId,
   fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
   MAX_SECTION_LINK_SOURCE_TITLES,
@@ -17,6 +23,7 @@ import {
   slugToTitle,
   stripHtml,
   titleToSlug,
+  WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL,
 } from "./wikipedia";
 
 afterEach(() => {
@@ -1167,5 +1174,248 @@ describe("fetchSectionLinksByIndex", () => {
       fetchSectionLinksByIndex(identity, "3", controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchArticleBadgeKeys single-request topic classification", () => {
+  it("makes zero Wikimedia requests when piggybacked cirrusdoc weighted_tags are supplied", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const badges = await fetchArticleBadgeKeys("974", {
+      title: "Ada Lovelace",
+      cirrusTopicPredictions: [
+        { topic: "Culture.Biography.Biography*", score: 0.538 },
+        { topic: "STEM.Computing", score: 0.91 },
+        { topic: "History_and_Society.History", score: 0.42 },
+      ],
+    });
+
+    expect(badges).toEqual(["biography", "technology"]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("extracts piggybacked cirrusdoc weighted_tags during article ingestion", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "query") {
+        expect(url.searchParams.get("prop")).toContain("cirrusdoc");
+        expect(url.searchParams.get("cdincludes")).toBe("weighted_tags");
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 974,
+                  title: "Ada Lovelace",
+                  extract: "Ada Lovelace was an English mathematician.",
+                  revisions: [
+                    { revid: 42, timestamp: "2026-11-24T00:00:00Z" },
+                  ],
+                  cirrusdoc: [
+                    {
+                      source: {
+                        weighted_tags: [
+                          "classification.prediction.articletopic/Culture.Biography.Biography*|538",
+                          "classification.prediction.articletopic/STEM.Mathematics|620",
+                        ],
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 42,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+
+    const fetched = await fetchArticleWithDocumentByTitle("Ada Lovelace");
+    expect(fetched.cirrusTopicPredictions).toEqual([
+      { topic: "Culture.Biography.Biography*", score: 0.538 },
+      { topic: "STEM.Mathematics", score: 0.62 },
+    ]);
+  });
+
+  it("classifies topics in 1 Lift Wing outlink-topic-model request when cirrusdoc tags are absent", async () => {
+    const previousToken = process.env[WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV];
+    process.env[WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV] = "test-lw-token";
+    try {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              prediction: {
+                article: "https://en.wikipedia.org/wiki/Linux_kernel",
+                results: [
+                  { topic: "STEM.STEM*", score: 0.96 },
+                  { topic: "STEM.Computing", score: 0.91 },
+                  { topic: "Culture.Media.Software", score: 0.64 },
+                  { topic: "History_and_Society.History", score: 0.35 },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+
+      const badges = await fetchArticleBadgeKeys("21347315", {
+        title: "Linux kernel",
+      });
+
+      expect(badges).toEqual(["science", "technology"]);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [calledUrl, calledInit] = fetchSpy.mock.calls[0] ?? [];
+      expect(String(calledUrl)).toBe(WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL);
+      expect(calledInit?.method).toBe("POST");
+      expect(calledInit?.headers).toEqual(
+        expect.objectContaining({
+          "User-Agent": WIKIMEDIA_USER_AGENT,
+          Authorization: "Bearer test-lw-token",
+        }),
+      );
+      expect(JSON.parse(String(calledInit?.body))).toEqual({
+        page_title: "Linux kernel",
+        lang: "en",
+      });
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env[WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV];
+      } else {
+        process.env[WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV] = previousToken;
+      }
+    }
+  });
+
+  it("uses 1 cirrusdoc pageid lookup when called without a title", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          query: {
+            pages: [
+              {
+                pageid: 974,
+                title: "Ada Lovelace",
+                cirrusdoc: [
+                  {
+                    source: {
+                      weighted_tags: [
+                        "classification.prediction.articletopic/Culture.Biography.Biography*|802",
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const badges = await fetchArticleBadgeKeys("974");
+
+    expect(badges).toEqual(["biography"]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("prop")).toBe("cirrusdoc");
+    expect(url.searchParams.get("cdincludes")).toBe("weighted_tags");
+  });
+
+  it("caps fallback CirrusSearch concurrency to at most 2 requests when Lift Wing fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let inFlightFallback = 0;
+    let maxConcurrentFallback = 0;
+    let fallbackCallCount = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.toString() === WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL) {
+        return new Response("service unavailable", {
+          status: 503,
+          headers: { "Retry-After": "60" },
+        });
+      }
+
+      if (url.searchParams.get("list") === "search") {
+        fallbackCallCount += 1;
+        inFlightFallback += 1;
+        maxConcurrentFallback = Math.max(
+          maxConcurrentFallback,
+          inFlightFallback,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlightFallback -= 1;
+
+        const srsearch = url.searchParams.get("srsearch") ?? "";
+        const matched =
+          srsearch.includes("articletopic:history") ||
+          srsearch.includes("articletopic:biology");
+        return new Response(
+          JSON.stringify({
+            query: {
+              search: matched ? [{ pageid: 974, title: "Ada Lovelace" }] : [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+
+    const badges = await fetchArticleBadgeKeys("974", {
+      title: "Ada Lovelace",
+    });
+
+    expect(badges).toEqual(["history", "nature"]);
+    expect(fallbackCallCount).toBe(8);
+    expect(maxConcurrentFallback).toBeGreaterThan(0);
+    expect(maxConcurrentFallback).toBeLessThanOrEqual(
+      BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
+    );
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops queuing remaining fallback searches when CirrusSearch is rate limited", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let fallbackCalls = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.toString() === WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL) {
+        return new Response("rate limited", {
+          status: 429,
+          headers: { "Retry-After": "60" },
+        });
+      }
+      fallbackCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return new Response("rate limited", {
+        status: 429,
+        headers: { "Retry-After": "60" },
+      });
+    });
+
+    await expect(
+      fetchArticleBadgeKeys("974", { title: "Ada Lovelace" }),
+    ).rejects.toThrow("Wikipedia articletopic search failed: 429");
+    expect(fallbackCalls).toBeLessThanOrEqual(
+      BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
+    );
   });
 });
