@@ -1,13 +1,10 @@
 "use client";
 
-import { useMemo, useState, type Ref } from "react";
+import { useMemo, type Ref } from "react";
 import type { Section, WikipediaRevisionIdentity } from "@/lib/data-context";
 import { buildArticleNarrationTracks } from "@/lib/section-narration";
-import {
-  PLAYBACK_RATES,
-  type PlaybackRate,
-  formatRate,
-} from "@/hooks/usePlaybackRate";
+import type { PlaybackRate } from "@/hooks/usePlaybackRate";
+import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import {
   AudioDownloadButton,
   DownloadSpinnerIcon,
@@ -16,7 +13,6 @@ import { ManagedAudioDownloadButton } from "@/components/ManagedAudioDownloadBut
 import {
   PauseIcon,
   PlayIcon,
-  SpeedButton,
   SpinnerIcon,
 } from "@/components/AudioPlaybackPresentation";
 import type { AudioPlaybackState } from "@/lib/article-audio-playback";
@@ -114,14 +110,6 @@ export const ArticleListeningControls = ({
   fallbackVoiceNotice,
 }: ArticleListeningControlsProps) => {
   const articleTitle = identity.title;
-  const [rateAnnouncement, setRateAnnouncement] = useState("");
-  const cycleSpeed = () => {
-    if (!onPlaybackRateChange) return;
-    const idx = PLAYBACK_RATES.indexOf(playbackRate as PlaybackRate);
-    const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
-    onPlaybackRateChange(next);
-    setRateAnnouncement(`Playback speed ${formatRate(next)}`);
-  };
 
   const isGenerating = playback.status === "loading";
   const isPaused = playback.status === "paused";
@@ -359,7 +347,10 @@ export const ArticleListeningControls = ({
           ) : null)}
 
         {onPlaybackRateChange && (
-          <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
+          <PlaybackSpeedControl
+            rate={playbackRate}
+            onRateChange={onPlaybackRateChange}
+          />
         )}
       </div>
 
@@ -396,9 +387,6 @@ export const ArticleListeningControls = ({
           (playback.sectionIdx !== null
             ? `Generating audio for ${sections[playback.sectionIdx]?.title ?? "section"}, please wait.`
             : "Generating summary audio, please wait.")}
-      </div>
-      <div aria-live="polite" className="sr-only" role="status">
-        {rateAnnouncement}
       </div>
     </div>
   );

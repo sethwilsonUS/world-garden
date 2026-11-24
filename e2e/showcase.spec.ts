@@ -600,9 +600,7 @@ test("home presents the product and expands the curated daily preview", async ({
     name: "Play: Curio Garden listening sample",
     exact: true,
   });
-  const speedButton = samplePlayer.getByRole("button", {
-    name: /^Playback speed /,
-  });
+  const speedButton = samplePlayer.getByRole("button", { name: "Faster" });
   const progressSlider = samplePlayer.getByRole("slider", {
     name: /^Playback position/,
   });
@@ -789,7 +787,8 @@ test("home search and listening sample reflow at 320 pixels", async ({
       exact: true,
     }),
     samplePlayer.getByRole("button", { name: "Skip forward 10 seconds" }),
-    samplePlayer.getByRole("button", { name: /^Playback speed / }),
+    samplePlayer.getByRole("button", { name: "Slower" }),
+    samplePlayer.getByRole("button", { name: "Faster" }),
   ];
   const progressSlider = samplePlayer.getByRole("slider", {
     name: /^Playback position/,
@@ -807,9 +806,11 @@ test("home search and listening sample reflow at 320 pixels", async ({
     expect(target!.width).toBeGreaterThanOrEqual(44);
     expect(target!.height).toBeGreaterThanOrEqual(44);
   }
-  await expect(playerButtons[3]).toHaveAccessibleName(
-    "Playback speed 1.5x. Activate to change.",
-  );
+  await expect(playerButtons[4]).toHaveAccessibleName("Faster");
+  await expect(playerButtons[4]).toHaveAccessibleDescription("1.5x");
+  await expect(
+    samplePlayer.getByRole("group", { name: "Playback speed" }),
+  ).toContainText("1.5x");
   expect(runtimeErrors).toEqual([]);
 
   const horizontalOverflow = await page.evaluate(
@@ -849,10 +850,8 @@ test("default audio player controls stay inside a nested mobile surface", async 
     name: "Audio player for Why these topics are trending",
   });
   await expect(player).toBeVisible();
-  const speedButton = player.getByRole("button", {
-    name: "Playback speed 1.75x. Activate to change.",
-  });
-  await expect(speedButton).toBeVisible();
+  const speed = player.getByRole("group", { name: "Playback speed" });
+  await expect(speed).toContainText("1.75x");
 
   const buttons = [
     player.getByRole("button", { name: "Skip back 10 seconds" }),
@@ -861,7 +860,8 @@ test("default audio player controls stay inside a nested mobile surface", async 
       exact: true,
     }),
     player.getByRole("button", { name: "Skip forward 10 seconds" }),
-    speedButton,
+    speed.getByRole("button", { name: "Slower" }),
+    speed.getByRole("button", { name: "Faster" }),
   ];
   const controls = [
     ...buttons,
@@ -939,7 +939,8 @@ test("audio player labels and controls reflow inside a mobile surface with enlar
     player.getByRole("button", { name: "Skip back 10 seconds" }),
     player.getByRole("button", { name: `Play: ${longTitle}` }),
     player.getByRole("button", { name: "Skip forward 10 seconds" }),
-    player.getByRole("button", { name: /^Playback speed / }),
+    player.getByRole("button", { name: "Slower" }),
+    player.getByRole("button", { name: "Faster" }),
     player.getByRole("slider", { name: "Playback position" }),
   ];
   for (const control of controls) {
@@ -1232,7 +1233,7 @@ for (const viewport of [
     await expect(summaryLead).toBeVisible();
     await expect(playControl).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /^Playback speed / }).first(),
+      page.getByRole("button", { name: "Faster" }).first(),
     ).toBeVisible();
     await expect(articleSections).toBeVisible();
     await expect(
@@ -1854,6 +1855,66 @@ test("Now playing steps between single sections and says where the listener is",
   // A single section still stops at its end instead of playing on.
   await page.locator("audio").dispatchEvent("ended");
   await expect(player).toHaveCount(0);
+});
+
+test("speed stays in step with what plays as sections change, and turtle and rabbit adjust it", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("curio-garden-playback-rate", "1.5");
+  });
+  await mockArticleData(page);
+  await mockMediaPlayback(page);
+  await page.route("**/api/tts", (route) =>
+    route.fulfill({
+      contentType: "audio/mpeg",
+      path: "public/audio/curio-garden-listening-sample-edge-v1.mp3",
+    }),
+  );
+  await page.goto("/article/Ada_Lovelace");
+  await page.getByRole("button", { name: "Listen to Early life" }).click();
+  const player = page.getByRole("region", { name: "Now playing" });
+  const speed = player.getByRole("group", { name: "Playback speed" });
+  await expect(speed).toContainText("1.5x");
+  const elementRate = () =>
+    page
+      .locator("audio")
+      .evaluateAll((elements) =>
+        elements
+          .filter((audio) => (audio as HTMLAudioElement).src)
+          .map((audio) => [
+            (audio as HTMLAudioElement).playbackRate,
+            (audio as HTMLAudioElement).defaultPlaybackRate,
+          ]),
+      );
+  await expect.poll(elementRate).toEqual([[1.5, 1.5]]);
+
+  await player.getByRole("button", { name: "Next section: Recognition" }).click();
+  await expect(
+    player.getByRole("button", { name: "Pause Recognition" }),
+  ).toBeVisible();
+  await expect.poll(elementRate).toEqual([[1.5, 1.5]]);
+
+  await speed.getByRole("button", { name: "Faster" }).click();
+  await expect(speed).toContainText("1.6x");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Playback speed 1.6x" }).first(),
+  ).toBeAttached();
+  await expect.poll(elementRate).toEqual([[1.6, 1.6]]);
+  // The article's own speed control follows the same shared setting.
+  await expect(
+    page
+      .locator("[data-article-listening-controls]")
+      .getByRole("group", { name: "Playback speed" }),
+  ).toContainText("1.6x");
+
+  await page.getByRole("heading", { name: "Ada Lovelace", exact: true }).click();
+  await page.keyboard.press("Shift+>");
+  await expect(speed).toContainText("1.7x");
+  await page.keyboard.press("Shift+<");
+  await page.keyboard.press("Shift+<");
+  await expect(speed).toContainText("1.5x");
+  await expect.poll(elementRate).toEqual([[1.5, 1.5]]);
 });
 
 test("article section controls and metadata reflow with enlarged text", async ({

@@ -103,6 +103,7 @@ describe("NowPlayingBar", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("is visible only while a section is loading, playing, or paused", () => {
@@ -323,10 +324,10 @@ describe("NowPlayingBar", () => {
     expect(props.onJumpToSection).toHaveBeenCalledTimes(1);
     act(() => button(container, "Stop audio").click());
     expect(props.onStop).toHaveBeenCalledTimes(1);
-    act(() =>
-      button(container, "Playback speed 1x. Activate to change.").click(),
-    );
-    expect(props.onPlaybackRateChange).toHaveBeenCalledWith(1.25);
+    act(() => button(container, "Faster").click());
+    expect(props.onPlaybackRateChange).toHaveBeenCalledWith(1.1);
+    act(() => button(container, "Slower").click());
+    expect(props.onPlaybackRateChange).toHaveBeenLastCalledWith(0.9);
   });
 
   it("offers Play while paused and section steps outside Play all", () => {
@@ -492,5 +493,67 @@ describe("NowPlayingBar", () => {
       ),
     );
     expect(status?.textContent).toBe("");
+  });
+
+  it("changes speed from the keyboard and re-announces repeated limit presses", () => {
+    vi.useFakeTimers();
+    const props = makeProps({ playbackRate: 3.9 });
+    act(() => root.render(<NowPlayingBar {...props} />));
+    const press = (key: string) =>
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    const rateStatus = () =>
+      Array.from(container.querySelectorAll("p[aria-live='polite']")).find(
+        (region) => !region.hasAttribute("role"),
+      )!;
+    const liveRegion = rateStatus();
+
+    act(() => press(">"));
+    expect(props.onPlaybackRateChange).toHaveBeenCalledWith(4);
+    expect(liveRegion.textContent).toBe("Playback speed 4x");
+
+    act(() => root.render(<NowPlayingBar {...props} playbackRate={4} />));
+    act(() => press(">"));
+    expect(props.onPlaybackRateChange).toHaveBeenCalledTimes(1);
+    expect(liveRegion.textContent).toBe("Already at the fastest speed, 4x");
+
+    // A second Shift+> at 4x clears then restores the same live region.
+    act(() => press(">"));
+    expect(props.onPlaybackRateChange).toHaveBeenCalledTimes(1);
+    expect(rateStatus()).toBe(liveRegion);
+    expect(liveRegion.textContent).toBe("");
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(liveRegion.textContent).toBe("Already at the fastest speed, 4x");
+
+    // Stepping back before a pending restore cancels the stale limit text.
+    act(() => press(">"));
+    expect(liveRegion.textContent).toBe("");
+    act(() => press("<"));
+    expect(props.onPlaybackRateChange).toHaveBeenLastCalledWith(3.9);
+    expect(liveRegion.textContent).toBe("Playback speed 3.9x");
+    act(() => {
+      vi.runAllTimers();
+    });
+    expect(liveRegion.textContent).toBe("Playback speed 3.9x");
+  });
+
+  it("keeps the speed buttons beside the speed in the playback controls", () => {
+    act(() => root.render(<NowPlayingBar {...makeProps({ playbackRate: 1.5 })} />));
+    const group = container.querySelector("[aria-label='Playback controls']")!;
+    const speed = group.querySelector("[role='group'][aria-label='Playback speed']");
+    expect(speed?.textContent).toContain("1.5x");
+    expect(
+      Array.from(speed!.querySelectorAll("button")).map((control) =>
+        control.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Slower", "Faster"]);
   });
 });

@@ -342,7 +342,8 @@ test("shell, menu, and listening controls remain reachable", async ({
     player.getByRole("button", { name: "Skip back 10 seconds" }),
     player.getByRole("button", { name: /^Play:/ }),
     player.getByRole("button", { name: "Skip forward 10 seconds" }),
-    player.getByRole("button", { name: /^Playback speed / }),
+    player.getByRole("button", { name: "Slower" }),
+    player.getByRole("button", { name: "Faster" }),
   ]) {
     const box = await control.boundingBox();
     expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);

@@ -10,11 +10,13 @@ import {
   type CSSProperties,
   type RefObject,
 } from "react";
+import { useLiveAnnouncement } from "@/hooks/useLiveAnnouncement";
 import {
-  PLAYBACK_RATES,
+  describePlaybackRateChange,
+  stepPlaybackRate,
   type PlaybackRate,
-  formatRate,
 } from "@/hooks/usePlaybackRate";
+import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import {
   PlayerKeyboardShortcuts,
   SKIP_SECONDS,
@@ -28,7 +30,6 @@ import {
 import {
   PauseIcon,
   PlayIcon,
-  SpeedButton,
   SpinnerIcon,
 } from "@/components/AudioPlaybackPresentation";
 
@@ -208,7 +209,8 @@ export const NowPlayingBar = ({
   }, []);
   const controlsId = useId();
   const [minimized, setMinimized] = useState(readMinimized);
-  const [rateAnnouncement, setRateAnnouncement] = useState("");
+  const { announcement: rateAnnouncement, announce: announceRate } =
+    useLiveAnnouncement();
   // The section the listener asked for from this player, so it is announced
   // once it starts. Section buttons on the article confirm themselves.
   const [requestedSectionKey, setRequestedSectionKey] = useState<
@@ -319,11 +321,11 @@ export const NowPlayingBar = ({
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const canSeek = !error && !isLoading && duration > 0;
 
-  const cycleSpeed = () => {
-    const idx = PLAYBACK_RATES.indexOf(playbackRate as PlaybackRate);
-    const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
-    onPlaybackRateChange(next);
-    setRateAnnouncement(`Playback speed ${formatRate(next)}`);
+  // Keyboard speed changes; the on-screen buttons announce their own.
+  const nudgeSpeed = (direction: 1 | -1) => {
+    const next = stepPlaybackRate(playbackRate, direction);
+    announceRate(describePlaybackRateChange(playbackRate, next, direction));
+    if (next !== playbackRate) onPlaybackRateChange(next);
   };
 
   const canGoToPrevious = Boolean(
@@ -488,7 +490,10 @@ export const NowPlayingBar = ({
                   <SectionStepIcon direction="next" />
                 </button>
               ) : null}
-              <SpeedButton rate={playbackRate} onClick={cycleSpeed} />
+              <PlaybackSpeedControl
+                rate={playbackRate}
+                onRateChange={onPlaybackRateChange}
+              />
               <button
                 type="button"
                 onClick={onJumpToSection}
@@ -558,6 +563,8 @@ export const NowPlayingBar = ({
             onSkipBy={canSeek ? onSkipBy : undefined}
             onPreviousSection={canGoToPrevious ? goToPreviousSection : undefined}
             onNextSection={canGoToNext ? goToNextSection : undefined}
+            onSlower={() => nudgeSpeed(-1)}
+            onFaster={() => nudgeSpeed(1)}
           />
         </div>
       </section>

@@ -6,14 +6,61 @@ const STORAGE_KEY = "curio-garden-playback-rate";
 const LEGACY_KEY = "world-garden-playback-rate";
 const DEFAULT_RATE = 1;
 
-export const PLAYBACK_RATES = [
-  0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3,
-] as const;
-export type PlaybackRate = (typeof PLAYBACK_RATES)[number];
+/**
+ * Browsers mute media audio below 0.5x and above 4x, so speed stays inside
+ * that window. Saved speeds can be any multiple of 0.05x, which keeps the
+ * older 1.25x and 1.75x presets valid; Slower and Faster move by 0.1x.
+ */
+export const MIN_PLAYBACK_RATE = 0.5;
+export const MAX_PLAYBACK_RATE = 4;
+export const PLAYBACK_RATE_STEP = 0.1;
+export type PlaybackRate = number;
 
-export const getNextPlaybackRate = (rate: PlaybackRate): PlaybackRate => {
-  const currentIndex = PLAYBACK_RATES.indexOf(rate);
-  return PLAYBACK_RATES[(currentIndex + 1) % PLAYBACK_RATES.length];
+const EPSILON = 1e-6;
+
+/** "1x", "1.3x", "1.25x" — trims floating-point noise and trailing zeros. */
+export const formatRate = (rate: number): string => {
+  return `${Number(rate.toFixed(2))}x`;
+};
+
+/** A supported speed, or null for anything off the 0.05x grid or out of range. */
+export const normalizePlaybackRate = (value: number): PlaybackRate | null => {
+  if (!Number.isFinite(value)) return null;
+  const snapped = Math.round(value * 20) / 20;
+  if (Math.abs(snapped - value) > EPSILON) return null;
+  if (snapped < MIN_PLAYBACK_RATE || snapped > MAX_PLAYBACK_RATE) return null;
+  return snapped;
+};
+
+/**
+ * One 0.1x step slower or faster, landing on the 0.1x grid: 1.25x goes to
+ * 1.3x or 1.2x. The result is clamped to the supported range.
+ */
+export const stepPlaybackRate = (
+  rate: PlaybackRate,
+  direction: 1 | -1,
+): PlaybackRate => {
+  const tenths = rate / PLAYBACK_RATE_STEP;
+  const next =
+    direction > 0
+      ? Math.floor(tenths + EPSILON) + 1
+      : Math.ceil(tenths - EPSILON) - 1;
+  const stepped = Math.round(next) / 10;
+  return Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, stepped));
+};
+
+/** Status text after a speed change, including when a limit stops it. */
+export const describePlaybackRateChange = (
+  previous: PlaybackRate,
+  next: PlaybackRate,
+  direction?: 1 | -1,
+): string => {
+  if (direction && next === previous) {
+    return direction > 0
+      ? `Already at the fastest speed, ${formatRate(next)}`
+      : `Already at the slowest speed, ${formatRate(next)}`;
+  }
+  return `Playback speed ${formatRate(next)}`;
 };
 
 const listeners = new Set<() => void>();
@@ -36,10 +83,7 @@ function readStoredRate(): PlaybackRate {
     console.debug("Could not read or migrate the playback speed.", error);
     if (raw === null) return currentRate;
   }
-  const parsed = Number.parseFloat(raw ?? "");
-  return PLAYBACK_RATES.includes(parsed as PlaybackRate)
-    ? (parsed as PlaybackRate)
-    : DEFAULT_RATE;
+  return normalizePlaybackRate(Number.parseFloat(raw ?? "")) ?? DEFAULT_RATE;
 }
 
 function publish(rate: PlaybackRate) {
@@ -70,7 +114,8 @@ function subscribe(notify: () => void) {
   };
 }
 
-function setRate(rate: PlaybackRate) {
+function setRate(requested: PlaybackRate) {
+  const rate = normalizePlaybackRate(requested) ?? currentRate;
   try {
     localStorage.setItem(STORAGE_KEY, String(rate));
     hasUnsavedRate = false;
@@ -81,20 +126,11 @@ function setRate(rate: PlaybackRate) {
   publish(rate);
 }
 
-function cycleRate() {
-  const next = getNextPlaybackRate(currentRate);
-  setRate(next);
-  return next;
-}
-
 const getSnapshot = () => currentRate;
 const getServerSnapshot = (): PlaybackRate => DEFAULT_RATE;
 
 export const usePlaybackRate = () => {
   const rate = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return { rate, setRate, cycleRate } as const;
+  return { rate, setRate } as const;
 };
 
-export const formatRate = (rate: number): string => {
-  return `${rate}x`;
-};

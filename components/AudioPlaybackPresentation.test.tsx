@@ -8,7 +8,6 @@ import {
   PauseIcon,
   PlayIcon,
   SoundIcon,
-  SpeedButton,
   SpinnerIcon,
 } from "./AudioPlaybackPresentation";
 
@@ -30,7 +29,6 @@ describe("AudioPlaybackPresentation", () => {
   });
 
   it("exposes accessible playback controls through the shared presentation", async () => {
-    const onSpeedChange = vi.fn();
     const onSeek = vi.fn();
 
     await act(async () => {
@@ -40,7 +38,6 @@ describe("AudioPlaybackPresentation", () => {
           <PauseIcon />
           <SoundIcon />
           <SpinnerIcon />
-          <SpeedButton rate={1.25} onClick={onSpeedChange} />
           <InlineProgressBar currentTime={3} duration={12} onSeek={onSeek} />
         </>,
       );
@@ -52,15 +49,6 @@ describe("AudioPlaybackPresentation", () => {
       expect(icon.getAttribute("aria-hidden")).toBe("true");
       expect(icon.getAttribute("focusable")).toBe("false");
     }
-
-    const speedButton = container.querySelector(
-      'button[aria-label="Playback speed 1.25x. Activate to change."]',
-    ) as HTMLButtonElement;
-    expect(speedButton.type).toBe("button");
-    expect(speedButton.textContent).toBe("1.25x");
-
-    act(() => speedButton.click());
-    expect(onSpeedChange).toHaveBeenCalledTimes(1);
 
     const slider = container.querySelector(
       'input[type="range"]',
