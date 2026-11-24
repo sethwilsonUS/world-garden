@@ -240,4 +240,90 @@ describe("fetchSafeRandomArticle", () => {
     await vi.advanceTimersByTimeAsync(RANDOM_ARTICLE_TIMEOUT_MS);
     await expectation;
   });
+
+  it("rejects HTTP 200 MediaWiki error payloads and requires explicit batchcomplete before selecting", async () => {
+    const apiErrorOnContinuationMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            continue: {
+              clcontinue: "301|Category:More",
+              grncontinue: "0.4|0.4|0|0",
+              continue: "grncontinue||pageprops|info",
+            },
+            query: {
+              pages: [
+                {
+                  pageid: 301,
+                  ns: 0,
+                  title: "The Notion Club Papers",
+                  length: 12_500,
+                  categories: [],
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "maxlag",
+              info: "Waiting for a database server",
+            },
+          }),
+        ),
+      );
+
+    await expect(
+      fetchSafeRandomArticle(2, { fetchImpl: apiErrorOnContinuationMock }),
+    ).rejects.toThrow("Waiting for a database server");
+
+    // A response without batchcomplete (even with no property continuation)
+    // must not be selected; the next attempt with explicit batchcomplete wins.
+    const missingMarkerMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 302,
+                  ns: 0,
+                  title: "Unconfirmed Article",
+                  length: 14_000,
+                  categories: [{ title: "Category:Literature" }],
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            batchcomplete: true,
+            query: {
+              pages: [
+                {
+                  pageid: 303,
+                  ns: 0,
+                  title: "Confirmed Article",
+                  length: 14_000,
+                  categories: [{ title: "Category:Astronomy" }],
+                },
+              ],
+            },
+          }),
+        ),
+      );
+
+    await expect(
+      fetchSafeRandomArticle(2, { fetchImpl: missingMarkerMock }),
+    ).resolves.toBe("Confirmed Article");
+    expect(missingMarkerMock).toHaveBeenCalledTimes(2);
+  });
 });

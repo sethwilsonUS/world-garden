@@ -195,14 +195,24 @@ const resolveCanonicalTitle = (
   return current;
 };
 
-const fetchBatchSafetyMetadata = async (
-  batch: string[],
-  options: FilterSafeTitlesOptions,
-): Promise<{
+type BatchSafetyMetadata = {
   pagesByNormTitle: Map<string, AccumulatedSafetyPage>;
   normalizedMap: Map<string, string>;
   redirectsMap: Map<string, string>;
-} | null> => {
+};
+
+type BatchSafetyResult =
+  | { status: "failed" }
+  | ({ status: "complete" } & BatchSafetyMetadata)
+  | ({
+      status: "incomplete";
+      reason: "continuation_error" | "continuation_incomplete";
+    } & BatchSafetyMetadata);
+
+const fetchBatchSafetyMetadata = async (
+  batch: string[],
+  options: FilterSafeTitlesOptions,
+): Promise<BatchSafetyResult> => {
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? NSFW_FILTER_TIMEOUT_MS;
   const baseParams: Record<string, string> = {
@@ -223,6 +233,18 @@ const fetchBatchSafetyMetadata = async (
   const redirectsMap = new Map<string, string>();
   const seenContinuations = new Set<string>();
   let continuation: Record<string, string> | null = null;
+  let receivedAnyResponse = false;
+
+  const partialErrorResult = (): BatchSafetyResult =>
+    receivedAnyResponse
+      ? {
+          status: "incomplete",
+          reason: "continuation_error",
+          pagesByNormTitle,
+          normalizedMap,
+          redirectsMap,
+        }
+      : { status: "failed" };
 
   for (let pageIndex = 0; pageIndex < MAX_CONTINUATION_PAGES; pageIndex += 1) {
     const params = new URLSearchParams(
@@ -242,14 +264,27 @@ const fetchBatchSafetyMetadata = async (
       });
       if (!response.ok) {
         await cancelRejectedResponse(response, controller);
-        return null;
+        return partialErrorResult();
       }
       payload = await response.json();
+    } catch (error: unknown) {
+      if (options.signal?.aborted) throw error;
+      console.warn(
+        receivedAnyResponse
+          ? "[nsfw-filter] Safety metadata continuation failed; preserving partial rejections:"
+          : "[nsfw-filter] Safety metadata batch failed; failing open for batch:",
+        error instanceof Error ? error.message : String(error),
+      );
+      return partialErrorResult();
     } finally {
       clearTimeout(timeout);
     }
 
-    if (!isRecord(payload)) return null;
+    if (!isRecord(payload) || payload.error !== undefined) {
+      return partialErrorResult();
+    }
+
+    receivedAnyResponse = true;
     const queryData = isRecord(payload.query) ? payload.query : {};
     recordMappings(normalizedMap, queryData.normalized);
     recordMappings(redirectsMap, queryData.redirects);
@@ -288,21 +323,138 @@ const fetchBatchSafetyMetadata = async (
     }
 
     if (payload.batchcomplete === true || payload.batchcomplete === "") {
-      break;
+      return {
+        status: "complete",
+        pagesByNormTitle,
+        normalizedMap,
+        redirectsMap,
+      };
     }
 
     const nextContinuation = extractContinuationParams(payload.continue);
-    if (!nextContinuation) break;
+    if (!nextContinuation) {
+      return {
+        status: "incomplete",
+        reason: "continuation_incomplete",
+        pagesByNormTitle,
+        normalizedMap,
+        redirectsMap,
+      };
+    }
 
     const continuationKey = JSON.stringify(
       Object.entries(nextContinuation).sort(([a], [b]) => a.localeCompare(b)),
     );
-    if (seenContinuations.has(continuationKey)) break;
+    if (seenContinuations.has(continuationKey)) {
+      return {
+        status: "incomplete",
+        reason: "continuation_incomplete",
+        pagesByNormTitle,
+        normalizedMap,
+        redirectsMap,
+      };
+    }
     seenContinuations.add(continuationKey);
     continuation = nextContinuation;
   }
 
-  return { pagesByNormTitle, normalizedMap, redirectsMap };
+  return {
+    status: "incomplete",
+    reason: "continuation_incomplete",
+    pagesByNormTitle,
+    normalizedMap,
+    redirectsMap,
+  };
+};
+
+const evaluateBatchSafety = async (
+  batch: string[],
+  options: FilterSafeTitlesOptions,
+  safe: Set<string>,
+  allowFailOpen: boolean,
+): Promise<void> => {
+  const result = await fetchBatchSafetyMetadata(batch, options);
+
+  if (result.status === "failed") {
+    if (allowFailOpen) {
+      // On a first-request upstream failure with no metadata, let these
+      // titles through rather than blocking all trending articles.
+      for (const t of batch) safe.add(t);
+    }
+    return;
+  }
+
+  const { pagesByNormTitle, normalizedMap, redirectsMap } = result;
+
+  if (result.status === "complete") {
+    for (const originalTitle of batch) {
+      const resolvedNorm = resolveCanonicalTitle(
+        originalTitle,
+        normalizedMap,
+        redirectsMap,
+      );
+      const page = pagesByNormTitle.get(resolvedNorm);
+
+      // Missing or deleted pages are not blocked by the safety filter.
+      if (!page || page.missing) {
+        safe.add(originalTitle);
+        continue;
+      }
+
+      if (
+        !isUnsuitableForRandom(page.title, page.categories, {
+          pageprops: page.pageprops,
+        })
+      ) {
+        safe.add(originalTitle);
+        safe.add(normalizeTitle(originalTitle));
+        safe.add(page.title);
+        safe.add(normalizeTitle(page.title));
+      }
+    }
+    return;
+  }
+
+  // Batch metadata is incomplete: keep every confirmed rejection out, and
+  // never classify unverified titles as safe. When a batch simply exhausted
+  // continuations or looped on a token, bisect the remaining unverified titles
+  // so safe titles can still complete in smaller batches.
+  const unverified: string[] = [];
+  for (const originalTitle of batch) {
+    const resolvedNorm = resolveCanonicalTitle(
+      originalTitle,
+      normalizedMap,
+      redirectsMap,
+    );
+    const page = pagesByNormTitle.get(resolvedNorm);
+    if (
+      page &&
+      !page.missing &&
+      isUnsuitableForRandom(page.title, page.categories, {
+        pageprops: page.pageprops,
+      })
+    ) {
+      continue;
+    }
+    unverified.push(originalTitle);
+  }
+
+  if (
+    result.reason !== "continuation_incomplete" ||
+    unverified.length === 0 ||
+    batch.length <= 1
+  ) {
+    return;
+  }
+
+  if (unverified.length === 1) {
+    await evaluateBatchSafety(unverified, options, safe, false);
+    return;
+  }
+
+  const mid = Math.ceil(unverified.length / 2);
+  await evaluateBatchSafety(unverified.slice(0, mid), options, safe, false);
+  await evaluateBatchSafety(unverified.slice(mid), options, safe, false);
 };
 
 /**
@@ -321,49 +473,7 @@ export const filterSafeTitles = async (
 
   for (let i = 0; i < titles.length; i += BATCH_SIZE) {
     const batch = titles.slice(i, i + BATCH_SIZE);
-    try {
-      const metadata = await fetchBatchSafetyMetadata(batch, options);
-      if (!metadata) {
-        // On API failure, let these titles through rather than blocking all.
-        for (const t of batch) safe.add(t);
-        continue;
-      }
-
-      const { pagesByNormTitle, normalizedMap, redirectsMap } = metadata;
-
-      for (const originalTitle of batch) {
-        const resolvedNorm = resolveCanonicalTitle(
-          originalTitle,
-          normalizedMap,
-          redirectsMap,
-        );
-        const page = pagesByNormTitle.get(resolvedNorm);
-
-        // Missing or deleted pages are not blocked by the safety filter.
-        if (!page || page.missing) {
-          safe.add(originalTitle);
-          continue;
-        }
-
-        if (
-          !isUnsuitableForRandom(page.title, page.categories, {
-            pageprops: page.pageprops,
-          })
-        ) {
-          safe.add(originalTitle);
-          safe.add(normalizeTitle(originalTitle));
-          safe.add(page.title);
-          safe.add(normalizeTitle(page.title));
-        }
-      }
-    } catch (error: unknown) {
-      if (options.signal?.aborted) throw error;
-      console.warn(
-        "[nsfw-filter] Safety metadata batch failed; failing open for batch:",
-        error instanceof Error ? error.message : String(error),
-      );
-      for (const t of batch) safe.add(t);
-    }
+    await evaluateBatchSafety(batch, options, safe, true);
   }
 
   return safe;

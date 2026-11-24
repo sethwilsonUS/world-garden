@@ -365,4 +365,52 @@ describe("getTodayWikipediaData", () => {
     expect(fetchQuery).not.toHaveBeenCalledWith("getLatestTodaySnapshot", {});
     expect(fetchWikipediaFeaturedSnapshot).toHaveBeenCalled();
   });
+
+  it("keeps trending empty when the safety filter rejects every candidate", async () => {
+    vi.resetModules();
+    process.env.NEXT_PUBLIC_LOCAL_MODE = "true";
+
+    const fetchWikipediaFeaturedSnapshot = vi.fn().mockResolvedValue({
+      tfa: null,
+      trendingCandidates: [
+        {
+          title: "Explicit Article",
+          slug: "Explicit_Article",
+          views: 50_000,
+        },
+        {
+          title: "Mercury",
+          slug: "Mercury",
+          views: 40_000,
+        },
+      ],
+      didYouKnow: [],
+      inTheNews: [],
+      pictureOfDay: null,
+      onThisDay: [],
+      trendingDate: "2026-05-06",
+      trendingSource: "mostread",
+      trendingSourceType: "mostread",
+      trendingIsStale: false,
+      feedDate: "2026/05/07",
+      feedDateIso: "2026-05-07",
+    });
+
+    vi.doMock("@/lib/featured-article", () => ({
+      fetchWikipediaFeaturedSnapshot,
+      getWikipediaFeaturedFeedDate: () => "2026/05/07",
+    }));
+    vi.doMock("@/lib/nsfw-filter", () => ({
+      filterSafeTitles: async () => new Set<string>(),
+    }));
+
+    const { buildTodayWikipediaSnapshot } = await import("./today-snapshot");
+
+    const snapshot = await buildTodayWikipediaSnapshot({
+      feedDateIso: "2026-05-07",
+      now: new Date(Date.UTC(2026, 4, 7, 12, 0, 0)),
+    });
+
+    expect(snapshot.trending).toEqual([]);
+  });
 });

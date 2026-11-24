@@ -251,4 +251,187 @@ describe("filterSafeTitles", () => {
     expect(safe.has("Slow Article")).toBe(true);
     warnSpy.mockRestore();
   });
+
+  it("preserves confirmed rejections and does not admit unverified titles when a continuation fails or times out", async () => {
+    const httpErrorMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            continue: {
+              clcontinue: "2|Category:More",
+              continue: "||pageprops",
+            },
+            query: {
+              pages: [
+                {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Explicit Article",
+                  categories: [{ title: "Category:BDSM" }],
+                },
+                {
+                  pageid: 2,
+                  ns: 0,
+                  title: "Unfinished Article",
+                  categories: [{ title: "Category:Science" }],
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response("upstream unavailable", { status: 503 }));
+
+    const afterHttpError = await filterSafeTitles(
+      ["Explicit Article", "Unfinished Article"],
+      { fetchImpl: httpErrorMock },
+    );
+
+    expect(afterHttpError.has("Explicit Article")).toBe(false);
+    expect(afterHttpError.has("Unfinished Article")).toBe(false);
+
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const timeoutMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            continue: {
+              clcontinue: "2|Category:More",
+              continue: "||pageprops",
+            },
+            query: {
+              pages: [
+                {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Explicit Article",
+                  categories: [{ title: "Category:BDSM" }],
+                },
+                {
+                  pageid: 2,
+                  ns: 0,
+                  title: "Unfinished Article",
+                  categories: [],
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockImplementationOnce(
+        async (_input, init) =>
+          await new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+
+    const pendingTimeout = filterSafeTitles(
+      ["Explicit Article", "Unfinished Article"],
+      { fetchImpl: timeoutMock },
+    );
+    await vi.advanceTimersByTimeAsync(NSFW_FILTER_TIMEOUT_MS);
+
+    const afterTimeout = await pendingTimeout;
+    expect(afterTimeout.has("Explicit Article")).toBe(false);
+    expect(afterTimeout.has("Unfinished Article")).toBe(false);
+    warnSpy.mockRestore();
+  });
+
+  it("retries unverified titles in smaller batches and omits titles whose continuations never complete or repeat", async () => {
+    const requestedTitleSets: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      const titlesParam = url.searchParams.get("titles") ?? "";
+      requestedTitleSets.push(titlesParam);
+
+      // The combined batch repeats a clcontinue token after rejecting Explicit Article.
+      if (titlesParam.includes("|")) {
+        return new Response(
+          JSON.stringify({
+            continue: {
+              clcontinue: "3|Category:Loop",
+              continue: "||pageprops",
+            },
+            query: {
+              pages: [
+                {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Safe Article",
+                  categories: [{ title: "Category:Physics" }],
+                },
+                {
+                  pageid: 2,
+                  ns: 0,
+                  title: "Explicit Article",
+                  categories: [{ title: "Category:BDSM" }],
+                },
+                {
+                  pageid: 3,
+                  ns: 0,
+                  title: "Truncated Article",
+                  categories: [],
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      if (titlesParam === "Safe Article") {
+        return new Response(
+          JSON.stringify({
+            batchcomplete: true,
+            query: {
+              pages: [
+                {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Safe Article",
+                  categories: [{ title: "Category:Physics" }],
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      // Single-title query for Truncated Article still never finishes (exhausts continuations).
+      const step = requestedTitleSets.filter((t) => t === titlesParam).length;
+      return new Response(
+        JSON.stringify({
+          continue: {
+            clcontinue: `3|Category:Page_${step}`,
+            continue: "||pageprops",
+          },
+          query: {
+            pages: [
+              {
+                pageid: 3,
+                ns: 0,
+                title: "Truncated Article",
+                categories: [{ title: `Category:Tag ${step}` }],
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    const safe = await filterSafeTitles(
+      ["Safe Article", "Explicit Article", "Truncated Article"],
+      { fetchImpl: fetchMock },
+    );
+
+    expect(safe.has("Safe Article")).toBe(true);
+    expect(safe.has("Explicit Article")).toBe(false);
+    expect(safe.has("Truncated Article")).toBe(false);
+    // Confirmed unsuitable title is never retried in a smaller batch.
+    expect(requestedTitleSets).not.toContain("Explicit Article");
+  });
 });

@@ -143,6 +143,20 @@ const fetchRandomCandidateBatch = async (
     if (!isRecord(payload)) {
       throw new Error("Wikipedia returned an invalid random-article response");
     }
+    if (payload.error !== undefined) {
+      const apiError = isRecord(payload.error)
+        ? typeof payload.error.info === "string" && payload.error.info.trim()
+          ? payload.error.info.trim()
+          : typeof payload.error.code === "string" && payload.error.code.trim()
+            ? payload.error.code.trim()
+            : null
+        : null;
+      throw new Error(
+        apiError
+          ? `Wikipedia random-article API error: ${apiError}`
+          : "Wikipedia returned an error for random articles",
+      );
+    }
 
     const queryData = isRecord(payload.query) ? payload.query : {};
     for (const rawPage of extractResponsePages(queryData.pages)) {
@@ -196,7 +210,8 @@ const fetchRandomCandidateBatch = async (
 
     const nextContinuation = extractContinuationParams(payload.continue);
     if (!nextContinuation || !hasPropertyContinuation(nextContinuation)) {
-      batchComplete = true;
+      // Without MediaWiki's explicit batchcomplete marker, never treat the
+      // batch as verified complete.
       break;
     }
 
@@ -225,8 +240,8 @@ export const fetchSafeRandomArticle = async (
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const { candidates, batchComplete } =
       await fetchRandomCandidateBatch(options);
-    if (candidates.length === 0) throw new Error("No articles found");
     if (!batchComplete) continue;
+    if (candidates.length === 0) throw new Error("No articles found");
 
     for (const candidate of candidates) {
       if (candidate.missing || candidate.ns !== 0) continue;
