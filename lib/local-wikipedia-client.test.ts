@@ -307,4 +307,46 @@ describe("requestLocalWikipedia", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("still loads related articles when the browser denies window.sessionStorage access", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const deniedWindow = {};
+    Object.defineProperty(deniedWindow, "sessionStorage", {
+      get() {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      },
+    });
+    vi.stubGlobal("window", deniedWindow);
+
+    try {
+      const related = [
+        {
+          wikiPageId: "1271",
+          title: "Analytical engine",
+          description: "19th century proposed mechanical computer",
+        },
+      ];
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: related }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const identity = {
+        wikiPageId: "974",
+        revisionId: "4200",
+        title: "Ada Lovelace",
+        language: "en",
+      } as const;
+
+      await expect(
+        requestLocalWikipediaRelatedArticles(identity),
+      ).resolves.toEqual(related);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

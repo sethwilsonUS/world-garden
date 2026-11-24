@@ -66,11 +66,11 @@ const isValidRelatedArticle = (
 const readRelatedArticlesFromSession = (
   cacheKey: string,
 ): WikipediaRelatedArticle[] | null => {
-  if (typeof window === "undefined" || !window.sessionStorage) return null;
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(
-      relatedSessionStorageKey(cacheKey),
-    );
+    const storage = window.sessionStorage;
+    if (!storage) return null;
+    const raw = storage.getItem(relatedSessionStorageKey(cacheKey));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed) || !parsed.every(isValidRelatedArticle)) {
@@ -90,9 +90,11 @@ const writeRelatedArticlesToSession = (
   cacheKey: string,
   articles: WikipediaRelatedArticle[],
 ): void => {
-  if (typeof window === "undefined" || !window.sessionStorage) return;
+  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(
+    const storage = window.sessionStorage;
+    if (!storage) return;
+    storage.setItem(
       relatedSessionStorageKey(cacheKey),
       JSON.stringify(articles),
     );
