@@ -249,9 +249,60 @@ const waitForRetryDelay = (
   });
 };
 
-const cancelAbandonedResponse = async (response: Response): Promise<void> => {
+const resolveAttemptAbortError = (
+  controller: AbortController,
+  callerSignal: AbortSignal | undefined,
+  timedOut: boolean,
+): unknown => {
+  if (callerSignal?.aborted) {
+    return callerSignal.reason ?? createAbortError();
+  }
+  const reason: unknown = controller.signal.reason;
+  const error =
+    reason instanceof Error || reason instanceof DOMException
+      ? reason
+      : createAbortError();
+  if (timedOut && typeof error === "object" && error !== null) {
+    wikimediaTimeoutErrors.add(error);
+  }
+  return error;
+};
+
+const awaitWithAbortSignal = (
+  pending: Promise<unknown>,
+  signal: AbortSignal,
+  getAbortError: () => unknown,
+): Promise<void> => {
+  if (signal.aborted) {
+    return Promise.reject(getAbortError());
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const handleAbort = () => {
+      reject(getAbortError());
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    pending.then(
+      () => {
+        signal.removeEventListener("abort", handleAbort);
+        resolve();
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", handleAbort);
+        reject(error);
+      },
+    );
+  });
+};
+
+const cancelAbandonedResponse = async (
+  response: Response,
+  signal: AbortSignal,
+  getAbortError: () => unknown,
+): Promise<void> => {
   if (!response.body || response.body.locked) return;
-  await response.body.cancel().catch(() => undefined);
+  const cancelPromise = response.body.cancel().catch(() => undefined);
+  await awaitWithAbortSignal(cancelPromise, signal, getAbortError);
 };
 
 const releaseReaderLock = (
@@ -315,20 +366,8 @@ const bindAttemptLifecycleToResponse = (
   let streamController: ReadableStreamDefaultController<Uint8Array> | null =
     null;
 
-  const resolveAbortError = (): unknown => {
-    if (callerSignal?.aborted) {
-      return callerSignal.reason ?? createAbortError();
-    }
-    const reason: unknown = controller.signal.reason;
-    const error =
-      reason instanceof Error || reason instanceof DOMException
-        ? reason
-        : createAbortError();
-    if (hasTimedOut() && typeof error === "object" && error !== null) {
-      wikimediaTimeoutErrors.add(error);
-    }
-    return error;
-  };
+  const resolveAbortError = (): unknown =>
+    resolveAttemptAbortError(controller, callerSignal, hasTimedOut());
 
   const cleanupAll = () => {
     controller.signal.removeEventListener("abort", handleAttemptAbort);
@@ -408,16 +447,30 @@ const bindAttemptLifecycleToResponse = (
     async cancel(reason) {
       if (settled) return;
       settled = true;
-      cleanupAll();
+      // Stop erroring the stream on abort, but keep the attempt timeout and
+      // caller abort listener active until upstream cancellation settles.
+      controller.signal.removeEventListener("abort", handleAttemptAbort);
       const reader = upstreamReader;
+      const cancelPromise = (
+        reader
+          ? reader.cancel(reason)
+          : !originalBody.locked
+            ? originalBody.cancel(reason)
+            : Promise.resolve()
+      )
+        .catch(() => undefined)
+        .finally(() => {
+          releaseReaderLock(reader);
+        });
+
       try {
-        if (reader) {
-          await reader.cancel(reason).catch(() => undefined);
-        } else if (!originalBody.locked) {
-          await originalBody.cancel(reason).catch(() => undefined);
-        }
+        await awaitWithAbortSignal(
+          cancelPromise,
+          controller.signal,
+          resolveAbortError,
+        );
       } finally {
-        releaseReaderLock(reader);
+        cleanupAll();
       }
     },
   });
@@ -622,7 +675,9 @@ export const fetchWikimedia = async (
         return boundResponse;
       }
 
-      await cancelAbandonedResponse(response);
+      await cancelAbandonedResponse(response, controller.signal, () =>
+        resolveAttemptAbortError(controller, callerSignal, timedOut),
+      );
     } catch (error: unknown) {
       if (
         timedOut &&

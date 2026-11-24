@@ -480,6 +480,176 @@ describe("lib/wikimedia-client", () => {
         expect(vi.getTimerCount()).toBe(0);
       }
     });
+
+    it("bounds consumer body cancellation by the attempt timeout and caller abort", async () => {
+      vi.useFakeTimers();
+
+      // 1. Stalled upstream cancel is aborted when the attempt timeout expires.
+      {
+        let attemptSignal: AbortSignal | undefined;
+        const stalledCancelBody = new ReadableStream<Uint8Array>({
+          start(ctrl) {
+            ctrl.enqueue(new TextEncoder().encode("chunk-1"));
+          },
+          cancel() {
+            return new Promise(() => {});
+          },
+        });
+        const fetchMock = vi
+          .fn<typeof fetch>()
+          .mockImplementationOnce(async (_input, init) => {
+            attemptSignal = init?.signal ?? undefined;
+            return new Response(stalledCancelBody, { status: 200 });
+          });
+
+        const response = await fetchWikimedia(
+          "https://en.wikipedia.org/w/api.php",
+          {
+            fetchImpl: fetchMock,
+            timeoutMs: 1_000,
+          },
+        );
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("Expected wrapped response reader");
+        await reader.read();
+
+        let cancelError: unknown;
+        const cancelPending = reader
+          .cancel("size-limit")
+          .catch((error: unknown) => {
+            cancelError = error;
+          });
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(cancelError).toBeUndefined();
+        expect(attemptSignal?.aborted).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await cancelPending;
+
+        expect(attemptSignal?.aborted).toBe(true);
+        expect(cancelError).toMatchObject({ name: "AbortError" });
+        expect(isWikimediaTimeoutError(cancelError)).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+
+      // 2. Stalled upstream cancel is aborted when caller cancels.
+      {
+        const caller = new AbortController();
+        const reason = new DOMException("Caller cancelled during drain", "AbortError");
+        let attemptSignal: AbortSignal | undefined;
+        const stalledCancelBody = new ReadableStream<Uint8Array>({
+          cancel() {
+            return new Promise(() => {});
+          },
+        });
+        const fetchMock = vi
+          .fn<typeof fetch>()
+          .mockImplementationOnce(async (_input, init) => {
+            attemptSignal = init?.signal ?? undefined;
+            return new Response(stalledCancelBody, { status: 200 });
+          });
+
+        const response = await fetchWikimedia(
+          "https://en.wikipedia.org/w/api.php",
+          {
+            fetchImpl: fetchMock,
+            signal: caller.signal,
+            timeoutMs: 10_000,
+          },
+        );
+
+        let cancelError: unknown;
+        const cancelPending = response.body
+          ?.cancel("discard")
+          .catch((error: unknown) => {
+            cancelError = error;
+          });
+
+        caller.abort(reason);
+        await cancelPending;
+
+        expect(attemptSignal?.aborted).toBe(true);
+        expect(cancelError).toBe(reason);
+        expect(isWikimediaTimeoutError(cancelError)).toBe(false);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    });
+
+    it("bounds retry-path abandoned response cancellation by attempt timeout and caller abort", async () => {
+      vi.useFakeTimers();
+
+      // 1. Caller abort interrupts a stalled 429 body cancel with caller reason.
+      {
+        const caller = new AbortController();
+        const reason = new DOMException("Caller stopped on retry cancel", "AbortError");
+        const stalledCancelBody = new ReadableStream<Uint8Array>({
+          cancel() {
+            return new Promise(() => {});
+          },
+        });
+        const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+          new Response(stalledCancelBody, {
+            status: 429,
+            headers: { "Retry-After": "1" },
+          }),
+        );
+
+        const pending = fetchWikimedia("https://en.wikipedia.org/w/api.php", {
+          fetchImpl: fetchMock,
+          signal: caller.signal,
+          timeoutMs: 10_000,
+        });
+        let caughtError: unknown;
+        const settled = pending.catch((error: unknown) => {
+          caughtError = error;
+        });
+
+        await vi.advanceTimersByTimeAsync(200);
+        expect(caughtError).toBeUndefined();
+        caller.abort(reason);
+        await settled;
+
+        expect(caughtError).toBe(reason);
+        expect(isWikimediaTimeoutError(caughtError)).toBe(false);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+
+      // 2. Attempt timeout interrupts a stalled 503 body cancel and classifies it as timeout.
+      {
+        const stalledCancelBody = new ReadableStream<Uint8Array>({
+          cancel() {
+            return new Promise(() => {});
+          },
+        });
+        const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+          new Response(stalledCancelBody, {
+            status: 503,
+            headers: { "Retry-After": "1" },
+          }),
+        );
+
+        const pending = fetchWikimedia("https://en.wikipedia.org/w/api.php", {
+          fetchImpl: fetchMock,
+          timeoutMs: 1_000,
+        });
+        let caughtError: unknown;
+        const settled = pending.catch((error: unknown) => {
+          caughtError = error;
+        });
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(caughtError).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+        await settled;
+
+        expect(caughtError).toMatchObject({ name: "AbortError" });
+        expect(isWikimediaTimeoutError(caughtError)).toBe(true);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    });
   });
 
   describe("429/503 Retry-After and capped jittered backoff", () => {
