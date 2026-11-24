@@ -55,8 +55,8 @@ type DidYouKnowPageDetail = {
   thumbnail?: WikipediaFeaturedThumbnail;
 };
 
-const normalizeTitleKey = (title: string): string =>
-  title.replace(/_/g, " ").trim().toLowerCase();
+const normalizeDidYouKnowTitle = (title: string): string =>
+  title.replace(/_/g, " ").trim();
 
 const getDidYouKnowLinkTitle = ({
   slug,
@@ -106,7 +106,7 @@ const fetchDidYouKnowPageDetails = async (
         thumbnail?: WikipediaFeaturedThumbnail;
       }>(data.query?.pages) ?? [];
     const mappings = extractActionApiTitleMappings(data.query);
-    const pagesByCanonicalKey = new Map<string, DidYouKnowPageDetail>();
+    const pagesByCanonicalTitle = new Map<string, DidYouKnowPageDetail>();
 
     for (const page of pages) {
       if (isMissingActionApiPage(page) || page.ns !== 0 || !page.title) {
@@ -116,9 +116,9 @@ const fetchDidYouKnowPageDetails = async (
         wikiPageId: page.pageid != null ? String(page.pageid) : undefined,
         thumbnail: page.thumbnail,
       };
-      const canonicalKey = normalizeTitleKey(page.title);
-      pagesByCanonicalKey.set(canonicalKey, detail);
-      details.set(canonicalKey, detail);
+      const canonicalTitle = normalizeDidYouKnowTitle(page.title);
+      pagesByCanonicalTitle.set(canonicalTitle, detail);
+      details.set(canonicalTitle, detail);
     }
 
     for (const requestedTitle of batch) {
@@ -126,9 +126,9 @@ const fetchDidYouKnowPageDetails = async (
         requestedTitle,
         mappings,
       );
-      const detail = pagesByCanonicalKey.get(normalizeTitleKey(canonicalTitle));
+      const detail = pagesByCanonicalTitle.get(canonicalTitle);
       if (detail) {
-        details.set(normalizeTitleKey(requestedTitle), detail);
+        details.set(normalizeDidYouKnowTitle(requestedTitle), detail);
       }
     }
   }
@@ -139,20 +139,20 @@ const fetchDidYouKnowPageDetails = async (
 export const enrichDidYouKnowThumbnails = async (
   items: WikipediaDidYouKnowItem[],
 ): Promise<WikipediaDidYouKnowItem[]> => {
-  const titleByKey = new Map<string, string>();
+  const uniqueTitles = new Set<string>();
 
   for (const item of items) {
     for (const link of item.links) {
-      const title = getDidYouKnowLinkTitle(link);
-      if (title) titleByKey.set(normalizeTitleKey(title), title);
+      const title = normalizeDidYouKnowTitle(getDidYouKnowLinkTitle(link));
+      if (title) uniqueTitles.add(title);
     }
   }
 
-  if (titleByKey.size === 0) return items;
+  if (uniqueTitles.size === 0) return items;
 
   let details: Map<string, DidYouKnowPageDetail>;
   try {
-    details = await fetchDidYouKnowPageDetails([...titleByKey.values()]);
+    details = await fetchDidYouKnowPageDetails([...uniqueTitles]);
   } catch {
     return items;
   }
@@ -175,8 +175,8 @@ export const enrichDidYouKnowThumbnails = async (
   return items.map((item) => ({
     ...item,
     links: item.links.map((link) => {
-      const title = getDidYouKnowLinkTitle(link);
-      const detail = title ? details.get(normalizeTitleKey(title)) : undefined;
+      const title = normalizeDidYouKnowTitle(getDidYouKnowLinkTitle(link));
+      const detail = title ? details.get(title) : undefined;
       if (!detail) return link;
 
       return {

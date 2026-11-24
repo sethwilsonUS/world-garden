@@ -463,4 +463,85 @@ describe("fetchWikipediaFeaturedSnapshot", () => {
       },
     ]);
   });
+
+  it("keeps case-distinct titles separate when another title redirects through a differently cased variant", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.startsWith("/api/rest_v1/feed/featured/")) {
+        return Response.json({
+          mostread: {
+            date: "2026-04-10Z",
+            articles: [{ title: "Stale Article", extract: "Old", views: 10 }],
+          },
+        });
+      }
+
+      if (url.pathname.startsWith("/api/rest_v1/metrics/pageviews/top/")) {
+        return Response.json({
+          items: [
+            {
+              year: "2026",
+              month: "04",
+              day: "19",
+              articles: [
+                { article: "The_Notion_Club_Papers", views: 110_000, rank: 1 },
+                { article: "So_Long,_London", views: 90_000, rank: 2 },
+              ],
+            },
+          ],
+        });
+      }
+
+      if (
+        url.hostname === "en.wikipedia.org" &&
+        url.searchParams.get("prop") === "extracts|pageimages|info"
+      ) {
+        return Response.json({
+          query: {
+            redirects: [
+              { from: "The Notion Club Papers", to: "So long, London" },
+              { from: "So long, London", to: "The Sword of Damocles" },
+              { from: "The Sword of Damocles", to: "Book of Jasher" },
+            ],
+            pages: [
+              {
+                pageid: 1001,
+                ns: 0,
+                title: "So Long, London",
+                extract: "Track five from The Tortured Poets Department.",
+              },
+              {
+                pageid: 1002,
+                ns: 0,
+                title: "Book of Jasher",
+                extract: "Non-canonical book referenced in the Hebrew Bible.",
+              },
+            ],
+          },
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+
+    const snapshot = await fetchWikipediaFeaturedSnapshot(
+      new Date(Date.UTC(2026, 3, 20, 12, 0, 0)),
+    );
+
+    expect(snapshot.trendingCandidates).toEqual([
+      {
+        title: "Book of Jasher",
+        extract: "Non-canonical book referenced in the Hebrew Bible.",
+        views: 110_000,
+        thumbnail: undefined,
+      },
+      {
+        title: "So Long, London",
+        extract: "Track five from The Tortured Poets Department.",
+        views: 90_000,
+        thumbnail: undefined,
+      },
+    ]);
+  });
 });

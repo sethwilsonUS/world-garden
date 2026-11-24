@@ -282,9 +282,6 @@ const toTrendingDateFromPageviews = (date: Date): string =>
 const normalizeArticleTitle = (title: string): string =>
   title.replace(/_/g, " ").trim();
 
-const normalizeTitleKey = (title: string): string =>
-  normalizeArticleTitle(title).toLowerCase();
-
 const BLOCKED_PAGEVIEWS_TITLES = new Set(["Main Page"]);
 const BLOCKED_PAGEVIEWS_PREFIXES = [
   "Category:",
@@ -351,15 +348,15 @@ const fetchTrendingArticleDetails = async (
         FeaturedFeedArticlePayload & { missing?: unknown; ns?: number }
       >(data.query?.pages) ?? [];
     const mappings = extractActionApiTitleMappings(data.query);
-    const pagesByCanonicalKey = new Map<string, FeaturedFeedArticlePayload>();
+    const pagesByCanonicalTitle = new Map<string, FeaturedFeedArticlePayload>();
 
     for (const page of pages) {
       if (isMissingActionApiPage(page) || page.ns !== 0 || !page.title) {
         continue;
       }
-      const canonicalKey = normalizeTitleKey(page.title);
-      pagesByCanonicalKey.set(canonicalKey, page);
-      details.set(canonicalKey, page);
+      const canonicalTitle = normalizeArticleTitle(page.title);
+      pagesByCanonicalTitle.set(canonicalTitle, page);
+      details.set(canonicalTitle, page);
     }
 
     for (const requestedTitle of batch) {
@@ -367,9 +364,9 @@ const fetchTrendingArticleDetails = async (
         requestedTitle,
         mappings,
       );
-      const page = pagesByCanonicalKey.get(normalizeTitleKey(canonicalTitle));
+      const page = pagesByCanonicalTitle.get(canonicalTitle);
       if (page) {
-        details.set(normalizeTitleKey(requestedTitle), page);
+        details.set(normalizeArticleTitle(requestedTitle), page);
       }
     }
   }
@@ -412,15 +409,15 @@ const fetchPageviewsTrendingArticles = async (
     const seenCanonicalTitles = new Set<string>();
     const articles: WikipediaTrendingArticle[] = [];
     for (const article of candidates) {
-      const detail = details.get(normalizeTitleKey(article.title));
+      const detail = details.get(normalizeArticleTitle(article.title));
       if (!detail) continue;
       const trendingArticle = toTrendingArticle({
         ...detail,
         views: article.views,
       });
-      const canonicalKey = normalizeTitleKey(trendingArticle.title);
-      if (!canonicalKey || seenCanonicalTitles.has(canonicalKey)) continue;
-      seenCanonicalTitles.add(canonicalKey);
+      const canonicalTitle = normalizeArticleTitle(trendingArticle.title);
+      if (!canonicalTitle || seenCanonicalTitles.has(canonicalTitle)) continue;
+      seenCanonicalTitles.add(canonicalTitle);
       articles.push(trendingArticle);
       if (articles.length >= TRENDING_ARTICLE_LIMIT) break;
     }

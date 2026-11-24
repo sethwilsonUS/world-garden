@@ -833,5 +833,22 @@ describe("lib/wikimedia-client", () => {
 
       expect(resolveActionApiCanonicalTitle("Loop A", mappings)).toBe("Loop A");
     });
+
+    it("does not follow redirect mappings whose title differs in letter case", () => {
+      const mappings = extractActionApiTitleMappings({
+        redirects: [
+          { from: "The Notion Club Papers", to: "So long, London" },
+          { from: "So long, London", to: "The Sword of Damocles" },
+          { from: "The Sword of Damocles", to: "Book of Jasher" },
+        ],
+      });
+
+      expect(resolveActionApiCanonicalTitle("So Long, London", mappings)).toBe(
+        "So Long, London",
+      );
+      expect(
+        resolveActionApiCanonicalTitle("The Notion Club Papers", mappings),
+      ).toBe("Book of Jasher");
+    });
   });
 });

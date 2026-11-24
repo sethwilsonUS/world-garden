@@ -564,11 +564,8 @@ export const isMissingActionApiPage = (page: {
 
 export type ActionApiTitleMappings = {
   normalized: Map<string, string>;
-  normalizedLower: Map<string, string>;
   converted: Map<string, string>;
-  convertedLower: Map<string, string>;
   redirects: Map<string, string>;
-  redirectsLower: Map<string, string>;
 };
 
 const MAX_ACTION_API_REDIRECT_HOPS = 16;
@@ -577,8 +574,7 @@ const normalizeActionApiTitleSpaces = (title: string): string =>
   title.replace(/_/g, " ").trim();
 
 const recordActionApiTitleMappings = (
-  exactMap: Map<string, string>,
-  lowerMap: Map<string, string>,
+  target: Map<string, string>,
   rawMappings: unknown,
 ): void => {
   if (!Array.isArray(rawMappings)) return;
@@ -590,11 +586,7 @@ const recordActionApiTitleMappings = (
     const from = normalizeActionApiTitleSpaces(entry.from);
     const to = normalizeActionApiTitleSpaces(entry.to);
     if (!from || !to) continue;
-    exactMap.set(from, to);
-    const fromLower = from.toLowerCase();
-    if (!lowerMap.has(fromLower)) {
-      lowerMap.set(fromLower, to);
-    }
+    target.set(from, to);
   }
 };
 
@@ -608,42 +600,21 @@ export const extractActionApiTitleMappings = (
 ): ActionApiTitleMappings => {
   const mappings: ActionApiTitleMappings = {
     normalized: new Map(),
-    normalizedLower: new Map(),
     converted: new Map(),
-    convertedLower: new Map(),
     redirects: new Map(),
-    redirectsLower: new Map(),
   };
   if (!isRecord(queryData)) return mappings;
 
-  recordActionApiTitleMappings(
-    mappings.normalized,
-    mappings.normalizedLower,
-    queryData.normalized,
-  );
-  recordActionApiTitleMappings(
-    mappings.converted,
-    mappings.convertedLower,
-    queryData.converted,
-  );
-  recordActionApiTitleMappings(
-    mappings.redirects,
-    mappings.redirectsLower,
-    queryData.redirects,
-  );
+  recordActionApiTitleMappings(mappings.normalized, queryData.normalized);
+  recordActionApiTitleMappings(mappings.converted, queryData.converted);
+  recordActionApiTitleMappings(mappings.redirects, queryData.redirects);
   return mappings;
 };
 
-const lookupActionApiTitleMapping = (
-  title: string,
-  exactMap: ReadonlyMap<string, string>,
-  lowerMap: ReadonlyMap<string, string>,
-): string | undefined =>
-  exactMap.get(title) ?? lowerMap.get(title.toLowerCase());
-
 /**
- * Resolve a requested title through MediaWiki Action API `normalized`,
- * `converted`, and `redirects` mappings with cycle protection.
+ * Resolve a requested title through exact MediaWiki Action API `normalized`,
+ * `converted`, and `redirects` mappings (preserving MediaWiki title case
+ * sensitivity) with cycle protection.
  */
 export const resolveActionApiCanonicalTitle = (
   rawTitle: string,
@@ -652,20 +623,12 @@ export const resolveActionApiCanonicalTitle = (
   let current = normalizeActionApiTitleSpaces(rawTitle);
   if (!current) return current;
 
-  const normalized = lookupActionApiTitleMapping(
-    current,
-    mappings.normalized,
-    mappings.normalizedLower,
-  );
+  const normalized = mappings.normalized.get(current);
   if (normalized) {
     current = normalized;
   }
 
-  const converted = lookupActionApiTitleMapping(
-    current,
-    mappings.converted,
-    mappings.convertedLower,
-  );
+  const converted = mappings.converted.get(current);
   if (converted) {
     current = converted;
   }
@@ -674,11 +637,7 @@ export const resolveActionApiCanonicalTitle = (
   for (let hop = 0; hop < MAX_ACTION_API_REDIRECT_HOPS; hop += 1) {
     if (visited.has(current)) break;
     visited.add(current);
-    const next = lookupActionApiTitleMapping(
-      current,
-      mappings.redirects,
-      mappings.redirectsLower,
-    );
+    const next = mappings.redirects.get(current);
     if (!next || next === current) break;
     current = next;
   }
