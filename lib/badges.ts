@@ -13,6 +13,12 @@ export type BadgeKey = (typeof BADGE_KEYS)[number];
 
 export const BADGE_TOPIC_CACHE_VERSION = 1;
 export const BADGE_LEVEL_BASE_EXP = 5;
+export const WIKIMEDIA_TOPIC_MIN_CONFIDENCE = 0.5;
+
+export type WikimediaTopicPrediction = {
+  topic: string;
+  score: number;
+};
 
 export type BadgeDefinition = {
   key: BadgeKey;
@@ -193,6 +199,128 @@ export const BADGE_DEFINITIONS: BadgeDefinition[] = [
 const BADGE_DEFINITION_MAP = new Map(
   BADGE_DEFINITIONS.map((definition) => [definition.key, definition]),
 );
+
+const WIKIMEDIA_TOPIC_SLUG_ALIASES: ReadonlyArray<readonly [string, BadgeKey]> =
+  [
+    // Wikimedia's ORES/outlink taxonomy emits `Culture.Linguistics` (`linguistics`),
+    // while the CirrusSearch definition also carries the legacy `language-and-literature` slug.
+    ["linguistics", "arts_culture"],
+  ];
+
+const TOPIC_SLUG_TO_BADGE_KEY: ReadonlyMap<string, BadgeKey> = (() => {
+  const map = new Map<string, BadgeKey>();
+  for (const definition of BADGE_DEFINITIONS) {
+    for (const topicSlug of definition.articletopics) {
+      map.set(topicSlug, definition.key);
+    }
+  }
+  for (const [alias, badgeKey] of WIKIMEDIA_TOPIC_SLUG_ALIASES) {
+    if (!map.has(alias)) {
+      map.set(alias, badgeKey);
+    }
+  }
+  return map;
+})();
+
+const CIRRUS_ARTICLE_TOPIC_TAG_PREFIX =
+  "classification.prediction.articletopic/";
+
+/**
+ * Normalize a Wikimedia ORES / Lift Wing `outlink-topic-model` taxonomy label
+ * (e.g. `STEM.Libraries_&_Information`, `Culture.Biography.Biography*`) or a
+ * bare CirrusSearch `articletopic:` slug into its canonical kebab-case slug.
+ */
+export const normalizeWikimediaTopicSlug = (topic: string): string => {
+  const trimmed = topic.trim();
+  if (!trimmed) return "";
+  const lastDot = trimmed.lastIndexOf(".");
+  const leaf = (lastDot >= 0 ? trimmed.slice(lastDot + 1) : trimmed).trim();
+  return leaf
+    .replace(/\*+$/u, "")
+    .replace(/&/gu, " and ")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+};
+
+export const mapWikimediaTopicToBadgeKey = (
+  topic: string,
+): BadgeKey | null => {
+  const slug = normalizeWikimediaTopicSlug(topic);
+  if (!slug) return null;
+  return TOPIC_SLUG_TO_BADGE_KEY.get(slug) ?? null;
+};
+
+/**
+ * Deterministically map predicted Wikimedia taxonomy topics into Curio Garden
+ * badge keys in canonical `BADGE_KEYS` launch order after confidence filtering.
+ */
+export const mapWikimediaTopicsToBadgeKeys = (
+  predictions: readonly WikimediaTopicPrediction[],
+  minConfidence = WIKIMEDIA_TOPIC_MIN_CONFIDENCE,
+): BadgeKey[] => {
+  const threshold =
+    Number.isFinite(minConfidence) && minConfidence >= 0
+      ? minConfidence
+      : WIKIMEDIA_TOPIC_MIN_CONFIDENCE;
+  const matched = new Set<BadgeKey>();
+
+  for (const prediction of predictions) {
+    if (
+      !Number.isFinite(prediction.score) ||
+      prediction.score < threshold
+    ) {
+      continue;
+    }
+    const badgeKey = mapWikimediaTopicToBadgeKey(prediction.topic);
+    if (badgeKey) {
+      matched.add(badgeKey);
+    }
+  }
+
+  return BADGE_KEYS.filter((key) => matched.has(key));
+};
+
+/**
+ * Parse CirrusSearch `cirrusdoc` `weighted_tags` entries prefixed with
+ * `classification.prediction.articletopic/<Topic>|<weight>` (0–1000 scale)
+ * into normalized `[0, 1]` topic predictions.
+ */
+export const parseCirrusWeightedArticleTopics = (
+  weightedTags: readonly unknown[] | undefined,
+): WikimediaTopicPrediction[] => {
+  if (!Array.isArray(weightedTags)) return [];
+
+  const predictions: WikimediaTopicPrediction[] = [];
+  for (const entry of weightedTags) {
+    if (
+      typeof entry !== "string" ||
+      !entry.startsWith(CIRRUS_ARTICLE_TOPIC_TAG_PREFIX)
+    ) {
+      continue;
+    }
+
+    const payload = entry.slice(CIRRUS_ARTICLE_TOPIC_TAG_PREFIX.length);
+    const pipeIndex = payload.lastIndexOf("|");
+    const rawTopic = (
+      pipeIndex >= 0 ? payload.slice(0, pipeIndex) : payload
+    ).trim();
+    if (!rawTopic) continue;
+
+    let score = 1;
+    if (pipeIndex >= 0) {
+      const rawWeight = payload.slice(pipeIndex + 1).trim();
+      if (!/^\d+(?:\.\d+)?$/u.test(rawWeight)) continue;
+      const weight = Number(rawWeight);
+      if (!Number.isFinite(weight) || weight < 0) continue;
+      score = Math.min(1, weight / 1_000);
+    }
+
+    predictions.push({ topic: rawTopic, score });
+  }
+
+  return predictions;
+};
 
 export const getBadgeDefinition = (key: BadgeKey): BadgeDefinition => {
   const definition = BADGE_DEFINITION_MAP.get(key);

@@ -20,9 +20,14 @@ import {
 import {
   BADGE_KEYS,
   getBadgeTopicQuery,
+  mapWikimediaTopicsToBadgeKeys,
+  parseCirrusWeightedArticleTopics,
+  WIKIMEDIA_TOPIC_MIN_CONFIDENCE,
   type BadgeKey,
+  type WikimediaTopicPrediction,
 } from "../../lib/badges";
 import {
+  DEFAULT_WIKIMEDIA_TIMEOUT_MS,
   extractActionApiPages,
   fetchWikimedia,
   fetchWikimediaActionApi,
@@ -283,20 +288,162 @@ export const searchWikipedia = async (
   );
 };
 
-const articleTopicMatches = async (
-  wikiPageId: string,
-  topics: string,
-): Promise<boolean> => {
-  const canonicalPageId = requirePageId(wikiPageId);
-  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
-    action: "query",
-    list: "search",
-    srsearch: `pageid:${canonicalPageId} articletopic:${topics}`,
-    srlimit: "1",
-    srwhat: "text",
+export const WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL =
+  "https://api.wikimedia.org/service/lw/inference/v1/models/outlink-topic-model:predict";
+export const BADGE_TOPIC_LIFT_WING_TIMEOUT_MS = 5_000;
+export const BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY = 2;
+
+export type FetchArticleBadgeKeysOptions = {
+  title?: string;
+  language?: string;
+  cirrusTopicPredictions?: readonly WikimediaTopicPrediction[];
+  minConfidence?: number;
+  signal?: AbortSignal;
+};
+
+const extractCirrusTopicPredictionsFromPage = (
+  page: Record<string, unknown>,
+): WikimediaTopicPrediction[] => {
+  const cirrusDocs = page.cirrusdoc;
+  if (!Array.isArray(cirrusDocs)) return [];
+  for (const entry of cirrusDocs) {
+    if (!isRecord(entry) || !isRecord(entry.source)) continue;
+    const weightedTags = entry.source.weighted_tags;
+    if (!Array.isArray(weightedTags)) continue;
+    const parsed = parseCirrusWeightedArticleTopics(weightedTags);
+    if (parsed.length > 0) return parsed;
+  }
+  return [];
+};
+
+const fetchLiftWingArticleTopics = async (
+  title: string,
+  language = "en",
+  signal?: AbortSignal,
+): Promise<WikimediaTopicPrediction[]> => {
+  throwIfAborted(signal);
+  const response = await fetchWikimedia(WIKIMEDIA_OUTLINK_TOPIC_MODEL_URL, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      page_title: title,
+      lang: language,
+    }),
+    timeoutMs: BADGE_TOPIC_LIFT_WING_TIMEOUT_MS,
+    maxRetries: 1,
+    signal,
   });
 
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(
+      `Wikimedia Lift Wing topic classification failed: ${response.status}`,
+    );
+  }
+
+  const data: unknown = await response.json();
+  const prediction = isRecord(data) ? data.prediction : undefined;
+  const rawResults = isRecord(prediction) ? prediction.results : undefined;
+  if (!Array.isArray(rawResults)) {
+    throw new Error(
+      "Wikimedia Lift Wing topic classification returned an invalid payload",
+    );
+  }
+
+  const predictions: WikimediaTopicPrediction[] = [];
+  for (const item of rawResults) {
+    if (
+      isRecord(item) &&
+      typeof item.topic === "string" &&
+      item.topic.trim() &&
+      typeof item.score === "number" &&
+      Number.isFinite(item.score)
+    ) {
+      predictions.push({
+        topic: item.topic.trim(),
+        score: item.score,
+      });
+    }
+  }
+  if (rawResults.length > 0 && predictions.length === 0) {
+    throw new Error(
+      "Wikimedia Lift Wing topic classification returned malformed results",
+    );
+  }
+  return predictions;
+};
+
+const fetchCirrusArticleTopicLookup = async (
+  canonicalPageId: string,
+  signal?: AbortSignal,
+): Promise<{ title?: string; predictions: WikimediaTopicPrediction[] }> => {
+  throwIfAborted(signal);
+  const response = await fetchWikimediaActionApi(
+    WIKI_ACTION_API,
+    {
+      action: "query",
+      pageids: canonicalPageId,
+      prop: "cirrusdoc",
+      cdincludes: "weighted_tags",
+    },
+    {
+      timeoutMs: BADGE_TOPIC_LIFT_WING_TIMEOUT_MS,
+      maxRetries: 1,
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Wikipedia cirrusdoc lookup failed: ${response.status}`);
+  }
+
+  const data: unknown = await response.json();
+  const queryData = isRecord(data) ? data.query : undefined;
+  const pages =
+    extractActionApiPages(isRecord(queryData) ? queryData.pages : undefined) ??
+    [];
+  const page = pages.find(
+    (candidate) =>
+      normalizeMediaWikiNumericId(candidate.pageid) === canonicalPageId,
+  );
+  if (!page || isMissingActionApiPage(page)) {
+    return { predictions: [] };
+  }
+
+  const title =
+    typeof page.title === "string" && page.title.trim()
+      ? page.title.trim()
+      : undefined;
+  return {
+    ...(title ? { title } : {}),
+    predictions: extractCirrusTopicPredictionsFromPage(page),
+  };
+};
+
+const articleTopicMatches = async (
+  wikiPageId: string,
+  topics: string,
+  signal?: AbortSignal,
+): Promise<boolean> => {
+  const canonicalPageId = requirePageId(wikiPageId);
+  const response = await fetchWikimediaActionApi(
+    WIKI_ACTION_API,
+    {
+      action: "query",
+      list: "search",
+      srsearch: `pageid:${canonicalPageId} articletopic:${topics}`,
+      srlimit: "1",
+      srwhat: "text",
+    },
+    { signal },
+  );
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error(`Wikipedia articletopic search failed: ${response.status}`);
   }
 
@@ -308,17 +455,116 @@ const articleTopicMatches = async (
   );
 };
 
+const runWithConcurrencyLimit = async <Item, Result>(
+  items: readonly Item[],
+  maxConcurrency: number,
+  worker: (item: Item) => Promise<Result>,
+  signal?: AbortSignal,
+): Promise<Result[]> => {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(maxConcurrency, items.length));
+  const results = new Array<Result>(items.length);
+  let nextIndex = 0;
+  let failed = false;
+
+  const runWorker = async (): Promise<void> => {
+    while (!failed && nextIndex < items.length) {
+      throwIfAborted(signal);
+      const current = nextIndex;
+      nextIndex += 1;
+      try {
+        results[current] = await worker(items[current]);
+      } catch (error: unknown) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: limit }, () => runWorker()));
+  return results;
+};
+
+/**
+ * Classify an article's Curio Garden badge topics without firing an 8-way
+ * search burst:
+ * 1. Reuse piggybacked `cirrusdoc` `weighted_tags` when available (0 extra calls).
+ * 2. Otherwise query Wikimedia Lift Wing `outlink-topic-model` (1 call) — or
+ *    a single `cirrusdoc` pageid lookup when no title is supplied.
+ * 3. Only if Lift Wing is unavailable, fall back to CirrusSearch `articletopic`
+ *    queries capped at 2 concurrent requests.
+ */
 export const fetchArticleBadgeKeys = async (
   wikiPageId: string,
+  options: FetchArticleBadgeKeysOptions = {},
 ): Promise<BadgeKey[]> => {
-  const matches = await Promise.all(
-    BADGE_KEYS.map(async (key) => {
+  const canonicalPageId = requirePageId(wikiPageId);
+  throwIfAborted(options.signal);
+
+  const minConfidence = options.minConfidence ?? WIKIMEDIA_TOPIC_MIN_CONFIDENCE;
+  const language = (options.language ?? "en").trim().toLowerCase() || "en";
+
+  if (
+    options.cirrusTopicPredictions &&
+    options.cirrusTopicPredictions.length > 0
+  ) {
+    return mapWikimediaTopicsToBadgeKeys(
+      options.cirrusTopicPredictions,
+      minConfidence,
+    );
+  }
+
+  let resolvedTitle = options.title?.trim() || undefined;
+  if (!resolvedTitle && language === "en") {
+    try {
+      const lookup = await fetchCirrusArticleTopicLookup(
+        canonicalPageId,
+        options.signal,
+      );
+      if (lookup.predictions.length > 0) {
+        return mapWikimediaTopicsToBadgeKeys(lookup.predictions, minConfidence);
+      }
+      resolvedTitle = lookup.title;
+    } catch (error: unknown) {
+      if (options.signal?.aborted) throw error;
+      console.warn(
+        `[badge-topics] Cirrusdoc lookup failed for page ${canonicalPageId}; falling back:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (resolvedTitle) {
+    try {
+      const predictions = await fetchLiftWingArticleTopics(
+        resolvedTitle,
+        language,
+        options.signal,
+      );
+      return mapWikimediaTopicsToBadgeKeys(predictions, minConfidence);
+    } catch (error: unknown) {
+      if (options.signal?.aborted) throw error;
+      console.warn(
+        `[badge-topics] Lift Wing topic classification failed for "${resolvedTitle}"; falling back to capped CirrusSearch:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (language !== "en") return [];
+
+  const matches = await runWithConcurrencyLimit(
+    BADGE_KEYS,
+    BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
+    async (key) => {
       const didMatch = await articleTopicMatches(
-        wikiPageId,
+        canonicalPageId,
         getBadgeTopicQuery(key),
+        options.signal,
       );
       return didMatch ? key : null;
-    }),
+    },
+    options.signal,
   );
 
   return matches.filter((key): key is BadgeKey => key !== null);
@@ -332,6 +578,11 @@ export type FetchedArticleWithDocument = {
    * falling back to plaintext.
    */
   parsedDocument?: MediaWikiDocument;
+  /**
+   * Pre-extracted CirrusSearch `articletopic` weighted_tags piggybacked on the
+   * article query so badge classification needs zero extra Wikimedia requests.
+   */
+  cirrusTopicPredictions?: WikimediaTopicPrediction[];
 };
 
 const hydrateFetchedWikipediaPage = async (
@@ -345,6 +596,7 @@ const hydrateFetchedWikipediaPage = async (
   const revisionId = requireRevisionId(revision?.revid);
   const fullText = (page.extract as string) ?? "";
   const contentText = cleanContentForTts(fullText);
+  const cirrusTopicPredictions = extractCirrusTopicPredictionsFromPage(page);
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
     (await fetchSummaryThumbnail(page.title as string));
@@ -376,31 +628,129 @@ const hydrateFetchedWikipediaPage = async (
       thumbnailAttribution,
     },
     ...(parsedDocument ? { parsedDocument } : {}),
+    ...(cirrusTopicPredictions.length > 0 ? { cirrusTopicPredictions } : {}),
   };
 };
 
-export const fetchArticleWithDocumentByPageId = async (
-  pageId: string,
-): Promise<FetchedArticleWithDocument> => {
-  const canonicalPageId = requirePageId(pageId);
-  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
+const ARTICLE_CORE_QUERY_PROPS = "extracts|revisions|info|pageimages";
+const ARTICLE_COMBINED_QUERY_PROPS = `${ARTICLE_CORE_QUERY_PROPS}|cirrusdoc`;
+/** Total deadline across the combined `cirrusdoc` query and any article-only retry. */
+export const ARTICLE_QUERY_DEADLINE_MS = DEFAULT_WIKIMEDIA_TIMEOUT_MS;
+/** Bound the combined `cirrusdoc` attempt so a stalled search lookup leaves budget for an article-only retry. */
+export const ARTICLE_COMBINED_QUERY_TIMEOUT_MS = Math.floor(
+  ARTICLE_QUERY_DEADLINE_MS / 2,
+);
+
+const fetchWikipediaArticleQueryPayload = async (
+  targetParams: Record<string, string>,
+): Promise<Record<string, unknown>> => {
+  const baseParams: Record<string, string> = {
     action: "query",
-    pageids: canonicalPageId,
-    prop: "extracts|revisions|info|pageimages",
+    ...targetParams,
+    prop: ARTICLE_CORE_QUERY_PROPS,
     explaintext: "1",
     exsectionformat: "wiki",
     rvprop: "ids|timestamp",
     inprop: "url",
     piprop: "thumbnail",
     pithumbsize: "800",
+  };
+
+  const deadlineAt = Date.now() + ARTICLE_QUERY_DEADLINE_MS;
+  const deadlineController = new AbortController();
+  const deadlineTimer = setTimeout(() => {
+    deadlineController.abort(
+      new DOMException("The operation was aborted.", "AbortError"),
+    );
+  }, ARTICLE_QUERY_DEADLINE_MS);
+
+  let combinedFailureStatus: number | undefined;
+  let combinedFailureError: unknown;
+
+  try {
+    try {
+      const combinedResponse = await fetchWikimediaActionApi(
+        WIKI_ACTION_API,
+        {
+          ...baseParams,
+          prop: ARTICLE_COMBINED_QUERY_PROPS,
+          cdincludes: "weighted_tags",
+        },
+        {
+          timeoutMs: ARTICLE_COMBINED_QUERY_TIMEOUT_MS,
+          maxRetries: 0,
+          signal: deadlineController.signal,
+        },
+      );
+
+      if (combinedResponse.ok) {
+        const combinedData: unknown = await combinedResponse.json();
+        if (
+          isRecord(combinedData) &&
+          !("error" in combinedData && combinedData.error)
+        ) {
+          return combinedData;
+        }
+        combinedFailureError = new Error(
+          "Wikipedia combined article query returned an error payload",
+        );
+      } else {
+        combinedFailureStatus = combinedResponse.status;
+        await combinedResponse.body?.cancel().catch(() => undefined);
+      }
+    } catch (error) {
+      combinedFailureError = error;
+    }
+
+    const remainingMs = deadlineAt - Date.now();
+    if (deadlineController.signal.aborted || remainingMs <= 0) {
+      if (combinedFailureStatus !== undefined) {
+        throw new Error(`Wikipedia fetch failed: ${combinedFailureStatus}`);
+      }
+      throw combinedFailureError ?? deadlineController.signal.reason;
+    }
+
+    console.warn(
+      "[wikipedia] Combined cirrusdoc article query failed; retrying without cirrusdoc",
+      combinedFailureStatus !== undefined
+        ? { status: combinedFailureStatus }
+        : combinedFailureError,
+    );
+
+    const retryResponse = await fetchWikimediaActionApi(
+      WIKI_ACTION_API,
+      baseParams,
+      {
+        timeoutMs: remainingMs,
+        signal: deadlineController.signal,
+      },
+    );
+
+    if (!retryResponse.ok) {
+      await retryResponse.body?.cancel().catch(() => undefined);
+      throw new Error(`Wikipedia fetch failed: ${retryResponse.status}`);
+    }
+
+    const retryData: unknown = await retryResponse.json();
+    if (!isRecord(retryData)) {
+      throw new Error("Wikipedia fetch returned an invalid payload");
+    }
+    return retryData;
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+};
+
+export const fetchArticleWithDocumentByPageId = async (
+  pageId: string,
+): Promise<FetchedArticleWithDocument> => {
+  const canonicalPageId = requirePageId(pageId);
+  const data = await fetchWikipediaArticleQueryPayload({
+    pageids: canonicalPageId,
   });
 
-  if (!response.ok) {
-    throw new Error(`Wikipedia fetch failed: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const pages = extractActionApiPages(data.query?.pages) ?? [];
+  const queryData = isRecord(data.query) ? data.query : undefined;
+  const pages = extractActionApiPages(queryData?.pages) ?? [];
   const page = pages.find(
     (candidate) =>
       normalizeMediaWikiNumericId(candidate.pageid) === canonicalPageId,
@@ -429,25 +779,13 @@ export const slugToTitle = (slug: string): string => {
 export const fetchArticleWithDocumentByTitle = async (
   title: string,
 ): Promise<FetchedArticleWithDocument> => {
-  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
-    action: "query",
+  const data = await fetchWikipediaArticleQueryPayload({
     titles: title,
-    prop: "extracts|revisions|info|pageimages",
-    explaintext: "1",
-    exsectionformat: "wiki",
-    rvprop: "ids|timestamp",
-    inprop: "url",
-    piprop: "thumbnail",
-    pithumbsize: "800",
     redirects: "1",
   });
 
-  if (!response.ok) {
-    throw new Error(`Wikipedia fetch failed: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const pages = extractActionApiPages(data.query?.pages) ?? [];
+  const queryData = isRecord(data.query) ? data.query : undefined;
+  const pages = extractActionApiPages(queryData?.pages) ?? [];
   const page = pages[0];
 
   if (!page || isMissingActionApiPage(page)) {

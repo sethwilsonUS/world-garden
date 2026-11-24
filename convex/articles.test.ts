@@ -1293,4 +1293,164 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
     expect(fetchSectionLinks).toHaveBeenCalledTimes(1);
     expect(fetchSectionLinks).toHaveBeenCalledWith(identity, "1");
   });
+
+  it("classifies badges with zero extra API calls when cirrusdoc weighted_tags are piggybacked on ingestion", async () => {
+    const { ctx, articlesByPageId } = createInMemoryArticleCtx();
+    let liftWingCalls = 0;
+    let searchCalls = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.hostname === "api.wikimedia.org") {
+        liftWingCalls += 1;
+        throw new Error("Lift Wing should not be called when cirrusdoc tags exist");
+      }
+      if (url.searchParams.get("list") === "search") {
+        searchCalls += 1;
+        throw new Error("CirrusSearch fallback should not be called");
+      }
+      if (
+        url.hostname === "en.wikipedia.org" &&
+        url.searchParams.get("action") === "query"
+      ) {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 974,
+                  title: "Ada Lovelace",
+                  extract: "Ada Lovelace was an English mathematician.",
+                  revisions: [
+                    { revid: 4200, timestamp: "2026-11-24T00:00:00Z" },
+                  ],
+                  cirrusdoc: [
+                    {
+                      source: {
+                        weighted_tags: [
+                          "classification.prediction.articletopic/Culture.Biography.Biography*|538",
+                          "classification.prediction.articletopic/STEM.Computing|880",
+                        ],
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.pathname.startsWith("/api/rest_v1/page/summary/")) {
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 4200,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+
+    const article = await fetchAndCacheBySlugForCtx(ctx as never, {
+      slug: "Ada_Lovelace",
+    });
+
+    expect(article.badgeKeys).toEqual(["biography", "technology"]);
+    expect(articlesByPageId.get("974")?.badgeKeys).toEqual([
+      "biography",
+      "technology",
+    ]);
+    expect(liftWingCalls).toBe(0);
+    expect(searchCalls).toBe(0);
+  });
+
+  it("degrades gracefully without blocking article ingestion and preserves cached badges on rate limits", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx, articlesByPageId } = createInMemoryArticleCtx();
+    // Seed an older expired article row with previously cached badge topics.
+    articlesByPageId.set("974", {
+      _id: "article-doc-1",
+      wikiPageId: "974",
+      slug: "Ada_Lovelace",
+      title: "Ada Lovelace",
+      language: "en",
+      revisionId: "4100",
+      lastFetchedAt: Date.now() - ARTICLE_CACHE_TTL_MS - 1_000,
+      badgeKeys: ["history", "biography"],
+      badgeTopicVersion: 0,
+      badgeTopicsCachedAt: 1_000,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (
+        url.hostname === "api.wikimedia.org" ||
+        url.searchParams.get("list") === "search"
+      ) {
+        return new Response("rate limited", {
+          status: 429,
+          headers: { "Retry-After": "60" },
+        });
+      }
+      if (
+        url.hostname === "en.wikipedia.org" &&
+        url.searchParams.get("action") === "query"
+      ) {
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 974,
+                  title: "Ada Lovelace",
+                  extract: "Ada Lovelace was an English mathematician.",
+                  revisions: [
+                    { revid: 4200, timestamp: "2026-11-24T00:00:00Z" },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.pathname.startsWith("/api/rest_v1/page/summary/")) {
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 4200,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+
+    const article = await fetchAndCacheBySlugForCtx(ctx as never, {
+      slug: "Ada_Lovelace",
+    });
+
+    expect(article.revisionId).toBe("4200");
+    expect(article.summary).toContain("Ada Lovelace");
+    expect(article.badgeKeys).toEqual(["history", "biography"]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
 });

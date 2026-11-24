@@ -271,12 +271,19 @@ export const POST = async (request: Request) => {
     }
 
     if (input.operation === "article") {
-      const { article: source, parsedDocument } =
-        await fetchArticleWithDocumentByTitle(
-          slugToWikipediaTitle(input.slug),
-        );
+      const {
+        article: source,
+        parsedDocument,
+        cirrusTopicPredictions,
+      } = await fetchArticleWithDocumentByTitle(
+        slugToWikipediaTitle(input.slug),
+      );
       const [badgeKeys] = await Promise.all([
-        fetchArticleBadgeKeys(source.wikiPageId).catch((error: unknown) => {
+        fetchArticleBadgeKeys(source.wikiPageId, {
+          title: source.title,
+          language: source.language,
+          cirrusTopicPredictions,
+        }).catch((error: unknown) => {
           console.warn(
             "[/api/local-wikipedia] Failed to fetch badge keys",
             error instanceof Error ? error.message : String(error),

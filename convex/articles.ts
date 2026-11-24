@@ -31,7 +31,11 @@ import {
   ParsedPageData,
 } from "./lib/wikipedia";
 import type { MediaWikiDocument } from "../lib/mediawiki-document/types";
-import { BADGE_TOPIC_CACHE_VERSION, type BadgeKey } from "../lib/badges";
+import {
+  BADGE_TOPIC_CACHE_VERSION,
+  type BadgeKey,
+  type WikimediaTopicPrediction,
+} from "../lib/badges";
 import {
   ARTICLE_SECTION_NARRATION_VERSION,
   createSectionNarrations,
@@ -558,7 +562,12 @@ export const getExistingArticleForRefresh = internalQuery({
 
 const resolveBadgeCacheUpdate = async (
   ctx: WikipediaActionCtx,
-  wikiPageId: string,
+  article: {
+    wikiPageId: string;
+    title: string;
+    language: string;
+    cirrusTopicPredictions?: readonly WikimediaTopicPrediction[];
+  },
   fetchBadgeKeys: typeof fetchArticleBadgeKeys = fetchArticleBadgeKeys,
 ): Promise<{
   badgeKeys?: BadgeKey[];
@@ -568,7 +577,7 @@ const resolveBadgeCacheUpdate = async (
   const existing = await ctx.runQuery(
     internal.articles.getExistingArticleForRefresh,
     {
-      wikiPageId,
+      wikiPageId: article.wikiPageId,
     },
   );
 
@@ -584,7 +593,11 @@ const resolveBadgeCacheUpdate = async (
   }
 
   try {
-    const badgeKeys = await fetchBadgeKeys(wikiPageId);
+    const badgeKeys = await fetchBadgeKeys(article.wikiPageId, {
+      title: article.title,
+      language: article.language,
+      cirrusTopicPredictions: article.cirrusTopicPredictions,
+    });
     return {
       badgeKeys,
       badgeTopicVersion: BADGE_TOPIC_CACHE_VERSION,
@@ -592,7 +605,7 @@ const resolveBadgeCacheUpdate = async (
     };
   } catch (error: unknown) {
     console.warn(
-      `Failed to refresh badge keys for article ${wikiPageId}: ${getErrorMessage(error)}`,
+      `Failed to refresh badge keys for article ${article.wikiPageId}: ${getErrorMessage(error)}`,
     );
     return existing?.badgeKeys
       ? {
@@ -721,9 +734,18 @@ export const fetchAndCacheForCtx = async (
     }
     throw error;
   }
-  const { article: data, parsedDocument } = fetched;
+  const { article: data, parsedDocument, cirrusTopicPredictions } = fetched;
   const [badgeCacheUpdate] = await Promise.all([
-    resolveBadgeCacheUpdate(ctx, data.wikiPageId, options.fetchBadgeKeys),
+    resolveBadgeCacheUpdate(
+      ctx,
+      {
+        wikiPageId: data.wikiPageId,
+        title: data.title,
+        language: data.language,
+        cirrusTopicPredictions,
+      },
+      options.fetchBadgeKeys,
+    ),
     seedParseCacheFromDocument(
       ctx,
       data,
@@ -808,9 +830,18 @@ export const fetchAndCacheBySlugForCtx = async (
     }
     throw error;
   }
-  const { article: data, parsedDocument } = fetched;
+  const { article: data, parsedDocument, cirrusTopicPredictions } = fetched;
   const [badgeCacheUpdate] = await Promise.all([
-    resolveBadgeCacheUpdate(ctx, data.wikiPageId, options.fetchBadgeKeys),
+    resolveBadgeCacheUpdate(
+      ctx,
+      {
+        wikiPageId: data.wikiPageId,
+        title: data.title,
+        language: data.language,
+        cirrusTopicPredictions,
+      },
+      options.fetchBadgeKeys,
+    ),
     seedParseCacheFromDocument(
       ctx,
       data,
