@@ -4,7 +4,7 @@ The home page leads with article search. Its listening sample lives in “How Cu
 
 The home sample offers native audio controls while the page loads. The theme switch is in the site footer and the mobile navigation menu. The Keyboard shortcuts disclosure stays available in the compact player. Space plays or pauses, Left and Right Arrow seek ten seconds, Shift+N and Shift+P move to the next and previous section, and Shift+> and Shift+< speed up or slow down by 0.1×. These shortcuts work while reading the playing article. On other pages, focus must be inside Now Playing. Listeners can turn the shortcuts off in the disclosure.
 
-Every player uses the shared turtle and rabbit speed group (`PlaybackSpeedControl`): Slower, the current speed, and Faster, from 0.5× to 4× in 0.1× steps. The group never wraps inside itself, so at large text it moves to its own line as one unit. Media elements set `defaultPlaybackRate` as well as `playbackRate` and re-apply the chosen speed after loading, play, seek, and `ratechange`, so the displayed speed and the heard speed cannot drift apart.
+Every player uses the shared turtle and rabbit speed group (`PlaybackSpeedControl`): Slower, the current speed, and Faster, from 0.5× to 4× in 0.1× steps. The group moves to its own line as one unit when a row is full, and only wraps inside itself at the largest iOS text on a 320px screen. Its icons stop growing at 28px so it fits. Media elements set `defaultPlaybackRate` as well as `playbackRate` and re-apply the chosen speed after loading, play, seek, and `ratechange`, so the displayed speed and the heard speed cannot drift apart.
 
 ## Conventions for future changes
 

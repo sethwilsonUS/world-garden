@@ -10,7 +10,8 @@ import {
   type PlaybackRate,
 } from "@/hooks/usePlaybackRate";
 
-// Simple line drawings sized to the surrounding text so they scale with it.
+// Simple line drawings that grow with text up to 28px, so the pair still
+// fits beside the speed on a 320px screen at the largest text sizes.
 const TurtleIcon = () => (
   <svg
     viewBox="0 0 24 24"
@@ -21,7 +22,7 @@ const TurtleIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
     focusable="false"
-    className="size-[1.25em] shrink-0"
+    className="size-[clamp(18px,1.25em,28px)] shrink-0"
   >
     <path d="m12 10 2 4v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3a8 8 0 1 0-16 0v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3l2-4h4Z" />
     <path d="M4.82 7.9 8 10" />
@@ -40,7 +41,7 @@ const RabbitIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
     focusable="false"
-    className="size-[1.25em] shrink-0"
+    className="size-[clamp(18px,1.25em,28px)] shrink-0"
   >
     <path d="M13 16a3 3 0 0 1 2.24 5" />
     <path d="M18 12h.01" />
@@ -61,9 +62,10 @@ type PlaybackSpeedControlProps = {
 
 /**
  * Slower (turtle) and Faster (rabbit) buttons around the current speed.
- * Each press moves 0.1x between 0.5x and 4x. The group never wraps inside
- * itself, so at large text or narrow widths it moves to its own line as a
- * single unit instead of separating the buttons from the speed they change.
+ * Each press moves 0.1x between 0.5x and 4x. The group moves to its own
+ * line as one unit when a row runs out of room, and only wraps inside
+ * itself if even that line is too narrow (the largest iOS text on a 320px
+ * screen), so it never pushes the page sideways.
  */
 export const PlaybackSpeedControl = ({
   rate,
@@ -96,7 +98,7 @@ export const PlaybackSpeedControl = ({
       role="group"
       aria-label="Playback speed"
       data-playback-speed=""
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-xl border border-border bg-surface ${className}`.trim()}
+      className={`inline-flex max-w-full flex-wrap items-center justify-center rounded-xl border border-border bg-surface ${className}`.trim()}
     >
       <button
         type="button"
@@ -111,7 +113,7 @@ export const PlaybackSpeedControl = ({
       </button>
       <span
         id={readoutId}
-        className={`min-w-[3.5em] px-[2px] text-center font-mono text-sm font-bold tabular-nums leading-none ${
+        className={`min-w-[3ch] whitespace-nowrap px-[2px] text-center font-mono text-sm font-bold tabular-nums leading-none ${
           rate !== 1 ? "text-accent" : "text-foreground-2"
         }`}
       >

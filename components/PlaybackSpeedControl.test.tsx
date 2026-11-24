@@ -126,12 +126,14 @@ describe("PlaybackSpeedControl", () => {
     expect(status().textContent).toBe("Already at the slowest speed, 0.5x");
   });
 
-  it("never wraps inside itself, so the buttons stay beside the speed", () => {
+  it("stays within its row and keeps 44px targets at any text size", () => {
     act(() => root.render(<Harness initialRate={1} />));
     const group = container.querySelector("[role='group']")!;
-    expect(group.className).toContain("whitespace-nowrap");
-    expect(group.className).toContain("shrink-0");
-    expect(group.className).not.toContain("flex-wrap");
+    expect(group.className).toContain("max-w-full");
+    expect(readout().className).toContain("whitespace-nowrap");
+    for (const icon of group.querySelectorAll("svg")) {
+      expect(icon.getAttribute("class")).toContain("28px");
+    }
     for (const control of group.querySelectorAll("button")) {
       expect(control.className).toContain("min-h-11");
       expect(control.className).toContain("min-w-11");
