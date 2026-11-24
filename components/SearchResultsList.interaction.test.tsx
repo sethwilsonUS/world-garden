@@ -48,6 +48,7 @@ const deferred = <Value,>() => {
 
 const dataValue = (search: DataContextValue["search"]): DataContextValue => ({
   search,
+  suggestTitles: async () => [],
   fetchArticle: async () => {
     throw new Error("not used");
   },
@@ -315,6 +316,62 @@ describe("SearchResultsList interactions", () => {
     expect(container.textContent).not.toContain("Moria description");
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
       "1 search result found for The Shire.",
+    );
+  });
+
+  it("renders a one-activation Did you mean link and announces it for typo searches", async () => {
+    const search = vi.fn(async () => ({
+      results: [],
+      suggestion: "albert einstein",
+    }));
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={dataValue(search)}>
+          <SearchResultsList term="Albrt Einstien" />
+        </DataContext.Provider>,
+      );
+      await Promise.resolve();
+    });
+    await waitForExpectation(() => {
+      expect(container.textContent).toContain("No seeds found");
+    });
+
+    const suggestionLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/search?q=albert%20einstein"]',
+    );
+    expect(suggestionLink).not.toBeNull();
+    expect(suggestionLink?.textContent).toBe("albert einstein");
+    expect(container.textContent).toContain("Did you mean albert einstein?");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "No search results found for Albrt Einstien. Did you mean albert einstein?",
+    );
+  });
+
+  it("renders Did you mean above populated search results", async () => {
+    const search = vi.fn(async () => ({
+      results: [result("32897", "William Shakespeare", "English playwright")],
+      suggestion: "shakespeare",
+    }));
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={dataValue(search)}>
+          <SearchResultsList term="Shakespere" />
+        </DataContext.Provider>,
+      );
+      await Promise.resolve();
+    });
+    await waitForExpectation(() => {
+      expect(container.querySelectorAll("ol li")).toHaveLength(1);
+    });
+
+    const suggestionLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/search?q=shakespeare"]',
+    );
+    expect(suggestionLink).not.toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "1 search result found for Shakespere. Did you mean shakespeare?",
     );
   });
 });

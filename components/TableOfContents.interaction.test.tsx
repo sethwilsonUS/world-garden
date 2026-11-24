@@ -38,6 +38,7 @@ const dataValue = (
   overrides: Partial<DataContextValue> = {},
 ): DataContextValue => ({
   search: async () => [],
+  suggestTitles: async () => [],
   fetchArticle: async () => {
     throw new Error("not used");
   },

@@ -25,7 +25,7 @@ test("the legacy facts link lands on the heading when its feed arrives", async (
 
 test("an empty facts feed leaves a visitor who started searching in place", async ({ page }) => {
   const releaseFeed = await holdFeed(page, []);
-  const search = page.getByRole("searchbox", { name: "Search topic" });
+  const search = page.getByRole("combobox", { name: "Search topic" });
   await search.focus();
   releaseFeed();
   await expect(page.getByText("No Did You Know items are available right now.")).toBeAttached();

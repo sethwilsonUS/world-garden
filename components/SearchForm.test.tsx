@@ -6,6 +6,7 @@ let pathname = "/";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 const { HeaderSearch, SearchForm, isHeaderSearchHidden } = await import(
@@ -52,6 +53,12 @@ describe("SearchForm", () => {
 
     expect(markup).toContain(">Search topic</label>");
     expect(markup).toContain('id="search-input"');
+    expect(markup).toContain('role="combobox"');
+    expect(markup).toContain('aria-autocomplete="list"');
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('aria-controls="search-input-suggestions"');
+    expect(markup).toContain('id="search-input-suggestions"');
+    expect(markup).toContain('role="listbox"');
     expect(markup).toContain('aria-describedby="home-search-description"');
     expect(markup).toContain('placeholder="Search any topic…"');
   });

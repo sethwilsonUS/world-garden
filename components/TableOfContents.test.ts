@@ -18,6 +18,7 @@ import { ARTICLE_SECTION_NARRATION_VERSION } from "@/lib/section-narration";
 
 const dataContextValue: DataContextValue = {
   search: async () => [],
+  suggestTitles: async () => [],
   fetchArticle: async () => {
     throw new Error("not implemented in test");
   },

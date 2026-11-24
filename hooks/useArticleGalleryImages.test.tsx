@@ -45,6 +45,7 @@ const dataValue = (
   getArticleImages: DataContextValue["getArticleImages"],
 ): DataContextValue => ({
   search: async () => [],
+  suggestTitles: async () => [],
   fetchArticle: async () => {
     throw new Error("not used");
   },

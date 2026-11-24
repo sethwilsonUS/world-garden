@@ -8,7 +8,8 @@ import {
   fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
   MAX_SECTION_LINK_SOURCE_TITLES,
-  searchWikipedia,
+  searchWikipediaWithMeta,
+  suggestWikipediaTitles,
   type SectionLinkTitles,
 } from "@/convex/lib/wikipedia";
 import { extractSectionLinkTitlesFromDocument } from "@/lib/mediawiki-document-metadata";
@@ -19,6 +20,7 @@ import type {
   WikipediaParsedPageData,
   WikipediaRelatedArticle,
   WikipediaRevisionIdentity,
+  WikipediaSearchSuggestion,
 } from "@/lib/wikipedia-contracts";
 import {
   normalizeMediaWikiNumericId,
@@ -34,12 +36,17 @@ const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 const MAX_PARSED_CACHE_ENTRIES = 32;
 const MAX_SECTION_LINK_CACHE_ENTRIES = 128;
 const MAX_RELATED_ARTICLES_CACHE_ENTRIES = 128;
+const MAX_SEARCH_SUGGESTIONS_CACHE_ENTRIES = 128;
 const parsedCache = new Map<string, Promise<WikipediaParsedPageData>>();
 const sectionLinkTitlesCache = new Map<string, SectionLinkTitles[]>();
 const sectionLinksCache = new Map<string, Promise<WikipediaLinkedArticle[]>>();
 const relatedArticlesCache = new Map<
   string,
   Promise<WikipediaRelatedArticle[]>
+>();
+const searchSuggestionsCache = new Map<
+  string,
+  Promise<WikipediaSearchSuggestion[]>
 >();
 
 export const dynamic = "force-dynamic";
@@ -83,6 +90,10 @@ const parseRequest = (value: unknown): LocalWikipediaRequest | null => {
   if (value.operation === "search") {
     const term = typeof value.term === "string" ? value.term.trim() : "";
     return term && term.length <= 300 ? { operation: "search", term } : null;
+  }
+  if (value.operation === "suggest") {
+    const term = typeof value.term === "string" ? value.term.trim() : "";
+    return term && term.length <= 300 ? { operation: "suggest", term } : null;
   }
   if (value.operation === "article") {
     const slug = typeof value.slug === "string" ? value.slug.trim() : "";
@@ -280,6 +291,34 @@ const getRelatedArticles = (
   return pending;
 };
 
+const getSearchSuggestions = (
+  term: string,
+): Promise<WikipediaSearchSuggestion[]> => {
+  const normalizedTerm = term.replace(/\s+/gu, " ").trim();
+  const key = normalizedTerm.toLocaleLowerCase("en-US");
+  const cached = searchSuggestionsCache.get(key);
+  if (cached) return cached;
+
+  const pending = suggestWikipediaTitles(normalizedTerm).catch(
+    (error: unknown) => {
+      if (searchSuggestionsCache.get(key) === pending) {
+        searchSuggestionsCache.delete(key);
+      }
+      throw error;
+    },
+  );
+  searchSuggestionsCache.set(key, pending);
+  if (searchSuggestionsCache.size > MAX_SEARCH_SUGGESTIONS_CACHE_ENTRIES) {
+    const oldestKey = searchSuggestionsCache.keys().next().value as
+      | string
+      | undefined;
+    if (oldestKey && oldestKey !== key) {
+      searchSuggestionsCache.delete(oldestKey);
+    }
+  }
+  return pending;
+};
+
 export const POST = async (request: Request) => {
   if (!localModeEnabled()) {
     return NextResponse.json(
@@ -304,7 +343,14 @@ export const POST = async (request: Request) => {
   try {
     if (input.operation === "search") {
       return NextResponse.json(
-        { data: await searchWikipedia(input.term) },
+        { data: await searchWikipediaWithMeta(input.term) },
+        { status: 200, headers: NO_CACHE_HEADERS },
+      );
+    }
+
+    if (input.operation === "suggest") {
+      return NextResponse.json(
+        { data: await getSearchSuggestions(input.term) },
         { status: 200, headers: NO_CACHE_HEADERS },
       );
     }
