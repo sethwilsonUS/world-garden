@@ -350,4 +350,62 @@ describe("POST /api/local-wikipedia", () => {
     expect(fetchSectionLinkDescriptions).toHaveBeenCalledWith(["England"]);
     expect(fetchSectionLinksByIndex).not.toHaveBeenCalled();
   });
+
+  it("evicts seeded section-link titles when the parsed-page load rejects", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const articleIdentity = identity("4502", "802");
+    const parsedDocument = {
+      schemaVersion: 1,
+      identity: articleIdentity,
+      sourceFormat: "parsoid",
+      sourceHash: "hash-2",
+      documentHash: "doc-2",
+      sections: [
+        {
+          key: "__summary__",
+          title: "__summary__",
+          level: 1,
+          role: "body",
+          blocks: [],
+          links: [{ targetTitle: "England", label: "England" }],
+          citationIds: [],
+        },
+      ],
+      citations: [],
+      issues: [],
+    };
+    fetchArticleWithDocumentByTitle.mockResolvedValue({
+      article: {
+        ...articleIdentity,
+        narrationVersion: 4,
+        summary: "Lead summary.",
+        sections: [],
+        contentText: "Lead summary.",
+      },
+      parsedDocument,
+    });
+    fetchArticleBadgeKeys.mockResolvedValue([]);
+    enrichParsedPageDataFromDocument.mockRejectedValueOnce(
+      new Error("temporary media error"),
+    );
+    fetchSectionLinksByIndex.mockResolvedValue([
+      { wikiPageId: "9316", title: "England" },
+    ]);
+
+    const articleResponse = await post({
+      operation: "article",
+      slug: "Article_4502",
+    });
+    const sectionLinksResponse = await post({
+      operation: "section-links",
+      identity: articleIdentity,
+      sectionTitle: null,
+    });
+
+    expect(articleResponse.status).toBe(200);
+    expect(sectionLinksResponse.status).toBe(200);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSectionLinkDescriptions).not.toHaveBeenCalled();
+    expect(fetchSectionLinksByIndex).toHaveBeenCalledWith(articleIdentity, "0");
+  });
 });

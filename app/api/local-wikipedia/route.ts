@@ -119,7 +119,10 @@ const storeParsedPagePromise = (
   loader: () => Promise<WikipediaParsedPageData>,
 ): Promise<WikipediaParsedPageData> => {
   const pending = loader().catch((error) => {
-    if (parsedCache.get(key) === pending) parsedCache.delete(key);
+    if (parsedCache.get(key) === pending) {
+      parsedCache.delete(key);
+      sectionLinkTitlesCache.delete(key);
+    }
     throw error;
   });
   parsedCache.set(key, pending);
