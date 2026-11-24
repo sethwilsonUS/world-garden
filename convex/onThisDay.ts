@@ -9,6 +9,15 @@ const serverAttestationValidator = v.object({
   signature: v.string(),
 });
 
+const shareCardPlateValidator = v.object({
+  year: v.optional(v.number()),
+  articleTitle: v.string(),
+  imageUrl: v.string(),
+  licenseName: v.optional(v.string()),
+  creator: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+});
+
 const serializeRefreshState = (row: {
   monthDay: string;
   schemaVersion: number;
@@ -437,6 +446,287 @@ export const recordRefreshFailure = mutation({
       superseded: false as const,
       id: existingState._id,
       suspiciousStreak: nextStreak,
+    };
+  },
+});
+
+export const getShareCardByMonthDay = query({
+  args: { monthDay: v.string() },
+  async handler(ctx, args) {
+    const row = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay", (q) => q.eq("monthDay", args.monthDay))
+      .first();
+
+    if (!row) return null;
+
+    const imageUrl = await ctx.storage.getUrl(row.storageId);
+    return {
+      monthDay: row.monthDay,
+      version: row.version,
+      storageId: row.storageId,
+      mimeType: row.mimeType,
+      width: row.width,
+      height: row.height,
+      byteSize: row.byteSize,
+      generatedAt: row.generatedAt,
+      snapshotCheckedAt: row.snapshotCheckedAt,
+      creditRevisionId: row.creditRevisionId,
+      plates: row.plates,
+      imageUrl,
+    };
+  },
+});
+
+export const getShareCardCreditsByRevision = query({
+  args: { revisionId: v.string() },
+  async handler(ctx, args) {
+    const row = await ctx.db
+      .query("onThisDayShareCardCreditRevisions")
+      .withIndex("by_revisionId", (q) => q.eq("revisionId", args.revisionId))
+      .first();
+
+    if (!row) return null;
+
+    return {
+      revisionId: row.revisionId,
+      monthDay: row.monthDay,
+      version: row.version,
+      generatedAt: row.generatedAt,
+      plates: row.plates,
+    };
+  },
+});
+
+export const listShareCardStatuses = query({
+  args: {},
+  async handler(ctx) {
+    const rows = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay")
+      .collect();
+
+    return await Promise.all(
+      rows.map(async (row) => {
+        const blobUrl = await ctx.storage.getUrl(row.storageId);
+        return {
+          monthDay: row.monthDay,
+          version: row.version,
+          generatedAt: row.generatedAt,
+          byteSize: row.byteSize,
+          plateCount: row.plates.length,
+          hasBlob: Boolean(blobUrl),
+        };
+      }),
+    );
+  },
+});
+
+export const generateShareCardUploadUrl = mutation({
+  args: { attestation: serverAttestationValidator },
+  async handler(ctx, { attestation }) {
+    await assertPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "generate-upload-url",
+      args: {},
+      attestation,
+    });
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const deleteUnreferencedShareCardBlob = mutation({
+  args: {
+    storageId: v.id("_storage"),
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "finalize-job",
+      args: writeArgs,
+      attestation,
+    });
+
+    const rows = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay")
+      .collect();
+    if (rows.some((row) => row.storageId === args.storageId)) {
+      return { deleted: false };
+    }
+
+    try {
+      await ctx.storage.delete(args.storageId);
+      return { deleted: true };
+    } catch (error) {
+      console.warn(
+        `[on-this-day] Failed to delete unreferenced share card blob ${args.storageId}`,
+        error,
+      );
+      return { deleted: false };
+    }
+  },
+});
+
+type ShareCardPlateRecord = {
+  year?: number;
+  articleTitle: string;
+  imageUrl: string;
+  licenseName?: string;
+  creator?: string;
+  sourceUrl?: string;
+};
+
+const areShareCardPlatesEqual = (
+  left: readonly ShareCardPlateRecord[],
+  right: readonly ShareCardPlateRecord[],
+): boolean => {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (
+      a.year !== b.year ||
+      a.articleTitle !== b.articleTitle ||
+      a.imageUrl !== b.imageUrl ||
+      a.licenseName !== b.licenseName ||
+      a.creator !== b.creator ||
+      a.sourceUrl !== b.sourceUrl
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+export const saveShareCard = mutation({
+  args: {
+    monthDay: v.string(),
+    version: v.number(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    width: v.number(),
+    height: v.number(),
+    byteSize: v.number(),
+    generatedAt: v.number(),
+    snapshotCheckedAt: v.optional(v.number()),
+    creditRevisionId: v.optional(v.string()),
+    plates: v.array(shareCardPlateValidator),
+    attestation: serverAttestationValidator,
+  },
+  async handler(ctx, args) {
+    const { attestation, ...writeArgs } = args;
+    await assertPublicAudioWriteAttestation({
+      pipeline: "on-this-day",
+      operation: "save-show-asset",
+      args: writeArgs,
+      attestation,
+    });
+
+    const existing = await ctx.db
+      .query("onThisDayShareCards")
+      .withIndex("by_monthDay", (q) => q.eq("monthDay", args.monthDay))
+      .first();
+
+    if (existing && args.version < existing.version) {
+      if (args.storageId !== existing.storageId) {
+        try {
+          await ctx.storage.delete(args.storageId);
+        } catch (error) {
+          console.warn(
+            `[on-this-day] Failed to delete stale lower-version share card blob ${args.storageId} for ${args.monthDay}`,
+            error,
+          );
+        }
+      }
+      return {
+        monthDay: existing.monthDay,
+        version: existing.version,
+        storageId: existing.storageId,
+        replaced: false,
+        rejectedStaleVersion: true,
+      };
+    }
+
+    if ((await ctx.storage.getUrl(args.storageId)) === null) {
+      throw new Error(
+        `Share card blob ${args.storageId} no longer exists for ${args.monthDay}`,
+      );
+    }
+
+    const creditRevisionId = args.creditRevisionId;
+    let existingRevision: {
+      monthDay: string;
+      version: number;
+      plates: readonly ShareCardPlateRecord[];
+    } | null = null;
+
+    if (creditRevisionId) {
+      existingRevision = await ctx.db
+        .query("onThisDayShareCardCreditRevisions")
+        .withIndex("by_revisionId", (q) => q.eq("revisionId", creditRevisionId))
+        .first();
+
+      if (
+        existingRevision &&
+        (existingRevision.monthDay !== args.monthDay ||
+          existingRevision.version !== args.version ||
+          !areShareCardPlatesEqual(existingRevision.plates, args.plates))
+      ) {
+        throw new Error(
+          `Share card credit revision ${creditRevisionId} already exists with different metadata`,
+        );
+      }
+    }
+
+    const record = {
+      monthDay: args.monthDay,
+      version: args.version,
+      storageId: args.storageId,
+      mimeType: args.mimeType,
+      width: args.width,
+      height: args.height,
+      byteSize: args.byteSize,
+      generatedAt: args.generatedAt,
+      snapshotCheckedAt: args.snapshotCheckedAt,
+      creditRevisionId,
+      plates: args.plates,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, record);
+      if (existing.storageId !== args.storageId) {
+        try {
+          await ctx.storage.delete(existing.storageId);
+        } catch (error) {
+          console.warn(
+            `[on-this-day] Failed to delete superseded share card blob ${existing.storageId} for ${args.monthDay}`,
+            error,
+          );
+        }
+      }
+    } else {
+      await ctx.db.insert("onThisDayShareCards", record);
+    }
+
+    if (creditRevisionId && !existingRevision) {
+      await ctx.db.insert("onThisDayShareCardCreditRevisions", {
+        revisionId: creditRevisionId,
+        monthDay: args.monthDay,
+        version: args.version,
+        generatedAt: args.generatedAt,
+        plates: args.plates,
+      });
+    }
+
+    return {
+      monthDay: args.monthDay,
+      version: args.version,
+      storageId: args.storageId,
+      replaced: Boolean(existing),
+      rejectedStaleVersion: false,
     };
   },
 });

@@ -26,6 +26,10 @@ _Avoid_: sync, rebuild
 A stopgap Snapshot holding only the highlights from the daily featured feed, used only when a Calendar Day has no Snapshot at all. It's first in line for the next Refresh.
 _Avoid_: fallback edition, archived edition
 
+**Share Card**:
+The single 1200×630 social-preview image for a Calendar Day (or the evergreen undated On This Day page), showing a curated gallery of historical plates for link shares on Facebook, X, and messaging apps. Unlike a Snapshot, a Calendar Day's Share Card is generated once and stays fixed until manually re-rendered.
+_Avoid_: thumbnail, social banner, preview tile, cover art
+
 ## Example dialogue
 
 > **Dev:** "If someone picks March 5 in the calendar, which year's list do they get?"

@@ -212,6 +212,15 @@ const wikimediaMediaAttribution = v.object({
   sourceUrl: v.optional(v.string()),
 });
 
+const onThisDayShareCardPlate = v.object({
+  year: v.optional(v.number()),
+  articleTitle: v.string(),
+  imageUrl: v.string(),
+  licenseName: v.optional(v.string()),
+  creator: v.optional(v.string()),
+  sourceUrl: v.optional(v.string()),
+});
+
 export default defineSchema({
   articles: defineTable({
     wikiPageId: v.string(),
@@ -672,6 +681,28 @@ export default defineSchema({
   })
     .index("by_monthDay", ["monthDay"])
     .index("by_checkedAt", ["checkedAt"]),
+
+  onThisDayShareCards: defineTable({
+    monthDay: v.string(),
+    version: v.number(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    width: v.number(),
+    height: v.number(),
+    byteSize: v.number(),
+    generatedAt: v.number(),
+    snapshotCheckedAt: v.optional(v.number()),
+    creditRevisionId: v.optional(v.string()),
+    plates: v.array(onThisDayShareCardPlate),
+  }).index("by_monthDay", ["monthDay"]),
+
+  onThisDayShareCardCreditRevisions: defineTable({
+    revisionId: v.string(),
+    monthDay: v.string(),
+    version: v.number(),
+    generatedAt: v.number(),
+    plates: v.array(onThisDayShareCardPlate),
+  }).index("by_revisionId", ["revisionId"]),
 
   didYouKnowAudio: defineTable({
     feedDate: v.string(),

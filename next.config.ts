@@ -63,8 +63,14 @@ const nextConfig: NextConfig = {
     "/twitter-image": ["./app/fonts/**/*"],
     "/article/[slug]/opengraph-image": ["./app/fonts/**/*"],
     "/article/[slug]/twitter-image": ["./app/fonts/**/*"],
-    "/on-this-day/opengraph-image": ["./app/fonts/**/*"],
-    "/on-this-day/twitter-image": ["./app/fonts/**/*"],
+    "/on-this-day/opengraph-image": [
+      "./app/fonts/**/*",
+      "./app/(app)/on-this-day/evergreen-plates/**/*",
+    ],
+    "/on-this-day/twitter-image": [
+      "./app/fonts/**/*",
+      "./app/(app)/on-this-day/evergreen-plates/**/*",
+    ],
     "/on-this-day/[day]/opengraph-image": ["./app/fonts/**/*"],
     "/on-this-day/[day]/twitter-image": ["./app/fonts/**/*"],
   },
