@@ -314,6 +314,13 @@ describe("Wikipedia title utilities", () => {
     await expect(suggestWikipediaTitles("Broken")).rejects.toThrow(
       "Wikipedia title search failed: 400",
     );
+
+    const fractionalSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ pages: [] })),
+    );
+    await suggestWikipediaTitles("Ada", { limit: 0.5 });
+    const fractionalUrl = new URL(String(fractionalSpy.mock.calls[0]?.[0]));
+    expect(fractionalUrl.searchParams.get("limit")).toBe("6");
   });
 });
 

@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -25,6 +26,7 @@ const TYPEAHEAD_DEBOUNCE_MS = 220;
 const TYPEAHEAD_MIN_LENGTH = 2;
 const TYPEAHEAD_MAX_LENGTH = 200;
 const MAX_LOCAL_SUGGESTION_CACHE = 64;
+const EMPTY_SUGGESTIONS: SearchSuggestion[] = [];
 
 const isAbortError = (error: unknown): boolean =>
   (error instanceof DOMException && error.name === "AbortError") ||
@@ -75,7 +77,10 @@ export const SearchForm = ({
   const router = useRouter();
 
   const [query, setQuery] = useState(defaultValue);
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+  const [suggestionState, setSuggestionState] = useState<{
+    term: string;
+    items: SearchSuggestion[];
+  }>({ term: "", items: [] });
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
@@ -86,12 +91,21 @@ export const SearchForm = ({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
-  const lastSuggestedTermRef = useRef("");
   const suggestionsCacheRef = useRef(new Map<string, SearchSuggestion[]>());
+
+  const normalizedQuery = normalizeWikipediaSearchTerm(query);
+  const hasCurrentSuggestions =
+    suggestionState.items.length > 0 &&
+    suggestionState.term === normalizedQuery;
+  const visibleSuggestions = useMemo(
+    () => (hasCurrentSuggestions ? suggestionState.items : EMPTY_SUGGESTIONS),
+    [hasCurrentSuggestions, suggestionState.items],
+  );
+  const effectiveOpen = isOpen && hasCurrentSuggestions;
 
   const listboxId = `${inputId}-suggestions`;
   const activeOptionId =
-    isOpen && activeIndex >= 0 && activeIndex < suggestions.length
+    effectiveOpen && activeIndex >= 0 && activeIndex < visibleSuggestions.length
       ? `${listboxId}-option-${activeIndex}`
       : undefined;
 
@@ -127,13 +141,14 @@ export const SearchForm = ({
   }, [cancelPendingTypeahead]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!effectiveOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (
         containerRef.current &&
         event.target instanceof Node &&
         !containerRef.current.contains(event.target)
       ) {
+        cancelPendingTypeahead();
         closePopup();
       }
     };
@@ -141,20 +156,21 @@ export const SearchForm = ({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [closePopup, isOpen]);
+  }, [cancelPendingTypeahead, closePopup, effectiveOpen]);
 
   useEffect(() => {
-    if (!isOpen || activeIndex < 0) return;
+    if (!effectiveOpen || activeIndex < 0) return;
     const option = optionRefs.current[activeIndex];
     if (option && typeof option.scrollIntoView === "function") {
       option.scrollIntoView({ block: "nearest" });
     }
-  }, [activeIndex, isOpen]);
+  }, [activeIndex, effectiveOpen]);
 
   const navigateToSuggestion = useCallback(
     (suggestion: SearchSuggestion) => {
       cancelPendingTypeahead();
       setQuery(suggestion.title);
+      setSuggestionState({ term: "", items: [] });
       setIsOpen(false);
       setActiveIndex(-1);
       setLiveAnnouncement("");
@@ -176,8 +192,7 @@ export const SearchForm = ({
         normalized.length > TYPEAHEAD_MAX_LENGTH ||
         !dataContext?.suggestTitles
       ) {
-        lastSuggestedTermRef.current = "";
-        setSuggestions([]);
+        setSuggestionState({ term: "", items: [] });
         setIsOpen(false);
         setActiveIndex(-1);
         setLiveAnnouncement("");
@@ -187,8 +202,7 @@ export const SearchForm = ({
       const cacheKey = normalized.toLocaleLowerCase("en-US");
       const cached = suggestionsCacheRef.current.get(cacheKey);
       if (cached) {
-        lastSuggestedTermRef.current = normalized;
-        setSuggestions(cached);
+        setSuggestionState({ term: normalized, items: cached });
         setActiveIndex(-1);
         setIsOpen(cached.length > 0);
         setLiveAnnouncement(
@@ -196,6 +210,13 @@ export const SearchForm = ({
         );
         return;
       }
+
+      // Clear stale suggestions immediately so previous-query options cannot
+      // remain highlighted or clickable while the new query is debouncing.
+      setSuggestionState({ term: "", items: [] });
+      setIsOpen(false);
+      setActiveIndex(-1);
+      setLiveAnnouncement("");
 
       const requestSeq = requestSeqRef.current;
       debounceTimerRef.current = setTimeout(() => {
@@ -223,8 +244,7 @@ export const SearchForm = ({
               }
             }
 
-            lastSuggestedTermRef.current = normalized;
-            setSuggestions(nextSuggestions);
+            setSuggestionState({ term: normalized, items: nextSuggestions });
             setActiveIndex(-1);
             setIsOpen(nextSuggestions.length > 0);
             setLiveAnnouncement(
@@ -243,8 +263,7 @@ export const SearchForm = ({
               return;
             }
             abortControllerRef.current = null;
-            lastSuggestedTermRef.current = "";
-            setSuggestions([]);
+            setSuggestionState({ term: "", items: [] });
             setIsOpen(false);
             setActiveIndex(-1);
             setLiveAnnouncement("");
@@ -256,18 +275,18 @@ export const SearchForm = ({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
-      const normalized = normalizeWikipediaSearchTerm(query);
-      const hasCurrentSuggestions =
-        suggestions.length > 0 && lastSuggestedTermRef.current === normalized;
+      if (event.nativeEvent.isComposing) {
+        return;
+      }
 
       if (event.key === "ArrowDown") {
         if (!hasCurrentSuggestions) return;
         event.preventDefault();
-        if (!isOpen) {
+        if (!effectiveOpen) {
           setIsOpen(true);
           setActiveIndex(0);
         } else {
-          setActiveIndex((prev) => (prev + 1) % suggestions.length);
+          setActiveIndex((prev) => (prev + 1) % visibleSuggestions.length);
         }
         return;
       }
@@ -275,19 +294,20 @@ export const SearchForm = ({
       if (event.key === "ArrowUp") {
         if (!hasCurrentSuggestions) return;
         event.preventDefault();
-        if (!isOpen) {
+        if (!effectiveOpen) {
           setIsOpen(true);
-          setActiveIndex(suggestions.length - 1);
+          setActiveIndex(visibleSuggestions.length - 1);
         } else {
           setActiveIndex((prev) =>
-            prev <= 0 ? suggestions.length - 1 : prev - 1,
+            prev <= 0 ? visibleSuggestions.length - 1 : prev - 1,
           );
         }
         return;
       }
 
       if (event.key === "Escape") {
-        if (isOpen) {
+        cancelPendingTypeahead();
+        if (effectiveOpen) {
           event.preventDefault();
           closePopup();
         }
@@ -295,16 +315,22 @@ export const SearchForm = ({
       }
 
       if (event.key === "Tab") {
-        if (isOpen) {
+        cancelPendingTypeahead();
+        if (effectiveOpen) {
           closePopup();
         }
         return;
       }
 
       if (event.key === "Enter") {
-        if (isOpen && activeIndex >= 0 && suggestions[activeIndex]) {
+        if (
+          hasCurrentSuggestions &&
+          effectiveOpen &&
+          activeIndex >= 0 &&
+          visibleSuggestions[activeIndex]
+        ) {
           event.preventDefault();
-          navigateToSuggestion(suggestions[activeIndex]);
+          navigateToSuggestion(visibleSuggestions[activeIndex]);
           return;
         }
         cancelPendingTypeahead();
@@ -316,10 +342,10 @@ export const SearchForm = ({
       activeIndex,
       cancelPendingTypeahead,
       closePopup,
-      isOpen,
+      effectiveOpen,
+      hasCurrentSuggestions,
       navigateToSuggestion,
-      query,
-      suggestions,
+      visibleSuggestions,
     ],
   );
 
@@ -331,10 +357,11 @@ export const SearchForm = ({
         !(nextTarget instanceof Node) ||
         !containerRef.current.contains(nextTarget)
       ) {
+        cancelPendingTypeahead();
         closePopup();
       }
     },
-    [closePopup],
+    [cancelPendingTypeahead, closePopup],
   );
 
   const handleSubmit = useCallback(() => {
@@ -357,12 +384,12 @@ export const SearchForm = ({
         id={listboxId}
         role="listbox"
         aria-label="Suggested Wikipedia articles"
-        hidden={!isOpen}
+        hidden={!effectiveOpen}
         className={`absolute left-0 right-0 top-full mt-1.5 m-0 list-none max-h-[min(24rem,65svh)] overflow-y-auto overscroll-contain border-2 border-accent-border bg-surface-2 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.16)] ${
           isHeader ? "z-50 rounded-xl" : "z-40 rounded-2xl"
         }`}
       >
-        {suggestions.map((suggestion, index) => {
+        {visibleSuggestions.map((suggestion, index) => {
           const isActive = index === activeIndex;
           return (
             <li
@@ -453,7 +480,7 @@ export const SearchForm = ({
               type="search"
               role="combobox"
               aria-autocomplete="list"
-              aria-expanded={isOpen}
+              aria-expanded={effectiveOpen}
               aria-controls={listboxId}
               aria-activedescendant={activeOptionId}
               placeholder="Search Wikipedia"
@@ -517,7 +544,7 @@ export const SearchForm = ({
               type="search"
               role="combobox"
               aria-autocomplete="list"
-              aria-expanded={isOpen}
+              aria-expanded={effectiveOpen}
               aria-controls={listboxId}
               aria-activedescendant={activeOptionId}
               placeholder="Search any topic…"

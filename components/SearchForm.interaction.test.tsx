@@ -335,4 +335,176 @@ describe("SearchForm typeahead combobox", () => {
     expect(status.textContent).toBe("");
     expect(input.value).toBe("ErrorQuery");
   });
+
+  it("clears stale suggestions when editing to an uncached query and ignores composing IME keys", async () => {
+    const suggestTitles = vi.fn(({ term }: { term: string }) => {
+      if (term === "Ada") {
+        return Promise.resolve(SAMPLE_SUGGESTIONS);
+      }
+      return new Promise<SearchSuggestion[]>(() => {
+        // Keep pending to test immediate Enter on the new query.
+      });
+    });
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={createDataValue(suggestTitles)}>
+          <SearchForm />
+        </DataContext.Provider>,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    )!;
+    const listbox = container.querySelector<HTMLUListElement>(
+      'ul[role="listbox"]',
+    )!;
+
+    await act(async () => {
+      setInputValue(input, "Ada");
+      vi.advanceTimersByTime(220);
+      await Promise.resolve();
+    });
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+
+    // Composing IME keys must not activate or navigate suggestions.
+    const composingDown = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(composingDown, "isComposing", { value: true });
+    await act(async () => {
+      input.dispatchEvent(composingDown);
+    });
+    expect(composingDown.defaultPrevented).toBe(false);
+    expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+
+    // Highlight first option with non-composing ArrowDown, then verify composing Enter is ignored.
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      `${listbox.id}-option-0`,
+    );
+
+    const composingEnter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(composingEnter, "isComposing", { value: true });
+    await act(async () => {
+      input.dispatchEvent(composingEnter);
+    });
+    expect(composingEnter.defaultPrevented).toBe(false);
+    expect(pushMock).not.toHaveBeenCalled();
+
+    // Changing to an uncached query immediately clears old suggestions and selection.
+    await act(async () => {
+      setInputValue(input, "Grace");
+    });
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.hasAttribute("aria-activedescendant")).toBe(false);
+    expect(listbox.querySelectorAll('li[role="option"]')).toHaveLength(0);
+
+    // Immediate Enter submits the new query instead of navigating to Ada.
+    const submitEnter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      input.dispatchEvent(submitEnter);
+    });
+    expect(submitEnter.defaultPrevented).toBe(false);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels pending typeahead on Tab, Escape, and external blur so late responses never reopen", async () => {
+    let resolvePending: ((items: SearchSuggestion[]) => void) | null = null;
+    const signals: AbortSignal[] = [];
+    const suggestTitles = vi.fn(({ signal }: { signal?: AbortSignal }) => {
+      if (signal) signals.push(signal);
+      return new Promise<SearchSuggestion[]>((resolve) => {
+        resolvePending = resolve;
+      });
+    });
+
+    await act(async () => {
+      root.render(
+        <DataContext.Provider value={createDataValue(suggestTitles)}>
+          <SearchForm />
+          <button type="button" id="outside-target">
+            Outside
+          </button>
+        </DataContext.Provider>,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[role="combobox"]',
+    )!;
+    const status = container.querySelector<HTMLDivElement>(
+      'div[role="status"][aria-live="polite"][aria-atomic="true"]',
+    )!;
+    const outsideButton =
+      container.querySelector<HTMLButtonElement>("#outside-target")!;
+
+    // Tab during pending debounce cancels the timer before any fetch fires.
+    await act(async () => {
+      setInputValue(input, "Ada");
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+      );
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+    expect(suggestTitles).not.toHaveBeenCalled();
+
+    // External blur during an in-flight fetch aborts it and blocks late resolution.
+    await act(async () => {
+      setInputValue(input, "Grace");
+      vi.advanceTimersByTime(220);
+      await Promise.resolve();
+    });
+    expect(suggestTitles).toHaveBeenCalledTimes(1);
+    expect(signals[0]?.aborted).toBe(false);
+
+    await act(async () => {
+      input.dispatchEvent(
+        new FocusEvent("focusout", {
+          bubbles: true,
+          relatedTarget: outsideButton,
+        }),
+      );
+    });
+    expect(signals[0]?.aborted).toBe(true);
+
+    await act(async () => {
+      resolvePending?.(SAMPLE_SUGGESTIONS);
+      await Promise.resolve();
+    });
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(status.textContent).toBe("");
+
+    // Escape while a new fetch is pending aborts it too.
+    await act(async () => {
+      setInputValue(input, "Turing");
+      vi.advanceTimersByTime(220);
+      await Promise.resolve();
+    });
+    expect(suggestTitles).toHaveBeenCalledTimes(2);
+    expect(signals[1]?.aborted).toBe(false);
+
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(signals[1]?.aborted).toBe(true);
+  });
 });

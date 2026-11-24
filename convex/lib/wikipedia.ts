@@ -375,7 +375,7 @@ export const suggestWikipediaTitles = async (
   const resolvedLimit =
     options.limit !== undefined &&
     Number.isFinite(options.limit) &&
-    options.limit > 0
+    options.limit >= 1
       ? Math.min(20, Math.floor(options.limit))
       : SEARCH_SUGGESTION_LIMIT;
 
