@@ -542,6 +542,131 @@ describe("On This Day snapshot", () => {
     }
   });
 
+  it("queries On This Day image attribution and alt text without requesting lightbox renditions", async () => {
+    const { buildOnThisDaySnapshotWithMeta } = await import("./on-this-day");
+    const commonsImageUrl =
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Apollo.jpg/330px-Apollo.jpg";
+    const enwikiImageUrl =
+      "https://upload.wikimedia.org/wikipedia/en/thumb/c/cd/Poster.jpg/330px-Poster.jpg";
+    const mixedProvider: OnThisDayProvider = {
+      fetchAll: vi.fn(async () => ({
+        selected: [
+          {
+            year: 1969,
+            text: "Apollo 11 splashed down.",
+            pages: [
+              {
+                titles: { normalized: "Apollo 11" },
+                pageid: 6625,
+                thumbnail: { source: commonsImageUrl, width: 330, height: 220 },
+              },
+            ],
+          },
+        ],
+        events: [
+          {
+            year: 1977,
+            text: "A film premiered.",
+            pages: [
+              {
+                titles: { normalized: "Film" },
+                pageid: 999,
+                thumbnail: { source: enwikiImageUrl, width: 330, height: 480 },
+              },
+            ],
+          },
+        ],
+        births: [],
+        deaths: [],
+        holidays: [],
+      })),
+    };
+
+    const queriedUrls: URL[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      queriedUrls.push(url);
+      expect(url.searchParams.get("prop")).toBe("imageinfo");
+      expect(url.searchParams.get("iiprop")).toBe("url|extmetadata");
+      expect(url.searchParams.has("iiurlwidth")).toBe(false);
+
+      if (url.hostname === "commons.wikimedia.org") {
+        return Response.json({
+          query: {
+            pages: [
+              {
+                title: "File:Apollo.jpg",
+                imageinfo: [
+                  {
+                    descriptionurl:
+                      "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+                    extmetadata: {
+                      ImageDescription: { value: "Apollo 11 raft." },
+                      Artist: { value: "NASA" },
+                      LicenseShortName: { value: "Public domain" },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        });
+      }
+
+      return Response.json({
+        query: {
+          pages: [
+            {
+              title: "File:Poster.jpg",
+              imageinfo: [
+                {
+                  descriptionurl:
+                    "https://en.wikipedia.org/wiki/File:Poster.jpg",
+                  extmetadata: {
+                    ImageDescription: { value: "Theatrical release poster." },
+                    LicenseShortName: { value: "Fair use" },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const built = await buildOnThisDaySnapshotWithMeta({
+        day: { month: 7, day: 24 },
+        provider: mixedProvider,
+        checkedAt: 1_000,
+      });
+
+      expect(built.imageResolutionSucceeded).toBe(true);
+      expect(queriedUrls.map((url) => url.hostname)).toEqual([
+        "commons.wikimedia.org",
+        "en.wikipedia.org",
+      ]);
+      expect(built.snapshot.categories.selected[0]?.image).toMatchObject({
+        altText: "Apollo 11 raft.",
+        attribution: {
+          creator: "NASA",
+          licenseName: "Public domain",
+          sourceUrl: "https://commons.wikimedia.org/wiki/File:Apollo.jpg",
+        },
+      });
+      expect(built.snapshot.categories.events[0]?.image).toMatchObject({
+        altText: "Theatrical release poster.",
+        attribution: {
+          licenseName: "Fair use",
+          sourceUrl: "https://en.wikipedia.org/wiki/File:Poster.jpg",
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("preserves prior resolved image metadata and signals failure when re-resolution throws", async () => {
     const warnSpy = vi
       .spyOn(console, "warn")

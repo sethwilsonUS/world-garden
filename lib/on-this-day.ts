@@ -28,7 +28,7 @@ import {
   buildWikimediaSourceFallback,
   fetchWikimediaMediaDetails,
   getWikimediaFileTitleFromUrl,
-  getWikimediaMediaRepositoryFromUrl,
+  getWikimediaProjectHostFromUrl,
   type WikimediaMediaAttribution,
   type WikimediaMediaRequest,
 } from "@/lib/wikimedia-media";
@@ -125,7 +125,9 @@ export const wikipediaRestOnThisDayProvider: OnThisDayProvider = {
 };
 
 const resolveImagesWithWikimedia: OnThisDayImageResolver = async (requests) => {
-  const details = await fetchWikimediaMediaDetails(requests);
+  const details = await fetchWikimediaMediaDetails(requests, fetch, {
+    includeRendition: false,
+  });
   return new Map(
     [...details].map(([imageUrl, detail]) => [
       imageUrl,
@@ -341,7 +343,6 @@ export const buildOnThisDaySnapshotWithMeta = async ({
       if (!event.image) continue;
       const candidate = candidates.get(event.image.source);
       if (!candidate) continue;
-      const repository = getWikimediaMediaRepositoryFromUrl(candidate.source);
       const fetched = fetchedMetadata.get(event.image.source);
       const fetchedVerified = fetched && !fetched.isFallback ? fetched : undefined;
       if (
@@ -363,9 +364,7 @@ export const buildOnThisDaySnapshotWithMeta = async ({
           fetched?.attribution ??
           buildWikimediaSourceFallback(
             candidate.sourceTitle,
-            repository === "enwiki"
-              ? "en.wikipedia.org"
-              : "commons.wikimedia.org",
+            getWikimediaProjectHostFromUrl(candidate.source),
           );
         event.image.attributionIsFallback = true;
       }

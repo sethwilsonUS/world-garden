@@ -12,12 +12,14 @@ import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { createPublicAudioWriteAttestation } from "@/lib/public-audio-write-attestation";
 import {
   extractActionApiPages,
+  extractActionApiTitleMappings,
   fetchWikimediaActionApi,
   isMissingActionApiPage,
+  resolveActionApiCanonicalTitle,
 } from "@/lib/wikimedia-client";
 import {
-  fetchWikimediaMediaAttributions,
-  getWikimediaFileTitleFromUrl,
+  fetchWikimediaMediaAttributionsForUrls,
+  WIKIMEDIA_FEED_THUMBNAIL_WIDTH,
 } from "@/lib/wikimedia-media";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
@@ -53,8 +55,8 @@ type DidYouKnowPageDetail = {
   thumbnail?: WikipediaFeaturedThumbnail;
 };
 
-const normalizeTitleKey = (title: string): string =>
-  title.replace(/_/g, " ").trim().toLowerCase();
+const normalizeDidYouKnowTitle = (title: string): string =>
+  title.replace(/_/g, " ").trim();
 
 const getDidYouKnowLinkTitle = ({
   slug,
@@ -86,10 +88,13 @@ const fetchDidYouKnowPageDetails = async (
       titles: batch.join("|"),
       prop: "pageimages|info",
       piprop: "thumbnail",
-      pithumbsize: "800",
+      pithumbsize: String(WIKIMEDIA_FEED_THUMBNAIL_WIDTH),
       redirects: "1",
     });
-    if (!response.ok) continue;
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      continue;
+    }
 
     const data = await response.json();
     const pages =
@@ -100,15 +105,31 @@ const fetchDidYouKnowPageDetails = async (
         title?: string;
         thumbnail?: WikipediaFeaturedThumbnail;
       }>(data.query?.pages) ?? [];
+    const mappings = extractActionApiTitleMappings(data.query);
+    const pagesByCanonicalTitle = new Map<string, DidYouKnowPageDetail>();
 
     for (const page of pages) {
       if (isMissingActionApiPage(page) || page.ns !== 0 || !page.title) {
         continue;
       }
-      details.set(normalizeTitleKey(page.title), {
+      const detail: DidYouKnowPageDetail = {
         wikiPageId: page.pageid != null ? String(page.pageid) : undefined,
         thumbnail: page.thumbnail,
-      });
+      };
+      const canonicalTitle = normalizeDidYouKnowTitle(page.title);
+      pagesByCanonicalTitle.set(canonicalTitle, detail);
+      details.set(canonicalTitle, detail);
+    }
+
+    for (const requestedTitle of batch) {
+      const canonicalTitle = resolveActionApiCanonicalTitle(
+        requestedTitle,
+        mappings,
+      );
+      const detail = pagesByCanonicalTitle.get(canonicalTitle);
+      if (detail) {
+        details.set(normalizeDidYouKnowTitle(requestedTitle), detail);
+      }
     }
   }
 
@@ -118,43 +139,44 @@ const fetchDidYouKnowPageDetails = async (
 export const enrichDidYouKnowThumbnails = async (
   items: WikipediaDidYouKnowItem[],
 ): Promise<WikipediaDidYouKnowItem[]> => {
-  const titleByKey = new Map<string, string>();
+  const uniqueTitles = new Set<string>();
 
   for (const item of items) {
     for (const link of item.links) {
-      const title = getDidYouKnowLinkTitle(link);
-      if (title) titleByKey.set(normalizeTitleKey(title), title);
+      const title = normalizeDidYouKnowTitle(getDidYouKnowLinkTitle(link));
+      if (title) uniqueTitles.add(title);
     }
   }
 
-  if (titleByKey.size === 0) return items;
+  if (uniqueTitles.size === 0) return items;
 
   let details: Map<string, DidYouKnowPageDetail>;
   try {
-    details = await fetchDidYouKnowPageDetails([...titleByKey.values()]);
+    details = await fetchDidYouKnowPageDetails([...uniqueTitles]);
   } catch {
     return items;
   }
   if (details.size === 0) return items;
 
-  const sourceTitles = [...details.values()]
-    .map((detail) => getWikimediaFileTitleFromUrl(detail.thumbnail?.source))
-    .filter((title): title is string => Boolean(title));
-  const attributions = await fetchWikimediaMediaAttributions(sourceTitles);
+  const uniqueDetails = [...new Set(details.values())];
+  const imageUrls = uniqueDetails
+    .map((detail) => detail.thumbnail?.source)
+    .filter((source): source is string => Boolean(source));
+  const attributions = await fetchWikimediaMediaAttributionsForUrls(imageUrls);
 
-  for (const detail of details.values()) {
+  for (const detail of uniqueDetails) {
     if (!detail.thumbnail) continue;
-    const sourceTitle = getWikimediaFileTitleFromUrl(detail.thumbnail.source);
-    if (sourceTitle) {
-      detail.thumbnail.attribution = attributions.get(sourceTitle);
+    const attribution = attributions.get(detail.thumbnail.source);
+    if (attribution) {
+      detail.thumbnail.attribution = attribution;
     }
   }
 
   return items.map((item) => ({
     ...item,
     links: item.links.map((link) => {
-      const title = getDidYouKnowLinkTitle(link);
-      const detail = title ? details.get(normalizeTitleKey(title)) : undefined;
+      const title = normalizeDidYouKnowTitle(getDidYouKnowLinkTitle(link));
+      const detail = title ? details.get(title) : undefined;
       if (!detail) return link;
 
       return {

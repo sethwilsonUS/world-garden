@@ -3,7 +3,10 @@ import type {
   WikipediaArticleImage,
   WikipediaParsedPageData,
 } from "./wikipedia-contracts";
-import { buildWikimediaSourceFallback } from "./wikimedia-media";
+import {
+  buildWikimediaSourceFallback,
+  getWikimediaProjectHostFromUrl,
+} from "./wikimedia-media";
 import { isArticleGalleryImageCandidate } from "./article-image-policy";
 
 export type SectionLinkTitles = {
@@ -54,7 +57,12 @@ export const createParsedPageDataFromDocument = (
           ...(media.kind === "video" ? { videoSrc: media.src } : {}),
           ...(media.resourceTitle
             ? {
-                attribution: buildWikimediaSourceFallback(media.resourceTitle),
+                attribution: buildWikimediaSourceFallback(
+                  media.resourceTitle,
+                  getWikimediaProjectHostFromUrl(
+                    media.kind === "video" ? media.src : src,
+                  ),
+                ),
               }
             : {}),
         });

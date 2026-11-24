@@ -562,6 +562,89 @@ export const isMissingActionApiPage = (page: {
   missing?: unknown;
 }): boolean => page.missing === true || page.missing === "";
 
+export type ActionApiTitleMappings = {
+  normalized: Map<string, string>;
+  converted: Map<string, string>;
+  redirects: Map<string, string>;
+};
+
+const MAX_ACTION_API_REDIRECT_HOPS = 16;
+
+const normalizeActionApiTitleSpaces = (title: string): string =>
+  title.replace(/_/g, " ").trim();
+
+const recordActionApiTitleMappings = (
+  target: Map<string, string>,
+  rawMappings: unknown,
+): void => {
+  if (!Array.isArray(rawMappings)) return;
+  for (const entry of rawMappings) {
+    if (!isRecord(entry)) continue;
+    if (typeof entry.from !== "string" || typeof entry.to !== "string") {
+      continue;
+    }
+    const from = normalizeActionApiTitleSpaces(entry.from);
+    const to = normalizeActionApiTitleSpaces(entry.to);
+    if (!from || !to) continue;
+    target.set(from, to);
+  }
+};
+
+/**
+ * Extract MediaWiki Action API `query.normalized`, `query.converted`, and
+ * `query.redirects` title mappings for resolving requested titles to returned
+ * canonical pages.
+ */
+export const extractActionApiTitleMappings = (
+  queryData: unknown,
+): ActionApiTitleMappings => {
+  const mappings: ActionApiTitleMappings = {
+    normalized: new Map(),
+    converted: new Map(),
+    redirects: new Map(),
+  };
+  if (!isRecord(queryData)) return mappings;
+
+  recordActionApiTitleMappings(mappings.normalized, queryData.normalized);
+  recordActionApiTitleMappings(mappings.converted, queryData.converted);
+  recordActionApiTitleMappings(mappings.redirects, queryData.redirects);
+  return mappings;
+};
+
+/**
+ * Resolve a requested title through exact MediaWiki Action API `normalized`,
+ * `converted`, and `redirects` mappings (preserving MediaWiki title case
+ * sensitivity) with cycle protection.
+ */
+export const resolveActionApiCanonicalTitle = (
+  rawTitle: string,
+  mappings: ActionApiTitleMappings,
+): string => {
+  let current = normalizeActionApiTitleSpaces(rawTitle);
+  if (!current) return current;
+
+  const normalized = mappings.normalized.get(current);
+  if (normalized) {
+    current = normalized;
+  }
+
+  const converted = mappings.converted.get(current);
+  if (converted) {
+    current = converted;
+  }
+
+  const visited = new Set<string>();
+  for (let hop = 0; hop < MAX_ACTION_API_REDIRECT_HOPS; hop += 1) {
+    if (visited.has(current)) break;
+    visited.add(current);
+    const next = mappings.redirects.get(current);
+    if (!next || next === current) break;
+    current = next;
+  }
+
+  return current;
+};
+
 /**
  * Perform a server-side HTTP request to a Wikimedia API with:
  * - policy-compliant `User-Agent`

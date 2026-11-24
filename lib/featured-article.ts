@@ -1,12 +1,14 @@
 import {
   extractActionApiPages,
+  extractActionApiTitleMappings,
   fetchWikimedia,
   fetchWikimediaActionApi,
   isMissingActionApiPage,
+  resolveActionApiCanonicalTitle,
 } from "./wikimedia-client";
 import {
-  fetchWikimediaMediaAttributions,
-  getWikimediaFileTitleFromUrl,
+  fetchWikimediaMediaAttributionsForUrls,
+  WIKIMEDIA_FEED_THUMBNAIL_WIDTH,
   type WikimediaMediaAttribution,
 } from "./wikimedia-media";
 
@@ -280,9 +282,6 @@ const toTrendingDateFromPageviews = (date: Date): string =>
 const normalizeArticleTitle = (title: string): string =>
   title.replace(/_/g, " ").trim();
 
-const normalizeTitleKey = (title: string): string =>
-  normalizeArticleTitle(title).toLowerCase();
-
 const BLOCKED_PAGEVIEWS_TITLES = new Set(["Main Page"]);
 const BLOCKED_PAGEVIEWS_PREFIXES = [
   "Category:",
@@ -335,10 +334,11 @@ const fetchTrendingArticleDetails = async (
       explaintext: "1",
       inprop: "url",
       piprop: "thumbnail",
-      pithumbsize: "800",
+      pithumbsize: String(WIKIMEDIA_FEED_THUMBNAIL_WIDTH),
       redirects: "1",
     });
     if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
       throw new Error(`Wikipedia page detail fetch returned ${res.status}`);
     }
 
@@ -347,12 +347,27 @@ const fetchTrendingArticleDetails = async (
       extractActionApiPages<
         FeaturedFeedArticlePayload & { missing?: unknown; ns?: number }
       >(data.query?.pages) ?? [];
+    const mappings = extractActionApiTitleMappings(data.query);
+    const pagesByCanonicalTitle = new Map<string, FeaturedFeedArticlePayload>();
 
     for (const page of pages) {
       if (isMissingActionApiPage(page) || page.ns !== 0 || !page.title) {
         continue;
       }
-      details.set(normalizeTitleKey(page.title), page);
+      const canonicalTitle = normalizeArticleTitle(page.title);
+      pagesByCanonicalTitle.set(canonicalTitle, page);
+      details.set(canonicalTitle, page);
+    }
+
+    for (const requestedTitle of batch) {
+      const canonicalTitle = resolveActionApiCanonicalTitle(
+        requestedTitle,
+        mappings,
+      );
+      const page = pagesByCanonicalTitle.get(canonicalTitle);
+      if (page) {
+        details.set(normalizeArticleTitle(requestedTitle), page);
+      }
     }
   }
 
@@ -391,17 +406,21 @@ const fetchPageviewsTrendingArticles = async (
       candidates.map((article) => article.title),
     );
 
-    const articles = candidates
-      .map((article) => {
-        const detail = details.get(normalizeTitleKey(article.title));
-        if (!detail) return null;
-        return toTrendingArticle({
-          ...detail,
-          views: article.views,
-        });
-      })
-      .filter((article): article is WikipediaTrendingArticle => article !== null)
-      .slice(0, TRENDING_ARTICLE_LIMIT);
+    const seenCanonicalTitles = new Set<string>();
+    const articles: WikipediaTrendingArticle[] = [];
+    for (const article of candidates) {
+      const detail = details.get(normalizeArticleTitle(article.title));
+      if (!detail) continue;
+      const trendingArticle = toTrendingArticle({
+        ...detail,
+        views: article.views,
+      });
+      const canonicalTitle = normalizeArticleTitle(trendingArticle.title);
+      if (!canonicalTitle || seenCanonicalTitles.has(canonicalTitle)) continue;
+      seenCanonicalTitles.add(canonicalTitle);
+      articles.push(trendingArticle);
+      if (articles.length >= TRENDING_ARTICLE_LIMIT) break;
+    }
 
     if (articles.length > 0) {
       return {
@@ -729,15 +748,13 @@ export const fetchWikipediaFeaturedSnapshot = async (
     (thumbnail): thumbnail is WikipediaFeaturedThumbnail | WikipediaFeaturedImage =>
       Boolean(thumbnail),
   );
-  const sourceTitles = thumbnails
-    .map((thumbnail) => getWikimediaFileTitleFromUrl(thumbnail.source))
-    .filter((title): title is string => Boolean(title));
-  const attributions = await fetchWikimediaMediaAttributions(sourceTitles);
+  const imageUrls = thumbnails.map((thumbnail) => thumbnail.source);
+  const attributions = await fetchWikimediaMediaAttributionsForUrls(imageUrls);
 
   for (const thumbnail of thumbnails) {
-    const sourceTitle = getWikimediaFileTitleFromUrl(thumbnail.source);
-    if (sourceTitle) {
-      thumbnail.attribution = attributions.get(sourceTitle);
+    const attribution = attributions.get(thumbnail.source);
+    if (attribution) {
+      thumbnail.attribution = attribution;
     }
   }
 
