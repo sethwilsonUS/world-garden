@@ -4,9 +4,13 @@ import {
   fetchArticleBadgeKeys,
   fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
+  MAX_SECTION_LINK_SOURCE_TITLES,
   searchWikipedia,
+  type SectionLinkTitles,
 } from "@/convex/lib/wikipedia";
+import { extractSectionLinkTitlesFromDocument } from "@/lib/mediawiki-document-metadata";
 import type {
   LocalWikipediaRequest,
   WikipediaArticle,
@@ -28,6 +32,7 @@ const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 const MAX_PARSED_CACHE_ENTRIES = 32;
 const MAX_SECTION_LINK_CACHE_ENTRIES = 128;
 const parsedCache = new Map<string, Promise<WikipediaParsedPageData>>();
+const sectionLinkTitlesCache = new Map<string, SectionLinkTitles[]>();
 const sectionLinksCache = new Map<string, Promise<WikipediaLinkedArticle[]>>();
 
 export const dynamic = "force-dynamic";
@@ -120,7 +125,10 @@ const storeParsedPagePromise = (
   parsedCache.set(key, pending);
   if (parsedCache.size > MAX_PARSED_CACHE_ENTRIES) {
     const oldestKey = parsedCache.keys().next().value as string | undefined;
-    if (oldestKey && oldestKey !== key) parsedCache.delete(oldestKey);
+    if (oldestKey && oldestKey !== key) {
+      parsedCache.delete(oldestKey);
+      sectionLinkTitlesCache.delete(oldestKey);
+    }
   }
   return pending;
 };
@@ -161,6 +169,15 @@ const seedParsedPageFromDocument = async (
   }
 
   const key = wikipediaRevisionKey(identity);
+  if (!sectionLinkTitlesCache.has(key)) {
+    sectionLinkTitlesCache.set(
+      key,
+      extractSectionLinkTitlesFromDocument(
+        parsedDocument,
+        MAX_SECTION_LINK_SOURCE_TITLES,
+      ),
+    );
+  }
   if (parsedCache.has(key)) return;
 
   const pending = storeParsedPagePromise(key, () =>
@@ -193,16 +210,24 @@ const getSectionLinks = (
   identity: WikipediaRevisionIdentity,
   sectionIndex: string,
 ): Promise<WikipediaLinkedArticle[]> => {
-  const key = JSON.stringify([wikipediaRevisionKey(identity), sectionIndex]);
+  const revisionKey = wikipediaRevisionKey(identity);
+  const key = JSON.stringify([revisionKey, sectionIndex]);
   const cached = sectionLinksCache.get(key);
   if (cached) return cached;
 
-  const pending = fetchSectionLinksByIndex(identity, sectionIndex).catch(
-    (error) => {
-      if (sectionLinksCache.get(key) === pending) sectionLinksCache.delete(key);
-      throw error;
-    },
-  );
+  const seededTitles = sectionLinkTitlesCache.get(revisionKey);
+  const loader = seededTitles
+    ? () => {
+        const targetKey = sectionIndex === "0" ? "__summary__" : sectionIndex;
+        const entry = seededTitles.find((item) => item.index === targetKey);
+        return fetchSectionLinkDescriptions(entry?.titles ?? []);
+      }
+    : () => fetchSectionLinksByIndex(identity, sectionIndex);
+
+  const pending = loader().catch((error) => {
+    if (sectionLinksCache.get(key) === pending) sectionLinksCache.delete(key);
+    throw error;
+  });
   sectionLinksCache.set(key, pending);
   if (sectionLinksCache.size > MAX_SECTION_LINK_CACHE_ENTRIES) {
     const oldestKey = sectionLinksCache.keys().next().value as

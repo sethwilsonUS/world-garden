@@ -12,7 +12,11 @@ import {
   type MediaWikiDocumentRequest,
 } from "../../lib/mediawiki-document";
 import { createSectionNarrationsFromDocument } from "../../lib/section-narration-document";
-import { createParsedPageDataFromDocument } from "../../lib/mediawiki-document-metadata";
+import {
+  createParsedPageDataFromDocument,
+  extractSectionLinkTitlesFromDocument,
+  type SectionLinkTitles,
+} from "../../lib/mediawiki-document-metadata";
 import {
   BADGE_KEYS,
   getBadgeTopicQuery,
@@ -738,25 +742,40 @@ export const enrichParsedPageDataFromDocument = async (
   };
 };
 
-/**
- * Single parse API call that extracts link counts, citations, per-section
- * citation mappings, and section index mappings. Callers should cache the
- * result in Convex so subsequent requests hit the database.
- */
-export const fetchParsedPageData = async (
+export type { SectionLinkTitles };
+
+export type CacheableParsedPageData = ParsedPageData & {
+  sectionLinkTitles: SectionLinkTitles[];
+};
+
+export const enrichCacheableParsedPageDataFromDocument = async (
+  document: MediaWikiDocument,
+  signal?: AbortSignal,
+): Promise<CacheableParsedPageData> => {
+  const parsed = await enrichParsedPageDataFromDocument(document, signal);
+  return {
+    ...parsed,
+    sectionLinkTitles: extractSectionLinkTitlesFromDocument(
+      document,
+      MAX_SECTION_LINK_SOURCE_TITLES,
+    ),
+  };
+};
+
+export const fetchCacheableParsedPageData = async (
   identity: WikipediaRevisionIdentity,
   signal?: AbortSignal,
-): Promise<ParsedPageData> => {
+): Promise<CacheableParsedPageData> => {
   throwIfAborted(signal);
-  const empty: ParsedPageData = {
-    linkCounts: [],
-    citations: [],
-    sectionCitations: [],
-    sectionIndexMap: [],
-    images: [],
-  };
   if (identity.language !== "en") {
-    return empty;
+    return {
+      linkCounts: [],
+      citations: [],
+      sectionCitations: [],
+      sectionIndexMap: [],
+      images: [],
+      sectionLinkTitles: [],
+    };
   }
   const document = await loadMediaWikiDocument(
     {
@@ -767,7 +786,229 @@ export const fetchParsedPageData = async (
     },
     { signal },
   );
-  return await enrichParsedPageDataFromDocument(document, signal);
+  return await enrichCacheableParsedPageDataFromDocument(document, signal);
+};
+
+/**
+ * Single parse API call that extracts link counts, citations, per-section
+ * citation mappings, and section index mappings. Callers should cache the
+ * result in Convex so subsequent requests hit the database.
+ */
+export const fetchParsedPageData = async (
+  identity: WikipediaRevisionIdentity,
+  signal?: AbortSignal,
+): Promise<ParsedPageData> => {
+  const { sectionLinkTitles: _sectionLinkTitles, ...parsed } =
+    await fetchCacheableParsedPageData(identity, signal);
+  void _sectionLinkTitles;
+  return parsed;
+};
+
+const resolveSectionLinkDescriptionsWithTimeout = async (
+  articleTitles: readonly string[],
+  {
+    timeoutController,
+    signal,
+    hasTimedOut,
+    markTimedOut,
+  }: {
+    timeoutController: AbortController;
+    signal?: AbortSignal;
+    hasTimedOut: () => boolean;
+    markTimedOut: () => void;
+  },
+): Promise<WikiLinkedArticle[]> => {
+  if (articleTitles.length === 0) return [];
+
+  const resolved: WikiLinkedArticle[] = [];
+  for (
+    let index = 0;
+    index < articleTitles.length;
+    index += SECTION_LINKS_BATCH_SIZE
+  ) {
+    const batch = articleTitles.slice(
+      index,
+      index + SECTION_LINKS_BATCH_SIZE,
+    );
+    let qResponse: Response;
+    try {
+      qResponse = await fetchWikimediaActionApi(
+        WIKI_ACTION_API,
+        {
+          action: "query",
+          titles: batch.join("|"),
+          prop: "description",
+          redirects: "1",
+        },
+        {
+          signal: timeoutController.signal,
+          timeoutMs: SECTION_LINKS_TIMEOUT_MS,
+        },
+      );
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (hasTimedOut() || isWikimediaTimeoutError(error)) {
+        markTimedOut();
+        throw error;
+      }
+      throw new MediaWikiSourceError({
+        code: "http-error",
+        message: "Resolving Wikipedia section links failed",
+        retryable: true,
+      });
+    }
+    if (!qResponse.ok) {
+      throw new MediaWikiSourceError({
+        code: "http-error",
+        message: `Resolving Wikipedia section links failed: ${qResponse.status}`,
+        retryable: qResponse.status === 429 || qResponse.status >= 500,
+      });
+    }
+
+    const qData = await readBoundedSectionLinkJson(qResponse);
+    const queryData = isRecord(qData) ? qData.query : undefined;
+    const rawPages = isRecord(queryData) ? queryData.pages : undefined;
+    const pageValues = Array.isArray(rawPages)
+      ? rawPages
+      : isRecord(rawPages)
+        ? Object.values(rawPages)
+        : null;
+    if (!isRecord(queryData) || !pageValues) {
+      throw invalidSectionLinkResponse(
+        "Resolving Wikipedia section links returned no pages",
+      );
+    }
+    if (pageValues.length === 0 || pageValues.length > batch.length) {
+      throw invalidSectionLinkResponse(
+        "Resolving Wikipedia section links returned an invalid page count",
+      );
+    }
+    const expectedTitles = resolveExpectedSectionLinkTitles(batch, queryData);
+    if (pageValues.length !== expectedTitles.size) {
+      throw invalidSectionLinkResponse(
+        "Resolving Wikipedia section links returned an incomplete page set",
+      );
+    }
+    const returnedTitles = new Set<string>();
+    for (const value of pageValues) {
+      if (!isRecord(value)) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned a malformed page",
+        );
+      }
+      const page = value;
+      if (typeof page.title !== "string" || !page.title.trim()) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned a page without a title",
+        );
+      }
+      const title = comparableWikipediaTitle(page.title);
+      if (!expectedTitles.has(title) || returnedTitles.has(title)) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned an unexpected page",
+        );
+      }
+      returnedTitles.add(title);
+
+      const missing = Object.hasOwn(page, "missing");
+      if (missing) {
+        if (page.missing !== "" && page.missing !== true) {
+          throw invalidSectionLinkResponse(
+            "Resolving Wikipedia section links returned an invalid missing-page marker",
+          );
+        }
+        continue;
+      }
+      if (
+        typeof page.pageid !== "number" ||
+        !Number.isSafeInteger(page.pageid) ||
+        page.pageid <= 0 ||
+        typeof page.ns !== "number" ||
+        !Number.isSafeInteger(page.ns)
+      ) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned an invalid page identity",
+        );
+      }
+      const wikiPageId = normalizeMediaWikiNumericId(page.pageid);
+      if (!wikiPageId) {
+        throw invalidSectionLinkResponse(
+          "Resolving Wikipedia section links returned an invalid page identity",
+        );
+      }
+      if (page.ns === 0) {
+        resolved.push({
+          wikiPageId,
+          title: page.title,
+          ...(typeof page.description === "string"
+            ? { description: page.description }
+            : {}),
+        });
+      }
+    }
+    if (returnedTitles.size !== expectedTitles.size) {
+      throw invalidSectionLinkResponse(
+        "Resolving Wikipedia section links returned an incomplete page set",
+      );
+    }
+  }
+
+  resolved.sort((a, b) => a.title.localeCompare(b.title));
+  return resolved;
+};
+
+/**
+ * Enrich pre-extracted revision-matched section link target titles with
+ * current Wikipedia page IDs and short descriptions without re-parsing HTML.
+ */
+export const fetchSectionLinkDescriptions = async (
+  rawTitles: readonly string[],
+  signal?: AbortSignal,
+): Promise<WikiLinkedArticle[]> => {
+  throwIfAborted(signal);
+  const articleTitles = [...new Set(rawTitles)].slice(
+    0,
+    MAX_SECTION_LINK_SOURCE_TITLES,
+  );
+  if (articleTitles.length === 0) return [];
+
+  const timeoutController = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => timeoutController.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    timeoutController.abort();
+  }, SECTION_LINKS_TIMEOUT_MS);
+
+  try {
+    return await resolveSectionLinkDescriptionsWithTimeout(articleTitles, {
+      timeoutController,
+      signal,
+      hasTimedOut: () => timedOut,
+      markTimedOut: () => {
+        timedOut = true;
+      },
+    });
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
+    if (timedOut) {
+      throw new MediaWikiSourceError({
+        code: "timeout",
+        message: "Resolving Wikipedia section links timed out",
+        retryable: true,
+      });
+    }
+    if (error instanceof MediaWikiSourceError) throw error;
+    throw new MediaWikiSourceError({
+      code: "http-error",
+      message: "Resolving Wikipedia section links failed",
+      retryable: true,
+    });
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
 };
 
 /**
@@ -815,143 +1056,14 @@ export const fetchSectionLinksByIndex = async (
       ...new Set((section?.links ?? []).map((link) => link.targetTitle)),
     ].slice(0, MAX_SECTION_LINK_SOURCE_TITLES);
 
-    if (articleTitles.length === 0) return [];
-
-    const resolved: WikiLinkedArticle[] = [];
-    for (
-      let index = 0;
-      index < articleTitles.length;
-      index += SECTION_LINKS_BATCH_SIZE
-    ) {
-      const batch = articleTitles.slice(
-        index,
-        index + SECTION_LINKS_BATCH_SIZE,
-      );
-      let qResponse: Response;
-      try {
-        qResponse = await fetchWikimediaActionApi(
-          WIKI_ACTION_API,
-          {
-            action: "query",
-            titles: batch.join("|"),
-            prop: "description",
-            redirects: "1",
-          },
-          {
-            signal: timeoutController.signal,
-            timeoutMs: SECTION_LINKS_TIMEOUT_MS,
-          },
-        );
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        if (timedOut || isWikimediaTimeoutError(error)) {
-          timedOut = true;
-          throw error;
-        }
-        throw new MediaWikiSourceError({
-          code: "http-error",
-          message: "Resolving Wikipedia section links failed",
-          retryable: true,
-        });
-      }
-      if (!qResponse.ok) {
-        throw new MediaWikiSourceError({
-          code: "http-error",
-          message: `Resolving Wikipedia section links failed: ${qResponse.status}`,
-          retryable: qResponse.status === 429 || qResponse.status >= 500,
-        });
-      }
-
-      const qData = await readBoundedSectionLinkJson(qResponse);
-      const queryData = isRecord(qData) ? qData.query : undefined;
-      const rawPages = isRecord(queryData) ? queryData.pages : undefined;
-      const pageValues = Array.isArray(rawPages)
-        ? rawPages
-        : isRecord(rawPages)
-          ? Object.values(rawPages)
-          : null;
-      if (!isRecord(queryData) || !pageValues) {
-        throw invalidSectionLinkResponse(
-          "Resolving Wikipedia section links returned no pages",
-        );
-      }
-      if (pageValues.length === 0 || pageValues.length > batch.length) {
-        throw invalidSectionLinkResponse(
-          "Resolving Wikipedia section links returned an invalid page count",
-        );
-      }
-      const expectedTitles = resolveExpectedSectionLinkTitles(batch, queryData);
-      if (pageValues.length !== expectedTitles.size) {
-        throw invalidSectionLinkResponse(
-          "Resolving Wikipedia section links returned an incomplete page set",
-        );
-      }
-      const returnedTitles = new Set<string>();
-      for (const value of pageValues) {
-        if (!isRecord(value)) {
-          throw invalidSectionLinkResponse(
-            "Resolving Wikipedia section links returned a malformed page",
-          );
-        }
-        const page = value;
-        if (typeof page.title !== "string" || !page.title.trim()) {
-          throw invalidSectionLinkResponse(
-            "Resolving Wikipedia section links returned a page without a title",
-          );
-        }
-        const title = comparableWikipediaTitle(page.title);
-        if (!expectedTitles.has(title) || returnedTitles.has(title)) {
-          throw invalidSectionLinkResponse(
-            "Resolving Wikipedia section links returned an unexpected page",
-          );
-        }
-        returnedTitles.add(title);
-
-        const missing = Object.hasOwn(page, "missing");
-        if (missing) {
-          if (page.missing !== "" && page.missing !== true) {
-            throw invalidSectionLinkResponse(
-              "Resolving Wikipedia section links returned an invalid missing-page marker",
-            );
-          }
-          continue;
-        }
-        if (
-          typeof page.pageid !== "number" ||
-          !Number.isSafeInteger(page.pageid) ||
-          page.pageid <= 0 ||
-          typeof page.ns !== "number" ||
-          !Number.isSafeInteger(page.ns)
-        ) {
-          throw invalidSectionLinkResponse(
-            "Resolving Wikipedia section links returned an invalid page identity",
-          );
-        }
-        const wikiPageId = normalizeMediaWikiNumericId(page.pageid);
-        if (!wikiPageId) {
-          throw invalidSectionLinkResponse(
-            "Resolving Wikipedia section links returned an invalid page identity",
-          );
-        }
-        if (page.ns === 0) {
-          resolved.push({
-            wikiPageId,
-            title: page.title,
-            ...(typeof page.description === "string"
-              ? { description: page.description }
-              : {}),
-          });
-        }
-      }
-      if (returnedTitles.size !== expectedTitles.size) {
-        throw invalidSectionLinkResponse(
-          "Resolving Wikipedia section links returned an incomplete page set",
-        );
-      }
-    }
-
-    resolved.sort((a, b) => a.title.localeCompare(b.title));
-    return resolved;
+    return await resolveSectionLinkDescriptionsWithTimeout(articleTitles, {
+      timeoutController,
+      signal,
+      hasTimedOut: () => timedOut,
+      markTimedOut: () => {
+        timedOut = true;
+      },
+    });
   } catch (error) {
     if (signal?.aborted) throw signal.reason ?? error;
     if (timedOut) {

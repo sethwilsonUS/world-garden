@@ -9,16 +9,19 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import {
-  enrichParsedPageDataFromDocument,
+  enrichCacheableParsedPageDataFromDocument,
   fetchArticleBadgeKeys,
   fetchArticleWithDocumentByPageId,
   fetchArticleWithDocumentByTitle,
-  fetchParsedPageData,
+  fetchCacheableParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
   cleanContentForTts,
   titleToSlug,
   slugToTitle,
+  type CacheableParsedPageData,
   type FetchedArticleWithDocument,
+  type SectionLinkTitles,
   WikiArticle,
   WikiSection,
   WikiLinkedArticle,
@@ -609,7 +612,7 @@ const seedParseCacheFromDocument = async (
     "wikiPageId" | "revisionId" | "title" | "language"
   >,
   parsedDocument: MediaWikiDocument | undefined,
-  enrichFromDocument: typeof enrichParsedPageDataFromDocument = enrichParsedPageDataFromDocument,
+  enrichFromDocument: typeof enrichCacheableParsedPageDataFromDocument = enrichCacheableParsedPageDataFromDocument,
 ): Promise<void> => {
   if (!parsedDocument) return;
   if (
@@ -648,7 +651,10 @@ const seedParseCacheFromDocument = async (
     const existing = await ctx.runQuery(internal.articles.getParseCache, {
       ...identity,
     });
-    if (isParseCacheEntryValid(existing, identity)) {
+    if (
+      isParseCacheEntryValid(existing, identity) &&
+      Array.isArray(existing.sectionLinkTitles)
+    ) {
       return;
     }
 
@@ -663,6 +669,7 @@ const seedParseCacheFromDocument = async (
       citations: parsedData.citations,
       sectionCitations: parsedData.sectionCitations,
       sectionIndexMap: parsedData.sectionIndexMap,
+      sectionLinkTitles: parsedData.sectionLinkTitles,
       images: parsedData.images,
     });
   } catch (error: unknown) {
@@ -677,7 +684,7 @@ type FetchAndCacheByPageIdOptions = {
     pageId: string,
   ) => Promise<FetchedArticleWithDocument>;
   fetchBadgeKeys?: typeof fetchArticleBadgeKeys;
-  enrichFromDocument?: typeof enrichParsedPageDataFromDocument;
+  enrichFromDocument?: typeof enrichCacheableParsedPageDataFromDocument;
 };
 
 export const fetchAndCacheForCtx = async (
@@ -766,7 +773,7 @@ type FetchAndCacheBySlugOptions = {
     title: string,
   ) => Promise<FetchedArticleWithDocument>;
   fetchBadgeKeys?: typeof fetchArticleBadgeKeys;
-  enrichFromDocument?: typeof enrichParsedPageDataFromDocument;
+  enrichFromDocument?: typeof enrichCacheableParsedPageDataFromDocument;
 };
 
 export const fetchAndCacheBySlugForCtx = async (
@@ -957,6 +964,14 @@ export const upsertParseCache = internalMutation({
     sectionIndexMap: v.array(
       v.object({ title: v.string(), index: v.string() }),
     ),
+    sectionLinkTitles: v.optional(
+      v.array(
+        v.object({
+          index: v.string(),
+          titles: v.array(v.string()),
+        }),
+      ),
+    ),
     images: v.optional(
       v.array(
         v.object({
@@ -992,6 +1007,9 @@ export const upsertParseCache = internalMutation({
       citations: args.citations,
       sectionCitations: args.sectionCitations,
       sectionIndexMap: args.sectionIndexMap,
+      ...(args.sectionLinkTitles !== undefined
+        ? { sectionLinkTitles: args.sectionLinkTitles }
+        : {}),
       images: args.images,
       mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
       cachedAt: Date.now(),
@@ -1010,6 +1028,7 @@ type CachedParseCacheRow = CachedWikipediaRevisionIdentity & {
   citations: WikiCitation[];
   sectionCitations: ParsedPageData["sectionCitations"];
   sectionIndexMap: ParsedPageData["sectionIndexMap"];
+  sectionLinkTitles?: SectionLinkTitles[];
   images?: WikiArticleImage[];
   mediaMetadataVersion?: number;
   cachedAt: number;
@@ -1040,21 +1059,29 @@ const isParseCacheEntryValid = (
 };
 
 type GetArticleMetadataOptions = {
-  fetchParsedData?: typeof fetchParsedPageData;
+  fetchParsedData?: (
+    identity: WikipediaRevisionIdentity,
+  ) => Promise<ParsedPageData | CacheableParsedPageData>;
 };
 
-const getOrFetchParsedData = async (
+const getOrFetchParsedCacheEntry = async (
   ctx: WikipediaActionCtx,
   identity: WikipediaRevisionIdentity,
   options: GetArticleMetadataOptions = {},
-): Promise<ParsedPageData> => {
+): Promise<{
+  parsed: ParsedPageData;
+  sectionLinkTitles?: SectionLinkTitles[];
+}> => {
   if (identity.language !== "en") {
     return {
-      linkCounts: [],
-      citations: [],
-      sectionCitations: [],
-      sectionIndexMap: [],
-      images: [],
+      parsed: {
+        linkCounts: [],
+        citations: [],
+        sectionCitations: [],
+        sectionIndexMap: [],
+        images: [],
+      },
+      sectionLinkTitles: [],
     };
   }
   const cached = await ctx.runQuery(internal.articles.getParseCache, {
@@ -1062,27 +1089,55 @@ const getOrFetchParsedData = async (
   });
   if (isParseCacheEntryValid(cached, identity)) {
     return {
-      linkCounts: cached.linkCounts,
-      citations: cached.citations,
-      sectionCitations: cached.sectionCitations,
-      sectionIndexMap: cached.sectionIndexMap,
-      images: cached.images ?? [],
+      parsed: {
+        linkCounts: cached.linkCounts,
+        citations: cached.citations,
+        sectionCitations: cached.sectionCitations,
+        sectionIndexMap: cached.sectionIndexMap,
+        images: cached.images ?? [],
+      },
+      ...(Array.isArray(cached.sectionLinkTitles)
+        ? { sectionLinkTitles: cached.sectionLinkTitles }
+        : {}),
     };
   }
 
-  const data = await (options.fetchParsedData ?? fetchParsedPageData)(identity);
+  const fetched = await (
+    options.fetchParsedData ?? fetchCacheableParsedPageData
+  )(identity);
+  const sectionLinkTitles =
+    "sectionLinkTitles" in fetched && Array.isArray(fetched.sectionLinkTitles)
+      ? fetched.sectionLinkTitles
+      : undefined;
 
   await ctx.runMutation(internal.articles.upsertParseCache, {
     ...identity,
-    linkCounts: data.linkCounts,
-    citations: data.citations,
-    sectionCitations: data.sectionCitations,
-    sectionIndexMap: data.sectionIndexMap,
-    images: data.images,
+    linkCounts: fetched.linkCounts,
+    citations: fetched.citations,
+    sectionCitations: fetched.sectionCitations,
+    sectionIndexMap: fetched.sectionIndexMap,
+    ...(sectionLinkTitles !== undefined ? { sectionLinkTitles } : {}),
+    images: fetched.images,
   });
 
-  return data;
+  return {
+    parsed: {
+      linkCounts: fetched.linkCounts,
+      citations: fetched.citations,
+      sectionCitations: fetched.sectionCitations,
+      sectionIndexMap: fetched.sectionIndexMap,
+      images: fetched.images,
+    },
+    ...(sectionLinkTitles !== undefined ? { sectionLinkTitles } : {}),
+  };
 };
+
+const getOrFetchParsedData = async (
+  ctx: WikipediaActionCtx,
+  identity: WikipediaRevisionIdentity,
+  options: GetArticleMetadataOptions = {},
+): Promise<ParsedPageData> =>
+  (await getOrFetchParsedCacheEntry(ctx, identity, options)).parsed;
 
 export const getArticleMetadataForCtx = async (
   ctx: WikipediaActionCtx,
@@ -1227,6 +1282,7 @@ type GetSectionLinksArgs = WikipediaRevisionIdentity & {
 
 type GetSectionLinksOptions = {
   fetchSectionLinks?: typeof fetchSectionLinksByIndex;
+  resolveSectionLinks?: typeof fetchSectionLinkDescriptions;
 };
 
 export const getSectionLinksForCtx = async (
@@ -1259,20 +1315,45 @@ export const getSectionLinksForCtx = async (
   }
 
   let sectionIndex = normalizedSectionIndex ?? "0";
+  let sectionLinkTitles: SectionLinkTitles[] | undefined;
   if (normalizedSectionIndex === undefined && args.sectionTitle !== null) {
-    const parseData = await getOrFetchParsedData(ctx, identity);
+    const parseEntry = await getOrFetchParsedCacheEntry(ctx, identity);
     const target = normalizeWikipediaSectionTitle(args.sectionTitle);
-    const match = parseData.sectionIndexMap.find(
+    const match = parseEntry.parsed.sectionIndexMap.find(
       (section) => normalizeWikipediaSectionTitle(section.title) === target,
     );
     if (!match) return [];
     sectionIndex = normalizeWikipediaSectionIndex(match.index) ?? "0";
+    sectionLinkTitles = parseEntry.sectionLinkTitles;
+  } else {
+    const cachedParse = await ctx.runQuery(internal.articles.getParseCache, {
+      ...identity,
+    });
+    if (
+      cachedParse &&
+      isWikipediaRevisionCacheIdentityCompatible(cachedParse, identity) &&
+      Date.now() - cachedParse.cachedAt < CACHE_TTL_MS &&
+      Array.isArray(cachedParse.sectionLinkTitles)
+    ) {
+      sectionLinkTitles = cachedParse.sectionLinkTitles;
+    }
   }
 
-  const links = await (options.fetchSectionLinks ?? fetchSectionLinksByIndex)(
-    identity,
-    sectionIndex,
-  );
+  let links: WikiLinkedArticle[];
+  if (sectionLinkTitles !== undefined) {
+    const targetKey = sectionIndex === "0" ? "__summary__" : sectionIndex;
+    const sectionEntry = sectionLinkTitles.find(
+      (entry) => entry.index === targetKey,
+    );
+    links = await (options.resolveSectionLinks ?? fetchSectionLinkDescriptions)(
+      sectionEntry?.titles ?? [],
+    );
+  } else {
+    links = await (options.fetchSectionLinks ?? fetchSectionLinksByIndex)(
+      identity,
+      sectionIndex,
+    );
+  }
 
   await ctx.runMutation(internal.articles.upsertSectionLinksCache, {
     ...identity,

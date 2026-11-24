@@ -756,8 +756,14 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
     const articlesByPageId = new Map<string, Record<string, unknown>>();
     const articlesBySlug = new Map<string, Record<string, unknown>>();
     const parseCacheByKey = new Map<string, Record<string, unknown>>();
+    const sectionLinksCacheByKey = new Map<string, Record<string, unknown>>();
     const parseCacheKey = (wikiPageId: string, revisionId: string) =>
       `${wikiPageId}:${revisionId}`;
+    const sectionLinksKey = (
+      wikiPageId: string,
+      revisionId: string,
+      sectionTitle: string,
+    ) => `${wikiPageId}:${revisionId}:${sectionTitle}`;
 
     const runQuery = vi.fn(async (ref: unknown, args: Record<string, unknown>) => {
       const name = getFunctionName(ref as never);
@@ -774,6 +780,22 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
         const cached =
           parseCacheByKey.get(
             parseCacheKey(String(args.wikiPageId), String(args.revisionId)),
+          ) ?? null;
+        return isWikipediaRevisionCacheIdentityCompatible(
+          cached as never,
+          args as never,
+        )
+          ? cached
+          : null;
+      }
+      if (name === "articles:getSectionLinksFromCache") {
+        const cached =
+          sectionLinksCacheByKey.get(
+            sectionLinksKey(
+              String(args.wikiPageId),
+              String(args.revisionId),
+              String(args.sectionTitle),
+            ),
           ) ?? null;
         return isWikipediaRevisionCacheIdentityCompatible(
           cached as never,
@@ -805,6 +827,21 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
           };
           parseCacheByKey.set(
             parseCacheKey(String(args.wikiPageId), String(args.revisionId)),
+            row,
+          );
+          return undefined;
+        }
+        if (name === "articles:upsertSectionLinksCache") {
+          const row = {
+            ...args,
+            cachedAt: Date.now(),
+          };
+          sectionLinksCacheByKey.set(
+            sectionLinksKey(
+              String(args.wikiPageId),
+              String(args.revisionId),
+              String(args.sectionTitle),
+            ),
             row,
           );
           return undefined;
@@ -854,6 +891,55 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
       .spyOn(globalThis, "fetch")
       .mockImplementation(async (input) => {
         const url = new URL(String(input));
+        if (
+          url.hostname === "en.wikipedia.org" &&
+          url.searchParams.get("action") === "query" &&
+          url.searchParams.get("prop") === "description"
+        ) {
+          const titles = (url.searchParams.get("titles") ?? "")
+            .split("|")
+            .filter(Boolean);
+          const catalog: Record<
+            string,
+            { pageid: number; ns: number; title: string; description: string }
+          > = {
+            England: {
+              pageid: 9316,
+              ns: 0,
+              title: "England",
+              description: "Country in north-west Europe",
+            },
+            Mathematics: {
+              pageid: 18831,
+              ns: 0,
+              title: "Mathematics",
+              description: "Area of knowledge",
+            },
+            Logic: {
+              pageid: 17867,
+              ns: 0,
+              title: "Logic",
+              description: "Study of correct reasoning",
+            },
+          };
+          return new Response(
+            JSON.stringify({
+              query: {
+                pages: titles.map(
+                  (title, idx) =>
+                    catalog[title] ?? {
+                      pageid: 50_000 + idx,
+                      ns: 0,
+                      title,
+                      description: `Description for ${title}`,
+                    },
+                ),
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
         if (
           url.hostname === "en.wikipedia.org" &&
           url.searchParams.get("action") === "query"
@@ -997,10 +1083,39 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
     };
     const metadata = await getArticleMetadataForCtx(ctx as never, identity);
     const images = await getArticleImagesForCtx(ctx as never, identity);
+    const leadLinks = await getSectionLinksForCtx(ctx as never, {
+      ...identity,
+      sectionTitle: null,
+    });
+    const earlyLifeLinks = await getSectionLinksForCtx(ctx as never, {
+      ...identity,
+      sectionTitle: "Early life",
+      sectionIndex: "1",
+    });
 
-    // Zero additional upstream parses or Commons enrichment calls after ingestion seeded the cache.
+    // Zero additional upstream parses or Commons enrichment calls across
+    // metadata, gallery, lead links (RelatedArticles), and indexed section links.
     expect(network.getParseRequestCount()).toBe(1);
     expect(network.getCommonsImageInfoCount()).toBe(1);
+    expect(leadLinks).toEqual([
+      {
+        wikiPageId: "9316",
+        title: "England",
+        description: "Country in north-west Europe",
+      },
+    ]);
+    expect(earlyLifeLinks).toEqual([
+      {
+        wikiPageId: "17867",
+        title: "Logic",
+        description: "Study of correct reasoning",
+      },
+      {
+        wikiPageId: "18831",
+        title: "Mathematics",
+        description: "Area of knowledge",
+      },
+    ]);
     expect(metadata.linkCounts).toEqual(
       expect.arrayContaining([
         { index: "__summary__", title: "__summary__", count: 1 },
@@ -1142,5 +1257,40 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
     ).rejects.toMatchObject({ code: "identity-mismatch" });
     expect(articlesByPageId.size).toBe(0);
     expect(parseCacheByKey.size).toBe(0);
+  });
+
+  it("falls back to fetchSectionLinksByIndex when a legacy parse cache row lacks sectionLinkTitles", async () => {
+    const { ctx, parseCacheByKey } = createInMemoryArticleCtx();
+    const identity = {
+      wikiPageId: "974",
+      revisionId: "4200",
+      title: "Ada Lovelace",
+      language: "en",
+    };
+    parseCacheByKey.set("974:4200", {
+      ...identity,
+      linkCounts: [{ index: "1", title: "Early life", count: 1 }],
+      citations: [],
+      sectionCitations: [
+        { index: "1", title: "Early life", count: 0, citationIds: [] },
+      ],
+      sectionIndexMap: [{ title: "Early life", index: "1" }],
+      images: [],
+      mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
+      cachedAt: Date.now(),
+    });
+    const fetchSectionLinks = vi.fn(async () => [
+      { wikiPageId: "17867", title: "Logic" },
+    ]);
+
+    await expect(
+      getSectionLinksForCtx(
+        ctx as never,
+        { ...identity, sectionTitle: "Early life", sectionIndex: "1" },
+        { fetchSectionLinks },
+      ),
+    ).resolves.toEqual([{ wikiPageId: "17867", title: "Logic" }]);
+    expect(fetchSectionLinks).toHaveBeenCalledTimes(1);
+    expect(fetchSectionLinks).toHaveBeenCalledWith(identity, "1");
   });
 });

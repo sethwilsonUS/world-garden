@@ -6,6 +6,23 @@ import type {
 import { buildWikimediaSourceFallback } from "./wikimedia-media";
 import { isArticleGalleryImageCandidate } from "./article-image-policy";
 
+export type SectionLinkTitles = {
+  index: string;
+  titles: string[];
+};
+
+export const extractSectionLinkTitlesFromDocument = (
+  document: MediaWikiDocument,
+  maxTitlesPerSection = 100,
+): SectionLinkTitles[] =>
+  document.sections.map((section) => ({
+    index: section.key,
+    titles: [...new Set(section.links.map((link) => link.targetTitle))].slice(
+      0,
+      maxTitlesPerSection,
+    ),
+  }));
+
 export const createParsedPageDataFromDocument = (
   document: MediaWikiDocument,
 ): WikipediaParsedPageData => {

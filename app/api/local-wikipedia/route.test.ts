@@ -10,6 +10,7 @@ const {
   fetchArticleBadgeKeys,
   enrichParsedPageDataFromDocument,
   fetchParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
 } = vi.hoisted(() => ({
   searchWikipedia: vi.fn(),
@@ -17,6 +18,7 @@ const {
   fetchArticleBadgeKeys: vi.fn(),
   enrichParsedPageDataFromDocument: vi.fn(),
   fetchParsedPageData: vi.fn(),
+  fetchSectionLinkDescriptions: vi.fn(),
   fetchSectionLinksByIndex: vi.fn(),
 }));
 
@@ -26,7 +28,9 @@ vi.mock("@/convex/lib/wikipedia", () => ({
   fetchArticleBadgeKeys,
   enrichParsedPageDataFromDocument,
   fetchParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
+  MAX_SECTION_LINK_SOURCE_TITLES: 100,
 }));
 
 let POST: typeof import("./route").POST;
@@ -285,7 +289,17 @@ describe("POST /api/local-wikipedia", () => {
       sourceFormat: "parsoid",
       sourceHash: "hash-1",
       documentHash: "doc-1",
-      sections: [],
+      sections: [
+        {
+          key: "__summary__",
+          title: "__summary__",
+          level: 1,
+          role: "body",
+          blocks: [],
+          links: [{ targetTitle: "England", label: "England" }],
+          citationIds: [],
+        },
+      ],
       citations: [],
       issues: [],
     };
@@ -301,6 +315,9 @@ describe("POST /api/local-wikipedia", () => {
     });
     fetchArticleBadgeKeys.mockResolvedValue(["history"]);
     enrichParsedPageDataFromDocument.mockResolvedValue(seededMetadata);
+    fetchSectionLinkDescriptions.mockResolvedValue([
+      { wikiPageId: "9316", title: "England" },
+    ]);
 
     const articleResponse = await post({
       operation: "article",
@@ -310,16 +327,27 @@ describe("POST /api/local-wikipedia", () => {
       operation: "metadata",
       identity: articleIdentity,
     });
+    const sectionLinksResponse = await post({
+      operation: "section-links",
+      identity: articleIdentity,
+      sectionTitle: null,
+    });
 
     expect(articleResponse.status).toBe(200);
     expect(metadataResponse.status).toBe(200);
+    expect(sectionLinksResponse.status).toBe(200);
     await expect(metadataResponse.json()).resolves.toEqual({
       data: seededMetadata,
+    });
+    await expect(sectionLinksResponse.json()).resolves.toEqual({
+      data: [{ wikiPageId: "9316", title: "England" }],
     });
     expect(enrichParsedPageDataFromDocument).toHaveBeenCalledTimes(1);
     expect(enrichParsedPageDataFromDocument).toHaveBeenCalledWith(
       parsedDocument,
     );
     expect(fetchParsedPageData).not.toHaveBeenCalled();
+    expect(fetchSectionLinkDescriptions).toHaveBeenCalledWith(["England"]);
+    expect(fetchSectionLinksByIndex).not.toHaveBeenCalled();
   });
 });
