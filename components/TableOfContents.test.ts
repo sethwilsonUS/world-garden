@@ -26,6 +26,7 @@ const dataContextValue: DataContextValue = {
   getSectionLinks: async () => [],
   getSectionCitations: async () => [],
   getArticleImages: async () => [],
+  getRelatedArticles: async () => [],
 };
 
 const playback = (

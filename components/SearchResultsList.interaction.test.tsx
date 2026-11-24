@@ -56,6 +56,7 @@ const dataValue = (search: DataContextValue["search"]): DataContextValue => ({
   getSectionLinks: async () => [],
   getSectionCitations: async () => [],
   getArticleImages: async () => [],
+  getRelatedArticles: async () => [],
 });
 
 const waitForExpectation = async (assertion: () => void) => {

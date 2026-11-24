@@ -10,9 +10,12 @@ import { BadgeProgressToastProvider } from "@/components/BadgeProgressToastProvi
 import { HybridBookmarkProvider } from "@/hooks/useBookmarks";
 import { PersonalPlaylistProvider } from "@/hooks/usePersonalPlaylist";
 import { AuthAwareTtsProfileProvider } from "@/lib/tts-audience";
+import { normalizeMediaWikiNumericId } from "@/lib/wikipedia-utils";
 import {
   DataContext,
   type DataContextValue,
+  type RelatedArticle,
+  type WikipediaRevisionIdentity,
 } from "./data-context";
 import {
   createCoalescedMetadataMethods,
@@ -53,11 +56,22 @@ const runAbortableAction = <Result,>(
   });
 };
 
+const MAX_CLIENT_RELATED_CACHE_ENTRIES = 100;
+
+const relatedCacheKey = (identity: WikipediaRevisionIdentity): string =>
+  JSON.stringify([
+    identity.language.trim().toLowerCase(),
+    normalizeMediaWikiNumericId(identity.wikiPageId) ??
+      identity.wikiPageId.trim(),
+    identity.title.replaceAll("_", " ").replace(/\s+/g, " ").trim(),
+  ]);
+
 const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
   const searchAction = useAction(api.search.search);
   const fetchAndCacheBySlug = useAction(api.articles.fetchAndCacheBySlug);
   const articleMetadataAction = useAction(api.articles.getArticleMetadata);
   const sectionLinksAction = useAction(api.articles.getSectionLinks);
+  const relatedArticlesAction = useAction(api.articles.getRelatedArticles);
 
   const metadataClient = useMemo(
     () =>
@@ -70,6 +84,11 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
         }),
       ),
     [articleMetadataAction],
+  );
+
+  const relatedArticlesCache = useMemo(
+    () => new Map<string, Promise<RelatedArticle[]>>(),
+    [],
   );
 
   const value = useMemo<DataContextValue>(
@@ -96,8 +115,57 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
             }),
           signal,
         ),
+
+      getRelatedArticles: ({ identity, signal }) =>
+        runAbortableAction(() => {
+          const key = relatedCacheKey(identity);
+          const cached = relatedArticlesCache.get(key);
+          if (cached) return cached;
+
+          const pending = relatedArticlesAction({
+            wikiPageId: identity.wikiPageId,
+            revisionId: identity.revisionId,
+            title: identity.title,
+            language: identity.language,
+          })
+            .then((articles) => {
+              // Keep non-empty results in SPA memory; let empty results fall
+              // back to Convex's DB cache so transient upstream errors recover.
+              if (
+                articles.length === 0 &&
+                relatedArticlesCache.get(key) === pending
+              ) {
+                relatedArticlesCache.delete(key);
+              }
+              return articles;
+            })
+            .catch((error: unknown) => {
+              if (relatedArticlesCache.get(key) === pending) {
+                relatedArticlesCache.delete(key);
+              }
+              throw error;
+            });
+
+          relatedArticlesCache.set(key, pending);
+          if (relatedArticlesCache.size > MAX_CLIENT_RELATED_CACHE_ENTRIES) {
+            const oldestKey = relatedArticlesCache.keys().next().value as
+              | string
+              | undefined;
+            if (oldestKey && oldestKey !== key) {
+              relatedArticlesCache.delete(oldestKey);
+            }
+          }
+          return pending;
+        }, signal),
     }),
-    [searchAction, fetchAndCacheBySlug, metadataClient, sectionLinksAction],
+    [
+      searchAction,
+      fetchAndCacheBySlug,
+      metadataClient,
+      sectionLinksAction,
+      relatedArticlesAction,
+      relatedArticlesCache,
+    ],
   );
 
   return (

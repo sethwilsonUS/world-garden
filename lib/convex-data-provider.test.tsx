@@ -209,4 +209,55 @@ describe("ConvexDataProvider coalesced metadata", () => {
     ).resolves.toEqual(sampleMetadata.citations);
     expect(metadataSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("coalesces and caches non-empty related articles while allowing empty/failed results to retry", async () => {
+    const relatedSpy = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          wikiPageId: "1271",
+          title: "Analytical engine",
+          description: "Mechanical computer",
+        },
+      ]);
+    actionSpies.set(getFunctionName(api.articles.getRelatedArticles), relatedSpy);
+
+    let dataApi: ReturnType<typeof useData> | undefined;
+    const Probe = () => {
+      dataApi = useData();
+      return null;
+    };
+
+    await act(async () => {
+      root.render(
+        <ConvexDataProvider>
+          <Probe />
+        </ConvexDataProvider>,
+      );
+    });
+
+    // Empty result is not pinned in SPA memory so transient upstream errors can recover.
+    await expect(
+      dataApi?.getRelatedArticles({ identity: sampleIdentity }),
+    ).resolves.toEqual([]);
+    expect(relatedSpy).toHaveBeenCalledTimes(1);
+
+    // Next call resolves non-empty and gets cached across revision bumps.
+    const [first, second] = await Promise.all([
+      dataApi?.getRelatedArticles({ identity: sampleIdentity }),
+      dataApi?.getRelatedArticles({
+        identity: { ...sampleIdentity, revisionId: "12346" },
+      }),
+    ]);
+    expect(first).toEqual([
+      {
+        wikiPageId: "1271",
+        title: "Analytical engine",
+        description: "Mechanical computer",
+      },
+    ]);
+    expect(second).toEqual(first);
+    expect(relatedSpy).toHaveBeenCalledTimes(2);
+  });
 });

@@ -14,6 +14,7 @@ import {
   fetchArticleWithDocumentByPageId,
   fetchArticleWithDocumentByTitle,
   fetchCacheableParsedPageData,
+  fetchRelatedArticles,
   fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
   cleanContentForTts,
@@ -41,7 +42,10 @@ import {
   createSectionNarrations,
   type SectionNarration,
 } from "../lib/section-narration";
-import type { WikipediaRevisionIdentity } from "../lib/wikipedia-contracts";
+import type {
+  WikipediaRelatedArticle,
+  WikipediaRevisionIdentity,
+} from "../lib/wikipedia-contracts";
 import {
   findWikipediaSectionMetadata,
   normalizeWikipediaSectionTitle,
@@ -1403,5 +1407,123 @@ export const getSectionLinks = action({
   },
   async handler(ctx, args) {
     return await getSectionLinksForCtx(ctx, args);
+  },
+});
+
+/* ── Related articles ("Listen next") cache ── */
+
+const relatedArticleValidator = v.object({
+  wikiPageId: v.string(),
+  title: v.string(),
+  description: v.optional(v.string()),
+  thumbnail: v.optional(
+    v.object({
+      source: v.string(),
+      width: v.number(),
+      height: v.number(),
+    }),
+  ),
+});
+
+export const getRelatedArticlesFromCache = internalQuery({
+  args: {
+    wikiPageId: v.string(),
+    title: v.string(),
+    language: v.string(),
+  },
+  async handler(ctx, args) {
+    const cached = await ctx.db
+      .query("relatedArticlesCache")
+      .withIndex("by_wikiPageId_language", (q) =>
+        q.eq("wikiPageId", args.wikiPageId).eq("language", args.language),
+      )
+      .first();
+    return cached && cached.title === args.title ? cached : null;
+  },
+});
+
+export const upsertRelatedArticlesCache = internalMutation({
+  args: {
+    wikiPageId: v.string(),
+    title: v.string(),
+    language: v.string(),
+    articles: v.array(relatedArticleValidator),
+  },
+  async handler(ctx, args) {
+    const existing = await ctx.db
+      .query("relatedArticlesCache")
+      .withIndex("by_wikiPageId_language", (q) =>
+        q.eq("wikiPageId", args.wikiPageId).eq("language", args.language),
+      )
+      .first();
+
+    const data = {
+      wikiPageId: args.wikiPageId,
+      title: args.title,
+      language: args.language,
+      articles: args.articles,
+      cachedAt: Date.now(),
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, data);
+    } else {
+      await ctx.db.insert("relatedArticlesCache", data);
+    }
+  },
+});
+
+type GetRelatedArticlesOptions = {
+  fetchRelatedArticles?: typeof fetchRelatedArticles;
+};
+
+export const getRelatedArticlesForCtx = async (
+  ctx: WikipediaActionCtx,
+  args: WikipediaRevisionIdentity,
+  options: GetRelatedArticlesOptions = {},
+): Promise<WikipediaRelatedArticle[]> => {
+  const identity = canonicalizeWikipediaRevisionIdentity(args);
+  if (identity.language !== "en") return [];
+
+  const cached = await ctx.runQuery(
+    internal.articles.getRelatedArticlesFromCache,
+    {
+      wikiPageId: identity.wikiPageId,
+      title: identity.title,
+      language: identity.language,
+    },
+  );
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+    return cached.articles;
+  }
+
+  let articles: WikipediaRelatedArticle[];
+  try {
+    articles = await (options.fetchRelatedArticles ?? fetchRelatedArticles)(
+      identity,
+    );
+  } catch (error: unknown) {
+    console.warn("[articles] Failed to fetch related articles", {
+      wikiPageId: identity.wikiPageId,
+      title: identity.title,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+
+  await ctx.runMutation(internal.articles.upsertRelatedArticlesCache, {
+    wikiPageId: identity.wikiPageId,
+    title: identity.title,
+    language: identity.language,
+    articles,
+  });
+
+  return articles;
+};
+
+export const getRelatedArticles = action({
+  args: wikipediaRevisionIdentityArgs,
+  async handler(ctx, args) {
+    return await getRelatedArticlesForCtx(ctx, args);
   },
 });

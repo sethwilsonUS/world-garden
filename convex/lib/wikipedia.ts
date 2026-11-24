@@ -35,12 +35,22 @@ import {
   isWikimediaTimeoutError,
 } from "../../lib/wikimedia-client";
 import {
+  isCategoryNsfw,
+  isDisambiguation,
+  isDisambiguationPageProps,
+} from "../../lib/nsfw-filter";
+import {
   fetchWikimediaMediaDetails,
   getAttributionForImageUrl,
+  WIKIMEDIA_FEED_THUMBNAIL_WIDTH,
   WIKIMEDIA_THUMBNAIL_WIDTH,
   type WikimediaMediaAttribution,
 } from "../../lib/wikimedia-media";
-import type { WikipediaRevisionIdentity } from "../../lib/wikipedia-contracts";
+import type {
+  WikipediaRelatedArticle,
+  WikipediaRelatedArticleThumbnail,
+  WikipediaRevisionIdentity,
+} from "../../lib/wikipedia-contracts";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
@@ -1422,6 +1432,249 @@ export const fetchSectionLinksByIndex = async (
     clearTimeout(timeout);
     signal?.removeEventListener("abort", abortFromCaller);
   }
+};
+
+export const RELATED_ARTICLES_DEFAULT_LIMIT = 5;
+export const RELATED_ARTICLES_CANDIDATE_LIMIT = 12;
+export const RELATED_ARTICLES_TIMEOUT_MS = 8_000;
+
+export const buildMoreLikeSearchQuery = (title: string): string =>
+  `morelike:${title.replace(/_/g, " ").replace(/\s+/g, " ").trim()}`;
+
+const normalizeRelatedArticleThumbnail = (
+  raw: unknown,
+): WikipediaRelatedArticleThumbnail | undefined => {
+  if (!isRecord(raw) || typeof raw.source !== "string") return undefined;
+  const rawSource = raw.source.trim();
+  if (!rawSource) return undefined;
+  const normalizedUrl = rawSource.startsWith("//")
+    ? `https:${rawSource}`
+    : rawSource;
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(normalizedUrl);
+  } catch (error: unknown) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+    return undefined;
+  }
+  if (
+    typeof raw.width !== "number" ||
+    !Number.isFinite(raw.width) ||
+    raw.width <= 0 ||
+    typeof raw.height !== "number" ||
+    !Number.isFinite(raw.height) ||
+    raw.height <= 0
+  ) {
+    return undefined;
+  }
+  return {
+    source: parsedUrl.toString(),
+    width: raw.width,
+    height: raw.height,
+  };
+};
+
+const parseCategoryContinuePageId = (continueData: unknown): number | null => {
+  if (!isRecord(continueData)) return null;
+  if (typeof continueData.ppcontinue === "string") {
+    return 0;
+  }
+  if (typeof continueData.clcontinue !== "string") {
+    return null;
+  }
+  const match = /^(\d+)\|/u.exec(continueData.clcontinue);
+  if (!match) return 0;
+  const pageId = Number(match[1]);
+  return Number.isSafeInteger(pageId) && pageId > 0 ? pageId : 0;
+};
+
+type RawRelatedArticlePage = {
+  pageid?: number | string;
+  ns?: number;
+  title?: string;
+  index?: number;
+  missing?: unknown;
+  description?: unknown;
+  thumbnail?: unknown;
+  pageprops?: unknown;
+  categories?: unknown;
+};
+
+export type FetchRelatedArticlesOptions = {
+  limit?: number;
+  signal?: AbortSignal;
+};
+
+/**
+ * Fetch semantically related mainspace English Wikipedia articles via
+ * CirrusSearch `generator=search` + `morelike:<title>` in a single upstream
+ * request, preserving CirrusSearch relevance order while excluding the current
+ * article, disambiguation pages, and NSFW-categorized pages.
+ */
+export const fetchRelatedArticles = async (
+  identity: Pick<WikipediaRevisionIdentity, "wikiPageId" | "title" | "language">,
+  options: FetchRelatedArticlesOptions = {},
+): Promise<WikipediaRelatedArticle[]> => {
+  const { limit = RELATED_ARTICLES_DEFAULT_LIMIT, signal } = options;
+  throwIfAborted(signal);
+
+  const language = identity.language.trim().toLowerCase();
+  if (language !== "en") return [];
+
+  const normalizedTitle = comparableWikipediaTitle(identity.title).replace(
+    /\s+/g,
+    " ",
+  );
+  if (!normalizedTitle) return [];
+
+  const resolvedLimit =
+    Number.isFinite(limit) && limit > 0
+      ? Math.floor(limit)
+      : RELATED_ARTICLES_DEFAULT_LIMIT;
+  const candidateLimit = Math.max(
+    RELATED_ARTICLES_CANDIDATE_LIMIT,
+    resolvedLimit * 2,
+  );
+
+  const response = await fetchWikimediaActionApi(
+    WIKI_ACTION_API,
+    {
+      action: "query",
+      generator: "search",
+      gsrsearch: buildMoreLikeSearchQuery(normalizedTitle),
+      gsrnamespace: "0",
+      gsrlimit: String(candidateLimit),
+      gsrwhat: "text",
+      prop: "description|pageimages|pageprops|categories",
+      ppprop: "disambiguation",
+      clshow: "!hidden",
+      cllimit: "max",
+      piprop: "thumbnail",
+      pithumbsize: String(WIKIMEDIA_FEED_THUMBNAIL_WIDTH),
+    },
+    {
+      timeoutMs: RELATED_ARTICLES_TIMEOUT_MS,
+      maxRetries: 1,
+      signal,
+    },
+  );
+
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(
+      `Wikipedia related articles search failed: ${response.status}`,
+    );
+  }
+
+  const data: unknown = await response.json();
+  if (!isRecord(data)) {
+    throw new Error("Wikipedia related articles search returned an invalid payload");
+  }
+  if ("error" in data && data.error) {
+    throw new Error("Wikipedia related articles search returned an error payload");
+  }
+  if (data.query === undefined) {
+    return [];
+  }
+  if (!isRecord(data.query)) {
+    throw new Error("Wikipedia related articles search returned an invalid query");
+  }
+  if (data.query.pages === undefined) {
+    return [];
+  }
+
+  const pages = extractActionApiPages<RawRelatedArticlePage>(data.query.pages);
+  if (!pages) {
+    throw new Error("Wikipedia related articles search returned invalid pages");
+  }
+
+  const truncatedCategoriesFromPageId = parseCategoryContinuePageId(
+    data.continue,
+  );
+  const currentPageId = normalizeMediaWikiNumericId(identity.wikiPageId);
+  const rankedPages = pages
+    .map((page, position) => ({
+      page,
+      position,
+      rank:
+        typeof page.index === "number" && Number.isFinite(page.index)
+          ? page.index
+          : Number.MAX_SAFE_INTEGER,
+    }))
+    .sort(
+      (left, right) => left.rank - right.rank || left.position - right.position,
+    );
+
+  const results: WikipediaRelatedArticle[] = [];
+  const seenPageIds = new Set<string>();
+
+  for (const { page } of rankedPages) {
+    if (isMissingActionApiPage(page)) continue;
+    if (page.ns !== undefined && page.ns !== 0) continue;
+
+    const wikiPageId = normalizeMediaWikiNumericId(page.pageid);
+    if (!wikiPageId || seenPageIds.has(wikiPageId)) continue;
+
+    const title =
+      typeof page.title === "string"
+        ? comparableWikipediaTitle(page.title).replace(/\s+/g, " ")
+        : "";
+    if (!title) continue;
+
+    if (
+      (currentPageId && wikiPageId === currentPageId) ||
+      title === normalizedTitle
+    ) {
+      continue;
+    }
+
+    const pageprops = isRecord(page.pageprops) ? page.pageprops : undefined;
+    if (isDisambiguationPageProps(pageprops)) continue;
+
+    const categories = Array.isArray(page.categories)
+      ? page.categories.filter(
+          (entry): entry is { title: string } =>
+            isRecord(entry) && typeof entry.title === "string",
+        )
+      : [];
+    if (
+      categories.some(
+        (category) =>
+          isCategoryNsfw(category.title) || isDisambiguation(category.title),
+      )
+    ) {
+      continue;
+    }
+
+    // Fail closed if MediaWiki truncated visible categories for this page ID.
+    if (
+      truncatedCategoriesFromPageId !== null &&
+      Number(wikiPageId) >= truncatedCategoriesFromPageId
+    ) {
+      continue;
+    }
+
+    seenPageIds.add(wikiPageId);
+    const description =
+      typeof page.description === "string" && page.description.trim()
+        ? page.description.trim()
+        : undefined;
+    const thumbnail = normalizeRelatedArticleThumbnail(page.thumbnail);
+
+    results.push({
+      wikiPageId,
+      title,
+      ...(description ? { description } : {}),
+      ...(thumbnail ? { thumbnail } : {}),
+    });
+
+    if (results.length >= resolvedLimit) break;
+  }
+
+  return results;
 };
 
 export const cleanContentForTts = (text: string): string => {

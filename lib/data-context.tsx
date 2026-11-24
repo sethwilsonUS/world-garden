@@ -6,6 +6,7 @@ import type {
   WikipediaArticleImage,
   WikipediaCitation,
   WikipediaLinkedArticle,
+  WikipediaRelatedArticle,
   WikipediaRevisionIdentity,
   WikipediaSearchResult,
   WikipediaSection,
@@ -16,6 +17,7 @@ export type SearchResult = WikipediaSearchResult;
 export type Section = WikipediaSection;
 export type Article = WikipediaArticle;
 export type LinkedArticle = WikipediaLinkedArticle;
+export type RelatedArticle = WikipediaRelatedArticle;
 export type Citation = WikipediaCitation;
 export type LinkCount = WikipediaSectionCount;
 export type ArticleImage = WikipediaArticleImage;
@@ -48,6 +50,10 @@ export type DataContextValue = {
     identity: WikipediaRevisionIdentity;
     signal?: AbortSignal;
   }) => Promise<ArticleImage[]>;
+  getRelatedArticles: (args: {
+    identity: WikipediaRevisionIdentity;
+    signal?: AbortSignal;
+  }) => Promise<RelatedArticle[]>;
 };
 
 export const DataContext = createContext<DataContextValue | null>(null);

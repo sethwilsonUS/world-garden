@@ -64,6 +64,7 @@ describe("usePrefetch", () => {
       getSectionLinks: async () => [],
       getSectionCitations: async () => [],
       getArticleImages: async () => [],
+      getRelatedArticles: async () => [],
     };
 
     await act(async () => {
