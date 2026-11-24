@@ -7,12 +7,13 @@ import {
   useState,
   useCallback,
 } from "react";
-import {
-  PLAYBACK_RATES,
-  type PlaybackRate,
-  formatRate,
-} from "@/hooks/usePlaybackRate";
+import type { PlaybackRate } from "@/hooks/usePlaybackRate";
+import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import { formatTime } from "@/lib/formatTime";
+import {
+  applyPlaybackRate,
+  keepPlaybackRate,
+} from "@/lib/media-playback-rate";
 
 type AudioPlayerProps = {
   audioUrl: string;
@@ -63,7 +64,6 @@ export const AudioPlayer = ({
   const [hasPlayed, setHasPlayed] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [rateAnnouncement, setRateAnnouncement] = useState("");
   const playbackRateRef = useRef(playbackRate);
   const handlePlaying = useEffectEvent(() => onPlaying?.());
   const handleEnded = useEffectEvent(() => onEnded?.());
@@ -164,17 +164,16 @@ export const AudioPlayer = ({
   useEffect(() => {
     const audio = audioRef.current;
     playbackRateRef.current = playbackRate;
-    if (audio) audio.playbackRate = playbackRate;
+    if (audio) applyPlaybackRate(audio, playbackRate);
   }, [playbackRate, audioUrl]);
 
-  const cycleSpeed = useCallback(() => {
-    if (!onPlaybackRateChange) return;
-    const idx = PLAYBACK_RATES.indexOf(playbackRateRef.current);
-    const next = PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length];
-    playbackRateRef.current = next;
-    onPlaybackRateChange(next);
-    setRateAnnouncement(`Playback speed ${formatRate(next)}`);
-  }, [onPlaybackRateChange]);
+  // A new source, play, or seek can reset the element's speed behind the
+  // displayed value; put it back whenever that might have happened.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    return keepPlaybackRate(audio, () => playbackRateRef.current);
+  }, [audioUrl]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -391,19 +390,11 @@ export const AudioPlayer = ({
           </button>
 
           {onPlaybackRateChange && (
-            <button
-              type="button"
-              onClick={cycleSpeed}
-              aria-label={`Playback speed ${formatRate(playbackRate)}. Activate to change.`}
-              className={`flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-lg border border-border bg-transparent px-[10px] py-[6px] font-mono text-[0.8125rem] font-bold leading-none transition-colors duration-150 hover:bg-accent-bg hover:text-accent ${playbackRate !== 1 ? "text-accent" : "text-muted"}`}
-            >
-              {formatRate(playbackRate)}
-            </button>
+            <PlaybackSpeedControl
+              rate={playbackRate}
+              onRateChange={onPlaybackRateChange}
+            />
           )}
-        </div>
-
-        <div aria-live="assertive" className="sr-only" role="status">
-          {rateAnnouncement}
         </div>
 
         {/* Progress: time — scrubber — time */}

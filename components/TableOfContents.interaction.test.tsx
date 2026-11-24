@@ -125,23 +125,22 @@ describe("TableOfContents interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("cycles and announces playback speed with controlled state", async () => {
+  it("steps and announces playback speed with controlled state", async () => {
     const value = dataValue();
     await act(async () =>
-      root.render(<TableHarness value={value} initialRate={3} />),
+      root.render(<TableHarness value={value} initialRate={0.6} />),
     );
-    const speed = container.querySelector(
-      '[aria-label="Playback speed 3x. Activate to change."]',
+    const slower = container.querySelector(
+      '[data-playback-speed] button[aria-label="Slower"]',
     ) as HTMLButtonElement;
-    expect(speed).not.toBeNull();
+    expect(slower).not.toBeNull();
 
-    act(() => speed.click());
+    act(() => slower.click());
     await waitForExpectation(() => {
       expect(
-        container.querySelector(
-          '[aria-label="Playback speed 0.5x. Activate to change."]',
-        ),
-      ).not.toBeNull();
+        container.querySelector("[data-playback-speed] > span:not([role])")
+          ?.textContent,
+      ).toBe("0.5x");
       expect(container.textContent).toContain("Playback speed 0.5x");
       expect(container.textContent).toContain("4m");
       expect(container.textContent).toContain("Play all6m");

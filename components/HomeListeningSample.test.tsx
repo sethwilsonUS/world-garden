@@ -242,53 +242,57 @@ describe("HomeListeningSample", () => {
     expect(buttonNamed("Resume: Curio Garden listening sample")).not.toBeNull();
   });
 
+  const speedReadout = () =>
+    container.querySelector("[data-playback-speed] > span:not([role])")
+      ?.textContent;
+  const speedStatus = () =>
+    container.querySelector("[data-playback-speed] [role='status']");
+
   it("announces speed changes and applies them to the media element", async () => {
     const audio = await renderSample();
-    const speed = buttonNamed("Playback speed 1x. Activate to change.");
+    expect(speedReadout()).toBe("1x");
 
-    act(() => speed.click());
+    act(() => buttonNamed("Faster").click());
     await flushEffects();
 
-    expect(
-      buttonNamed("Playback speed 1.25x. Activate to change."),
-    ).not.toBeNull();
-    const announcement = container.querySelector('.sr-only[role="status"]');
-    expect(announcement?.getAttribute("aria-live")).toBe("assertive");
-    expect(announcement?.textContent).toBe("Playback speed 1.25x");
-    expect(audio.playbackRate).toBe(1.25);
+    expect(speedReadout()).toBe("1.1x");
+    expect(speedStatus()?.getAttribute("aria-live")).toBe("polite");
+    expect(speedStatus()?.textContent).toBe("Playback speed 1.1x");
+    expect(audio.playbackRate).toBe(1.1);
+    expect(audio.defaultPlaybackRate).toBe(1.1);
+
+    act(() => buttonNamed("Slower").click());
+    act(() => buttonNamed("Slower").click());
+    await flushEffects();
+    expect(speedReadout()).toBe("0.9x");
+    expect(audio.playbackRate).toBe(0.9);
   });
 
-  it("cycles and persists two same-turn speed changes without stale state", async () => {
+  it("persists two same-turn speed changes without stale state", async () => {
     await renderSample();
-    const speed = buttonNamed("Playback speed 1x. Activate to change.");
+    const faster = buttonNamed("Faster");
 
     act(() => {
-      speed.click();
-      speed.click();
+      faster.click();
+      faster.click();
     });
     await flushEffects();
 
-    expect(
-      buttonNamed("Playback speed 1.5x. Activate to change."),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('.sr-only[role="status"]')?.textContent,
-    ).toBe("Playback speed 1.5x");
-    expect(localStorage.getItem("curio-garden-playback-rate")).toBe("1.5");
+    expect(speedReadout()).toBe("1.2x");
+    expect(speedStatus()?.textContent).toBe("Playback speed 1.2x");
+    expect(localStorage.getItem("curio-garden-playback-rate")).toBe("1.2");
   });
 
   it("keeps server markup stable before restoring a saved playback speed", async () => {
     localStorage.setItem("curio-garden-playback-rate", "1.5");
 
     const markup = renderToStaticMarkup(<HomeListeningSample />);
-    expect(markup).toContain("Playback speed 1x. Activate to change.");
-    expect(markup).not.toContain("Playback speed 1.5x. Activate to change.");
+    expect(markup).toContain(">1x</span>");
+    expect(markup).not.toContain(">1.5x</span>");
 
     const audio = await renderSample();
     await flushEffects();
-    expect(
-      buttonNamed("Playback speed 1.5x. Activate to change."),
-    ).not.toBeNull();
+    expect(speedReadout()).toBe("1.5x");
     expect(audio.playbackRate).toBe(1.5);
   });
 

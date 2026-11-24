@@ -2216,14 +2216,15 @@ test("article playback speed has a touch-friendly target at a narrow viewport", 
   await mockArticleAndContext(page);
   await page.goto("/article/Ada_Lovelace");
 
-  const speedButton = page.getByRole("button", {
-    name: /^Playback speed /,
-  });
-  await expect(speedButton).toBeVisible();
-  const target = await speedButton.boundingBox();
-  expect(target).not.toBeNull();
-  expect(target!.width).toBeGreaterThanOrEqual(44);
-  expect(target!.height).toBeGreaterThanOrEqual(44);
+  const speed = page.getByRole("group", { name: "Playback speed" });
+  for (const name of ["Slower", "Faster"]) {
+    const speedButton = speed.getByRole("button", { name });
+    await expect(speedButton).toBeVisible();
+    const target = await speedButton.boundingBox();
+    expect(target).not.toBeNull();
+    expect(target!.width).toBeGreaterThanOrEqual(44);
+    expect(target!.height).toBeGreaterThanOrEqual(44);
+  }
 
   const horizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,

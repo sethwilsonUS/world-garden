@@ -10,6 +10,8 @@ type PlayerShortcutActions = {
   onSkipBy?: (seconds: number) => void;
   onPreviousSection?: () => void;
   onNextSection?: () => void;
+  onSlower?: () => void;
+  onFaster?: () => void;
 };
 
 // These widgets use arrows, Space, or typed characters for their own navigation.
@@ -39,6 +41,8 @@ function shortcutAction(
     onSkipBy,
     onPreviousSection,
     onNextSection,
+    onSlower,
+    onFaster,
   }: PlayerShortcutActions,
 ) {
   if (event.shiftKey) {
@@ -47,6 +51,11 @@ function shortcutAction(
         return onNextSection;
       case "p":
         return onPreviousSection;
+      // Shift + period and Shift + comma, as in most media players.
+      case ">":
+        return onFaster;
+      case "<":
+        return onSlower;
       default:
         return undefined;
     }
@@ -145,6 +154,11 @@ export function PlayerKeyboardShortcuts({
         </li>
         <li>
           <kbd>Shift</kbd> + <kbd>P</kbd> for the previous section.
+        </li>
+        <li>
+          <kbd>Shift</kbd> + <kbd>&gt;</kbd> (greater than) to speed up, or{" "}
+          <kbd>Shift</kbd> + <kbd>&lt;</kbd> (less than) to slow down, by
+          0.1x.
         </li>
       </ul>
       <label className="flex min-h-11 w-fit cursor-pointer items-center gap-2 rounded-lg px-2 font-semibold">

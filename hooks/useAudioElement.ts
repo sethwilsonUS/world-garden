@@ -2,6 +2,10 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import type { PlaybackRate } from "@/hooks/usePlaybackRate";
+import {
+  applyPlaybackRate,
+  keepPlaybackRate,
+} from "@/lib/media-playback-rate";
 
 type UseAudioElementOptions = {
   url: string | null;
@@ -78,10 +82,20 @@ export const useAudioElement = ({
     };
   }, [url, setPlaying]);
 
+  const playbackRateRef = useRef(playbackRate);
+  useEffect(() => {
+    playbackRateRef.current = playbackRate;
+    const audio = audioRef.current;
+    if (audio) applyPlaybackRate(audio, playbackRate);
+  }, [playbackRate, url]);
+
+  // A new source, play, or seek can reset the element's speed behind the
+  // displayed value; put it back whenever that might have happened.
   useEffect(() => {
     const audio = audioRef.current;
-    if (audio) audio.playbackRate = playbackRate;
-  }, [playbackRate, url]);
+    if (!audio) return;
+    return keepPlaybackRate(audio, () => playbackRateRef.current);
+  }, [url]);
 
   const play = useCallback(() => {
     audioRef.current?.play()?.catch(() => {

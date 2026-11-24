@@ -30,6 +30,8 @@ describe("PlayerKeyboardShortcuts", () => {
     onSkipBy: vi.fn(),
     onPreviousSection: vi.fn(),
     onNextSection: vi.fn(),
+    onSlower: vi.fn(),
+    onFaster: vi.fn(),
   };
 
   beforeEach(() => {
@@ -58,6 +60,21 @@ describe("PlayerKeyboardShortcuts", () => {
     expect(actions.onPreviousSection).toHaveBeenCalledOnce();
     expect(press("P")).toBe(false);
     expect(press("Q", document.body, { shiftKey: true })).toBe(false);
+  });
+
+  it("speeds up with Shift and greater than, and slows down with Shift and less than", () => {
+    expect(press(">", document.body, { shiftKey: true })).toBe(true);
+    expect(press("<", document.body, { shiftKey: true })).toBe(true);
+    expect(actions.onFaster).toHaveBeenCalledOnce();
+    expect(actions.onSlower).toHaveBeenCalledOnce();
+    expect(press(".")).toBe(false);
+    expect(press(">", document.body, { shiftKey: true, repeat: true })).toBe(
+      true,
+    );
+    expect(actions.onFaster).toHaveBeenCalledOnce();
+    const field = document.createElement("input");
+    container.appendChild(field);
+    expect(press(">", field, { shiftKey: true })).toBe(false);
   });
 
   it("scopes shortcuts to the player when navigating away and restores the article scope on return", () => {

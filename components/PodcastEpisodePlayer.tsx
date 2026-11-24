@@ -1,6 +1,7 @@
 "use client";
 
-import { usePlaybackRate, formatRate } from "@/hooks/usePlaybackRate";
+import { usePlaybackRate } from "@/hooks/usePlaybackRate";
+import { PlaybackSpeedControl } from "@/components/PlaybackSpeedControl";
 import { useAudioElement } from "@/hooks/useAudioElement";
 import { formatTime } from "@/lib/formatTime";
 
@@ -88,20 +89,7 @@ export const PodcastEpisodePlayer = ({
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            const rates = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
-            const currentIndex = rates.indexOf(rate);
-            setRate(rates[(currentIndex + 1) % rates.length]);
-          }}
-          aria-label={`Playback speed ${formatRate(rate)}. Activate to change.`}
-          className={`min-h-[44px] min-w-[44px] shrink-0 rounded-lg border border-border px-[10px] py-[8px] text-sm font-bold leading-none tabular-nums ${
-            rate !== 1 ? "text-accent" : "text-muted"
-          }`}
-        >
-          {formatRate(rate)}
-        </button>
+        <PlaybackSpeedControl rate={rate} onRateChange={setRate} />
       </div>
 
       <audio

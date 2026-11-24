@@ -31,10 +31,12 @@ describe("compact playback reflow", () => {
 
     expect(markup).toContain(longTitle);
     expect(markup).not.toContain("truncate");
-    expect(markup).toContain("min-h-[44px]");
+    // 44px play button and 44px speed buttons.
+    expect(markup).toContain("h-[44px] w-[44px]");
+    expect(markup).toContain("min-h-11 min-w-11");
   });
 
-  it("uses input-neutral speed guidance and lets briefing time wrap", () => {
+  it("names speed buttons by action and lets briefing time wrap", () => {
     const markup = renderToStaticMarkup(
       <DailyTrendingBriefPlayer
         audioUrl="/brief.mp3"
@@ -43,7 +45,8 @@ describe("compact playback reflow", () => {
       />,
     );
 
-    expect(markup).toContain("Activate to change.");
+    expect(markup).toContain('aria-label="Slower"');
+    expect(markup).toContain('aria-label="Faster"');
     expect(markup).not.toContain("Click to change.");
     expect(markup).toContain(
       "min-w-0 break-words font-mono text-xs text-muted tabular-nums [overflow-wrap:anywhere]",
