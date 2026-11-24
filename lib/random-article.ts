@@ -1,8 +1,8 @@
 import { isUnsuitableForRandom } from "@/lib/nsfw-filter";
+import { WIKIMEDIA_USER_AGENT } from "@/lib/wikimedia-client";
 
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
-export const RANDOM_ARTICLE_API_USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
+export const RANDOM_ARTICLE_API_USER_AGENT = WIKIMEDIA_USER_AGENT;
 export const MIN_RANDOM_ARTICLE_BYTES = 4_000;
 export const RANDOM_ARTICLE_TIMEOUT_MS = 8_000;
 

@@ -50,6 +50,7 @@ describe("filterSafeTitles", () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = new URL(String(input));
       expect(url.searchParams.get("formatversion")).toBe("2");
+      expect(url.searchParams.has("origin")).toBe(false);
       expect(url.searchParams.get("prop")).toBe("categories|pageprops");
       expect(url.searchParams.get("clshow")).toBe("!hidden");
       expect(url.searchParams.get("cllimit")).toBe("max");
@@ -220,7 +221,12 @@ describe("filterSafeTitles", () => {
     });
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(new Response(stream, { status: 429 }));
+      .mockResolvedValue(
+        new Response(stream, {
+          status: 429,
+          headers: { "Retry-After": "60" },
+        }),
+      );
 
     const safe = await filterSafeTitles(["Ada Lovelace"], {
       fetchImpl: fetchMock,
@@ -281,7 +287,12 @@ describe("filterSafeTitles", () => {
           }),
         ),
       )
-      .mockResolvedValueOnce(new Response("upstream unavailable", { status: 503 }));
+      .mockResolvedValueOnce(
+        new Response("upstream unavailable", {
+          status: 503,
+          headers: { "Retry-After": "60" },
+        }),
+      );
 
     const afterHttpError = await filterSafeTitles(
       ["Explicit Article", "Unfinished Article"],

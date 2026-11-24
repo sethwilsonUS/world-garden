@@ -11,13 +11,16 @@ import {
 import { filterSafeTitles } from "@/lib/nsfw-filter";
 import { createPublicAudioWriteAttestation } from "@/lib/public-audio-write-attestation";
 import {
+  extractActionApiPages,
+  fetchWikimediaActionApi,
+  isMissingActionApiPage,
+} from "@/lib/wikimedia-client";
+import {
   fetchWikimediaMediaAttributions,
   getWikimediaFileTitleFromUrl,
 } from "@/lib/wikimedia-media";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 const DYK_THUMBNAIL_BATCH_SIZE = 20;
 
 type TodaySnapshotRecord = {
@@ -78,37 +81,28 @@ const fetchDidYouKnowPageDetails = async (
 
   for (let i = 0; i < titles.length; i += DYK_THUMBNAIL_BATCH_SIZE) {
     const batch = titles.slice(i, i + DYK_THUMBNAIL_BATCH_SIZE);
-    const params = new URLSearchParams({
+    const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
       action: "query",
-      format: "json",
       titles: batch.join("|"),
       prop: "pageimages|info",
       piprop: "thumbnail",
       pithumbsize: "800",
       redirects: "1",
-      origin: "*",
-    });
-
-    const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-      headers: { "User-Agent": USER_AGENT },
     });
     if (!response.ok) continue;
 
     const data = await response.json();
     const pages =
-      (data.query?.pages as Record<
-        string,
-        {
-          missing?: unknown;
-          ns?: number;
-          pageid?: number | string;
-          title?: string;
-          thumbnail?: WikipediaFeaturedThumbnail;
-        }
-      >) ?? {};
+      extractActionApiPages<{
+        missing?: unknown;
+        ns?: number;
+        pageid?: number | string;
+        title?: string;
+        thumbnail?: WikipediaFeaturedThumbnail;
+      }>(data.query?.pages) ?? [];
 
-    for (const page of Object.values(pages)) {
-      if (page.missing !== undefined || page.ns !== 0 || !page.title) {
+    for (const page of pages) {
+      if (isMissingActionApiPage(page) || page.ns !== 0 || !page.title) {
         continue;
       }
       details.set(normalizeTitleKey(page.title), {

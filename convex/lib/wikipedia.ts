@@ -19,6 +19,13 @@ import {
   type BadgeKey,
 } from "../../lib/badges";
 import {
+  extractActionApiPages,
+  fetchWikimedia,
+  fetchWikimediaActionApi,
+  isMissingActionApiPage,
+  isWikimediaTimeoutError,
+} from "../../lib/wikimedia-client";
+import {
   fetchWikimediaMediaDetails,
   getAttributionForImageUrl,
   type WikimediaMediaAttribution,
@@ -27,8 +34,6 @@ import type { WikipediaRevisionIdentity } from "../../lib/wikipedia-contracts";
 
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 
 /** Keep related-article UI work bounded while preserving source order. */
 export const MAX_SECTION_LINK_SOURCE_TITLES = 250;
@@ -226,11 +231,8 @@ const fetchSummaryThumbnail = async (
   title: string,
 ): Promise<WikiThumbnail | undefined> => {
   try {
-    const response = await fetch(
+    const response = await fetchWikimedia(
       `${WIKI_REST_API}/page/summary/${encodeURIComponent(title)}`,
-      {
-        headers: { "User-Agent": USER_AGENT },
-      },
     );
     if (!response.ok) return undefined;
 
@@ -245,18 +247,12 @@ const fetchSummaryThumbnail = async (
 export const searchWikipedia = async (
   term: string,
 ): Promise<WikiSearchResult[]> => {
-  const params = new URLSearchParams({
+  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
     action: "query",
-    format: "json",
     list: "search",
     srsearch: term,
     srlimit: "10",
     srprop: "snippet",
-    origin: "*",
-  });
-
-  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
   });
 
   if (!response.ok) {
@@ -288,18 +284,12 @@ const articleTopicMatches = async (
   topics: string,
 ): Promise<boolean> => {
   const canonicalPageId = requirePageId(wikiPageId);
-  const params = new URLSearchParams({
+  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
     action: "query",
-    format: "json",
     list: "search",
     srsearch: `pageid:${canonicalPageId} articletopic:${topics}`,
     srlimit: "1",
     srwhat: "text",
-    origin: "*",
-  });
-
-  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
   });
 
   if (!response.ok) {
@@ -334,9 +324,8 @@ export const fetchArticleByPageId = async (
   pageId: string,
 ): Promise<WikiArticle> => {
   const canonicalPageId = requirePageId(pageId);
-  const params = new URLSearchParams({
+  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
     action: "query",
-    format: "json",
     pageids: canonicalPageId,
     prop: "extracts|revisions|info|pageimages",
     explaintext: "1",
@@ -345,11 +334,6 @@ export const fetchArticleByPageId = async (
     inprop: "url",
     piprop: "thumbnail",
     pithumbsize: "800",
-    origin: "*",
-  });
-
-  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
   });
 
   if (!response.ok) {
@@ -357,16 +341,23 @@ export const fetchArticleByPageId = async (
   }
 
   const data = await response.json();
-  const page = data.query?.pages?.[canonicalPageId];
+  const pages = extractActionApiPages(data.query?.pages) ?? [];
+  const page = pages.find(
+    (candidate) =>
+      normalizeMediaWikiNumericId(candidate.pageid) === canonicalPageId,
+  );
 
-  if (!page || page.missing !== undefined) {
+  if (!page || isMissingActionApiPage(page)) {
     throw new Error(`Wikipedia article not found: pageId ${canonicalPageId}`);
   }
 
-  const revision = page.revisions?.[0];
+  const revisions = page.revisions as
+    | Array<Record<string, unknown>>
+    | undefined;
+  const revision = revisions?.[0];
   const wikiPageId = requirePageId(page.pageid);
   const revisionId = requireRevisionId(revision?.revid);
-  const fullText = page.extract ?? "";
+  const fullText = (page.extract as string) ?? "";
   const contentText = cleanContentForTts(fullText);
   const thumbnail =
     (page.thumbnail as WikiThumbnail | undefined) ??
@@ -374,7 +365,7 @@ export const fetchArticleByPageId = async (
   const [{ summary, sections }, thumbnailAttribution] = await Promise.all([
     buildRevisionNarration({
       wikiPageId,
-      title: page.title,
+      title: page.title as string,
       revisionId,
       fullText,
     }),
@@ -383,10 +374,10 @@ export const fetchArticleByPageId = async (
 
   return {
     wikiPageId,
-    title: page.title,
+    title: page.title as string,
     language: "en",
     revisionId,
-    lastEdited: revision?.timestamp ?? new Date().toISOString(),
+    lastEdited: (revision?.timestamp as string) ?? new Date().toISOString(),
     summary,
     contentText,
     sections,
@@ -409,9 +400,8 @@ export const slugToTitle = (slug: string): string => {
 export const fetchArticleByTitle = async (
   title: string,
 ): Promise<WikiArticle> => {
-  const params = new URLSearchParams({
+  const response = await fetchWikimediaActionApi(WIKI_ACTION_API, {
     action: "query",
-    format: "json",
     titles: title,
     prop: "extracts|revisions|info|pageimages",
     explaintext: "1",
@@ -421,11 +411,6 @@ export const fetchArticleByTitle = async (
     piprop: "thumbnail",
     pithumbsize: "800",
     redirects: "1",
-    origin: "*",
-  });
-
-  const response = await fetch(`${WIKI_ACTION_API}?${params}`, {
-    headers: { "User-Agent": USER_AGENT },
   });
 
   if (!response.ok) {
@@ -433,10 +418,10 @@ export const fetchArticleByTitle = async (
   }
 
   const data = await response.json();
-  const pages = data.query?.pages ?? {};
-  const page = Object.values(pages)[0] as Record<string, unknown> | undefined;
+  const pages = extractActionApiPages(data.query?.pages) ?? [];
+  const page = pages[0];
 
-  if (!page || page.missing !== undefined) {
+  if (!page || isMissingActionApiPage(page)) {
     throw new Error(`Wikipedia article not found: "${title}"`);
   }
 
@@ -829,22 +814,27 @@ export const fetchSectionLinksByIndex = async (
         index,
         index + SECTION_LINKS_BATCH_SIZE,
       );
-      const qParams = new URLSearchParams({
-        action: "query",
-        format: "json",
-        titles: batch.join("|"),
-        prop: "description",
-        redirects: "1",
-        origin: "*",
-      });
       let qResponse: Response;
       try {
-        qResponse = await fetch(`${WIKI_ACTION_API}?${qParams}`, {
-          headers: { "User-Agent": USER_AGENT },
-          signal: timeoutController.signal,
-        });
+        qResponse = await fetchWikimediaActionApi(
+          WIKI_ACTION_API,
+          {
+            action: "query",
+            titles: batch.join("|"),
+            prop: "description",
+            redirects: "1",
+          },
+          {
+            signal: timeoutController.signal,
+            timeoutMs: SECTION_LINKS_TIMEOUT_MS,
+          },
+        );
       } catch (error) {
-        if (signal?.aborted || timedOut) throw error;
+        if (signal?.aborted) throw error;
+        if (timedOut || isWikimediaTimeoutError(error)) {
+          timedOut = true;
+          throw error;
+        }
         throw new MediaWikiSourceError({
           code: "http-error",
           message: "Resolving Wikipedia section links failed",
@@ -861,13 +851,17 @@ export const fetchSectionLinksByIndex = async (
 
       const qData = await readBoundedSectionLinkJson(qResponse);
       const queryData = isRecord(qData) ? qData.query : undefined;
-      const pages = isRecord(queryData) ? queryData.pages : undefined;
-      if (!isRecord(queryData) || !isRecord(pages)) {
+      const rawPages = isRecord(queryData) ? queryData.pages : undefined;
+      const pageValues = Array.isArray(rawPages)
+        ? rawPages
+        : isRecord(rawPages)
+          ? Object.values(rawPages)
+          : null;
+      if (!isRecord(queryData) || !pageValues) {
         throw invalidSectionLinkResponse(
           "Resolving Wikipedia section links returned no pages",
         );
       }
-      const pageValues = Object.values(pages);
       if (pageValues.length === 0 || pageValues.length > batch.length) {
         throw invalidSectionLinkResponse(
           "Resolving Wikipedia section links returned an invalid page count",

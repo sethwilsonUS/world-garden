@@ -1,5 +1,6 @@
-export const ARTWORK_IMAGE_USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
+import { WIKIMEDIA_USER_AGENT } from "./wikimedia-client";
+
+export const ARTWORK_IMAGE_USER_AGENT = WIKIMEDIA_USER_AGENT;
 export const ARTWORK_IMAGE_TIMEOUT_MS = 8_000;
 export const MAX_ARTWORK_IMAGE_BYTES = 15 * 1024 * 1024;
 

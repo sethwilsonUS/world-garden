@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ARTICLE_SECTION_NARRATION_VERSION } from "../../lib/section-narration";
 import { MediaWikiSourceError } from "../../lib/mediawiki-document";
+import { WIKIMEDIA_USER_AGENT } from "../../lib/wikimedia-client";
 import {
   cleanContentForTts,
   cleanSectionContent,
   createCacheableParsedPageData,
+  fetchArticleByPageId,
   fetchArticleByTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
   MAX_SECTION_LINK_SOURCE_TITLES,
   parseSections,
+  searchWikipedia,
   SECTION_LINKS_TIMEOUT_MS,
   slugToTitle,
   stripHtml,
@@ -21,6 +24,88 @@ afterEach(() => {
 });
 
 describe("Wikipedia title utilities", () => {
+  it("uses formatversion=2 without origin=* across search and pageid fetches", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              search: [{ pageid: 974, title: "Ada Lovelace", snippet: "Mathematician" }],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 974,
+                  ns: 0,
+                  title: "Ada Lovelace",
+                  extract: "Ada Lovelace was an English mathematician.",
+                  revisions: [{ revid: 42, timestamp: "2026-11-24T00:00:00Z" }],
+                  thumbnail: {
+                    source: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Ada.jpg",
+                    width: 400,
+                    height: 500,
+                  },
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 42,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  title: "File:Ada.jpg",
+                  imageinfo: [{ descriptionurl: "https://commons.wikimedia.org/wiki/File:Ada.jpg" }],
+                },
+              ],
+            },
+          }),
+        ),
+      );
+
+    const results = await searchWikipedia("Ada");
+    expect(results).toHaveLength(1);
+    expect(results[0]?.wikiPageId).toBe("974");
+
+    const article = await fetchArticleByPageId("974");
+    expect(article.title).toBe("Ada Lovelace");
+    expect(article.revisionId).toBe("42");
+
+    for (const [input, init] of fetchSpy.mock.calls) {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/w/api.php")) {
+        expect(url.searchParams.get("formatversion")).toBe("2");
+        expect(url.searchParams.has("origin")).toBe(false);
+      }
+      expect(init?.headers).toEqual(
+        expect.objectContaining({ "User-Agent": WIKIMEDIA_USER_AGENT }),
+      );
+    }
+  });
+
   it("converts titles and slugs without changing repeated spaces", () => {
     expect(titleToSlug("New  York City")).toBe("New__York_City");
     expect(slugToTitle("New__York_City")).toBe("New  York City");
@@ -681,7 +766,13 @@ describe("fetchSectionLinksByIndex", () => {
           }),
         ),
       )
-      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+      .mockImplementation(
+        async () =>
+          new Response("unavailable", {
+            status: 503,
+            headers: { "Retry-After": "60" },
+          }),
+      );
 
     await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toThrow(
       "Resolving Wikipedia section links failed: 503",
@@ -822,7 +913,13 @@ describe("fetchSectionLinksByIndex", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(parsedLinksResponse(titles))
       .mockResolvedValueOnce(linkQueryResponse(titles.slice(0, 50)))
-      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
+      .mockImplementation(
+        async () =>
+          new Response("unavailable", {
+            status: 503,
+            headers: { "Retry-After": "60" },
+          }),
+      );
 
     await expect(fetchSectionLinksByIndex(identity, "3")).rejects.toMatchObject(
       {
@@ -832,6 +929,46 @@ describe("fetchSectionLinksByIndex", () => {
       },
     );
     expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("sends formatversion=2 without origin=* and parses formatversion=2 page arrays", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(parsedLinksResponse(["Alpha", "Missing page"]))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 1,
+                  ns: 0,
+                  title: "Alpha",
+                  description: "First letter",
+                },
+                {
+                  ns: 0,
+                  title: "Missing page",
+                  missing: true,
+                },
+              ],
+            },
+          }),
+        ),
+      );
+
+    await expect(fetchSectionLinksByIndex(identity, "3")).resolves.toEqual([
+      { wikiPageId: "1", title: "Alpha", description: "First letter" },
+    ]);
+
+    for (const [input, init] of fetchSpy.mock.calls) {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("formatversion")).toBe("2");
+      expect(url.searchParams.has("origin")).toBe(false);
+      expect(init?.headers).toEqual(
+        expect.objectContaining({ "User-Agent": WIKIMEDIA_USER_AGENT }),
+      );
+    }
   });
 
   it("rejects after true partial progress when a later 200 batch is empty", async () => {

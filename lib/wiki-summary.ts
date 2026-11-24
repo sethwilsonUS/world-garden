@@ -1,6 +1,6 @@
+import { fetchWikimedia } from "./wikimedia-client";
+
 const WIKI_REST_API = "https://en.wikipedia.org/api/rest_v1";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 
 export type WikiSummary = {
   title: string;
@@ -27,10 +27,12 @@ export async function fetchWikiSummary(
 ): Promise<WikiSummary | null> {
   try {
     const title = encodeURIComponent(slugToTitle(slug));
-    const response = await fetch(`${WIKI_REST_API}/page/summary/${title}`, {
-      headers: { "User-Agent": USER_AGENT },
-      next: { revalidate: 3600 },
-    });
+    const response = await fetchWikimedia(
+      `${WIKI_REST_API}/page/summary/${title}`,
+      {
+        next: { revalidate: 3600 },
+      },
+    );
     if (!response.ok) return null;
 
     const data = await response.json();

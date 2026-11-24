@@ -2,6 +2,10 @@ import { parse, parseFragment, type DefaultTreeAdapterTypes } from "parse5";
 import { createMediaWikiSpecialSectionKey } from "../mediawiki-section-key";
 import { normalizeSafeCssColor } from "../safe-css-color";
 import {
+  fetchWikimediaActionApi,
+  isWikimediaTimeoutError,
+} from "../wikimedia-client";
+import {
   MEDIAWIKI_DOCUMENT_SCHEMA_VERSION,
   MediaWikiSourceError,
   normalizeMediaWikiNumericId,
@@ -31,8 +35,6 @@ import {
 export * from "./types";
 
 const WIKIPEDIA_API_PATH = "/w/api.php";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia reader)";
 const FETCH_TIMEOUT_MS = 25_000;
 const MAX_RESPONSE_BYTES = 15 * 1024 * 1024;
 const MAX_TABLE_ROWS = 2_000;
@@ -3023,30 +3025,26 @@ const fetchParseAttempt = async (
 ): Promise<ParsedSource> => {
   throwIfAborted(options.signal);
   const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = new URL(
-    `https://${request.language}.wikipedia.org${WIKIPEDIA_API_PATH}`,
-  );
+  const endpoint = `https://${request.language}.wikipedia.org${WIKIPEDIA_API_PATH}`;
   const params: Record<string, string> = {
     action: "parse",
-    format: "json",
-    formatversion: "2",
     oldid: request.revisionId,
     prop: format === "parsoid" ? "text|tocdata|revid" : "text|sections|revid",
     disableeditsection: "1",
     disablelimitreport: "1",
-    origin: "*",
   };
   if (format === "parsoid") params.parser = "parsoid";
-  endpoint.search = new URLSearchParams(params).toString();
 
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => timeoutController.abort(), FETCH_TIMEOUT_MS);
   const abort = () => timeoutController.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
   try {
-    const response = await fetchImpl(endpoint, {
-      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    const response = await fetchWikimediaActionApi(endpoint, params, {
+      fetchImpl,
+      headers: { Accept: "application/json" },
       signal: timeoutController.signal,
+      timeoutMs: FETCH_TIMEOUT_MS,
       cache: "no-store",
     });
     const payload = await readLimitedResponse(response);
@@ -3061,7 +3059,7 @@ const fetchParseAttempt = async (
       throw new MediaWikiSourceError({
         code: response.status === 404 ? "not-found" : "http-error",
         message: `Wikipedia parse request returned HTTP ${response.status}`,
-        retryable: response.status >= 500,
+        retryable: response.status === 429 || response.status >= 500,
         statusCode: response.status === 404 ? 404 : 502,
       });
     }
@@ -3077,7 +3075,8 @@ const fetchParseAttempt = async (
     if (error instanceof ParsoidRejectedError) throw error;
     if (error instanceof MediaWikiSourceError) throw error;
     const timedOut =
-      timeoutController.signal.aborted && !options.signal?.aborted;
+      !options.signal?.aborted &&
+      (timeoutController.signal.aborted || isWikimediaTimeoutError(error));
     throw new MediaWikiSourceError({
       code: timedOut ? "timeout" : "http-error",
       message: timedOut
