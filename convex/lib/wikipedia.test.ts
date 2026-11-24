@@ -6,6 +6,8 @@ import {
   WIKIMEDIA_USER_AGENT,
 } from "../../lib/wikimedia-client";
 import {
+  ARTICLE_COMBINED_QUERY_TIMEOUT_MS,
+  ARTICLE_QUERY_DEADLINE_MS,
   BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
   cleanContentForTts,
   cleanSectionContent,
@@ -13,6 +15,7 @@ import {
   fetchArticleBadgeKeys,
   fetchArticleByPageId,
   fetchArticleByTitle,
+  fetchArticleWithDocumentByPageId,
   fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
   fetchSectionLinksByIndex,
@@ -1248,6 +1251,218 @@ describe("fetchArticleBadgeKeys single-request topic classification", () => {
       { topic: "Culture.Biography.Biography*", score: 0.538 },
       { topic: "STEM.Mathematics", score: 0.62 },
     ]);
+  });
+
+  it("retries fetchArticleWithDocumentByTitle without cirrusdoc when the combined query fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const queryUrls: URL[] = [];
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "query") {
+        queryUrls.push(url);
+        if (queryUrls.length === 1) {
+          return new Response("cirrus backend unavailable", { status: 503 });
+        }
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 974,
+                  title: "Ada Lovelace",
+                  extract: "Ada Lovelace was an English mathematician.",
+                  revisions: [
+                    { revid: 42, timestamp: "2026-11-24T00:00:00Z" },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 42,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+
+    const fetched = await fetchArticleWithDocumentByTitle("Ada Lovelace");
+
+    expect(fetched.article.title).toBe("Ada Lovelace");
+    expect(fetched.article.wikiPageId).toBe("974");
+    expect(fetched.cirrusTopicPredictions).toBeUndefined();
+    expect(queryUrls).toHaveLength(2);
+    expect(queryUrls[0]?.searchParams.get("prop")).toContain("cirrusdoc");
+    expect(queryUrls[0]?.searchParams.get("cdincludes")).toBe("weighted_tags");
+    expect(queryUrls[1]?.searchParams.get("prop")).not.toContain("cirrusdoc");
+    expect(queryUrls[1]?.searchParams.get("cdincludes")).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries fetchArticleWithDocumentByPageId without cirrusdoc when the combined query returns an Action API error", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const queryUrls: URL[] = [];
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "query") {
+        queryUrls.push(url);
+        if (queryUrls.length === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: "cirrussearch-backend-error",
+                info: "Search backend temporarily unavailable",
+              },
+            }),
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            query: {
+              pages: [
+                {
+                  pageid: 974,
+                  title: "Ada Lovelace",
+                  extract: "Ada Lovelace was an English mathematician.",
+                  revisions: [
+                    { revid: 42, timestamp: "2026-11-24T00:00:00Z" },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+      if (url.searchParams.get("action") === "parse") {
+        return new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 42,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+
+    const fetched = await fetchArticleWithDocumentByPageId("974");
+
+    expect(fetched.article.title).toBe("Ada Lovelace");
+    expect(fetched.article.wikiPageId).toBe("974");
+    expect(fetched.cirrusTopicPredictions).toBeUndefined();
+    expect(queryUrls).toHaveLength(2);
+    expect(queryUrls[0]?.searchParams.get("prop")).toContain("cirrusdoc");
+    expect(queryUrls[0]?.searchParams.get("cdincludes")).toBe("weighted_tags");
+    expect(queryUrls[1]?.searchParams.get("prop")).not.toContain("cirrusdoc");
+    expect(queryUrls[1]?.searchParams.get("cdincludes")).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries without cirrusdoc within the shared deadline when the combined query stalls", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const queryUrls: URL[] = [];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (url.searchParams.get("action") === "query") {
+          queryUrls.push(url);
+          if (queryUrls.length === 1) {
+            return await new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            });
+          }
+          return new Response(
+            JSON.stringify({
+              query: {
+                pages: [
+                  {
+                    pageid: 974,
+                    title: "Ada Lovelace",
+                    extract: "Ada Lovelace was an English mathematician.",
+                    revisions: [
+                      { revid: 42, timestamp: "2026-11-24T00:00:00Z" },
+                    ],
+                  },
+                ],
+              },
+            }),
+          );
+        }
+        if (url.searchParams.get("action") === "parse") {
+          return new Response(
+            JSON.stringify({
+              parse: {
+                pageid: 974,
+                revid: 42,
+                title: "Ada Lovelace",
+                text: '<section data-mw-section-id="0"><p>Ada Lovelace was an English mathematician.</p></section>',
+                tocdata: { sections: [] },
+              },
+            }),
+          );
+        }
+        return new Response(JSON.stringify({}));
+      });
+
+      const pending = fetchArticleWithDocumentByTitle("Ada Lovelace");
+      await vi.advanceTimersByTimeAsync(ARTICLE_COMBINED_QUERY_TIMEOUT_MS);
+      const fetched = await pending;
+
+      expect(ARTICLE_COMBINED_QUERY_TIMEOUT_MS).toBeLessThan(
+        ARTICLE_QUERY_DEADLINE_MS,
+      );
+      expect(fetched.article.title).toBe("Ada Lovelace");
+      expect(fetched.cirrusTopicPredictions).toBeUndefined();
+      expect(queryUrls).toHaveLength(2);
+      expect(queryUrls[0]?.searchParams.get("prop")).toContain("cirrusdoc");
+      expect(queryUrls[1]?.searchParams.get("prop")).not.toContain("cirrusdoc");
+      expect(queryUrls[1]?.searchParams.get("cdincludes")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves Wikipedia fetch error status when both combined and article-only queries fail", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const queryUrls: URL[] = [];
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("action") === "query") {
+        queryUrls.push(url);
+        return new Response("upstream error", { status: 500 });
+      }
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+
+    await expect(
+      fetchArticleWithDocumentByTitle("Ada Lovelace"),
+    ).rejects.toThrow("Wikipedia fetch failed: 500");
+    expect(queryUrls).toHaveLength(2);
+    expect(queryUrls[0]?.searchParams.get("prop")).toContain("cirrusdoc");
+    expect(queryUrls[1]?.searchParams.get("prop")).not.toContain("cirrusdoc");
   });
 
   it("classifies topics in 1 Lift Wing outlink-topic-model request when cirrusdoc tags are absent", async () => {
