@@ -206,6 +206,8 @@ describe("Wikimedia media attribution", () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
       const url = new URL(String(input));
       expect(url.hostname).toBe("commons.wikimedia.org");
+      expect(url.searchParams.get("formatversion")).toBe("2");
+      expect(url.searchParams.has("origin")).toBe(false);
       expect(url.searchParams.get("iiurlwidth")).toBe("1600");
       expect(url.searchParams.get("iiprop")).toBe(
         "url|size|mime|extmetadata",
@@ -215,8 +217,8 @@ describe("Wikimedia media attribution", () => {
       return new Response(
         JSON.stringify({
           query: {
-            pages: {
-              "1": {
+            pages: [
+              {
                 title: "File:Example.jpg",
                 imagerepository: "local",
                 imageinfo: [
@@ -240,7 +242,7 @@ describe("Wikimedia media attribution", () => {
                   },
                 ],
               },
-            },
+            ],
           },
         }),
       );

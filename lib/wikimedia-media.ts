@@ -1,3 +1,8 @@
+import {
+  extractActionApiPages,
+  fetchWikimediaActionApi,
+} from "./wikimedia-client";
+
 export type WikimediaMediaAttribution = {
   creator?: string;
   credit?: string;
@@ -42,12 +47,8 @@ const WIKIMEDIA_MEDIA_HOSTNAMES = new Set([
 
 export const isWikimediaMediaHostname = (hostname: string): boolean =>
   WIKIMEDIA_MEDIA_HOSTNAMES.has(hostname.toLocaleLowerCase("en-US"));
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 const IMAGE_INFO_BATCH_SIZE = 20;
 const LIGHTBOX_RENDITION_WIDTH = 1_600;
-const DEFAULT_RETRY_DELAY_MS = 250;
-const MAX_RETRY_DELAY_MS = 5_000;
 export const WIKIMEDIA_MEDIA_TIMEOUT_MS = 8_000;
 
 export type WikimediaMediaRepository = "commons" | "enwiki";
@@ -207,116 +208,44 @@ const positiveDimension = (value: number | undefined): number | undefined =>
     ? value
     : undefined;
 
-const retryDelayMs = (response: Response): number | undefined => {
-  const retryAfter = response.headers.get("Retry-After")?.trim();
-  if (!retryAfter) return DEFAULT_RETRY_DELAY_MS;
-
-  const seconds = Number(retryAfter);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    const delay = seconds * 1_000;
-    return delay <= MAX_RETRY_DELAY_MS ? delay : undefined;
-  }
-
-  const retryAt = Date.parse(retryAfter);
-  if (Number.isNaN(retryAt)) return DEFAULT_RETRY_DELAY_MS;
-  const delay = Math.max(0, retryAt - Date.now());
-  return delay <= MAX_RETRY_DELAY_MS ? delay : undefined;
-};
-
-const waitForRetryDelay = (
-  delay: number,
-  signal?: AbortSignal,
-): Promise<void> => {
-  if (!signal) {
-    return new Promise((resolve) => setTimeout(resolve, delay));
-  }
-  if (signal.aborted) return Promise.reject(signal.reason);
-
-  return new Promise((resolve, reject) => {
-    const handleAbort = () => {
-      clearTimeout(timeout);
-      reject(signal.reason);
-    };
-    const timeout = setTimeout(() => {
-      signal.removeEventListener("abort", handleAbort);
-      resolve();
-    }, delay);
-    signal.addEventListener("abort", handleAbort, { once: true });
-  });
-};
-
-const fetchWithTimeout = async (
-  url: string,
-  fetchImpl: typeof fetch,
-  signal?: AbortSignal,
-): Promise<Response> => {
-  const controller = new AbortController();
-  const requestSignal = signal
-    ? AbortSignal.any([signal, controller.signal])
-    : controller.signal;
-  const timeout = setTimeout(
-    () => controller.abort(),
-    WIKIMEDIA_MEDIA_TIMEOUT_MS,
-  );
-  try {
-    return await fetchImpl(url, {
-      headers: { "User-Agent": USER_AGENT },
-      signal: requestSignal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
 const fetchImageInfoBatch = async (
   actionApi: string,
   sourceTitles: string[],
   fetchImpl: typeof fetch,
   options: { includeRendition: boolean; signal?: AbortSignal },
 ): Promise<{ ok: boolean; pages: ImageInfoPage[] }> => {
-  const params = new URLSearchParams({
+  const params: Record<string, string> = {
     action: "query",
-    format: "json",
     prop: "imageinfo",
     iiprop: options.includeRendition
       ? "url|size|mime|extmetadata"
       : "url|extmetadata",
     titles: sourceTitles.join("|"),
-    origin: "*",
     iiextmetadatalanguage: "en",
     iiextmetadatafilter:
       "ImageDescription|Artist|Credit|LicenseShortName|UsageTerms|LicenseUrl",
-  });
+  };
   if (options.includeRendition) {
-    params.set("iiurlwidth", String(LIGHTBOX_RENDITION_WIDTH));
+    params.iiurlwidth = String(LIGHTBOX_RENDITION_WIDTH);
   }
 
-  const url = `${actionApi}?${params}`;
   try {
-    let response = await fetchWithTimeout(url, fetchImpl, options.signal);
-    if (response.status === 429 || response.status === 503) {
-      const delay = retryDelayMs(response);
-      if (delay !== undefined) {
-        await waitForRetryDelay(delay, options.signal);
-        response = await fetchWithTimeout(url, fetchImpl, options.signal);
-      }
-    }
+    const response = await fetchWikimediaActionApi(actionApi, params, {
+      fetchImpl,
+      signal: options.signal,
+      timeoutMs: WIKIMEDIA_MEDIA_TIMEOUT_MS,
+      maxRetries: 1,
+    });
     if (!response.ok) return { ok: false, pages: [] };
 
     const payload = (await response.json()) as {
       query?: { pages?: unknown };
     };
-    const pages = payload.query?.pages;
-    if (!pages || typeof pages !== "object" || Array.isArray(pages)) {
+    const pages = extractActionApiPages<ImageInfoPage>(payload.query?.pages);
+    if (!pages) {
       return { ok: false, pages: [] };
     }
-    const values = Object.values(pages);
-    const validPages = values.filter(
-      (page): page is ImageInfoPage =>
-        Boolean(page) && typeof page === "object" && !Array.isArray(page),
-    );
-    if (validPages.length !== values.length) return { ok: false, pages: [] };
-    return { ok: true, pages: validPages };
+    return { ok: true, pages };
   } catch (error: unknown) {
     if (options.signal?.aborted) throw error;
     return { ok: false, pages: [] };

@@ -21,6 +21,10 @@ import {
   type OnThisDaySnapshot,
 } from "@/lib/on-this-day-contracts";
 import {
+  fetchWikimedia,
+  parseRetryAfterSeconds,
+} from "@/lib/wikimedia-client";
+import {
   buildWikimediaSourceFallback,
   fetchWikimediaMediaDetails,
   getWikimediaFileTitleFromUrl,
@@ -31,8 +35,6 @@ import {
 
 export const WIKIPEDIA_REST_ON_THIS_DAY =
   "https://en.wikipedia.org/api/rest_v1/feed/onthisday/all";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 export const WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS = 10_000;
 
 type FeedThumbnail = {
@@ -88,22 +90,6 @@ export class OnThisDayUpstreamError extends Error {
   }
 }
 
-const parseRetryAfterSeconds = (
-  headerValue: string | null,
-  nowMs = Date.now(),
-): number | undefined => {
-  if (!headerValue) return undefined;
-  const trimmed = headerValue.trim();
-  if (/^\d+$/u.test(trimmed)) {
-    return Math.max(0, Number(trimmed));
-  }
-  const parsedDate = Date.parse(trimmed);
-  if (!Number.isNaN(parsedDate)) {
-    return Math.max(0, Math.ceil((parsedDate - nowMs) / 1000));
-  }
-  return undefined;
-};
-
 const parseOnThisDayFeedPayload = (value: unknown): OnThisDayFeedPayload => {
   if (!isFeedRecord(value)) return {};
   const payload: OnThisDayFeedPayload = {};
@@ -116,37 +102,25 @@ const parseOnThisDayFeedPayload = (value: unknown): OnThisDayFeedPayload => {
 
 export const wikipediaRestOnThisDayProvider: OnThisDayProvider = {
   async fetchAll({ month, day }) {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS,
+    const response = await fetchWikimedia(
+      `${WIKIPEDIA_REST_ON_THIS_DAY}/${month}/${day}`,
+      {
+        headers: { Accept: "application/json" },
+        timeoutMs: WIKIPEDIA_ON_THIS_DAY_REQUEST_TIMEOUT_MS,
+      },
     );
-    try {
-      const response = await fetch(
-        `${WIKIPEDIA_REST_ON_THIS_DAY}/${month}/${day}`,
+    if (!response.ok) {
+      throw new OnThisDayUpstreamError(
+        `Wikipedia On This Day returned ${response.status} for ${month}-${day}`,
         {
-          headers: {
-            Accept: "application/json",
-            "User-Agent": USER_AGENT,
-          },
-          signal: controller.signal,
+          status: response.status,
+          retryAfterSeconds: parseRetryAfterSeconds(
+            response.headers.get("retry-after"),
+          ),
         },
       );
-      if (!response.ok) {
-        throw new OnThisDayUpstreamError(
-          `Wikipedia On This Day returned ${response.status} for ${month}-${day}`,
-          {
-            status: response.status,
-            retryAfterSeconds: parseRetryAfterSeconds(
-              response.headers.get("retry-after"),
-            ),
-          },
-        );
-      }
-      return parseOnThisDayFeedPayload(await response.json());
-    } finally {
-      clearTimeout(timeout);
     }
+    return parseOnThisDayFeedPayload(await response.json());
   },
 };
 

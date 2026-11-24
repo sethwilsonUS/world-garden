@@ -1,4 +1,10 @@
 import {
+  extractActionApiPages,
+  fetchWikimedia,
+  fetchWikimediaActionApi,
+  isMissingActionApiPage,
+} from "./wikimedia-client";
+import {
   fetchWikimediaMediaAttributions,
   getWikimediaFileTitleFromUrl,
   type WikimediaMediaAttribution,
@@ -8,10 +14,6 @@ const WIKI_FEATURED_API = "https://en.wikipedia.org/api/rest_v1/feed/featured";
 const WIKI_ACTION_API = "https://en.wikipedia.org/w/api.php";
 const WIKI_PAGEVIEWS_TOP_API =
   "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
-
-const WIKI_HEADERS = { "User-Agent": USER_AGENT } as const;
 const MAX_MOST_READ_STALE_DAYS = 2;
 const PAGEVIEWS_LOOKBACK_DAYS = 7;
 const PAGEVIEWS_CANDIDATE_LIMIT = 80;
@@ -303,9 +305,9 @@ const isPageviewsArticleCandidate = (title: string): boolean => {
 const fetchPageviewsTopPayload = async (
   date: Date,
 ): Promise<PageviewsTopPayload | null> => {
-  const res = await fetch(`${WIKI_PAGEVIEWS_TOP_API}/${formatPageviewsDate(date)}`, {
-    headers: WIKI_HEADERS,
-  });
+  const res = await fetchWikimedia(
+    `${WIKI_PAGEVIEWS_TOP_API}/${formatPageviewsDate(date)}`,
+  );
 
   if (res.status === 404) return null;
   if (!res.ok) {
@@ -325,9 +327,8 @@ const fetchTrendingArticleDetails = async (
 
   for (let i = 0; i < titles.length; i += batchSize) {
     const batch = titles.slice(i, i + batchSize);
-    const params = new URLSearchParams({
+    const res = await fetchWikimediaActionApi(WIKI_ACTION_API, {
       action: "query",
-      format: "json",
       titles: batch.join("|"),
       prop: "extracts|pageimages|info",
       exintro: "1",
@@ -336,11 +337,6 @@ const fetchTrendingArticleDetails = async (
       piprop: "thumbnail",
       pithumbsize: "800",
       redirects: "1",
-      origin: "*",
-    });
-
-    const res = await fetch(`${WIKI_ACTION_API}?${params}`, {
-      headers: WIKI_HEADERS,
     });
     if (!res.ok) {
       throw new Error(`Wikipedia page detail fetch returned ${res.status}`);
@@ -348,13 +344,12 @@ const fetchTrendingArticleDetails = async (
 
     const data = await res.json();
     const pages =
-      (data.query?.pages as Record<
-        string,
+      extractActionApiPages<
         FeaturedFeedArticlePayload & { missing?: unknown; ns?: number }
-      >) ?? {};
+      >(data.query?.pages) ?? [];
 
-    for (const page of Object.values(pages)) {
-      if (page.missing !== undefined || page.ns !== 0 || !page.title) {
+    for (const page of pages) {
+      if (isMissingActionApiPage(page) || page.ns !== 0 || !page.title) {
         continue;
       }
       details.set(normalizeTitleKey(page.title), page);
@@ -638,9 +633,7 @@ export const parseDidYouKnowItem = (
 const fetchFeaturedFeedPayload = async (
   feedDate: string,
 ): Promise<FeaturedFeedPayload> => {
-  const res = await fetch(`${WIKI_FEATURED_API}/${feedDate}`, {
-    headers: WIKI_HEADERS,
-  });
+  const res = await fetchWikimedia(`${WIKI_FEATURED_API}/${feedDate}`);
 
   if (!res.ok) {
     throw new Error(`Wikipedia feed returned ${res.status} for ${feedDate}`);

@@ -1,6 +1,6 @@
+import { fetchWikimediaActionApi } from "./wikimedia-client";
+
 const WIKI_API = "https://en.wikipedia.org/w/api.php";
-const USER_AGENT =
-  "CurioGarden/1.0 (https://curiogarden.org; accessibility-first Wikipedia audio reader)";
 
 // MediaWiki allows max 50 titles per query for non-bots.
 // Keep batches small so visible categories usually complete in one response.
@@ -118,10 +118,7 @@ function normalizeTitle(title: string): string {
   return title.replace(/_/g, " ").trim();
 }
 
-const cancelRejectedResponse = async (
-  response: Response,
-  controller: AbortController,
-): Promise<void> => {
+const cancelRejectedResponse = async (response: Response): Promise<void> => {
   try {
     await response.body?.cancel();
   } catch (error: unknown) {
@@ -130,7 +127,6 @@ const cancelRejectedResponse = async (
       error instanceof Error ? error.message : String(error),
     );
   }
-  controller.abort();
 };
 
 const extractContinuationParams = (
@@ -217,15 +213,12 @@ const fetchBatchSafetyMetadata = async (
   const timeoutMs = options.timeoutMs ?? NSFW_FILTER_TIMEOUT_MS;
   const baseParams: Record<string, string> = {
     action: "query",
-    format: "json",
-    formatversion: "2",
     prop: "categories|pageprops",
     titles: batch.join("|"),
     clshow: "!hidden",
     cllimit: "max",
     ppprop: "disambiguation",
     redirects: "1",
-    origin: "*",
   };
 
   const pagesByNormTitle = new Map<string, AccumulatedSafetyPage>();
@@ -247,23 +240,19 @@ const fetchBatchSafetyMetadata = async (
       : { status: "failed" };
 
   for (let pageIndex = 0; pageIndex < MAX_CONTINUATION_PAGES; pageIndex += 1) {
-    const params = new URLSearchParams(
-      continuation ? { ...baseParams, ...continuation } : baseParams,
-    );
-    const controller = new AbortController();
-    const requestSignal = options.signal
-      ? AbortSignal.any([options.signal, controller.signal])
-      : controller.signal;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const requestParams = continuation
+      ? { ...baseParams, ...continuation }
+      : baseParams;
 
     let payload: unknown;
     try {
-      const response = await fetchImpl(`${WIKI_API}?${params}`, {
-        headers: { "User-Agent": USER_AGENT },
-        signal: requestSignal,
+      const response = await fetchWikimediaActionApi(WIKI_API, requestParams, {
+        fetchImpl,
+        timeoutMs,
+        signal: options.signal,
       });
       if (!response.ok) {
-        await cancelRejectedResponse(response, controller);
+        await cancelRejectedResponse(response);
         return partialErrorResult();
       }
       payload = await response.json();
@@ -276,8 +265,6 @@ const fetchBatchSafetyMetadata = async (
         error instanceof Error ? error.message : String(error),
       );
       return partialErrorResult();
-    } finally {
-      clearTimeout(timeout);
     }
 
     if (!isRecord(payload) || payload.error !== undefined) {
