@@ -22,6 +22,7 @@ export const DEFAULT_WIKIMEDIA_MAX_RETRY_DELAY_MS = 5_000;
 export const DEFAULT_WIKIMEDIA_JITTER_RATIO = 0.2;
 
 const RETRYABLE_STATUS_CODES = new Set([429, 503]);
+const NULL_BODY_STATUS_CODES = new Set([101, 103, 204, 205, 304]);
 const wikimediaTimeoutErrors = new WeakSet<object>();
 
 export const isWikimediaTimeoutError = (error: unknown): boolean =>
@@ -84,8 +85,9 @@ export const isWikimediaApiPortalUrl = (input: string | URL): boolean => {
       parsed.protocol === "https:" &&
       parsed.hostname.toLocaleLowerCase("en-US") === WIKIMEDIA_API_PORTAL_HOST
     );
-  } catch {
-    return false;
+  } catch (error: unknown) {
+    if (error instanceof TypeError) return false;
+    throw error;
   }
 };
 
@@ -248,11 +250,205 @@ const waitForRetryDelay = (
 };
 
 const cancelAbandonedResponse = async (response: Response): Promise<void> => {
+  if (!response.body || response.body.locked) return;
+  await response.body.cancel().catch(() => undefined);
+};
+
+const releaseReaderLock = (
+  reader: ReadableStreamDefaultReader<Uint8Array> | null,
+): void => {
+  if (!reader) return;
   try {
-    await response.body?.cancel();
-  } catch {
-    // Best-effort cleanup of intermediate 429/503 response bodies before retry.
+    reader.releaseLock();
+  } catch (error: unknown) {
+    if (!(error instanceof TypeError)) {
+      throw error;
+    }
   }
+};
+
+const unrefTimer = (timer: ReturnType<typeof setTimeout>): void => {
+  if (
+    typeof timer === "object" &&
+    timer !== null &&
+    "unref" in timer &&
+    typeof (timer as { unref?: unknown }).unref === "function"
+  ) {
+    (timer as { unref: () => void }).unref();
+  }
+};
+
+const isValidResponseStatus = (status: number): boolean =>
+  Number.isInteger(status) && status >= 200 && status <= 599;
+
+const bindAttemptLifecycleToResponse = (
+  response: Response,
+  {
+    controller,
+    callerSignal,
+    hasTimedOut,
+    cleanup,
+    unrefTimeout,
+  }: {
+    controller: AbortController;
+    callerSignal?: AbortSignal;
+    hasTimedOut: () => boolean;
+    cleanup: () => void;
+    unrefTimeout: () => void;
+  },
+): Response => {
+  const originalBody = response.body;
+  if (
+    !originalBody ||
+    typeof originalBody.getReader !== "function" ||
+    response.bodyUsed ||
+    originalBody.locked ||
+    !isValidResponseStatus(response.status) ||
+    NULL_BODY_STATUS_CODES.has(response.status)
+  ) {
+    cleanup();
+    return response;
+  }
+
+  let settled = false;
+  let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null =
+    null;
+
+  const resolveAbortError = (): unknown => {
+    if (callerSignal?.aborted) {
+      return callerSignal.reason ?? createAbortError();
+    }
+    const reason: unknown = controller.signal.reason;
+    const error =
+      reason instanceof Error || reason instanceof DOMException
+        ? reason
+        : createAbortError();
+    if (hasTimedOut() && typeof error === "object" && error !== null) {
+      wikimediaTimeoutErrors.add(error);
+    }
+    return error;
+  };
+
+  const cleanupAll = () => {
+    controller.signal.removeEventListener("abort", handleAttemptAbort);
+    cleanup();
+  };
+
+  const cancelUpstreamBestEffort = (reason?: unknown) => {
+    const reader = upstreamReader;
+    if (reader) {
+      void reader
+        .cancel(reason)
+        .catch(() => undefined)
+        .finally(() => {
+          releaseReaderLock(reader);
+        });
+    } else if (!originalBody.locked) {
+      void originalBody.cancel(reason).catch(() => undefined);
+    }
+  };
+
+  const handleAttemptAbort = () => {
+    if (settled) return;
+    settled = true;
+    cleanupAll();
+    const error = resolveAbortError();
+    try {
+      streamController?.error(error);
+    } catch (streamError: unknown) {
+      if (!(streamError instanceof TypeError)) {
+        throw streamError;
+      }
+    }
+    cancelUpstreamBestEffort(error);
+  };
+
+  const wrappedBody = new ReadableStream<Uint8Array>({
+    start(ctrl) {
+      streamController = ctrl;
+    },
+    async pull(ctrl) {
+      if (settled) return;
+      if (controller.signal.aborted) {
+        handleAttemptAbort();
+        return;
+      }
+
+      try {
+        upstreamReader ??= originalBody.getReader();
+        const { done, value } = await upstreamReader.read();
+        if (settled) return;
+        if (done) {
+          settled = true;
+          cleanupAll();
+          releaseReaderLock(upstreamReader);
+          ctrl.close();
+          return;
+        }
+        if (value !== undefined) {
+          ctrl.enqueue(value);
+        }
+      } catch (error: unknown) {
+        if (settled) return;
+        settled = true;
+        cleanupAll();
+        if (
+          hasTimedOut() &&
+          !callerSignal?.aborted &&
+          error &&
+          typeof error === "object"
+        ) {
+          wikimediaTimeoutErrors.add(error);
+        }
+        releaseReaderLock(upstreamReader);
+        ctrl.error(error);
+      }
+    },
+    async cancel(reason) {
+      if (settled) return;
+      settled = true;
+      cleanupAll();
+      const reader = upstreamReader;
+      try {
+        if (reader) {
+          await reader.cancel(reason).catch(() => undefined);
+        } else if (!originalBody.locked) {
+          await originalBody.cancel(reason).catch(() => undefined);
+        }
+      } finally {
+        releaseReaderLock(reader);
+      }
+    },
+  });
+
+  controller.signal.addEventListener("abort", handleAttemptAbort, { once: true });
+  if (controller.signal.aborted) {
+    handleAttemptAbort();
+  } else {
+    unrefTimeout();
+  }
+
+  const wrappedResponse = new Response(wrappedBody, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+
+  if (response.url) {
+    Object.defineProperty(wrappedResponse, "url", {
+      value: response.url,
+      configurable: true,
+    });
+  }
+  if (response.redirected) {
+    Object.defineProperty(wrappedResponse, "redirected", {
+      value: response.redirected,
+      configurable: true,
+    });
+  }
+
+  return wrappedResponse;
 };
 
 /**
@@ -373,14 +569,24 @@ export const fetchWikimedia = async (
 
     const controller = new AbortController();
     let timedOut = false;
+    let cleanedUp = false;
     const onCallerAbort = () => controller.abort(callerSignal?.reason);
     callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
     const timeout = setTimeout(() => {
       timedOut = true;
-      controller.abort();
+      const timeoutError = createAbortError();
+      wikimediaTimeoutErrors.add(timeoutError);
+      controller.abort(timeoutError);
     }, timeoutMs);
+    const cleanupAttempt = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearTimeout(timeout);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
+    };
 
-    let response: Response;
+    let retryDelayMs: number | undefined;
+    let handedOffToResponse = false;
     try {
       const requestInit: RequestInit & { next?: NextFetchOptions } = {
         ...restInit,
@@ -388,7 +594,35 @@ export const fetchWikimedia = async (
         signal: controller.signal,
         ...(next !== undefined ? { next } : {}),
       };
-      response = await fetchImpl(targetUrl, requestInit);
+      const response = await fetchImpl(targetUrl, requestInit);
+
+      const shouldRetry =
+        attempt < maxRetries && RETRYABLE_STATUS_CODES.has(response.status);
+      retryDelayMs = shouldRetry
+        ? computeRetryDelayMs({
+            response,
+            attempt,
+            baseBackoffMs,
+            maxRetryDelayMs,
+            jitterRatio,
+            now,
+            random,
+          })
+        : undefined;
+
+      if (retryDelayMs === undefined) {
+        const boundResponse = bindAttemptLifecycleToResponse(response, {
+          controller,
+          callerSignal,
+          hasTimedOut: () => timedOut,
+          cleanup: cleanupAttempt,
+          unrefTimeout: () => unrefTimer(timeout),
+        });
+        handedOffToResponse = true;
+        return boundResponse;
+      }
+
+      await cancelAbandonedResponse(response);
     } catch (error: unknown) {
       if (
         timedOut &&
@@ -400,32 +634,12 @@ export const fetchWikimedia = async (
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
-      callerSignal?.removeEventListener("abort", onCallerAbort);
+      if (!handedOffToResponse) {
+        cleanupAttempt();
+      }
     }
 
-    if (
-      attempt >= maxRetries ||
-      !RETRYABLE_STATUS_CODES.has(response.status)
-    ) {
-      return response;
-    }
-
-    const delayMs = computeRetryDelayMs({
-      response,
-      attempt,
-      baseBackoffMs,
-      maxRetryDelayMs,
-      jitterRatio,
-      now,
-      random,
-    });
-    if (delayMs === undefined) {
-      return response;
-    }
-
-    await cancelAbandonedResponse(response);
-    await waitForRetryDelay(delayMs, callerSignal);
+    await waitForRetryDelay(retryDelayMs, callerSignal);
   }
 };
 

@@ -8,6 +8,7 @@ import {
   fetchWikimediaActionApi,
   isMissingActionApiPage,
   isWikimediaApiPortalUrl,
+  isWikimediaTimeoutError,
   parseRetryAfterMs,
   parseRetryAfterSeconds,
   WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV,
@@ -255,6 +256,229 @@ describe("lib/wikimedia-client", () => {
       });
       await vi.advanceTimersByTimeAsync(DEFAULT_WIKIMEDIA_TIMEOUT_MS);
       await expectation;
+    });
+
+    it("keeps the timeout active after headers arrive and aborts a stalled body read", async () => {
+      vi.useFakeTimers();
+      let upstreamCancelled = false;
+      const stalledBody = new ReadableStream<Uint8Array>({
+        pull() {
+          return new Promise(() => {});
+        },
+        cancel() {
+          upstreamCancelled = true;
+        },
+      });
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+        new Response(stalledBody, {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const response = await fetchWikimediaActionApi(
+        "https://en.wikipedia.org/w/api.php",
+        { action: "query", titles: "Ada Lovelace" },
+        {
+          fetchImpl: fetchMock,
+          timeoutMs: 1_500,
+        },
+      );
+
+      let caughtError: unknown;
+      const bodyRead = response.json().catch((error: unknown) => {
+        caughtError = error;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_499);
+      expect(caughtError).toBeUndefined();
+      expect(upstreamCancelled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await bodyRead;
+
+      expect(caughtError).toMatchObject({ name: "AbortError" });
+      expect(isWikimediaTimeoutError(caughtError)).toBe(true);
+      expect(upstreamCancelled).toBe(true);
+    });
+
+    it("propagates caller abort while reading a stalled response body after headers arrive", async () => {
+      vi.useFakeTimers();
+      const caller = new AbortController();
+      const reason = new DOMException("Caller stopped reading", "AbortError");
+      let upstreamCancelled = false;
+      const stalledBody = new ReadableStream<Uint8Array>({
+        pull() {
+          return new Promise(() => {});
+        },
+        cancel() {
+          upstreamCancelled = true;
+        },
+      });
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(stalledBody, { status: 200 }));
+
+      const response = await fetchWikimedia(
+        "https://en.wikipedia.org/api/rest_v1/feed/onthisday/all/11/24",
+        {
+          fetchImpl: fetchMock,
+          signal: caller.signal,
+          timeoutMs: 10_000,
+        },
+      );
+
+      let caughtError: unknown;
+      const bodyRead = response.text().catch((error: unknown) => {
+        caughtError = error;
+      });
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(caughtError).toBeUndefined();
+
+      caller.abort(reason);
+      await bodyRead;
+
+      expect(caughtError).toBe(reason);
+      expect(isWikimediaTimeoutError(caughtError)).toBe(false);
+      expect(upstreamCancelled).toBe(true);
+    });
+
+    it("preserves streaming reads and cleans up timers and caller abort listeners on completion, cancel, and stream error", async () => {
+      vi.useFakeTimers();
+
+      // 1. Normal completion cleans up caller listener and timeout.
+      {
+        const caller = new AbortController();
+        const removeSpy = vi.spyOn(caller.signal, "removeEventListener");
+        const fetchMock = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ ok: true }), { status: 200 }),
+          );
+
+        const response = await fetchWikimedia(
+          "https://en.wikipedia.org/w/api.php",
+          {
+            fetchImpl: fetchMock,
+            signal: caller.signal,
+            timeoutMs: 1_000,
+          },
+        );
+        expect(await response.json()).toEqual({ ok: true });
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+        expect(vi.getTimerCount()).toBe(0);
+      }
+
+      // 2. Bounded streaming read + early cancel cleans up upstream body, timer, and listener.
+      {
+        const caller = new AbortController();
+        const removeSpy = vi.spyOn(caller.signal, "removeEventListener");
+        let chunksEmitted = 0;
+        let upstreamCancelled = false;
+        const encoder = new TextEncoder();
+        const streamingBody = new ReadableStream<Uint8Array>({
+          pull(ctrl) {
+            chunksEmitted += 1;
+            ctrl.enqueue(encoder.encode(`chunk-${chunksEmitted}`));
+          },
+          cancel() {
+            upstreamCancelled = true;
+          },
+        });
+        const fetchMock = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(new Response(streamingBody, { status: 200 }));
+
+        const response = await fetchWikimedia(
+          "https://en.wikipedia.org/w/api.php",
+          {
+            fetchImpl: fetchMock,
+            signal: caller.signal,
+            timeoutMs: 1_000,
+          },
+        );
+        const reader = response.body?.getReader();
+        expect(reader).toBeDefined();
+        if (!reader) {
+          throw new Error("Expected wrapped response body reader");
+        }
+        const first = await reader.read();
+        expect(first.done).toBe(false);
+        expect(new TextDecoder().decode(first.value)).toBe("chunk-1");
+
+        await reader.cancel("size-limit");
+        expect(upstreamCancelled).toBe(true);
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+        expect(vi.getTimerCount()).toBe(0);
+      }
+
+      // 3. Upstream stream error cleans up timer and listener and is not misclassified as timeout.
+      {
+        const caller = new AbortController();
+        const removeSpy = vi.spyOn(caller.signal, "removeEventListener");
+        const streamFailure = new Error("socket reset");
+        const failingBody = new ReadableStream<Uint8Array>({
+          pull(ctrl) {
+            ctrl.error(streamFailure);
+          },
+        });
+        const fetchMock = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(new Response(failingBody, { status: 200 }));
+
+        const response = await fetchWikimedia(
+          "https://en.wikipedia.org/w/api.php",
+          {
+            fetchImpl: fetchMock,
+            signal: caller.signal,
+            timeoutMs: 1_000,
+          },
+        );
+        let caughtError: unknown;
+        try {
+          await response.text();
+        } catch (error: unknown) {
+          caughtError = error;
+        }
+        expect(caughtError).toBe(streamFailure);
+        expect(isWikimediaTimeoutError(caughtError)).toBe(false);
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+        expect(vi.getTimerCount()).toBe(0);
+      }
+
+      // 4. Unread response timing out cancels upstream body and cleans up without unhandled rejections.
+      {
+        const caller = new AbortController();
+        const removeSpy = vi.spyOn(caller.signal, "removeEventListener");
+        let upstreamCancelled = false;
+        const stalledBody = new ReadableStream<Uint8Array>({
+          pull() {
+            return new Promise(() => {});
+          },
+          cancel() {
+            upstreamCancelled = true;
+          },
+        });
+        const fetchMock = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(new Response(stalledBody, { status: 500 }));
+
+        const response = await fetchWikimedia(
+          "https://en.wikipedia.org/w/api.php",
+          {
+            fetchImpl: fetchMock,
+            signal: caller.signal,
+            timeoutMs: 1_000,
+          },
+        );
+        expect(response.status).toBe(500);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(upstreamCancelled).toBe(true);
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+        expect(vi.getTimerCount()).toBe(0);
+      }
     });
   });
 

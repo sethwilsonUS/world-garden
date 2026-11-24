@@ -217,8 +217,8 @@ describe("Wikimedia media attribution", () => {
       return new Response(
         JSON.stringify({
           query: {
-            pages: {
-              "1": {
+            pages: [
+              {
                 title: "File:Example.jpg",
                 imagerepository: "local",
                 imageinfo: [
@@ -242,7 +242,7 @@ describe("Wikimedia media attribution", () => {
                   },
                 ],
               },
-            },
+            ],
           },
         }),
       );
