@@ -534,6 +534,27 @@ export default defineSchema({
       "sectionTitle",
     ]),
 
+  relatedArticlesCache: defineTable({
+    wikiPageId: v.string(),
+    title: v.string(),
+    language: v.string(),
+    articles: v.array(
+      v.object({
+        wikiPageId: v.string(),
+        title: v.string(),
+        description: v.optional(v.string()),
+        thumbnail: v.optional(
+          v.object({
+            source: v.string(),
+            width: v.number(),
+            height: v.number(),
+          }),
+        ),
+      }),
+    ),
+    cachedAt: v.number(),
+  }).index("by_wikiPageId_language", ["wikiPageId", "language"]),
+
   featuredPodcastEpisodes: defineTable({
     featuredDate: v.string(),
     articleId: v.id("articles"),

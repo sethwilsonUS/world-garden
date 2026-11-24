@@ -39,6 +39,19 @@ export type WikipediaLinkedArticle = {
   description?: string;
 };
 
+export type WikipediaRelatedArticleThumbnail = {
+  source: string;
+  width: number;
+  height: number;
+};
+
+export type WikipediaRelatedArticle = {
+  wikiPageId: string;
+  title: string;
+  description?: string;
+  thumbnail?: WikipediaRelatedArticleThumbnail;
+};
+
 export type WikipediaCitation = {
   id: string;
   index: number;
@@ -83,6 +96,7 @@ export type LocalWikipediaRequest =
   | { operation: "search"; term: string }
   | { operation: "article"; slug: string }
   | { operation: "metadata"; identity: WikipediaRevisionIdentity }
+  | { operation: "related"; identity: WikipediaRevisionIdentity }
   | {
       operation: "section-links";
       identity: WikipediaRevisionIdentity;
@@ -97,6 +111,8 @@ export type LocalWikipediaResponseFor<Request extends LocalWikipediaRequest> =
       ? WikipediaArticle
       : Request extends { operation: "metadata" }
         ? WikipediaParsedPageData
-        : Request extends { operation: "section-links" }
-          ? WikipediaLinkedArticle[]
-          : never;
+        : Request extends { operation: "related" }
+          ? WikipediaRelatedArticle[]
+          : Request extends { operation: "section-links" }
+            ? WikipediaLinkedArticle[]
+            : never;

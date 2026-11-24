@@ -53,6 +53,7 @@ const dataValue = (
   getSectionLinks: async () => [],
   getSectionCitations: async () => [],
   getArticleImages,
+  getRelatedArticles: async () => [],
 });
 
 const identity = (

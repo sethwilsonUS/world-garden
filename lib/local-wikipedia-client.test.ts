@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   requestLocalWikipedia,
   requestLocalWikipediaMetadata,
+  requestLocalWikipediaRelatedArticles,
   resetLocalWikipediaClientCachesForTests,
 } from "./local-wikipedia-client";
 
@@ -229,5 +230,123 @@ describe("requestLocalWikipedia", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches related morelike articles in memory and sessionStorage and does not cache failures", async () => {
+    const storageMap = new Map<string, string>();
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: (key: string) => storageMap.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storageMap.set(key, value);
+        },
+        removeItem: (key: string) => {
+          storageMap.delete(key);
+        },
+        clear: () => {
+          storageMap.clear();
+        },
+      },
+    });
+
+    try {
+      const related = [
+        {
+          wikiPageId: "1271",
+          title: "Analytical engine",
+          description: "19th century proposed mechanical computer",
+        },
+      ];
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Upstream unavailable" }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ data: related }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+
+      const identity = {
+        wikiPageId: "974",
+        revisionId: "4200",
+        title: "Ada Lovelace",
+        language: "en",
+      } as const;
+
+      await expect(
+        requestLocalWikipediaRelatedArticles(identity),
+      ).rejects.toThrow("Upstream unavailable");
+      expect(storageMap.size).toBe(0);
+
+      await expect(
+        requestLocalWikipediaRelatedArticles(identity),
+      ).resolves.toEqual(related);
+      // Repeated request hits in-memory cache even on a newer revision ID.
+      await expect(
+        requestLocalWikipediaRelatedArticles({
+          ...identity,
+          revisionId: "4201",
+        }),
+      ).resolves.toEqual(related);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(storageMap.size).toBe(1);
+
+      // Clearing in-memory cache simulates a page reload; sessionStorage still serves it.
+      resetLocalWikipediaClientCachesForTests();
+      await expect(
+        requestLocalWikipediaRelatedArticles(identity),
+      ).resolves.toEqual(related);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("still loads related articles when the browser denies window.sessionStorage access", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const deniedWindow = {};
+    Object.defineProperty(deniedWindow, "sessionStorage", {
+      get() {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      },
+    });
+    vi.stubGlobal("window", deniedWindow);
+
+    try {
+      const related = [
+        {
+          wikiPageId: "1271",
+          title: "Analytical engine",
+          description: "19th century proposed mechanical computer",
+        },
+      ];
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: related }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+      const identity = {
+        wikiPageId: "974",
+        revisionId: "4200",
+        title: "Ada Lovelace",
+        language: "en",
+      } as const;
+
+      await expect(
+        requestLocalWikipediaRelatedArticles(identity),
+      ).resolves.toEqual(related);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -1,20 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useData, type WikipediaRevisionIdentity } from "@/lib/data-context";
+import {
+  useData,
+  type RelatedArticle,
+  type WikipediaRevisionIdentity,
+} from "@/lib/data-context";
 import { ArticleLink } from "@/components/ArticleLink";
 import { PlaylistActionButton } from "@/components/PlaylistActionButton";
 import { wikipediaRevisionKey } from "@/lib/wikipedia-utils";
 
-type LinkedArticle = {
-  wikiPageId: string;
-  title: string;
-  description?: string;
-};
-
 type RelatedArticlesState = {
   key: string;
-  articles: LinkedArticle[];
+  articles: RelatedArticle[];
   loading: boolean;
 };
 
@@ -29,7 +27,7 @@ export const RelatedArticles = ({
 }: {
   identity: WikipediaRevisionIdentity;
 }) => {
-  const { getSectionLinks } = useData();
+  const { getRelatedArticles } = useData();
   const { wikiPageId, revisionId, title, language } = identity;
   const identityKey = wikipediaRevisionKey(identity);
   const [state, setState] = useState<RelatedArticlesState>(() =>
@@ -40,15 +38,17 @@ export const RelatedArticles = ({
     const controller = new AbortController();
     const requestIdentity = { wikiPageId, revisionId, title, language };
 
-    getSectionLinks({
+    getRelatedArticles({
       identity: requestIdentity,
-      sectionTitle: null,
       signal: controller.signal,
     })
-      .then((links) => {
+      .then((related) => {
         if (controller.signal.aborted) return;
-        const filtered = links
-          .filter((link) => link.title !== title)
+        const filtered = related
+          .filter(
+            (article) =>
+              article.wikiPageId !== wikiPageId && article.title !== title,
+          )
           .slice(0, 5);
         setState({ key: identityKey, articles: filtered, loading: false });
       })
@@ -58,7 +58,7 @@ export const RelatedArticles = ({
       });
 
     return () => controller.abort();
-  }, [getSectionLinks, identityKey, language, revisionId, title, wikiPageId]);
+  }, [getRelatedArticles, identityKey, language, revisionId, title, wikiPageId]);
 
   const { articles, loading } =
     state.key === identityKey ? state : loadingState(identityKey);

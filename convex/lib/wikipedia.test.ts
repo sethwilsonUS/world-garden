@@ -5,11 +5,15 @@ import {
   WIKIMEDIA_OAUTH_ACCESS_TOKEN_ENV,
   WIKIMEDIA_USER_AGENT,
 } from "../../lib/wikimedia-client";
-import { WIKIMEDIA_THUMBNAIL_WIDTH } from "../../lib/wikimedia-media";
+import {
+  WIKIMEDIA_FEED_THUMBNAIL_WIDTH,
+  WIKIMEDIA_THUMBNAIL_WIDTH,
+} from "../../lib/wikimedia-media";
 import {
   ARTICLE_COMBINED_QUERY_TIMEOUT_MS,
   ARTICLE_QUERY_DEADLINE_MS,
   BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
+  buildMoreLikeSearchQuery,
   cleanContentForTts,
   cleanSectionContent,
   createCacheableParsedPageData,
@@ -19,6 +23,7 @@ import {
   fetchArticleWithDocumentByPageId,
   fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
+  fetchRelatedArticles,
   fetchSectionLinksByIndex,
   MAX_SECTION_LINK_SOURCE_TITLES,
   parseSections,
@@ -1731,5 +1736,222 @@ describe("fetchArticleBadgeKeys single-request topic classification", () => {
     expect(fallbackCalls).toBeLessThanOrEqual(
       BADGE_TOPIC_FALLBACK_MAX_CONCURRENCY,
     );
+  });
+});
+
+describe("fetchRelatedArticles CirrusSearch morelike:", () => {
+  it("builds unquoted morelike queries preserving colons and quotes", () => {
+    expect(buildMoreLikeSearchQuery("Ada_Lovelace")).toBe(
+      "morelike:Ada Lovelace",
+    );
+    expect(buildMoreLikeSearchQuery('Spider-Man: No Way Home')).toBe(
+      "morelike:Spider-Man: No Way Home",
+    );
+    expect(buildMoreLikeSearchQuery('"Weird Al"  Yankovic')).toBe(
+      'morelike:"Weird Al" Yankovic',
+    );
+  });
+
+  it("fetches related mainspace articles in 1 request, preserves relevance order, and filters self, disambiguation, and NSFW pages", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          continue: { gsroffset: 12, continue: "gsroffset||" },
+          query: {
+            pages: [
+              // Deliberately out of relevance order and alphabetically inverted
+              {
+                pageid: 5698,
+                ns: 0,
+                title: "Charles Babbage",
+                index: 5,
+                description: "English mathematician and inventor",
+                categories: [{ title: "Category:English mathematicians" }],
+              },
+              {
+                pageid: 70923477,
+                ns: 0,
+                title: "Note G",
+                index: 1,
+                description: "Computer algorithm",
+                thumbnail: {
+                  source:
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Note_G.jpg/500px-Note_G.jpg",
+                  width: 500,
+                  height: 350,
+                },
+                categories: [{ title: "Category:Algorithms" }],
+              },
+              {
+                pageid: 974,
+                ns: 0,
+                title: "Ada Lovelace",
+                index: 2,
+                description: "Self article should be excluded",
+                categories: [{ title: "Category:English mathematicians" }],
+              },
+              {
+                pageid: 3001,
+                ns: 0,
+                title: "Lovelace (disambiguation)",
+                index: 3,
+                description: "Topics referred to by the same term",
+                pageprops: { disambiguation: "" },
+                categories: [{ title: "Category:Disambiguation pages" }],
+              },
+              {
+                pageid: 3002,
+                ns: 0,
+                title: "Explicit Topic",
+                index: 4,
+                description: "Should be filtered out by NSFW category",
+                categories: [{ title: "Category:Pornography terminology" }],
+              },
+              {
+                pageid: 1271,
+                ns: 0,
+                title: "Analytical engine",
+                index: 6,
+                description: "19th century proposed mechanical computer",
+                categories: [{ title: "Category:Mechanical calculators" }],
+              },
+              {
+                pageid: 3003,
+                ns: 4,
+                title: "Wikipedia:Ada Lovelace Day",
+                index: 7,
+                description: "Project namespace page should be excluded",
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const results = await fetchRelatedArticles({
+      wikiPageId: "974",
+      title: "Ada Lovelace",
+      language: "en",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(url.hostname).toBe("en.wikipedia.org");
+    expect(url.searchParams.get("action")).toBe("query");
+    expect(url.searchParams.get("generator")).toBe("search");
+    expect(url.searchParams.get("gsrsearch")).toBe("morelike:Ada Lovelace");
+    expect(url.searchParams.get("gsrnamespace")).toBe("0");
+    expect(url.searchParams.get("prop")).toBe(
+      "description|pageimages|pageprops|categories",
+    );
+    expect(url.searchParams.get("ppprop")).toBe("disambiguation");
+    expect(url.searchParams.get("clshow")).toBe("!hidden");
+    expect(url.searchParams.get("cllimit")).toBe("max");
+    expect(url.searchParams.get("pithumbsize")).toBe(
+      String(WIKIMEDIA_FEED_THUMBNAIL_WIDTH),
+    );
+
+    // Relevance order preserved: index 1 ("Note G"), index 5 ("Charles Babbage"), index 6 ("Analytical engine")
+    expect(results).toEqual([
+      {
+        wikiPageId: "70923477",
+        title: "Note G",
+        description: "Computer algorithm",
+        thumbnail: {
+          source:
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Note_G.jpg/500px-Note_G.jpg",
+          width: 500,
+          height: 350,
+        },
+      },
+      {
+        wikiPageId: "5698",
+        title: "Charles Babbage",
+        description: "English mathematician and inventor",
+      },
+      {
+        wikiPageId: "1271",
+        title: "Analytical engine",
+        description: "19th century proposed mechanical computer",
+      },
+    ]);
+  });
+
+  it("fails closed on pages whose categories were truncated by clcontinue", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          continue: {
+            clcontinue: "5000|Category:Some_category",
+            continue: "||",
+          },
+          query: {
+            pages: [
+              {
+                pageid: 1271,
+                ns: 0,
+                title: "Analytical engine",
+                index: 1,
+                categories: [{ title: "Category:Mechanical calculators" }],
+              },
+              {
+                pageid: 5000,
+                ns: 0,
+                title: "Truncated Categories Page",
+                index: 2,
+                categories: [{ title: "Category:Safe so far" }],
+              },
+            ],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const results = await fetchRelatedArticles({
+      wikiPageId: "974",
+      title: "Ada Lovelace",
+      language: "en",
+    });
+
+    expect(results).toEqual([
+      {
+        wikiPageId: "1271",
+        title: "Analytical engine",
+      },
+    ]);
+  });
+
+  it("returns an empty array when morelike yields no matches and throws on upstream errors", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ batchcomplete: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response("service unavailable", {
+          status: 503,
+          headers: { "Retry-After": "60" },
+        }),
+      );
+
+    await expect(
+      fetchRelatedArticles({
+        wikiPageId: "974",
+        title: "Obscure Stub",
+        language: "en",
+      }),
+    ).resolves.toEqual([]);
+
+    await expect(
+      fetchRelatedArticles({
+        wikiPageId: "974",
+        title: "Ada Lovelace",
+        language: "en",
+      }),
+    ).rejects.toThrow("Wikipedia related articles search failed: 503");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,6 +4,7 @@ import {
   fetchArticleBadgeKeys,
   fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
+  fetchRelatedArticles,
   fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
   MAX_SECTION_LINK_SOURCE_TITLES,
@@ -16,6 +17,7 @@ import type {
   WikipediaArticle,
   WikipediaLinkedArticle,
   WikipediaParsedPageData,
+  WikipediaRelatedArticle,
   WikipediaRevisionIdentity,
 } from "@/lib/wikipedia-contracts";
 import {
@@ -31,9 +33,14 @@ import {
 const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 const MAX_PARSED_CACHE_ENTRIES = 32;
 const MAX_SECTION_LINK_CACHE_ENTRIES = 128;
+const MAX_RELATED_ARTICLES_CACHE_ENTRIES = 128;
 const parsedCache = new Map<string, Promise<WikipediaParsedPageData>>();
 const sectionLinkTitlesCache = new Map<string, SectionLinkTitles[]>();
 const sectionLinksCache = new Map<string, Promise<WikipediaLinkedArticle[]>>();
+const relatedArticlesCache = new Map<
+  string,
+  Promise<WikipediaRelatedArticle[]>
+>();
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -85,6 +92,9 @@ const parseRequest = (value: unknown): LocalWikipediaRequest | null => {
   if (!identity) return null;
   if (value.operation === "metadata") {
     return { operation: "metadata", identity };
+  }
+  if (value.operation === "related") {
+    return { operation: "related", identity };
   }
   if (
     value.operation === "section-links" &&
@@ -241,6 +251,35 @@ const getSectionLinks = (
   return pending;
 };
 
+const getRelatedArticles = (
+  identity: WikipediaRevisionIdentity,
+): Promise<WikipediaRelatedArticle[]> => {
+  const key = JSON.stringify([
+    identity.language,
+    identity.wikiPageId,
+    identity.title,
+  ]);
+  const cached = relatedArticlesCache.get(key);
+  if (cached) return cached;
+
+  const pending = fetchRelatedArticles(identity).catch((error: unknown) => {
+    if (relatedArticlesCache.get(key) === pending) {
+      relatedArticlesCache.delete(key);
+    }
+    throw error;
+  });
+  relatedArticlesCache.set(key, pending);
+  if (relatedArticlesCache.size > MAX_RELATED_ARTICLES_CACHE_ENTRIES) {
+    const oldestKey = relatedArticlesCache.keys().next().value as
+      | string
+      | undefined;
+    if (oldestKey && oldestKey !== key) {
+      relatedArticlesCache.delete(oldestKey);
+    }
+  }
+  return pending;
+};
+
 export const POST = async (request: Request) => {
   if (!localModeEnabled()) {
     return NextResponse.json(
@@ -316,6 +355,13 @@ export const POST = async (request: Request) => {
     if (input.operation === "metadata") {
       return NextResponse.json(
         { data: await getParsedPage(input.identity) },
+        { status: 200, headers: NO_CACHE_HEADERS },
+      );
+    }
+
+    if (input.operation === "related") {
+      return NextResponse.json(
+        { data: await getRelatedArticles(input.identity) },
         { status: 200, headers: NO_CACHE_HEADERS },
       );
     }

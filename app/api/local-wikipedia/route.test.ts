@@ -10,6 +10,7 @@ const {
   fetchArticleBadgeKeys,
   enrichParsedPageDataFromDocument,
   fetchParsedPageData,
+  fetchRelatedArticles,
   fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
 } = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ const {
   fetchArticleBadgeKeys: vi.fn(),
   enrichParsedPageDataFromDocument: vi.fn(),
   fetchParsedPageData: vi.fn(),
+  fetchRelatedArticles: vi.fn(),
   fetchSectionLinkDescriptions: vi.fn(),
   fetchSectionLinksByIndex: vi.fn(),
 }));
@@ -28,6 +30,7 @@ vi.mock("@/convex/lib/wikipedia", () => ({
   fetchArticleBadgeKeys,
   enrichParsedPageDataFromDocument,
   fetchParsedPageData,
+  fetchRelatedArticles,
   fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
   MAX_SECTION_LINK_SOURCE_TITLES: 100,
@@ -407,5 +410,35 @@ describe("POST /api/local-wikipedia", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(fetchSectionLinkDescriptions).not.toHaveBeenCalled();
     expect(fetchSectionLinksByIndex).toHaveBeenCalledWith(articleIdentity, "0");
+  });
+
+  it("caches related morelike articles per article in memory and evicts failed requests", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const relatedResults = [
+      {
+        wikiPageId: "1271",
+        title: "Analytical engine",
+        description: "19th century proposed mechanical computer",
+      },
+    ];
+    fetchRelatedArticles
+      .mockRejectedValueOnce(new Error("Upstream 503"))
+      .mockResolvedValueOnce(relatedResults);
+
+    const rev1 = identity("974", "4200");
+    const rev2 = identity("974", "4201");
+
+    const failed = await post({ operation: "related", identity: rev1 });
+    expect(failed.status).toBe(502);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+
+    const firstSuccess = await post({ operation: "related", identity: rev1 });
+    const cachedHit = await post({ operation: "related", identity: rev2 });
+
+    expect(firstSuccess.status).toBe(200);
+    expect(cachedHit.status).toBe(200);
+    await expect(firstSuccess.json()).resolves.toEqual({ data: relatedResults });
+    await expect(cachedHit.json()).resolves.toEqual({ data: relatedResults });
+    expect(fetchRelatedArticles).toHaveBeenCalledTimes(2);
   });
 });

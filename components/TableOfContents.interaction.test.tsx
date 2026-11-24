@@ -46,6 +46,7 @@ const dataValue = (
   getSectionLinks: async () => [],
   getSectionCitations: async () => [],
   getArticleImages: async () => [],
+  getRelatedArticles: async () => [],
   ...overrides,
 });
 

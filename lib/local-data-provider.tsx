@@ -5,6 +5,7 @@ import { DataContext, type DataContextValue } from "./data-context";
 import {
   requestLocalWikipedia,
   requestLocalWikipediaMetadata,
+  requestLocalWikipediaRelatedArticles,
 } from "@/lib/local-wikipedia-client";
 import { createCoalescedMetadataMethods } from "@/lib/wikipedia-metadata-client";
 
@@ -36,6 +37,9 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
           },
           signal,
         ),
+
+      getRelatedArticles: ({ identity, signal }) =>
+        requestLocalWikipediaRelatedArticles(identity, signal),
     }),
     [],
   );

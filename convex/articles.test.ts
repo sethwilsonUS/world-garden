@@ -11,6 +11,8 @@ import {
   getArticleImagesForCtx,
   getArticleMetadataForCtx,
   getParseCache,
+  getRelatedArticlesForCtx,
+  getRelatedArticlesFromCache,
   getWikipediaSectionLinksCacheKey,
   getSectionLinksForCtx,
   getSectionLinksFromCache,
@@ -1452,5 +1454,160 @@ describe("cold-article ingestion parse cache seeding and coalesced metadata", ()
     expect(article.summary).toContain("Ada Lovelace");
     expect(article.badgeKeys).toEqual(["history", "biography"]);
     expect(warnSpy).toHaveBeenCalled();
+  });
+});
+
+describe("getRelatedArticlesForCtx caching and graceful degradation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const sampleIdentity = {
+    wikiPageId: "974",
+    revisionId: "4200",
+    title: "Ada Lovelace",
+    language: "en",
+  };
+
+  it("caches related articles per article across revisions and serves subsequent visits without upstream calls", async () => {
+    const cacheByKey = new Map<
+      string,
+      {
+        wikiPageId: string;
+        title: string;
+        language: string;
+        articles: Array<{
+          wikiPageId: string;
+          title: string;
+          description?: string;
+          thumbnail?: { source: string; width: number; height: number };
+        }>;
+        cachedAt: number;
+      }
+    >();
+
+    const runQuery = vi.fn(async (ref: unknown, args: Record<string, unknown>) => {
+      if (getFunctionName(ref as never) === "articles:getRelatedArticlesFromCache") {
+        const key = `${args.wikiPageId}:${args.language}`;
+        const cached = cacheByKey.get(key);
+        return cached && cached.title === args.title ? cached : null;
+      }
+      throw new Error(`Unexpected query: ${getFunctionName(ref as never)}`);
+    });
+    const runMutation = vi.fn(
+      async (ref: unknown, args: Record<string, unknown>) => {
+        if (
+          getFunctionName(ref as never) ===
+          "articles:upsertRelatedArticlesCache"
+        ) {
+          const key = `${args.wikiPageId}:${args.language}`;
+          cacheByKey.set(key, {
+            wikiPageId: String(args.wikiPageId),
+            title: String(args.title),
+            language: String(args.language),
+            articles: args.articles as Array<{
+              wikiPageId: string;
+              title: string;
+              description?: string;
+              thumbnail?: { source: string; width: number; height: number };
+            }>,
+            cachedAt: Date.now(),
+          });
+          return undefined;
+        }
+        throw new Error(`Unexpected mutation: ${getFunctionName(ref as never)}`);
+      },
+    );
+
+    const fetchRelated = vi.fn(async () => [
+      {
+        wikiPageId: "1271",
+        title: "Analytical engine",
+        description: "19th century proposed mechanical computer",
+        thumbnail: {
+          source:
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Engine.jpg/500px-Engine.jpg",
+          width: 500,
+          height: 375,
+        },
+      },
+      {
+        wikiPageId: "5698",
+        title: "Charles Babbage",
+        description: "English mathematician and inventor",
+      },
+    ]);
+
+    const first = await getRelatedArticlesForCtx(
+      { runQuery, runMutation } as never,
+      sampleIdentity,
+      { fetchRelatedArticles: fetchRelated },
+    );
+    const second = await getRelatedArticlesForCtx(
+      { runQuery, runMutation } as never,
+      { ...sampleIdentity, revisionId: "4201" },
+      { fetchRelatedArticles: fetchRelated },
+    );
+
+    expect(first).toHaveLength(2);
+    expect(second).toEqual(first);
+    expect(fetchRelated).toHaveBeenCalledTimes(1);
+    expect(runMutation).toHaveBeenCalledTimes(1);
+  });
+
+  it("degrades gracefully to an empty list without caching when upstream morelike fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const runQuery = vi.fn(async () => null);
+    const runMutation = vi.fn();
+    const fetchRelated = vi.fn(async () => {
+      throw new Error("Wikipedia related articles search failed: 503");
+    });
+
+    const result = await getRelatedArticlesForCtx(
+      { runQuery, runMutation } as never,
+      sampleIdentity,
+      { fetchRelatedArticles: fetchRelated },
+    );
+
+    expect(result).toEqual([]);
+    expect(runMutation).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[articles] Failed to fetch related articles",
+      expect.objectContaining({
+        wikiPageId: "974",
+        title: "Ada Lovelace",
+      }),
+    );
+  });
+
+  it("invalidates relatedArticlesCache lookup when an article's title changes", async () => {
+    const handler = registeredInvoker(getRelatedArticlesFromCache);
+    const cachedRow = {
+      wikiPageId: "974",
+      title: "Old Title",
+      language: "en",
+      articles: [{ wikiPageId: "1271", title: "Analytical engine" }],
+      cachedAt: Date.now(),
+    };
+    const db = {
+      query: vi.fn(() => ({
+        withIndex: vi.fn(() => ({
+          first: vi.fn(async () => cachedRow),
+        })),
+      })),
+    };
+
+    await expect(
+      handler(
+        { db } as never,
+        { wikiPageId: "974", title: "Ada Lovelace", language: "en" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      handler(
+        { db } as never,
+        { wikiPageId: "974", title: "Old Title", language: "en" },
+      ),
+    ).resolves.toEqual(cachedRow);
   });
 });

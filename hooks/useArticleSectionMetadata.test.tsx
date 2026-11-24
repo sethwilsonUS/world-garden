@@ -56,6 +56,7 @@ const dataValue = (overrides: Partial<DataContextValue>): DataContextValue => ({
   getSectionLinks: async () => [],
   getSectionCitations: async () => [],
   getArticleImages: async () => [],
+  getRelatedArticles: async () => [],
   ...overrides,
 });
 
