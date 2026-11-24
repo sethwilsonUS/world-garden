@@ -39,6 +39,7 @@ describe("PlaybackSpeedControl", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   const button = (name: string) =>
@@ -102,12 +103,14 @@ describe("PlaybackSpeedControl", () => {
     expect(readout().textContent).toBe("1.2x");
   });
 
-  it("keeps focus at the limits and says why nothing changed", () => {
+  it("keeps focus at the limits and re-announces repeated limit presses", () => {
+    vi.useFakeTimers();
     const onRateChange = vi.fn();
     act(() =>
       root.render(<Harness initialRate={3.9} onRateChange={onRateChange} />),
     );
     const faster = button("Faster");
+    const statusRegion = status();
     faster.focus();
     act(() => faster.click());
     expect(readout().textContent).toBe("4x");
@@ -117,13 +120,51 @@ describe("PlaybackSpeedControl", () => {
     act(() => faster.click());
     expect(document.activeElement).toBe(faster);
     expect(onRateChange).toHaveBeenCalledTimes(1);
-    expect(status().textContent).toBe("Already at the fastest speed, 4x");
+    expect(statusRegion.textContent).toBe("Already at the fastest speed, 4x");
 
-    act(() => root.render(<Harness key="slow" initialRate={0.5} />));
+    // Repeating Faster at 4x clears and restores the mounted status region.
+    act(() => faster.click());
+    expect(document.activeElement).toBe(faster);
+    expect(onRateChange).toHaveBeenCalledTimes(1);
+    expect(status()).toBe(statusRegion);
+    expect(statusRegion.textContent).toBe("");
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(statusRegion.textContent).toBe("Already at the fastest speed, 4x");
+
+    // Newer feedback before the restore cancels the stale limit message.
+    act(() => faster.click());
+    expect(statusRegion.textContent).toBe("");
+    act(() => button("Slower").click());
+    expect(onRateChange).toHaveBeenLastCalledWith(3.9);
+    expect(statusRegion.textContent).toBe("Playback speed 3.9x");
+    act(() => {
+      vi.runAllTimers();
+    });
+    expect(statusRegion.textContent).toBe("Playback speed 3.9x");
+
+    const onSlowChange = vi.fn();
+    act(() =>
+      root.render(
+        <Harness key="slow" initialRate={0.5} onRateChange={onSlowChange} />,
+      ),
+    );
     const slower = button("Slower");
+    const slowStatus = status();
+    slower.focus();
     expect(slower.getAttribute("aria-disabled")).toBe("true");
     act(() => slower.click());
-    expect(status().textContent).toBe("Already at the slowest speed, 0.5x");
+    expect(slowStatus.textContent).toBe("Already at the slowest speed, 0.5x");
+    act(() => slower.click());
+    expect(document.activeElement).toBe(slower);
+    expect(onSlowChange).not.toHaveBeenCalled();
+    expect(status()).toBe(slowStatus);
+    expect(slowStatus.textContent).toBe("");
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(slowStatus.textContent).toBe("Already at the slowest speed, 0.5x");
   });
 
   it("stays within its row and keeps 44px targets at any text size", () => {

@@ -103,6 +103,7 @@ describe("NowPlayingBar", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("is visible only while a section is loading, playing, or paused", () => {
@@ -494,7 +495,8 @@ describe("NowPlayingBar", () => {
     expect(status?.textContent).toBe("");
   });
 
-  it("changes speed from the keyboard and announces it, including at the limits", () => {
+  it("changes speed from the keyboard and re-announces repeated limit presses", () => {
+    vi.useFakeTimers();
     const props = makeProps({ playbackRate: 3.9 });
     act(() => root.render(<NowPlayingBar {...props} />));
     const press = (key: string) =>
@@ -509,19 +511,38 @@ describe("NowPlayingBar", () => {
     const rateStatus = () =>
       Array.from(container.querySelectorAll("p[aria-live='polite']")).find(
         (region) => !region.hasAttribute("role"),
-      );
+      )!;
+    const liveRegion = rateStatus();
 
     act(() => press(">"));
     expect(props.onPlaybackRateChange).toHaveBeenCalledWith(4);
-    expect(rateStatus()?.textContent).toBe("Playback speed 4x");
+    expect(liveRegion.textContent).toBe("Playback speed 4x");
 
     act(() => root.render(<NowPlayingBar {...props} playbackRate={4} />));
     act(() => press(">"));
     expect(props.onPlaybackRateChange).toHaveBeenCalledTimes(1);
-    expect(rateStatus()?.textContent).toBe("Already at the fastest speed, 4x");
+    expect(liveRegion.textContent).toBe("Already at the fastest speed, 4x");
 
+    // A second Shift+> at 4x clears then restores the same live region.
+    act(() => press(">"));
+    expect(props.onPlaybackRateChange).toHaveBeenCalledTimes(1);
+    expect(rateStatus()).toBe(liveRegion);
+    expect(liveRegion.textContent).toBe("");
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(liveRegion.textContent).toBe("Already at the fastest speed, 4x");
+
+    // Stepping back before a pending restore cancels the stale limit text.
+    act(() => press(">"));
+    expect(liveRegion.textContent).toBe("");
     act(() => press("<"));
     expect(props.onPlaybackRateChange).toHaveBeenLastCalledWith(3.9);
+    expect(liveRegion.textContent).toBe("Playback speed 3.9x");
+    act(() => {
+      vi.runAllTimers();
+    });
+    expect(liveRegion.textContent).toBe("Playback speed 3.9x");
   });
 
   it("keeps the speed buttons beside the speed in the playback controls", () => {

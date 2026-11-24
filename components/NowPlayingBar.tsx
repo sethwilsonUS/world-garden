@@ -10,6 +10,7 @@ import {
   type CSSProperties,
   type RefObject,
 } from "react";
+import { useLiveAnnouncement } from "@/hooks/useLiveAnnouncement";
 import {
   describePlaybackRateChange,
   stepPlaybackRate,
@@ -208,7 +209,8 @@ export const NowPlayingBar = ({
   }, []);
   const controlsId = useId();
   const [minimized, setMinimized] = useState(readMinimized);
-  const [rateAnnouncement, setRateAnnouncement] = useState("");
+  const { announcement: rateAnnouncement, announce: announceRate } =
+    useLiveAnnouncement();
   // The section the listener asked for from this player, so it is announced
   // once it starts. Section buttons on the article confirm themselves.
   const [requestedSectionKey, setRequestedSectionKey] = useState<
@@ -322,9 +324,7 @@ export const NowPlayingBar = ({
   // Keyboard speed changes; the on-screen buttons announce their own.
   const nudgeSpeed = (direction: 1 | -1) => {
     const next = stepPlaybackRate(playbackRate, direction);
-    setRateAnnouncement(
-      describePlaybackRateChange(playbackRate, next, direction),
-    );
+    announceRate(describePlaybackRateChange(playbackRate, next, direction));
     if (next !== playbackRate) onPlaybackRateChange(next);
   };
 

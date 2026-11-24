@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
+import { useLiveAnnouncement } from "@/hooks/useLiveAnnouncement";
 import {
   MAX_PLAYBACK_RATE,
   MIN_PLAYBACK_RATE,
@@ -73,7 +74,7 @@ export const PlaybackSpeedControl = ({
   className = "",
 }: PlaybackSpeedControlProps) => {
   const readoutId = useId();
-  const [announcement, setAnnouncement] = useState("");
+  const { announcement, announce } = useLiveAnnouncement();
   // Two presses in one turn must step from the newest value, not a stale
   // prop; after each render the prop is the source of truth again.
   const rateRef = useRef(rate);
@@ -84,7 +85,7 @@ export const PlaybackSpeedControl = ({
   const step = (direction: 1 | -1) => {
     const previous = rateRef.current;
     const next = stepPlaybackRate(previous, direction);
-    setAnnouncement(describePlaybackRateChange(previous, next, direction));
+    announce(describePlaybackRateChange(previous, next, direction));
     if (next === previous) return;
     rateRef.current = next;
     onRateChange(next);
