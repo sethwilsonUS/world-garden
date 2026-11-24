@@ -179,11 +179,7 @@ const filterTrendingArticles = async (
 
   const candidateTitles = candidates.map((candidate) => candidate.title);
   const safeTitles = await filterSafeTitles(candidateTitles);
-  const filtered = candidates.filter((candidate) =>
-    safeTitles.has(candidate.title),
-  );
-
-  return filtered.length > 0 ? filtered : candidates;
+  return candidates.filter((candidate) => safeTitles.has(candidate.title));
 };
 
 const normalizeSnapshotData = async (
