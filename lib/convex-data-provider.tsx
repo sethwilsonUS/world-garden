@@ -14,6 +14,10 @@ import {
   DataContext,
   type DataContextValue,
 } from "./data-context";
+import {
+  createCoalescedMetadataMethods,
+  createRevisionMetadataClient,
+} from "./wikipedia-metadata-client";
 
 const convex = new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -52,11 +56,21 @@ const runAbortableAction = <Result,>(
 const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
   const searchAction = useAction(api.search.search);
   const fetchAndCacheBySlug = useAction(api.articles.fetchAndCacheBySlug);
-  const linkCountsAction = useAction(api.articles.getSectionLinkCounts);
-  const citationCountsAction = useAction(api.articles.getCitationCounts);
+  const articleMetadataAction = useAction(api.articles.getArticleMetadata);
   const sectionLinksAction = useAction(api.articles.getSectionLinks);
-  const sectionCitationsAction = useAction(api.articles.getSectionCitations);
-  const articleImagesAction = useAction(api.articles.getArticleImages);
+
+  const metadataClient = useMemo(
+    () =>
+      createRevisionMetadataClient((identity) =>
+        articleMetadataAction({
+          wikiPageId: identity.wikiPageId,
+          revisionId: identity.revisionId,
+          title: identity.title,
+          language: identity.language,
+        }),
+      ),
+    [articleMetadataAction],
+  );
 
   const value = useMemo<DataContextValue>(
     () => ({
@@ -67,33 +81,23 @@ const ConvexDataProviderInner = ({ children }: { children: ReactNode }) => {
         return result;
       },
 
-      getSectionLinkCounts: ({ identity, signal }) =>
-        runAbortableAction(() => linkCountsAction(identity), signal),
-      getCitationCounts: ({ identity, signal }) =>
-        runAbortableAction(() => citationCountsAction(identity), signal),
+      ...createCoalescedMetadataMethods(metadataClient),
+
       getSectionLinks: ({ identity, sectionTitle, sectionIndex, signal }) =>
         runAbortableAction(
-          () => sectionLinksAction({ ...identity, sectionTitle, sectionIndex }),
-          signal,
-        ),
-      getSectionCitations: ({ identity, sectionTitle, sectionIndex, signal }) =>
-        runAbortableAction(
           () =>
-            sectionCitationsAction({ ...identity, sectionTitle, sectionIndex }),
+            sectionLinksAction({
+              wikiPageId: identity.wikiPageId,
+              revisionId: identity.revisionId,
+              title: identity.title,
+              language: identity.language,
+              sectionTitle,
+              sectionIndex,
+            }),
           signal,
         ),
-      getArticleImages: ({ identity, signal }) =>
-        runAbortableAction(() => articleImagesAction(identity), signal),
     }),
-    [
-      searchAction,
-      fetchAndCacheBySlug,
-      linkCountsAction,
-      citationCountsAction,
-      sectionLinksAction,
-      sectionCitationsAction,
-      articleImagesAction,
-    ],
+    [searchAction, fetchAndCacheBySlug, metadataClient, sectionLinksAction],
   );
 
   return (

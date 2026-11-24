@@ -387,6 +387,14 @@ export default defineSchema({
     sectionIndexMap: v.array(
       v.object({ title: v.string(), index: v.string() }),
     ),
+    sectionLinkTitles: v.optional(
+      v.array(
+        v.object({
+          index: v.string(),
+          titles: v.array(v.string()),
+        }),
+      ),
+    ),
     images: v.optional(
       v.array(
         v.object({

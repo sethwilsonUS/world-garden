@@ -6,7 +6,7 @@ import {
   requestLocalWikipedia,
   requestLocalWikipediaMetadata,
 } from "@/lib/local-wikipedia-client";
-import { findWikipediaSectionMetadata } from "@/lib/wikipedia-utils";
+import { createCoalescedMetadataMethods } from "@/lib/wikipedia-metadata-client";
 
 export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
   const value = useMemo<DataContextValue>(
@@ -22,19 +22,9 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
       fetchArticle: ({ slug }) =>
         requestLocalWikipedia({ operation: "article", slug }),
 
-      getSectionLinkCounts: async ({ identity, signal }) => {
-        const data = await requestLocalWikipediaMetadata(identity, signal);
-        return data.linkCounts;
-      },
-
-      getCitationCounts: async ({ identity, signal }) => {
-        const data = await requestLocalWikipediaMetadata(identity, signal);
-        return data.sectionCitations.map(({ index, title, count }) => ({
-          ...(index !== undefined ? { index } : {}),
-          title,
-          count,
-        }));
-      },
+      ...createCoalescedMetadataMethods({
+        requestMetadata: requestLocalWikipediaMetadata,
+      }),
 
       getSectionLinks: ({ identity, sectionTitle, sectionIndex, signal }) =>
         requestLocalWikipedia(
@@ -46,28 +36,6 @@ export const LocalDataProvider = ({ children }: { children: ReactNode }) => {
           },
           signal,
         ),
-
-      getSectionCitations: async ({
-        identity,
-        sectionTitle,
-        sectionIndex,
-        signal,
-      }) => {
-        const data = await requestLocalWikipediaMetadata(identity, signal);
-        const sectionInfo = findWikipediaSectionMetadata(
-          data.sectionCitations,
-          { sectionTitle, sectionIndex },
-        );
-        if (!sectionInfo) return [];
-
-        const idSet = new Set(sectionInfo.citationIds);
-        return data.citations.filter((c) => idSet.has(c.id));
-      },
-
-      getArticleImages: async ({ identity, signal }) => {
-        const data = await requestLocalWikipediaMetadata(identity, signal);
-        return data.images;
-      },
     }),
     [],
   );

@@ -82,6 +82,22 @@ describe("loadMediaWikiDocument", () => {
     );
   });
 
+  it("allows standard HTTP caching for immutable revision-pinned oldid parse requests", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse(
+        parsoidPayload(
+          '<section data-mw-section-id="0"><p>Lead prose.</p></section>',
+        ),
+      ),
+    );
+
+    await loadMediaWikiDocument(request, { fetchImpl });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const requestInit = fetchImpl.mock.calls[0]?.[1];
+    expect(requestInit?.cache).not.toBe("no-store");
+  });
+
   it("rejects a pre-aborted request before starting a parse fetch", async () => {
     const controller = new AbortController();
     const reason = new DOMException("Request cancelled", "AbortError");

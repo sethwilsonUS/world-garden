@@ -1,11 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getFunctionName } from "convex/server";
 import {
   ARTICLE_PARSE_MEDIA_CACHE_VERSION,
   ARTICLE_CACHE_TTL_MS,
   canPersistNormalizedCachedNarration,
   cachedArticleToFetchResult,
   canonicalizeWikipediaRevisionIdentity,
+  fetchAndCacheBySlugForCtx,
+  fetchAndCacheForCtx,
   getArticleImagesForCtx,
+  getArticleMetadataForCtx,
   getParseCache,
   getWikipediaSectionLinksCacheKey,
   getSectionLinksForCtx,
@@ -736,5 +740,557 @@ describe("hasCompleteArticleParseSectionIdentity", () => {
         sectionCitations: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("cold-article ingestion parse cache seeding and coalesced metadata", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const createInMemoryArticleCtx = ({
+    failUpsertParseCache = false,
+  }: {
+    failUpsertParseCache?: boolean;
+  } = {}) => {
+    const articlesByPageId = new Map<string, Record<string, unknown>>();
+    const articlesBySlug = new Map<string, Record<string, unknown>>();
+    const parseCacheByKey = new Map<string, Record<string, unknown>>();
+    const sectionLinksCacheByKey = new Map<string, Record<string, unknown>>();
+    const parseCacheKey = (wikiPageId: string, revisionId: string) =>
+      `${wikiPageId}:${revisionId}`;
+    const sectionLinksKey = (
+      wikiPageId: string,
+      revisionId: string,
+      sectionTitle: string,
+    ) => `${wikiPageId}:${revisionId}:${sectionTitle}`;
+
+    const runQuery = vi.fn(async (ref: unknown, args: Record<string, unknown>) => {
+      const name = getFunctionName(ref as never);
+      if (name === "articles:getCachedArticleBySlug") {
+        return articlesBySlug.get(String(args.slug)) ?? null;
+      }
+      if (
+        name === "articles:getCachedArticleByWikiPageId" ||
+        name === "articles:getExistingArticleForRefresh"
+      ) {
+        return articlesByPageId.get(String(args.wikiPageId)) ?? null;
+      }
+      if (name === "articles:getParseCache") {
+        const cached =
+          parseCacheByKey.get(
+            parseCacheKey(String(args.wikiPageId), String(args.revisionId)),
+          ) ?? null;
+        return isWikipediaRevisionCacheIdentityCompatible(
+          cached as never,
+          args as never,
+        )
+          ? cached
+          : null;
+      }
+      if (name === "articles:getSectionLinksFromCache") {
+        const cached =
+          sectionLinksCacheByKey.get(
+            sectionLinksKey(
+              String(args.wikiPageId),
+              String(args.revisionId),
+              String(args.sectionTitle),
+            ),
+          ) ?? null;
+        return isWikipediaRevisionCacheIdentityCompatible(
+          cached as never,
+          args as never,
+        )
+          ? cached
+          : null;
+      }
+      throw new Error(`Unexpected query: ${name}`);
+    });
+
+    const runMutation = vi.fn(
+      async (ref: unknown, args: Record<string, unknown>) => {
+        const name = getFunctionName(ref as never);
+        if (name === "articles:upsertArticle") {
+          const row = { _id: "article-doc-1", ...args };
+          articlesByPageId.set(String(args.wikiPageId), row);
+          articlesBySlug.set(String(args.slug), row);
+          return "article-doc-1";
+        }
+        if (name === "articles:upsertParseCache") {
+          if (failUpsertParseCache) {
+            throw new Error("Simulated parse cache write failure");
+          }
+          const row = {
+            ...args,
+            mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
+            cachedAt: Date.now(),
+          };
+          parseCacheByKey.set(
+            parseCacheKey(String(args.wikiPageId), String(args.revisionId)),
+            row,
+          );
+          return undefined;
+        }
+        if (name === "articles:upsertSectionLinksCache") {
+          const row = {
+            ...args,
+            cachedAt: Date.now(),
+          };
+          sectionLinksCacheByKey.set(
+            sectionLinksKey(
+              String(args.wikiPageId),
+              String(args.revisionId),
+              String(args.sectionTitle),
+            ),
+            row,
+          );
+          return undefined;
+        }
+        throw new Error(`Unexpected mutation: ${name}`);
+      },
+    );
+
+    return {
+      ctx: { runQuery, runMutation },
+      articlesByPageId,
+      parseCacheByKey,
+      runQuery,
+      runMutation,
+    };
+  };
+
+  const mockColdWikipediaResponses = ({
+    parseOverride,
+  }: {
+    parseOverride?: () => Response;
+  } = {}) => {
+    let parseRequestCount = 0;
+    let commonsImageInfoCount = 0;
+
+    const parsoidHtml = [
+      '<section data-mw-section-id="0">',
+      '<p>Ada Lovelace was an <a rel="mw:WikiLink" href="./England" title="England">English</a> mathematician.<sup class="reference"><a href="#cite_note-1">[1]</a></sup></p>',
+      '<figure typeof="mw:File/Thumb">',
+      '<a href="./File:Ada_portrait.jpg" class="mw-file-description">',
+      '<img src="//upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/330px-Ada_portrait.jpg" width="330" height="440" alt="Portrait of Ada Lovelace" resource="./File:Ada_portrait.jpg" />',
+      "</a>",
+      "<figcaption>Portrait of Ada Lovelace in 1840.</figcaption>",
+      "</figure>",
+      "</section>",
+      '<section data-mw-section-id="1">',
+      '<h2 id="Early_life">Early life</h2>',
+      '<p>She studied <a rel="mw:WikiLink" href="./Mathematics" title="Mathematics">mathematics</a> and <a rel="mw:WikiLink" href="./Logic" title="Logic">logic</a>.</p>',
+      "</section>",
+      '<section data-mw-section-id="2">',
+      '<h2 id="References">References</h2>',
+      '<ol class="references"><li id="cite_note-1"><span class="reference-text">Biographical note on Ada Lovelace.</span></li></ol>',
+      "</section>",
+    ].join("");
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (
+          url.hostname === "en.wikipedia.org" &&
+          url.searchParams.get("action") === "query" &&
+          url.searchParams.get("prop") === "description"
+        ) {
+          const titles = (url.searchParams.get("titles") ?? "")
+            .split("|")
+            .filter(Boolean);
+          const catalog: Record<
+            string,
+            { pageid: number; ns: number; title: string; description: string }
+          > = {
+            England: {
+              pageid: 9316,
+              ns: 0,
+              title: "England",
+              description: "Country in north-west Europe",
+            },
+            Mathematics: {
+              pageid: 18831,
+              ns: 0,
+              title: "Mathematics",
+              description: "Area of knowledge",
+            },
+            Logic: {
+              pageid: 17867,
+              ns: 0,
+              title: "Logic",
+              description: "Study of correct reasoning",
+            },
+          };
+          return new Response(
+            JSON.stringify({
+              query: {
+                pages: titles.map(
+                  (title, idx) =>
+                    catalog[title] ?? {
+                      pageid: 50_000 + idx,
+                      ns: 0,
+                      title,
+                      description: `Description for ${title}`,
+                    },
+                ),
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (
+          url.hostname === "en.wikipedia.org" &&
+          url.searchParams.get("action") === "query"
+        ) {
+          return new Response(
+            JSON.stringify({
+              query: {
+                pages: [
+                  {
+                    pageid: 974,
+                    title: "Ada Lovelace",
+                    extract: [
+                      "Ada Lovelace was an English mathematician.",
+                      "== Early life ==",
+                      "She studied mathematics and logic.",
+                      "== References ==",
+                      "Biographical note on Ada Lovelace.",
+                    ].join("\n\n"),
+                    revisions: [
+                      { revid: 4200, timestamp: "2026-11-24T00:00:00Z" },
+                    ],
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (
+          url.hostname === "en.wikipedia.org" &&
+          url.pathname.startsWith("/api/rest_v1/page/summary/")
+        ) {
+          return new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        if (
+          url.hostname === "en.wikipedia.org" &&
+          url.searchParams.get("action") === "parse"
+        ) {
+          parseRequestCount += 1;
+          if (parseOverride) return parseOverride();
+          return new Response(
+            JSON.stringify({
+              parse: {
+                pageid: 974,
+                revid: 4200,
+                title: "Ada Lovelace",
+                text: parsoidHtml,
+                tocdata: {
+                  sections: [
+                    { index: "1", line: "Early life", level: 2 },
+                    { index: "2", line: "References", level: 2 },
+                  ],
+                },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        if (
+          url.hostname === "commons.wikimedia.org" &&
+          url.searchParams.get("prop") === "imageinfo"
+        ) {
+          commonsImageInfoCount += 1;
+          return new Response(
+            JSON.stringify({
+              query: {
+                pages: [
+                  {
+                    title: "File:Ada portrait.jpg",
+                    imagerepository: "local",
+                    imageinfo: [
+                      {
+                        url: "https://upload.wikimedia.org/wikipedia/commons/a/ab/Ada_portrait.jpg",
+                        width: 2400,
+                        height: 3200,
+                        thumburl:
+                          "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/1600px-Ada_portrait.jpg",
+                        thumbwidth: 1600,
+                        thumbheight: 2133,
+                        descriptionurl:
+                          "https://commons.wikimedia.org/wiki/File:Ada_portrait.jpg",
+                        extmetadata: {
+                          Artist: { value: "Alfred Edward Chalon" },
+                          LicenseShortName: { value: "Public domain" },
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        throw new Error(`Unexpected fetch URL in test: ${url.toString()}`);
+      });
+
+    return {
+      fetchSpy,
+      getParseRequestCount: () => parseRequestCount,
+      getCommonsImageInfoCount: () => commonsImageInfoCount,
+    };
+  };
+
+  it("triggers at most one action=parse across cold slug ingestion plus metadata and gallery reads", async () => {
+    const { ctx, parseCacheByKey } = createInMemoryArticleCtx();
+    const network = mockColdWikipediaResponses();
+
+    const article = await fetchAndCacheBySlugForCtx(
+      ctx as never,
+      { slug: "Ada_Lovelace" },
+      { fetchBadgeKeys: async () => ["biography", "technology"] },
+    );
+
+    expect(article.wikiPageId).toBe("974");
+    expect(article.revisionId).toBe("4200");
+    expect(network.getParseRequestCount()).toBe(1);
+    expect(network.getCommonsImageInfoCount()).toBe(1);
+
+    const seededRow = parseCacheByKey.get("974:4200");
+    expect(seededRow).toMatchObject({
+      wikiPageId: "974",
+      revisionId: "4200",
+      title: "Ada Lovelace",
+      language: "en",
+      mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
+    });
+
+    const identity = {
+      wikiPageId: article.wikiPageId,
+      revisionId: article.revisionId,
+      title: article.title,
+      language: article.language,
+    };
+    const metadata = await getArticleMetadataForCtx(ctx as never, identity);
+    const images = await getArticleImagesForCtx(ctx as never, identity);
+    const leadLinks = await getSectionLinksForCtx(ctx as never, {
+      ...identity,
+      sectionTitle: null,
+    });
+    const earlyLifeLinks = await getSectionLinksForCtx(ctx as never, {
+      ...identity,
+      sectionTitle: "Early life",
+      sectionIndex: "1",
+    });
+
+    // Zero additional upstream parses or Commons enrichment calls across
+    // metadata, gallery, lead links (RelatedArticles), and indexed section links.
+    expect(network.getParseRequestCount()).toBe(1);
+    expect(network.getCommonsImageInfoCount()).toBe(1);
+    expect(leadLinks).toEqual([
+      {
+        wikiPageId: "9316",
+        title: "England",
+        description: "Country in north-west Europe",
+      },
+    ]);
+    expect(earlyLifeLinks).toEqual([
+      {
+        wikiPageId: "17867",
+        title: "Logic",
+        description: "Study of correct reasoning",
+      },
+      {
+        wikiPageId: "18831",
+        title: "Mathematics",
+        description: "Area of knowledge",
+      },
+    ]);
+    expect(metadata.linkCounts).toEqual(
+      expect.arrayContaining([
+        { index: "__summary__", title: "__summary__", count: 1 },
+        { index: "1", title: "Early life", count: 2 },
+      ]),
+    );
+    expect(metadata.citations).toEqual([
+      {
+        id: "cite_note-1",
+        index: 1,
+        text: "Biographical note on Ada Lovelace.",
+      },
+    ]);
+    expect(metadata.sectionIndexMap).toEqual(
+      expect.arrayContaining([{ title: "Early life", index: "1" }]),
+    );
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      lightboxSrc:
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Ada_portrait.jpg/1600px-Ada_portrait.jpg",
+      lightboxWidth: 1600,
+      lightboxHeight: 2133,
+      attribution: expect.objectContaining({
+        creator: "Alfred Edward Chalon",
+        licenseName: "Public domain",
+      }),
+    });
+  });
+
+  it("seeds the parse cache during cold pageId ingestion with one action=parse call", async () => {
+    const { ctx } = createInMemoryArticleCtx();
+    const network = mockColdWikipediaResponses();
+
+    const article = await fetchAndCacheForCtx(
+      ctx as never,
+      { wikiPageId: "974" },
+      { fetchBadgeKeys: async () => ["biography"] },
+    );
+    const metadata = await getArticleMetadataForCtx(ctx as never, {
+      wikiPageId: article.wikiPageId,
+      revisionId: article.revisionId,
+      title: article.title,
+      language: article.language,
+    });
+
+    expect(network.getParseRequestCount()).toBe(1);
+    expect(metadata.images).toHaveLength(1);
+    expect(metadata.citations).toHaveLength(1);
+  });
+
+  it("preserves plaintext fallback without poisoning articleParseCache when HTML parsing fails", async () => {
+    const { ctx, parseCacheByKey } = createInMemoryArticleCtx();
+    let failParse = true;
+    const network = mockColdWikipediaResponses({
+      parseOverride: () =>
+        failParse
+          ? new Response("upstream error", { status: 500 })
+          : new Response(
+              JSON.stringify({
+                parse: {
+                  pageid: 974,
+                  revid: 4200,
+                  title: "Ada Lovelace",
+                  text: '<section data-mw-section-id="0"><p>Lead.</p></section>',
+                  tocdata: { sections: [] },
+                },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+    });
+
+    const article = await fetchAndCacheBySlugForCtx(
+      ctx as never,
+      { slug: "Ada_Lovelace" },
+      { fetchBadgeKeys: async () => [] },
+    );
+
+    expect(article.sections[0]?.narration.usedRawFallback).toBe(true);
+    expect(parseCacheByKey.size).toBe(0);
+
+    // Later metadata read still parses HTML cleanly once upstream recovers.
+    failParse = false;
+    const metadata = await getArticleMetadataForCtx(ctx as never, {
+      wikiPageId: article.wikiPageId,
+      revisionId: article.revisionId,
+      title: article.title,
+      language: article.language,
+    });
+    expect(metadata.linkCounts).toHaveLength(1);
+    expect(parseCacheByKey.size).toBe(1);
+    expect(network.getParseRequestCount()).toBe(2);
+  });
+
+  it("keeps article ingestion successful even if seeding articleParseCache fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { ctx, articlesByPageId } = createInMemoryArticleCtx({
+      failUpsertParseCache: true,
+    });
+    mockColdWikipediaResponses();
+
+    const article = await fetchAndCacheBySlugForCtx(
+      ctx as never,
+      { slug: "Ada_Lovelace" },
+      { fetchBadgeKeys: async () => [] },
+    );
+
+    expect(article.wikiPageId).toBe("974");
+    expect(articlesByPageId.has("974")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to seed article parse cache"),
+    );
+  });
+
+  it("keeps revision identity mismatches fatal during cold article ingestion", async () => {
+    const { ctx, articlesByPageId, parseCacheByKey } =
+      createInMemoryArticleCtx();
+    mockColdWikipediaResponses({
+      parseOverride: () =>
+        new Response(
+          JSON.stringify({
+            parse: {
+              pageid: 974,
+              revid: 9999,
+              title: "Ada Lovelace",
+              text: '<section data-mw-section-id="0"><p>Wrong rev.</p></section>',
+              tocdata: { sections: [] },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    });
+
+    await expect(
+      fetchAndCacheBySlugForCtx(
+        ctx as never,
+        { slug: "Ada_Lovelace" },
+        { fetchBadgeKeys: async () => [] },
+      ),
+    ).rejects.toMatchObject({ code: "identity-mismatch" });
+    expect(articlesByPageId.size).toBe(0);
+    expect(parseCacheByKey.size).toBe(0);
+  });
+
+  it("falls back to fetchSectionLinksByIndex when a legacy parse cache row lacks sectionLinkTitles", async () => {
+    const { ctx, parseCacheByKey } = createInMemoryArticleCtx();
+    const identity = {
+      wikiPageId: "974",
+      revisionId: "4200",
+      title: "Ada Lovelace",
+      language: "en",
+    };
+    parseCacheByKey.set("974:4200", {
+      ...identity,
+      linkCounts: [{ index: "1", title: "Early life", count: 1 }],
+      citations: [],
+      sectionCitations: [
+        { index: "1", title: "Early life", count: 0, citationIds: [] },
+      ],
+      sectionIndexMap: [{ title: "Early life", index: "1" }],
+      images: [],
+      mediaMetadataVersion: ARTICLE_PARSE_MEDIA_CACHE_VERSION,
+      cachedAt: Date.now(),
+    });
+    const fetchSectionLinks = vi.fn(async () => [
+      { wikiPageId: "17867", title: "Logic" },
+    ]);
+
+    await expect(
+      getSectionLinksForCtx(
+        ctx as never,
+        { ...identity, sectionTitle: "Early life", sectionIndex: "1" },
+        { fetchSectionLinks },
+      ),
+    ).resolves.toEqual([{ wikiPageId: "17867", title: "Logic" }]);
+    expect(fetchSectionLinks).toHaveBeenCalledTimes(1);
+    expect(fetchSectionLinks).toHaveBeenCalledWith(identity, "1");
   });
 });

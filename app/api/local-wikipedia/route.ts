@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import {
+  enrichParsedPageDataFromDocument,
   fetchArticleBadgeKeys,
-  fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
+  MAX_SECTION_LINK_SOURCE_TITLES,
   searchWikipedia,
+  type SectionLinkTitles,
 } from "@/convex/lib/wikipedia";
+import { extractSectionLinkTitlesFromDocument } from "@/lib/mediawiki-document-metadata";
 import type {
   LocalWikipediaRequest,
   WikipediaArticle,
@@ -13,7 +18,10 @@ import type {
   WikipediaParsedPageData,
   WikipediaRevisionIdentity,
 } from "@/lib/wikipedia-contracts";
-import { normalizeMediaWikiNumericId } from "@/lib/mediawiki-document/types";
+import {
+  normalizeMediaWikiNumericId,
+  type MediaWikiDocument,
+} from "@/lib/mediawiki-document/types";
 import {
   normalizeWikipediaSectionTitle,
   slugToWikipediaTitle,
@@ -24,6 +32,7 @@ const NO_CACHE_HEADERS = { "Cache-Control": "no-store" } as const;
 const MAX_PARSED_CACHE_ENTRIES = 32;
 const MAX_SECTION_LINK_CACHE_ENTRIES = 128;
 const parsedCache = new Map<string, Promise<WikipediaParsedPageData>>();
+const sectionLinkTitlesCache = new Map<string, SectionLinkTitles[]>();
 const sectionLinksCache = new Map<string, Promise<WikipediaLinkedArticle[]>>();
 
 export const dynamic = "force-dynamic";
@@ -105,6 +114,28 @@ const parseRequest = (value: unknown): LocalWikipediaRequest | null => {
   return null;
 };
 
+const storeParsedPagePromise = (
+  key: string,
+  loader: () => Promise<WikipediaParsedPageData>,
+): Promise<WikipediaParsedPageData> => {
+  const pending = loader().catch((error) => {
+    if (parsedCache.get(key) === pending) {
+      parsedCache.delete(key);
+      sectionLinkTitlesCache.delete(key);
+    }
+    throw error;
+  });
+  parsedCache.set(key, pending);
+  if (parsedCache.size > MAX_PARSED_CACHE_ENTRIES) {
+    const oldestKey = parsedCache.keys().next().value as string | undefined;
+    if (oldestKey && oldestKey !== key) {
+      parsedCache.delete(oldestKey);
+      sectionLinkTitlesCache.delete(oldestKey);
+    }
+  }
+  return pending;
+};
+
 const getParsedPage = (
   identity: WikipediaRevisionIdentity,
 ): Promise<WikipediaParsedPageData> => {
@@ -112,16 +143,57 @@ const getParsedPage = (
   const cached = parsedCache.get(key);
   if (cached) return cached;
 
-  const pending = fetchParsedPageData(identity).catch((error) => {
-    if (parsedCache.get(key) === pending) parsedCache.delete(key);
-    throw error;
-  });
-  parsedCache.set(key, pending);
-  if (parsedCache.size > MAX_PARSED_CACHE_ENTRIES) {
-    const oldestKey = parsedCache.keys().next().value as string | undefined;
-    if (oldestKey && oldestKey !== key) parsedCache.delete(oldestKey);
+  return storeParsedPagePromise(key, () => fetchParsedPageData(identity));
+};
+
+const seedParsedPageFromDocument = async (
+  source: Pick<
+    WikipediaArticle,
+    "wikiPageId" | "revisionId" | "title" | "language"
+  >,
+  parsedDocument: MediaWikiDocument | undefined,
+): Promise<void> => {
+  if (
+    !parsedDocument ||
+    parsedDocument.sourceFormat === "plaintext" ||
+    parsedDocument.fallbackReason
+  ) {
+    return;
   }
-  return pending;
+
+  const identity = normalizeIdentity(source);
+  const documentIdentity = normalizeIdentity(parsedDocument.identity);
+  if (
+    !identity ||
+    !documentIdentity ||
+    wikipediaRevisionKey(identity) !== wikipediaRevisionKey(documentIdentity)
+  ) {
+    return;
+  }
+
+  const key = wikipediaRevisionKey(identity);
+  if (!sectionLinkTitlesCache.has(key)) {
+    sectionLinkTitlesCache.set(
+      key,
+      extractSectionLinkTitlesFromDocument(
+        parsedDocument,
+        MAX_SECTION_LINK_SOURCE_TITLES,
+      ),
+    );
+  }
+  if (parsedCache.has(key)) return;
+
+  const pending = storeParsedPagePromise(key, () =>
+    enrichParsedPageDataFromDocument(parsedDocument),
+  );
+  try {
+    await pending;
+  } catch (error: unknown) {
+    console.warn(
+      "[/api/local-wikipedia] Failed to seed parsed page cache from article document",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 };
 
 const findSectionIndex = (
@@ -141,16 +213,24 @@ const getSectionLinks = (
   identity: WikipediaRevisionIdentity,
   sectionIndex: string,
 ): Promise<WikipediaLinkedArticle[]> => {
-  const key = JSON.stringify([wikipediaRevisionKey(identity), sectionIndex]);
+  const revisionKey = wikipediaRevisionKey(identity);
+  const key = JSON.stringify([revisionKey, sectionIndex]);
   const cached = sectionLinksCache.get(key);
   if (cached) return cached;
 
-  const pending = fetchSectionLinksByIndex(identity, sectionIndex).catch(
-    (error) => {
-      if (sectionLinksCache.get(key) === pending) sectionLinksCache.delete(key);
-      throw error;
-    },
-  );
+  const seededTitles = sectionLinkTitlesCache.get(revisionKey);
+  const loader = seededTitles
+    ? () => {
+        const targetKey = sectionIndex === "0" ? "__summary__" : sectionIndex;
+        const entry = seededTitles.find((item) => item.index === targetKey);
+        return fetchSectionLinkDescriptions(entry?.titles ?? []);
+      }
+    : () => fetchSectionLinksByIndex(identity, sectionIndex);
+
+  const pending = loader().catch((error) => {
+    if (sectionLinksCache.get(key) === pending) sectionLinksCache.delete(key);
+    throw error;
+  });
   sectionLinksCache.set(key, pending);
   if (sectionLinksCache.size > MAX_SECTION_LINK_CACHE_ENTRIES) {
     const oldestKey = sectionLinksCache.keys().next().value as
@@ -191,15 +271,20 @@ export const POST = async (request: Request) => {
     }
 
     if (input.operation === "article") {
-      const source = await fetchArticleByTitle(
-        slugToWikipediaTitle(input.slug),
-      );
-      let badgeKeys: WikipediaArticle["badgeKeys"];
-      try {
-        badgeKeys = await fetchArticleBadgeKeys(source.wikiPageId);
-      } catch {
-        badgeKeys = undefined;
-      }
+      const { article: source, parsedDocument } =
+        await fetchArticleWithDocumentByTitle(
+          slugToWikipediaTitle(input.slug),
+        );
+      const [badgeKeys] = await Promise.all([
+        fetchArticleBadgeKeys(source.wikiPageId).catch((error: unknown) => {
+          console.warn(
+            "[/api/local-wikipedia] Failed to fetch badge keys",
+            error instanceof Error ? error.message : String(error),
+          );
+          return undefined;
+        }),
+        seedParsedPageFromDocument(source, parsedDocument),
+      ]);
       const article: WikipediaArticle = {
         wikiPageId: source.wikiPageId,
         revisionId: source.revisionId,

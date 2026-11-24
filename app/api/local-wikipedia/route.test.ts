@@ -6,24 +6,31 @@ import type {
 
 const {
   searchWikipedia,
-  fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchArticleBadgeKeys,
+  enrichParsedPageDataFromDocument,
   fetchParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
 } = vi.hoisted(() => ({
   searchWikipedia: vi.fn(),
-  fetchArticleByTitle: vi.fn(),
+  fetchArticleWithDocumentByTitle: vi.fn(),
   fetchArticleBadgeKeys: vi.fn(),
+  enrichParsedPageDataFromDocument: vi.fn(),
   fetchParsedPageData: vi.fn(),
+  fetchSectionLinkDescriptions: vi.fn(),
   fetchSectionLinksByIndex: vi.fn(),
 }));
 
 vi.mock("@/convex/lib/wikipedia", () => ({
   searchWikipedia,
-  fetchArticleByTitle,
+  fetchArticleWithDocumentByTitle,
   fetchArticleBadgeKeys,
+  enrichParsedPageDataFromDocument,
   fetchParsedPageData,
+  fetchSectionLinkDescriptions,
   fetchSectionLinksByIndex,
+  MAX_SECTION_LINK_SOURCE_TITLES: 100,
 }));
 
 let POST: typeof import("./route").POST;
@@ -229,12 +236,14 @@ describe("POST /api/local-wikipedia", () => {
         url: "https://en.wikipedia.org/wiki/Walter_Savage_Landor",
       },
     ]);
-    fetchArticleByTitle.mockResolvedValue({
-      ...identity("4401", "701"),
-      narrationVersion: 4,
-      summary: "English writer.",
-      sections: [],
-      contentText: "server-only legacy source",
+    fetchArticleWithDocumentByTitle.mockResolvedValue({
+      article: {
+        ...identity("4401", "701"),
+        narrationVersion: 4,
+        summary: "English writer.",
+        sections: [],
+        contentText: "server-only legacy source",
+      },
     });
     fetchArticleBadgeKeys.mockResolvedValue(["biography"]);
 
@@ -246,7 +255,9 @@ describe("POST /api/local-wikipedia", () => {
 
     expect(searchResponse.status).toBe(200);
     expect(searchWikipedia).toHaveBeenCalledWith("Landor");
-    expect(fetchArticleByTitle).toHaveBeenCalledWith("Walter Savage Landor");
+    expect(fetchArticleWithDocumentByTitle).toHaveBeenCalledWith(
+      "Walter Savage Landor",
+    );
     const articlePayload = await articleResponse.json();
     expect(articlePayload.data).toMatchObject({
       wikiPageId: "4401",
@@ -254,5 +265,147 @@ describe("POST /api/local-wikipedia", () => {
       badgeKeys: ["biography"],
     });
     expect(articlePayload.data).not.toHaveProperty("contentText");
+  });
+
+  it("seeds the local metadata cache from the article ingestion document without re-parsing", async () => {
+    const articleIdentity = identity("4501", "801");
+    const seededMetadata: WikipediaParsedPageData = {
+      linkCounts: [{ index: "__summary__", title: "__summary__", count: 3 }],
+      citations: [{ id: "cite_note-1", index: 1, text: "Citation 1." }],
+      sectionCitations: [
+        {
+          index: "__summary__",
+          title: "__summary__",
+          count: 1,
+          citationIds: ["cite_note-1"],
+        },
+      ],
+      sectionIndexMap: [],
+      images: [],
+    };
+    const parsedDocument = {
+      schemaVersion: 1,
+      identity: articleIdentity,
+      sourceFormat: "parsoid",
+      sourceHash: "hash-1",
+      documentHash: "doc-1",
+      sections: [
+        {
+          key: "__summary__",
+          title: "__summary__",
+          level: 1,
+          role: "body",
+          blocks: [],
+          links: [{ targetTitle: "England", label: "England" }],
+          citationIds: [],
+        },
+      ],
+      citations: [],
+      issues: [],
+    };
+    fetchArticleWithDocumentByTitle.mockResolvedValue({
+      article: {
+        ...articleIdentity,
+        narrationVersion: 4,
+        summary: "Lead summary.",
+        sections: [],
+        contentText: "Lead summary.",
+      },
+      parsedDocument,
+    });
+    fetchArticleBadgeKeys.mockResolvedValue(["history"]);
+    enrichParsedPageDataFromDocument.mockResolvedValue(seededMetadata);
+    fetchSectionLinkDescriptions.mockResolvedValue([
+      { wikiPageId: "9316", title: "England" },
+    ]);
+
+    const articleResponse = await post({
+      operation: "article",
+      slug: "Article_4501",
+    });
+    const metadataResponse = await post({
+      operation: "metadata",
+      identity: articleIdentity,
+    });
+    const sectionLinksResponse = await post({
+      operation: "section-links",
+      identity: articleIdentity,
+      sectionTitle: null,
+    });
+
+    expect(articleResponse.status).toBe(200);
+    expect(metadataResponse.status).toBe(200);
+    expect(sectionLinksResponse.status).toBe(200);
+    await expect(metadataResponse.json()).resolves.toEqual({
+      data: seededMetadata,
+    });
+    await expect(sectionLinksResponse.json()).resolves.toEqual({
+      data: [{ wikiPageId: "9316", title: "England" }],
+    });
+    expect(enrichParsedPageDataFromDocument).toHaveBeenCalledTimes(1);
+    expect(enrichParsedPageDataFromDocument).toHaveBeenCalledWith(
+      parsedDocument,
+    );
+    expect(fetchParsedPageData).not.toHaveBeenCalled();
+    expect(fetchSectionLinkDescriptions).toHaveBeenCalledWith(["England"]);
+    expect(fetchSectionLinksByIndex).not.toHaveBeenCalled();
+  });
+
+  it("evicts seeded section-link titles when the parsed-page load rejects", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const articleIdentity = identity("4502", "802");
+    const parsedDocument = {
+      schemaVersion: 1,
+      identity: articleIdentity,
+      sourceFormat: "parsoid",
+      sourceHash: "hash-2",
+      documentHash: "doc-2",
+      sections: [
+        {
+          key: "__summary__",
+          title: "__summary__",
+          level: 1,
+          role: "body",
+          blocks: [],
+          links: [{ targetTitle: "England", label: "England" }],
+          citationIds: [],
+        },
+      ],
+      citations: [],
+      issues: [],
+    };
+    fetchArticleWithDocumentByTitle.mockResolvedValue({
+      article: {
+        ...articleIdentity,
+        narrationVersion: 4,
+        summary: "Lead summary.",
+        sections: [],
+        contentText: "Lead summary.",
+      },
+      parsedDocument,
+    });
+    fetchArticleBadgeKeys.mockResolvedValue([]);
+    enrichParsedPageDataFromDocument.mockRejectedValueOnce(
+      new Error("temporary media error"),
+    );
+    fetchSectionLinksByIndex.mockResolvedValue([
+      { wikiPageId: "9316", title: "England" },
+    ]);
+
+    const articleResponse = await post({
+      operation: "article",
+      slug: "Article_4502",
+    });
+    const sectionLinksResponse = await post({
+      operation: "section-links",
+      identity: articleIdentity,
+      sectionTitle: null,
+    });
+
+    expect(articleResponse.status).toBe(200);
+    expect(sectionLinksResponse.status).toBe(200);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSectionLinkDescriptions).not.toHaveBeenCalled();
+    expect(fetchSectionLinksByIndex).toHaveBeenCalledWith(articleIdentity, "0");
   });
 });
